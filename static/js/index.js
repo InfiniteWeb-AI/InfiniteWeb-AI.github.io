@@ -2,6 +2,8 @@
 
 document.addEventListener('DOMContentLoaded', () => {
   initNavbar();
+  initScrollspy();
+  initScrollReveal();
   initGallery();
   initModal();
   initLightbox();
@@ -17,7 +19,6 @@ function initNavbar() {
       burger.classList.toggle('is-active');
       menu.classList.toggle('is-active');
     });
-    // Close menu on link click (mobile)
     menu.querySelectorAll('.navbar-item').forEach(item => {
       item.addEventListener('click', () => {
         burger.classList.remove('is-active');
@@ -25,6 +26,43 @@ function initNavbar() {
       });
     });
   }
+}
+
+/* ---- Scrollspy for navbar active state ---- */
+function initScrollspy() {
+  const sections = [...document.querySelectorAll('section[id]')];
+  const navLinks = [...document.querySelectorAll('.navbar a.navbar-item[href^="#"]')];
+  if (!sections.length || !navLinks.length) return;
+
+  const setActive = (id) => {
+    navLinks.forEach(a => a.classList.toggle('is-nav-active', a.getAttribute('href') === `#${id}`));
+  };
+
+  const io = new IntersectionObserver((entries) => {
+    const best = entries
+      .filter(e => e.isIntersecting)
+      .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+    if (best) setActive(best.target.id);
+  }, { rootMargin: '-20% 0px -65% 0px', threshold: [0.1, 0.2, 0.35] });
+
+  sections.forEach(s => io.observe(s));
+}
+
+/* ---- Scroll Reveal ---- */
+function initScrollReveal() {
+  const els = document.querySelectorAll('.reveal');
+  if (!els.length) return;
+
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('is-in');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12 });
+
+  els.forEach(el => io.observe(el));
 }
 
 /* ---- Gallery Search ---- */
@@ -65,7 +103,6 @@ async function initGallery() {
     chip.addEventListener('click', () => {
       const query = chip.dataset.query || '';
       if (input) input.value = query;
-      // Toggle active state
       chips.forEach(c => c.classList.remove('is-active'));
       chip.classList.add('is-active');
       doSearch(query);
@@ -124,9 +161,10 @@ function renderResults(items) {
   grid.innerHTML = items.map(item => `
     <div class="column is-3-desktop is-4-tablet is-6-mobile">
       <div class="website-card" data-id="${item.id}">
-        <img class="website-card-thumb" src="${item.thumbnail}"
-             alt="${item.title}" loading="lazy"
-             onerror="this.src='static/images/logo.jpg'; this.style.objectFit='contain'; this.style.padding='2rem'; this.style.background='#0f2a4a';">
+        <div class="website-card-thumb-wrap">
+          <img class="website-card-thumb" src="${item.thumbnail}"
+               alt="${item.title}" loading="lazy">
+        </div>
         <div class="website-card-body">
           <div class="website-card-title">${item.title}</div>
           <div class="website-card-desc">${item.description}</div>
@@ -142,8 +180,21 @@ function renderResults(items) {
     </div>
   `).join('');
 
-  // Attach click events
-  grid.querySelectorAll('.website-card').forEach(card => {
+  // Apply fallback gradients for broken/missing thumbnails
+  grid.querySelectorAll('.website-card').forEach((card, i) => {
+    const img = card.querySelector('.website-card-thumb');
+    const applyFallback = () => {
+      card.classList.add('is-fallback');
+      const px = 18 + (i * 11) % 70;
+      const py = 14 + (i * 17) % 70;
+      card.style.setProperty('--px', px + '%');
+      card.style.setProperty('--py', py + '%');
+    };
+
+    if (!img || !img.getAttribute('src')) { applyFallback(); return; }
+    img.addEventListener('error', applyFallback, { once: true });
+
+    // Attach click events
     card.addEventListener('click', () => {
       const id = card.dataset.id;
       const item = galleryData.find(i => i.id === id);
@@ -172,14 +223,12 @@ function initModal() {
         try {
           iframe.contentWindow.postMessage({ type: 'RESET' }, '*');
         } catch (e) {
-          // Fallback: reload
           iframe.src = iframe.src;
         }
       }
     });
   }
 
-  // Close on Escape
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closePreview();
   });
