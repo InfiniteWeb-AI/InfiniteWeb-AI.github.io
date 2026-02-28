@@ -2,7 +2,6 @@
 
 document.addEventListener('DOMContentLoaded', () => {
   initNavbar();
-  initScrollspy();
   initScrollReveal();
   initGallery();
   initModal();
@@ -26,26 +25,6 @@ function initNavbar() {
       });
     });
   }
-}
-
-/* ---- Scrollspy for navbar active state ---- */
-function initScrollspy() {
-  const sections = [...document.querySelectorAll('section[id]')];
-  const navLinks = [...document.querySelectorAll('.navbar a.navbar-item[href^="#"]')];
-  if (!sections.length || !navLinks.length) return;
-
-  const setActive = (id) => {
-    navLinks.forEach(a => a.classList.toggle('is-nav-active', a.getAttribute('href') === `#${id}`));
-  };
-
-  const io = new IntersectionObserver((entries) => {
-    const best = entries
-      .filter(e => e.isIntersecting)
-      .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-    if (best) setActive(best.target.id);
-  }, { rootMargin: '-20% 0px -65% 0px', threshold: [0.1, 0.2, 0.35] });
-
-  sections.forEach(s => io.observe(s));
 }
 
 /* ---- Scroll Reveal ---- */
