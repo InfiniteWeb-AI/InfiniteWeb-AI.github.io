@@ -3,8 +3,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   initNavbar();
   initScrollReveal();
-  initGallery();
-  initModal();
+  initFeaturedCards();
   initLightbox();
   initBibtexCopy();
 });
@@ -44,204 +43,37 @@ function initScrollReveal() {
   els.forEach(el => io.observe(el));
 }
 
-/* ---- Gallery Search ---- */
-let galleryData = [];
+/* ---- Featured Cards (index.html explore teaser) ---- */
+async function initFeaturedCards() {
+  const grid = document.getElementById('featuredGrid');
+  if (!grid) return;
 
-async function initGallery() {
   try {
     const resp = await fetch('static/data/gallery.json');
     const data = await resp.json();
-    galleryData = data.items || [];
-  } catch (e) {
-    console.warn('Could not load gallery data:', e);
-    galleryData = [];
-  }
+    const items = (data.items || []).slice(0, 4);
 
-  renderResults(galleryData);
-
-  const input = document.getElementById('searchInput');
-  const btn = document.getElementById('searchBtn');
-  const chips = document.querySelectorAll('.chip');
-
-  if (input) {
-    input.addEventListener('input', () => {
-      doSearch(input.value);
-    });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') doSearch(input.value);
-    });
-  }
-
-  if (btn) {
-    btn.addEventListener('click', () => {
-      doSearch(input ? input.value : '');
-    });
-  }
-
-  chips.forEach(chip => {
-    chip.addEventListener('click', () => {
-      const query = chip.dataset.query || '';
-      if (input) input.value = query;
-      chips.forEach(c => c.classList.remove('is-active'));
-      chip.classList.add('is-active');
-      doSearch(query);
-    });
-  });
-
-  // Support URL params: ?q=... and ?demo=...
-  const params = new URLSearchParams(window.location.search);
-  const q = params.get('q');
-  if (q && input) {
-    input.value = q;
-    doSearch(q);
-  }
-  const demoId = params.get('demo');
-  if (demoId) {
-    const item = galleryData.find(i => i.id === demoId);
-    if (item) {
-      setTimeout(() => openPreview(item), 500);
-    }
-  }
-}
-
-function doSearch(query) {
-  const q = query.trim().toLowerCase();
-  if (!q) {
-    renderResults(galleryData);
-    return;
-  }
-
-  const tokens = q.split(/\s+/);
-  const filtered = galleryData.filter(item => {
-    const searchable = [
-      item.title,
-      item.description,
-      ...(item.tags || [])
-    ].join(' ').toLowerCase();
-    return tokens.every(t => searchable.includes(t));
-  });
-
-  renderResults(filtered);
-}
-
-function renderResults(items) {
-  const grid = document.getElementById('resultsGrid');
-  const empty = document.getElementById('emptyState');
-  if (!grid) return;
-
-  if (items.length === 0) {
-    grid.innerHTML = '';
-    if (empty) empty.style.display = 'block';
-    return;
-  }
-
-  if (empty) empty.style.display = 'none';
-
-  grid.innerHTML = items.map(item => `
-    <div class="column is-3-desktop is-4-tablet is-6-mobile">
-      <div class="website-card" data-id="${item.id}">
-        <div class="website-card-thumb-wrap">
-          <img class="website-card-thumb" src="${item.thumbnail}"
-               alt="${item.title}" loading="lazy">
-        </div>
-        <div class="website-card-body">
-          <div class="website-card-title">${item.title}</div>
-          <div class="website-card-desc">${item.description}</div>
-          <div class="website-card-tags">
-            ${(item.tags || []).map(t => `<span class="tag">${t}</span>`).join('')}
-          </div>
-          <div class="website-card-meta">
-            <span><i class="fas fa-tasks"></i> ${item.taskCount || '?'} tasks</span>
-            <span><i class="fas fa-file"></i> ${item.pageCount || '?'} pages</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  `).join('');
-
-  // Apply fallback gradients for broken/missing thumbnails
-  grid.querySelectorAll('.website-card').forEach((card, i) => {
-    const img = card.querySelector('.website-card-thumb');
-    const applyFallback = () => {
-      card.classList.add('is-fallback');
+    grid.innerHTML = items.map((item, i) => {
       const px = 18 + (i * 11) % 70;
       const py = 14 + (i * 17) % 70;
-      card.style.setProperty('--px', px + '%');
-      card.style.setProperty('--py', py + '%');
-    };
-
-    if (!img || !img.getAttribute('src')) { applyFallback(); return; }
-    img.addEventListener('error', applyFallback, { once: true });
-
-    // Attach click events
-    card.addEventListener('click', () => {
-      const id = card.dataset.id;
-      const item = galleryData.find(i => i.id === id);
-      if (item) openPreview(item);
-    });
-  });
-}
-
-/* ---- Preview Modal ---- */
-function initModal() {
-  const modal = document.getElementById('previewModal');
-  if (!modal) return;
-
-  const bg = modal.querySelector('.modal-background');
-  const closeBtn = modal.querySelector('.modal-close');
-  const resetBtn = document.getElementById('modalResetBtn');
-
-  [bg, closeBtn].forEach(el => {
-    if (el) el.addEventListener('click', () => closePreview());
-  });
-
-  if (resetBtn) {
-    resetBtn.addEventListener('click', () => {
-      const iframe = document.getElementById('previewIframe');
-      if (iframe && iframe.contentWindow) {
-        try {
-          iframe.contentWindow.postMessage({ type: 'RESET' }, '*');
-        } catch (e) {
-          iframe.src = iframe.src;
-        }
-      }
-    });
+      return `
+        <div class="column is-3-desktop is-6-tablet is-6-mobile">
+          <a href="search.html?demo=${item.id}" class="website-card is-fallback" style="--px:${px}%;--py:${py}%;">
+            <div class="website-card-thumb-wrap"></div>
+            <div class="website-card-body">
+              <div class="website-card-title">${item.title}</div>
+              <div class="website-card-desc">${item.description}</div>
+              <div class="website-card-tags">
+                ${(item.tags || []).slice(0, 3).map(t => `<span class="tag">${t}</span>`).join('')}
+              </div>
+            </div>
+          </a>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    console.warn('Could not load featured cards:', e);
   }
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closePreview();
-  });
-}
-
-function openPreview(item) {
-  const modal = document.getElementById('previewModal');
-  const iframe = document.getElementById('previewIframe');
-  const title = document.getElementById('modalTitle');
-  const desc = document.getElementById('modalDesc');
-  const tags = document.getElementById('modalTags');
-  const openBtn = document.getElementById('modalOpenBtn');
-
-  if (title) title.textContent = item.title;
-  if (desc) desc.textContent = item.description;
-  if (tags) {
-    tags.innerHTML = (item.tags || []).map(t =>
-      `<span class="tag is-primary is-light">${t}</span>`
-    ).join('');
-  }
-  if (iframe) iframe.src = item.demoUrl;
-  if (openBtn) openBtn.href = item.demoUrl;
-
-  if (modal) modal.classList.add('is-active');
-  document.documentElement.classList.add('is-clipped');
-}
-
-function closePreview() {
-  const modal = document.getElementById('previewModal');
-  const iframe = document.getElementById('previewIframe');
-
-  if (modal) modal.classList.remove('is-active');
-  document.documentElement.classList.remove('is-clipped');
-  if (iframe) iframe.src = 'about:blank';
 }
 
 /* ---- Image Lightbox ---- */
