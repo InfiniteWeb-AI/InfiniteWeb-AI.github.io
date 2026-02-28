@@ -86,7 +86,17 @@ function initLightbox() {
       clone.src = img.src;
       clone.alt = img.alt;
       overlay.appendChild(clone);
-      overlay.addEventListener('click', () => overlay.remove());
+      overlay.addEventListener('click', () => {
+        overlay.remove();
+        document.removeEventListener('keydown', onEscape);
+      });
+      const onEscape = (e) => {
+        if (e.key === 'Escape') {
+          overlay.remove();
+          document.removeEventListener('keydown', onEscape);
+        }
+      };
+      document.addEventListener('keydown', onEscape);
       document.body.appendChild(overlay);
     });
   });
@@ -110,6 +120,8 @@ function initBibtexCopy() {
         btn.classList.remove('is-success');
         btn.classList.add('is-primary');
       }, 2000);
+    }).catch(() => {
+      /* clipboard API unavailable or denied – silently ignore */
     });
   });
 }
