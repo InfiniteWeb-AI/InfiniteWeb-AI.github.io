@@ -1,0 +1,109 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Cheapest 3-Day Pass with Workshops Under $700 Evaluator",
+      "description": "Checks that the user registered with the cheapest available 3-day ticket that includes workshop credits and costs ≤ $700.",
+      "localStorage_variables": [
+        "ticket_types",
+        "cart",
+        "cart_items",
+        "registration_orders",
+        "conferences",
+        "idCounter"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst tickets = JSON.parse(localStorage.getItem('ticket_types') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst carts = JSON.parse(localStorage.getItem('cart') || '[]');\nconst orders = JSON.parse(localStorage.getItem('registration_orders') || '[]');\nconst conferences = JSON.parse(localStorage.getItem('conferences') || '[]');\n\n// Determine current conference (by current_year or latest start_date as fallback)\nconst nowYear = (new Date()).getFullYear();\nlet currentConf = conferences.find(c => c.current_year === nowYear);\nif (!currentConf && conferences.length) {\n  conferences.sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());\n  currentConf = conferences[0];\n}\n\n// Eligible 3-day tickets with workshop credits under or equal to $700\nconst eligibleTickets = tickets.filter(t => {\n  if (!t) return false;\n  if (currentConf && t.conference_id && t.conference_id !== currentConf.id) return false;\n  if (t.duration_type !== 'three_day') return false;\n  if (!t.includes_workshop_credits) return false;\n  const price = typeof t.total_price === 'number' ? t.total_price : 0;\n  if (price > 700) return false;\n  if (t.is_active === false) return false;\n  return true;\n});\n\neligibleTickets.sort((a, b) => (a.total_price || 0) - (b.total_price || 0));\nconst cheapest = eligibleTickets[0];\n\n// Check if cheapest qualifying ticket is in any cart_items\nlet cartHasCheapest = false;\nif (cheapest) {\n  cartHasCheapest = cartItems.some(ci => ci.ticket_type_id === cheapest.id && (ci.quantity || 0) > 0);\n}\n\n// CP1 (0.5): User added the cheapest qualifying 3-day ticket with workshop credits (≤$700) to the cart\ncheckpoints.push({ passed: !!cheapest && cartHasCheapest, weight: 0.5 });\n\n// Check if any registration order references a cart that contains the cheapest qualifying ticket\nlet orderWithCheapest = false;\nif (cheapest && orders && orders.length && cartItems && cartItems.length) {\n  orderWithCheapest = orders.some(order => {\n    const cartId = order && order.cart_id;\n    if (!cartId) return false;\n    return cartItems.some(ci => ci.cart_id === cartId && ci.ticket_type_id === cheapest.id && (ci.quantity || 0) > 0);\n  });\n}\n\n// CP2 (0.5): User completed registration using a cart that includes the cheapest qualifying ticket\ncheckpoints.push({ passed: !!cheapest && orderWithCheapest, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Four-Session Day 1–2 Agenda with Keynote and AI Track Evaluator",
+      "description": "Checks that the user built an agenda with ≥4 qualifying sessions across Day 1 and Day 2, including at least one keynote and one AI & ML track session, all between 09:00–17:00 with non-duplicate start times.",
+      "localStorage_variables": [
+        "live_sessions",
+        "conferences",
+        "meetings",
+        "idCounter"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst sessions = JSON.parse(localStorage.getItem('live_sessions') || '[]');\nconst mySessions = sessions.filter(s => s && s.added_to_my_schedule);\n\nconst parseMinutes = (dateTimeStr) => {\n  if (!dateTimeStr) return null;\n  const d = new Date(dateTimeStr);\n  if (isNaN(d.getTime())) return null;\n  return d.getHours() * 60 + d.getMinutes();\n};\n\n// Qualifying sessions: Day 1 or Day 2, between 09:00 and 17:00\nconst qualifying = mySessions.filter(s => {\n  if (!s) return false;\n  if (s.day_id !== 'day_1_june_12' && s.day_id !== 'day_2_june_13') return false;\n  const mins = parseMinutes(s.start_datetime);\n  if (mins === null) return false;\n  return mins >= 9 * 60 && mins <= 17 * 60;\n});\n\n// CP1 (0.4): At least 4 qualifying sessions in the agenda\ncheckpoints.push({ passed: qualifying.length >= 4, weight: 0.4 });\n\n// Check for keynote and AI & ML track among qualifying sessions\nconst hasKeynote = qualifying.some(s => s.session_type === 'keynote' || s.is_keynote);\nconst hasAiTrack = qualifying.some(s => s.track === 'ai_and_machine_learning');\n\n// CP2 (0.3): Among qualifying sessions, at least one keynote AND at least one AI & ML track session\ncheckpoints.push({ passed: qualifying.length > 0 && hasKeynote && hasAiTrack, weight: 0.3 });\n\n// Check for non-overlapping start times (no duplicate start_datetime among qualifying)\nlet uniqueStartTimes = false;\nif (qualifying.length > 0) {\n  const starts = qualifying.map(s => s.start_datetime).filter(Boolean);\n  const unique = new Set(starts);\n  uniqueStartTimes = unique.size === starts.length;\n}\n\n// CP3 (0.3): At least 4 qualifying sessions and their start times are all distinct\ncheckpoints.push({ passed: qualifying.length >= 4 && uniqueStartTimes, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Day 1 Evening Networking with Free Refreshments Evaluator",
+      "description": "Checks that the user added all Day 1 evening networking events starting at or after 17:00 that include free refreshments to their schedule.",
+      "localStorage_variables": [
+        "live_sessions",
+        "conferences",
+        "idCounter"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst sessions = JSON.parse(localStorage.getItem('live_sessions') || '[]');\n\nconst parseMinutes = (dateTimeStr) => {\n  if (!dateTimeStr) return null;\n  const d = new Date(dateTimeStr);\n  if (isNaN(d.getTime())) return null;\n  return d.getHours() * 60 + d.getMinutes();\n};\n\n// All qualifying Day 1 evening networking events with free refreshments\nconst allQualifying = sessions.filter(s => {\n  if (!s) return false;\n  if (s.day_id !== 'day_1_june_12') return false;\n  const isNetworkingType = s.session_type === 'networking' || s.session_type === 'social_event' || !!s.is_networking;\n  if (!isNetworkingType) return false;\n  const hasRefresh = !!s.has_free_refreshments || (Array.isArray(s.perks) && s.perks.indexOf('free_refreshments') !== -1);\n  if (!hasRefresh) return false;\n  const mins = parseMinutes(s.start_datetime);\n  if (mins === null) return false;\n  return mins >= 17 * 60;\n});\n\nconst scheduledQualifying = allQualifying.filter(s => s.added_to_my_schedule);\n\n// CP1 (0.3): User added at least two qualifying evening networking events with free refreshments on Day 1\ncheckpoints.push({ passed: scheduledQualifying.length >= 2, weight: 0.3 });\n\n// CP2 (0.7): User added all qualifying evening networking events with free refreshments on Day 1\ncheckpoints.push({ passed: allQualifying.length > 0 && scheduledQualifying.length === allQualifying.length, weight: 0.7 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Highest-Difficulty Day 2 Design Thinking Workshop Evaluator",
+      "description": "Checks that, among eligible Day 2 design thinking workshops (≤3 hours, ≤$300), the user added the one with the highest difficulty level to their schedule.",
+      "localStorage_variables": [
+        "live_sessions",
+        "conferences",
+        "idCounter"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst sessions = JSON.parse(localStorage.getItem('live_sessions') || '[]');\n\nconst difficultyRank = (level) => {\n  const order = { expert: 4, advanced: 3, intermediate: 2, beginner: 1, all_levels: 0, not_applicable: 0 };\n  return order[level] || 0;\n};\n\n// Eligible Day 2 design thinking workshops (≤180 minutes, ≤$300)\nconst eligible = sessions.filter(s => {\n  if (!s) return false;\n  if (s.day_id !== 'day_2_june_13') return false;\n  const isWorkshop = s.session_type === 'workshop' || !!s.is_workshop;\n  if (!isWorkshop) return false;\n  const title = (s.title || '').toLowerCase();\n  const desc = (s.description || '').toLowerCase();\n  const isDesignThinking = title.includes('design thinking') || desc.includes('design thinking');\n  if (!isDesignThinking) return false;\n  if (typeof s.duration_minutes === 'number' && s.duration_minutes > 180) return false;\n  if (typeof s.price === 'number' && s.price > 300) return false;\n  return true;\n});\n\nconst scheduledEligible = eligible.filter(s => s.added_to_my_schedule);\n\n// CP1 (0.4): User added at least one eligible Day 2 design thinking workshop (≤3h, ≤$300) to their schedule\ncheckpoints.push({ passed: scheduledEligible.length >= 1, weight: 0.4 });\n\n// Identify highest-difficulty eligible workshop\nlet highestScheduled = false;\nif (eligible.length > 0) {\n  eligible.sort((a, b) => difficultyRank(b.difficulty_level) - difficultyRank(a.difficulty_level));\n  const top = eligible[0];\n  highestScheduled = !!top && !!top.added_to_my_schedule;\n}\n\n// CP2 (0.6): User added the highest-difficulty eligible design thinking workshop\ncheckpoints.push({ passed: eligible.length > 0 && highestScheduled, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Gold AI Exhibitors Bookmarked with Day 2 Afternoon Demos Evaluator",
+      "description": "Checks that the user bookmarked at least two Gold-level AI tools exhibitors and booked 15-minute demos with each on Day 2 between 14:00 and 16:00.",
+      "localStorage_variables": [
+        "exhibitors",
+        "meetings",
+        "conferences",
+        "idCounter"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst exhibitors = JSON.parse(localStorage.getItem('exhibitors') || '[]');\nconst meetings = JSON.parse(localStorage.getItem('meetings') || '[]');\n\nconst parseMinutes = (dateTimeStr) => {\n  if (!dateTimeStr) return null;\n  const d = new Date(dateTimeStr);\n  if (isNaN(d.getTime())) return null;\n  return d.getHours() * 60 + d.getMinutes();\n};\n\n// Gold-level exhibitors in AI tools category\nconst goldAi = exhibitors.filter(e => {\n  if (!e) return false;\n  if (e.sponsor_level !== 'gold') return false;\n  if (!Array.isArray(e.categories)) return false;\n  return e.categories.indexOf('ai_tools_and_platforms') !== -1;\n});\n\n// Bookmarked subset\nconst bookmarkedGoldAi = goldAi.filter(e => e.is_bookmarked);\n\n// CP1 (0.5): User bookmarked at least two Gold-level exhibitors in AI tools category\ncheckpoints.push({ passed: bookmarkedGoldAi.length >= 2, weight: 0.5 });\n\n// Qualifying demo meetings: exhibitor_demo, 15 minutes, Day 2, 14:00–16:00, with bookmarked Gold AI exhibitors\nconst bookmarkedIds = new Set(bookmarkedGoldAi.map(e => e.id));\nconst qualifyingMeetingExIds = new Set();\n\nmeetings.forEach(m => {\n  if (!m) return;\n  if (m.meeting_type !== 'exhibitor_demo') return;\n  if (m.day_id !== 'day_2_june_13') return;\n  if (m.duration_minutes !== 15) return;\n  if (!m.exhibitor_id || !bookmarkedIds.has(m.exhibitor_id)) return;\n  const mins = parseMinutes(m.start_datetime);\n  if (mins === null) return;\n  if (mins >= 14 * 60 && mins <= 16 * 60) {\n    qualifyingMeetingExIds.add(m.exhibitor_id);\n  }\n});\n\n// CP2 (0.5): User booked qualifying demos with at least two distinct bookmarked Gold AI tools exhibitors\ncheckpoints.push({ passed: qualifyingMeetingExIds.size >= 2, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Nearby Breakfast Hotel Under $220 Saved Evaluator",
+      "description": "Checks that the user saved a hotel within 1 km of the venue costing ≤$220/night with breakfast included, preferring the nearest qualifying option.",
+      "localStorage_variables": [
+        "hotels",
+        "conferences",
+        "idCounter"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst hotels = JSON.parse(localStorage.getItem('hotels') || '[]');\n\n// Eligible hotels: ≤1 km, ≤$220, breakfast included\nconst eligible = hotels.filter(h => {\n  if (!h) return false;\n  if (typeof h.distance_km === 'number' && h.distance_km > 1.0) return false;\n  if (typeof h.nightly_rate === 'number' && h.nightly_rate > 220) return false;\n  if (!Array.isArray(h.amenities)) return false;\n  return h.amenities.indexOf('breakfast_included') !== -1;\n});\n\neligible.sort((a, b) => (a.distance_km || 0) - (b.distance_km || 0));\nconst nearest = eligible[0];\n\nconst savedEligible = eligible.filter(h => h.is_saved);\n\n// CP1 (0.4): User saved at least one qualifying hotel (≤1 km, ≤$220, breakfast included)\ncheckpoints.push({ passed: savedEligible.length >= 1, weight: 0.4 });\n\n// CP2 (0.6): User saved the nearest qualifying hotel to the venue\ncheckpoints.push({ passed: !!nearest && !!nearest.is_saved, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Most Popular Short UX On-Demand Sessions from Last Year Evaluator",
+      "description": "Checks that the user added at least two of last year’s most popular UX & Design on-demand sessions (≤30 minutes) to their watchlist.",
+      "localStorage_variables": [
+        "on_demand_sessions",
+        "conferences",
+        "idCounter"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst onDemand = JSON.parse(localStorage.getItem('on_demand_sessions') || '[]');\nconst conferences = JSON.parse(localStorage.getItem('conferences') || '[]');\n\nconst nowYear = (new Date()).getFullYear();\nlet currentConf = conferences.find(c => c.current_year === nowYear);\nif (!currentConf && conferences.length) {\n  conferences.sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());\n  currentConf = conferences[0];\n}\nconst prevYear = currentConf ? currentConf.current_year - 1 : nowYear - 1;\n\n// Candidates: last year's UX & Design sessions with duration ≤30 minutes\nconst candidates = onDemand.filter(s => {\n  if (!s) return false;\n  if (s.year !== prevYear) return false;\n  if (s.track !== 'ux_and_design') return false;\n  if (typeof s.duration_minutes === 'number' && s.duration_minutes > 30) return false;\n  return true;\n});\n\n// Determine maximum popularity among candidates\nlet maxPop = null;\ncandidates.forEach(s => {\n  const score = typeof s.popularity_score === 'number' ? s.popularity_score : 0;\n  if (maxPop === null || score > maxPop) maxPop = score;\n});\n\n// Most popular sessions are those with popularity_score equal to maxPop\nconst mostPopular = maxPop === null ? [] : candidates.filter(s => {\n  const score = typeof s.popularity_score === 'number' ? s.popularity_score : 0;\n  return score === maxPop;\n});\n\nconst watchlistedPopular = mostPopular.filter(s => s.in_watchlist);\n\n// CP1 (0.5): User watchlisted at least one of last year's most popular short UX & Design sessions\ncheckpoints.push({ passed: watchlistedPopular.length >= 1, weight: 0.5 });\n\n// CP2 (0.5): User watchlisted at least two such sessions\ncheckpoints.push({ passed: watchlistedPopular.length >= 2, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Three 20-Minute UX Designer Meetings on Day 2 Evaluator",
+      "description": "Checks that the user scheduled three 20-minute Day 2 meetings between 13:00–15:00 with UX Designers from different companies.",
+      "localStorage_variables": [
+        "attendees",
+        "meetings",
+        "conferences",
+        "idCounter"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst meetings = JSON.parse(localStorage.getItem('meetings') || '[]');\nconst attendees = JSON.parse(localStorage.getItem('attendees') || '[]');\n\nconst attendeeById = {};\nattendees.forEach(a => { if (a && a.id) attendeeById[a.id] = a; });\n\nconst parseMinutes = (dateTimeStr) => {\n  if (!dateTimeStr) return null;\n  const d = new Date(dateTimeStr);\n  if (isNaN(d.getTime())) return null;\n  return d.getHours() * 60 + d.getMinutes();\n};\n\n// Meetings satisfying per-meeting constraints: Day 2, 20 min, 13:00–15:00, with UX Designer\nconst qualifying = meetings.filter(m => {\n  if (!m) return false;\n  if (m.meeting_type !== 'attendee_meeting') return false;\n  if (m.day_id !== 'day_2_june_13') return false;\n  if (m.duration_minutes !== 20) return false;\n  const mins = parseMinutes(m.start_datetime);\n  if (mins === null) return false;\n  if (mins < 13 * 60 || mins > 15 * 60) return false;\n  const attendee = attendeeById[m.attendee_id];\n  if (!attendee) return false;\n  return attendee.role === 'UX Designer';\n});\n\n// Enforce distinct companies across selected meetings\nconst distinctCompanyMeetings = [];\nconst seenCompanies = new Set();\nqualifying.forEach(m => {\n  const attendee = attendeeById[m.attendee_id];\n  const company = attendee && attendee.company ? attendee.company : '';\n  if (!company) return;\n  if (!seenCompanies.has(company)) {\n    seenCompanies.add(company);\n    distinctCompanyMeetings.push(m);\n  }\n});\n\n// CP1 (0.3): At least one qualifying 20-min Day 2 meeting in the 13:00–15:00 window with a UX Designer from a unique company\ncheckpoints.push({ passed: distinctCompanyMeetings.length >= 1, weight: 0.3 });\n\n// CP2 (0.3): At least two such meetings\ncheckpoints.push({ passed: distinctCompanyMeetings.length >= 2, weight: 0.3 });\n\n// CP3 (0.4): At least three such meetings (full task completion)\ncheckpoints.push({ passed: distinctCompanyMeetings.length >= 3, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "attendees",
+    "conferences",
+    "exhibitors",
+    "hotels",
+    "live_sessions",
+    "ticket_types",
+    "on_demand_sessions",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

@@ -1,0 +1,100 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Reserve Cheapest Eligible Show-Quality Male Puppy in May 2025",
+      "description": "Checks if the user reserved a male show-prospect puppy under $2,500, available in May 2025, sired by a champion, and prioritized the cheapest qualifying option.",
+      "localStorage_variables": [
+        "puppies",
+        "puppy_reservations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst puppies = JSON.parse(localStorage.getItem('puppies') || '[]');\nconst reservations = JSON.parse(localStorage.getItem('puppy_reservations') || '[]');\n\nfunction inMay2025(dateStr) {\n  const d = new Date(dateStr);\n  if (isNaN(d.getTime())) return false;\n  return d.getUTCFullYear() === 2025 && d.getUTCMonth() === 4; // May = 4 (0-based)\n}\n\n// Eligible puppies per task criteria\nconst eligiblePuppies = puppies.filter(p =>\n  p &&\n  p.status === 'available' &&\n  p.sex === 'male' &&\n  p.placement_type === 'show_prospect' &&\n  typeof p.price === 'number' && p.price <= 2500 &&\n  inMay2025(p.availability_date) &&\n  p.sire_is_champion_or_higher === true\n);\n\nlet cheapestPrice = null;\neligiblePuppies.forEach(p => {\n  if (cheapestPrice === null || p.price < cheapestPrice) {\n    cheapestPrice = p.price;\n  }\n});\n\nconst cheapestPuppies = eligiblePuppies.filter(p => typeof p.price === 'number' && p.price === cheapestPrice);\n\n// Reservations for any eligible puppy\nconst reservationsForEligible = reservations.filter(r => {\n  const puppy = puppies.find(p => p.id === r.puppy_id);\n  if (!puppy) return false;\n  return eligiblePuppies.some(ep => ep.id === puppy.id);\n});\n\n// Reservations specifically for the cheapest eligible puppy(ies)\nconst reservationsForCheapest = reservations.filter(r => {\n  const puppy = puppies.find(p => p.id === r.puppy_id);\n  if (!puppy) return false;\n  return cheapestPuppies.some(cp => cp.id === puppy.id);\n});\n\n// CP1 (0.4): User reserved a puppy that meets ALL task criteria (male, show prospect, <=$2,500, May 2025, champion sire)\ncheckpoints.push({ passed: reservationsForEligible.length > 0, weight: 0.4 });\n\n// CP2 (0.6): At least one reservation is for the CHEAPEST qualifying puppy\ncheckpoints.push({ passed: reservationsForCheapest.length > 0, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Book Earliest Saturday Afternoon Standard Kennel Tour for 3 Visitors",
+      "description": "Checks if the user booked a standard kennel tour on a Saturday afternoon between 1–4 PM for 3 visitors, and whether it is the earliest such slot.",
+      "localStorage_variables": [
+        "tour_slots",
+        "tour_bookings"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst slots = JSON.parse(localStorage.getItem('tour_slots') || '[]');\nconst bookings = JSON.parse(localStorage.getItem('tour_bookings') || '[]');\n\nfunction isSaturday(dateStr) {\n  const d = new Date(dateStr);\n  if (isNaN(d.getTime())) return false;\n  return d.getUTCDay() === 6; // Saturday\n}\n\nfunction getHour(dateStr) {\n  const d = new Date(dateStr);\n  if (isNaN(d.getTime())) return null;\n  return d.getUTCHours();\n}\n\nfunction compareDatesAsc(a, b) {\n  const da = new Date(a);\n  const db = new Date(b);\n  if (isNaN(da.getTime()) && isNaN(db.getTime())) return 0;\n  if (isNaN(da.getTime())) return 1;\n  if (isNaN(db.getTime())) return -1;\n  return da.getTime() - db.getTime();\n}\n\n// Eligible slots per task criteria (Saturday, standard tour, afternoon, 1–4 PM window)\nlet eligibleSlots = slots.filter(s =>\n  s &&\n  s.tour_type === 'standard_kennel_tour' &&\n  s.time_of_day === 'afternoon' &&\n  isSaturday(s.date) &&\n  getHour(s.time_start) !== null &&\n  getHour(s.time_start) >= 13 &&\n  getHour(s.time_start) < 16\n);\n\neligibleSlots.sort((a, b) => {\n  const dateCmp = compareDatesAsc(a.date, b.date);\n  if (dateCmp !== 0) return dateCmp;\n  return compareDatesAsc(a.time_start, b.time_start);\n});\n\nconst earliestSlot = eligibleSlots[0] || null;\n\n// Any booking that matches all tour criteria (but not necessarily earliest)\nconst anyQualifyingBooking = bookings.find(b => {\n  const slot = slots.find(s => s.id === b.tour_slot_id);\n  if (!slot) return false;\n  return (\n    b.tour_type === 'standard_kennel_tour' &&\n    b.group_size === 3 &&\n    slot.time_of_day === 'afternoon' &&\n    isSaturday(slot.date) &&\n    getHour(slot.time_start) !== null &&\n    getHour(slot.time_start) >= 13 &&\n    getHour(slot.time_start) < 16\n  );\n});\n\n// Booking specifically for the earliest eligible slot\nconst bookingForEarliest = bookings.find(b =>\n  earliestSlot &&\n  b.tour_type === 'standard_kennel_tour' &&\n  b.group_size === 3 &&\n  b.tour_slot_id === earliestSlot.id\n);\n\n// CP1 (0.4): User booked some Saturday afternoon standard kennel tour 1–4 PM for 3 visitors\ncheckpoints.push({ passed: !!anyQualifyingBooking, weight: 0.4 });\n\n// CP2 (0.6): The booked tour for 3 visitors is the EARLIEST qualifying slot\ncheckpoints.push({ passed: !!bookingForEarliest, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Start Breeding Inquiry for Best-Titled Eligible Stud Dog",
+      "description": "Checks if the user started a stud inquiry for an eligible stud dog (fee ≤ $1,500, hip score A, DNA clear) and prioritized the stud with the highest title count.",
+      "localStorage_variables": [
+        "stud_dogs",
+        "stud_inquiries"
+      ],
+      "evaluation_logic": "const checkpts = [];\n\nconst studs = JSON.parse(localStorage.getItem('stud_dogs') || '[]');\nconst inquiries = JSON.parse(localStorage.getItem('stud_inquiries') || '[]');\n\n// Eligible studs per criteria\nconst eligibleStuds = studs.filter(s =>\n  s &&\n  typeof s.stud_fee === 'number' && s.stud_fee <= 1500 &&\n  s.hip_score === 'a' &&\n  s.dna_status === 'clear'\n);\n\nlet maxTitles = null;\neligibleStuds.forEach(s => {\n  const count = typeof s.title_count === 'number'\n    ? s.title_count\n    : (Array.isArray(s.titles) ? s.titles.length : 0);\n  if (maxTitles === null || count > maxTitles) maxTitles = count;\n});\n\nconst topStuds = eligibleStuds.filter(s => {\n  const count = typeof s.title_count === 'number'\n    ? s.title_count\n    : (Array.isArray(s.titles) ? s.titles.length : 0);\n  return maxTitles !== null && count === maxTitles;\n});\n\nconst inquiriesForEligible = inquiries.filter(i => eligibleStuds.some(s => s.id === i.stud_dog_id));\nconst inquiriesForTop = inquiries.filter(i => topStuds.some(s => s.id === i.stud_dog_id));\n\n// CP1 (0.4): User submitted an inquiry for SOME stud that meets all eligibility criteria\ncheckpts.push({ passed: inquiriesForEligible.length > 0, weight: 0.4 });\n\n// CP2 (0.6): User submitted an inquiry for a stud with the HIGHEST title count among eligible studs\ncheckpts.push({ passed: inquiriesForTop.length > 0, weight: 0.6 });\n\nreturn checkpts.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Register for Cheapest Eligible Handling Workshop Within 100 Miles",
+      "description": "Checks if the user registered (with an on-site/pay-later method) for a handling workshop within 100 miles of ZIP 90001 in the next 3 months, and chose the cheapest eligible option for one participant.",
+      "localStorage_variables": [
+        "events",
+        "event_registrations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst regs = JSON.parse(localStorage.getItem('event_registrations') || '[]');\n\nfunction getZipLatLng(zip) {\n  if (zip === '90001') return { lat: 33.973, lon: -118.248 };\n  if (zip === '60601') return { lat: 41.8864, lon: -87.6186 };\n  return null;\n}\n\nfunction toRad(v) { return (v * Math.PI) / 180; }\nfunction haversineMiles(lat1, lon1, lat2, lon2) {\n  const R = 3958.8;\n  const dLat = toRad(lat2 - lat1);\n  const dLon = toRad(lon2 - lon1);\n  const a =\n    Math.sin(dLat / 2) * Math.sin(dLat / 2) +\n    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *\n    Math.sin(dLon / 2) * Math.sin(dLon / 2);\n  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));\n  return R * c;\n}\n\nconst origin = getZipLatLng('90001');\nconst dateStart = new Date('2026-03-03T00:00:00Z');\nconst dateEnd = new Date('2026-06-03T00:00:00Z');\n\nconst eligibleEvents = events.filter(e => {\n  if (!e || e.event_type !== 'handling_workshop') return false;\n  const d = new Date(e.start_datetime);\n  if (isNaN(d.getTime())) return false;\n  if (d < dateStart || d > dateEnd) return false;\n  if (e.status && e.status !== 'scheduled') return false;\n  let dist = null;\n  if (origin && typeof e.latitude === 'number' && typeof e.longitude === 'number') {\n    dist = haversineMiles(origin.lat, origin.lon, e.latitude, e.longitude);\n  } else if (e.zip === '90001') {\n    dist = 0;\n  }\n  if (dist == null || dist > 100) return false;\n  return true;\n});\n\nlet cheapestPrice = null;\neligibleEvents.forEach(e => {\n  if (typeof e.price !== 'number') return;\n  if (cheapestPrice === null || e.price < cheapestPrice) {\n    cheapestPrice = e.price;\n  }\n});\n\nconst cheapestEvents = eligibleEvents.filter(e => typeof e.price === 'number' && e.price === cheapestPrice);\n\nconst onSiteMethods = ['pay_at_check_in', 'pay_later', 'cash'];\n\nconst regsForEligible = regs.filter(r =>\n  r &&\n  r.participant_count === 1 &&\n  onSiteMethods.includes(r.payment_method) &&\n  eligibleEvents.some(e => e.id === r.event_id)\n);\n\nconst regsForCheapest = regsForEligible.filter(r =>\n  cheapestEvents.some(e => e.id === r.event_id)\n);\n\n// CP1 (0.4): User registered (1 participant, on-site/pay-later method) for SOME eligible handling workshop\ncheckpoints.push({ passed: regsForEligible.length > 0, weight: 0.4 });\n\n// CP2 (0.6): Registration (1 participant, on-site/pay-later) is for the CHEAPEST eligible workshop\ncheckpoints.push({ passed: regsForCheapest.length > 0, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Add Correct T-Shirt and Leash to Cart and Visit Checkout",
+      "description": "Checks if the user has exactly one medium logo t-shirt under $30 and one qualifying leash (rating ≥ 4.5, free shipping) in the cart, with exactly 2 line items, and then visited checkout with that cart.",
+      "localStorage_variables": [
+        "products",
+        "product_categories",
+        "cart",
+        "cart_items",
+        "task5_checkoutVisited"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst cart = JSON.parse(localStorage.getItem('cart') || 'null');\nconst cartItemsAll = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst checkoutInfo = JSON.parse(localStorage.getItem('task5_checkoutVisited') || 'null');\n\nconst itemsForCart = cart ? cartItemsAll.filter(ci => ci.cart_id === cart.id) : [];\n\nfunction attachProduct(item) {\n  return Object.assign({}, item, {\n    product: products.find(p => p.id === item.product_id) || null\n  });\n}\n\nconst itemsWithProduct = itemsForCart.map(attachProduct);\n\nfunction isLogoTee(product) {\n  if (!product) return false;\n  const isTeeTag = Array.isArray(product.tags) && product.tags.indexOf('t-shirt') !== -1;\n  return (\n    product.category_id === 'apparel' &&\n    product.is_logo_item === true &&\n    typeof product.price === 'number' && product.price < 30 &&\n    isTeeTag\n  );\n}\n\nfunction isQualifyingLeash(product) {\n  if (!product) return false;\n  return (\n    product.category_id === 'leashes' &&\n    typeof product.rating === 'number' && product.rating >= 4.5 &&\n    product.has_free_shipping === true\n  );\n}\n\nconst logoTeeItems = itemsWithProduct.filter(it =>\n  isLogoTee(it.product) &&\n  it.size === 'm' &&\n  it.quantity === 1\n);\n\nconst leashItems = itemsWithProduct.filter(it =>\n  isQualifyingLeash(it.product) &&\n  it.quantity === 1\n);\n\nconst hasCorrectCart = (\n  logoTeeItems.length === 1 &&\n  leashItems.length === 1 &&\n  itemsWithProduct.length === 2\n);\n\n// CP1 (0.6): Cart contains EXACTLY one qualifying medium logo t-shirt and one qualifying leash, total 2 line items\ncheckpoints.push({ passed: hasCorrectCart, weight: 0.6 });\n\n// CP2 (0.4): User visited checkout with this cart (instrumentation) and 2 items\nconst visitedWithCorrectCart = !!checkoutInfo &&\n  typeof checkoutInfo === 'object' &&\n  hasCorrectCart &&\n  cart &&\n  checkoutInfo.cart_id === cart.id &&\n  checkoutInfo.item_count === 2;\n\ncheckpoints.push({ passed: visitedWithCorrectCart, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Join Waitlist for Appropriate Planned Litter with Black and Tan and Budget",
+      "description": "Checks if the user joined the waitlist for a planned/confirmed litter with fully health-tested parents and black and tan among expected colors, requesting a female pet puppy within a $2,000 budget.",
+      "localStorage_variables": [
+        "litters",
+        "waitlist_entries"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst litters = JSON.parse(localStorage.getItem('litters') || '[]');\nconst entries = JSON.parse(localStorage.getItem('waitlist_entries') || '[]');\n\nconst eligibleLitters = litters.filter(l => {\n  if (!l) return false;\n  const statusOk = l.status === 'planned' || l.status === 'confirmed';\n  const parentsOk = l.parents_fully_health_tested === true;\n  const colorsOk = Array.isArray(l.expected_colors) && l.expected_colors.some(c => String(c).toLowerCase().indexOf('black and tan') !== -1);\n  const priceOk = (typeof l.price_range_min === 'number') ? (l.price_range_min <= 2000) : true;\n  return statusOk && parentsOk && colorsOk && priceOk;\n});\n\nconst entriesForEligible = entries.filter(e => eligibleLitters.some(l => l.id === e.litter_id));\n\nconst correctBasicEntries = entriesForEligible.filter(e =>\n  e &&\n  e.preferred_sex === 'female' &&\n  e.placement_type === 'pet_companion'\n);\n\nconst fullyCorrectEntries = correctBasicEntries.filter(e =>\n  typeof e.budget_max === 'number' && e.budget_max <= 2000\n);\n\n// CP1 (0.5): Waitlist entry for an eligible litter requesting a FEMALE PET/COMPANION puppy\ncheckpoints.push({ passed: correctBasicEntries.length > 0, weight: 0.5 });\n\n// CP2 (0.5): Above entry also includes a budget_max of ≤ $2,000\ncheckpoints.push({ passed: fullyCorrectEntries.length > 0, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Submit Contact Message About Specific Available Puppy and Future Pickup Date",
+      "description": "Checks if the user sent a contact message about a specific available puppy, including that puppy's reference code in the message and specifying a pickup date.",
+      "localStorage_variables": [
+        "puppies",
+        "contact_messages"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst puppies = JSON.parse(localStorage.getItem('puppies') || '[]');\nconst messages = JSON.parse(localStorage.getItem('contact_messages') || '[]');\n\nconst qualifyingMessages = messages.filter(msg => {\n  if (!msg || !msg.related_puppy_id) return false;\n  const puppy = puppies.find(p => p.id === msg.related_puppy_id);\n  if (!puppy || puppy.status !== 'available') return false;\n  if (typeof msg.message !== 'string') return false;\n  const ref = puppy.reference_code;\n  if (!ref || msg.message.indexOf(ref) === -1) return false;\n  if (!msg.desired_pickup_date) return false;\n  if (msg.subject && msg.subject !== 'puppy_availability') return false;\n  return true;\n});\n\n// Single checkpoint (1.0): Contact message references an AVAILABLE puppy, includes its reference code, and specifies a desired pickup date\ncheckpoints.push({ passed: qualifyingMessages.length > 0, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Track First Two Nearby 2025 Dog Shows with Kennel Participation",
+      "description": "Checks if the user added the first two 2025 dog shows within 300 miles of ZIP 60601 where the kennel is participating to the watchlist, and viewed the watchlist.",
+      "localStorage_variables": [
+        "events",
+        "show_watchlist_items",
+        "task8_watchlistVisited"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst watchlist = JSON.parse(localStorage.getItem('show_watchlist_items') || '[]');\nconst watchlistVisited = JSON.parse(localStorage.getItem('task8_watchlistVisited') || 'null');\n\nfunction getZipLatLng(zip) {\n  if (zip === '90001') return { lat: 33.973, lon: -118.248 };\n  if (zip === '60601') return { lat: 41.8864, lon: -87.6186 };\n  return null;\n}\n\nfunction toRad(v) { return (v * Math.PI) / 180; }\nfunction haversineMiles(lat1, lon1, lat2, lon2) {\n  const R = 3958.8;\n  const dLat = toRad(lat2 - lat1);\n  const dLon = toRad(lon2 - lon1);\n  const a =\n    Math.sin(dLat / 2) * Math.sin(dLat / 2) +\n    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *\n    Math.sin(dLon / 2) * Math.sin(dLon / 2);\n  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));\n  return R * c;\n}\n\nconst origin = getZipLatLng('60601');\n\nconst eligibleEvents = events.filter(e => {\n  if (!e || e.event_type !== 'dog_show' || e.is_kennel_participating !== true) return false;\n  const d = new Date(e.start_datetime);\n  if (isNaN(d.getTime()) || d.getUTCFullYear() !== 2025) return false;\n  let dist = null;\n  if (origin && typeof e.latitude === 'number' && typeof e.longitude === 'number') {\n    dist = haversineMiles(origin.lat, origin.lon, e.latitude, e.longitude);\n  } else if (e.zip === '60601') {\n    dist = 0;\n  }\n  if (dist == null || dist > 300) return false;\n  return true;\n});\n\neligibleEvents.sort((a, b) => {\n  const da = new Date(a.start_datetime);\n  const db = new Date(b.start_datetime);\n  if (isNaN(da.getTime()) && isNaN(db.getTime())) return 0;\n  if (isNaN(da.getTime())) return 1;\n  if (isNaN(db.getTime())) return -1;\n  return da.getTime() - db.getTime();\n});\n\nconst firstTwo = eligibleEvents.slice(0, 2);\nconst watchEventIds = watchlist.map(w => w.event_id);\nconst countFirstTwoInWatch = firstTwo.filter(ev => watchEventIds.includes(ev.id)).length;\n\n// CP1 (0.3): At least one of the first two eligible shows is in the watchlist\nconst cp1Passed = countFirstTwoInWatch >= 1;\ncheckpoints.push({ passed: cp1Passed, weight: 0.3 });\n\n// CP2 (0.4): BOTH of the first two eligible shows are in the watchlist (when at least two exist)\nconst cp2Passed = (firstTwo.length >= 2) && (countFirstTwoInWatch === firstTwo.length);\ncheckpoints.push({ passed: cp2Passed, weight: 0.4 });\n\n// CP3 (0.3): User viewed the watchlist (instrumentation) AND both shows are tracked\nconst cp3Passed = cp2Passed && !!watchlistVisited && typeof watchlistVisited === 'object' && typeof watchlistVisited.item_count === 'number' && watchlistVisited.item_count >= firstTwo.length;\ncheckpoints.push({ passed: cp3Passed, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "litters",
+    "product_categories",
+    "stud_dogs",
+    "tour_slots",
+    "products",
+    "puppies",
+    "events",
+    "event_registrations",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Local Taxi Booking Service</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='ride_options.css'>
+</head>
+<body class='site-body'>
+  <header class='site-header'>
+    <div class='top-bar'>
+      <div class='top-bar-inner container'>
+        <div class='top-bar-brand'>Local Taxi Booking</div>
+        <div class='top-bar-message'>Reliable local taxi service 1b7 Book online or schedule in advance</div>
+        <div class='top-bar-cta' aria-hidden='true'>
+          <div class='cta-outer'>
+            <div class='cta-inner'>
+              <span class='cta-icon'>☎</span>
+              <span class='cta-label'>Call Us</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class='nav-bar'>
+      <div class='nav-bar-inner container'>
+        <a href='index.html' class='brand-block'>
+          <div class='brand-mark'>
+            <div class='brand-mark-car'>Taxi
+Logo</div>
+          </div>
+          <div class='brand-text'>
+            <span class='brand-text-line'>City</span>
+            <span class='brand-text-line'>Taxis</span>
+          </div>
+        </a>
+
+        <nav class='main-nav' aria-label='Primary'>
+          <ul class='main-nav-list'>
+            <li class='main-nav-item'>
+              <a href='index.html' class='main-nav-link is-active'>Home</a>
+            </li>
+            <li class='main-nav-item'>
+              <a href='schedule_ride.html' class='main-nav-link'>Schedule Ride</a>
+            </li>
+            <li class='main-nav-item'>
+              <a href='trips.html?tab=upcoming' class='main-nav-link'>My Trips</a>
+            </li>
+            <li class='main-nav-item'>
+              <a href='saved_places.html' class='main-nav-link'>Saved Places</a>
+            </li>
+            <li class='main-nav-item'>
+              <a href='support.html' class='main-nav-link'>Help &amp; Support</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <main id='content' class='site-content'>
+    <div class='ride-options-page-band'>
+      <div class='ride-options-page container' data-component='ride-options-page-init'>
+        <div id='asyncStatusBanner' class='async-status-banner' data-component='async-status-banner' role='status' aria-live='polite'></div>
+
+        <h1 class='page-title ride-options-title'>RIDE OPTIONS</h1>
+
+        <section class='trip-summary-wrapper'>
+          <div class='card trip-summary-card' data-populate='trip-summary-header'>
+            <!-- Trip summary populated by JavaScript -->
+          </div>
+        </section>
+
+        <section class='filters-sort-wrapper'>
+          <div class='card filters-bar' data-populate='filters-and-sort'>
+            <!-- Filters and sort controls populated by JavaScript -->
+          </div>
+        </section>
+
+        <section class='promo-code-wrapper'>
+          <div class='promo-code-form-container' data-populate='promo-code-form'>
+            <!-- Promo code form populated by JavaScript -->
+          </div>
+        </section>
+
+        <section class='ride-options-list-wrapper'>
+          <div class='ride-options-list' data-populate='ride-options-list'>
+            <!-- Ride options list populated by JavaScript -->
+          </div>
+        </section>
+
+        <section class='ride-options-error-wrapper' id='rideOptionsErrorState' hidden>
+          <div class='card error-card'>
+            <h2 class='error-title'>Unable to load ride options</h2>
+            <p class='error-message'>We could not find that ride search. Please start a new search.</p>
+            <a href='index.html' class='btn btn-primary'>Back to Home</a>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner container'>
+      <div class='footer-top'>
+        <div class='footer-brand'>
+          <div class='footer-brand-mark'>City Taxis</div>
+        </div>
+        <nav class='footer-nav' aria-label='Footer'>
+          <a href='about.html' class='footer-nav-link'>About</a>
+          <a href='faq.html' class='footer-nav-link'>FAQ</a>
+          <a href='support.html?topic=trip_issues' class='footer-nav-link'>Support</a>
+          <a href='terms.html' class='footer-nav-link'>Terms &amp; Conditions</a>
+          <a href='privacy.html' class='footer-nav-link'>Privacy Policy</a>
+        </nav>
+      </div>
+      <div class='footer-bottom'>
+        <p class='footer-copy'>&copy; <span class='footer-year'>2024</span> Local Taxi Booking Service. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    (function() {
+      'use strict';
+
+      var currentRideSearch = null;
+      var currentRideOptions = [];
+      var currentFilterConfig = null;
+      var lastAsyncOperation = null;
+      var searchTypeParam = null;
+      var rideSearchIdParam = null;
+
+      document.addEventListener('DOMContentLoaded', function() {
+        var urlParams = new URLSearchParams(window.location.search);
+        rideSearchIdParam = urlParams.get('rideSearchId');
+        searchTypeParam = urlParams.get('searchType') || 'immediate';
+
+        var pageContainer = document.querySelector('[data-component="ride-options-page-init"]');
+        var errorSection = document.getElementById('rideOptionsErrorState');
+
+        if (!rideSearchIdParam) {
+          if (pageContainer) {
+            pageContainer.classList.add('is-error');
+          }
+          if (errorSection) {
+            errorSection.hidden = false;
+          }
+          showStatus('error', 'No ride search found. Please start a new search.', false);
+          return;
+        }
+
+        if (pageContainer) {
+          pageContainer.addEventListener('change', handleChange, false);
+          pageContainer.addEventListener('click', handleClick, false);
+          pageContainer.addEventListener('submit', handleSubmit, false);
+        }
+
+        performInitialLoad();
+      });
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function showStatus(statusType, message, allowRetry) {
+        var banner = document.getElementById('asyncStatusBanner');
+        if (!banner) {
+          return;
+        }
+        if (!statusType) {
+          banner.className = 'async-status-banner';
+          banner.innerHTML = '';
+          return;
+        }
+        var typeClass = '';
+        if (statusType === 'loading') {
+          typeClass = ' is-loading';
+        } else if (statusType === 'error') {
+          typeClass = ' is-error';
+        } else if (statusType === 'success') {
+          typeClass = ' is-success';
+        }
+        banner.className = 'async-status-banner' + typeClass;
+        var safeMessage = escapeHtml(message || '');
+        var retryHtml = '';
+        if (allowRetry && lastAsyncOperation) {
+          retryHtml = '\n            <button type=\'button\' class=\'btn btn-link status-retry-btn\' data-action=\'retry-load\'>Retry</button>\n          ';
+        }
+        banner.innerHTML = '\n          <div class=\'async-status-inner\'>\n            <span class=\'async-status-text\'>' + safeMessage + '</span>\n            ' + retryHtml + '\n          </div>\n        ';
+      }
+
+      function performInitialLoad() {
+        lastAsyncOperation = { type: 'init' };
+        showStatus('loading', 'Loading ride options...', false);
+        var errorSection = document.getElementById('rideOptionsErrorState');
+        if (errorSection) {
+          errorSection.hidden = true;
+        }
+        try {
+          var optionsResult = WebsiteSDK.getCurrentRideOptions();
+          currentRideSearch = optionsResult && optionsResult.rideSearch ? optionsResult.rideSearch : null;
+          currentRideOptions = optionsResult && optionsResult.rideOptions ? optionsResult.rideOptions : [];
+
+          currentFilterConfig = WebsiteSDK.getRideOptionFilterOptionsForCurrentSearch();
+
+          if (!currentRideSearch) {
+            throw new Error('Ride search not found.');
+          }
+
+          renderAll();
+
+          showStatus('success', 'Ride options loaded.', false);
+          lastAsyncOperation = null;
+        } catch (error) {
+          console.error(error);
+          showStatus('error', 'There was a problem loading ride options. Please try again.', true);
+          var errSection = document.getElementById('rideOptionsErrorState');
+          if (errSection) {
+            errSection.hidden = false;
+          }
+        }
+      }
+
+      function renderAll() {
+        var tripSummaryContainer = document.querySelector('[data-populate="trip-summary-header"]');
+        var filtersContainer = document.querySelector('[data-populate="filters-and-sort"]');
+        var promoContainer = document.querySelector('[data-populate="promo-code-form"]');
+        var listContainer = document.querySelector('[data-populate="ride-options-list"]');
+
+        if (tripSummaryContainer) {
+          renderTripSummary(tripSummaryContainer, currentRideSearch, searchTypeParam);
+        }
+        if (filtersContainer) {
+          renderFiltersAndSort(filtersContainer, currentFilterConfig, currentRideSearch);
+        }
+        if (promoContainer) {
+          renderPromoForm(promoContainer, currentRideSearch, null, null, null);
+        }
+        if (listContainer) {
+          renderRideOptionsList(listContainer, currentRideOptions);
+        }
+      }
+
+      function renderTripSummary(container, rideSearch, searchType) {
+        if (!container) {
+          return;
+        }
+        if (!rideSearch) {
+          container.innerHTML = '<p class=\'trip-summary-empty\'>Trip details are not available.</p>';
+          return;
+        }
+        var pickupSummary = escapeHtml(rideSearch.pickupSummary || 'Pickup');
+        var dropoffSummary = escapeHtml(rideSearch.dropoffSummary || 'Drop-off');
+        var passengerCount = rideSearch.passengerCount !== null && rideSearch.passengerCount !== undefined ? rideSearch.passengerCount : '';
+        var pickupTypeLabel = (rideSearch.pickupType === 'scheduled' || searchType === 'scheduled') ? 'Scheduled ride' : 'Ride now';
+        var pickupTimeText = '';
+        if (rideSearch.pickupDatetime) {
+          var dt = new Date(rideSearch.pickupDatetime);
+          if (!isNaN(dt.getTime())) {
+            pickupTimeText = dt.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+          } else {
+            pickupTimeText = escapeHtml(rideSearch.pickupDatetime);
+          }
+        }
+        var appliedPromoCode = rideSearch.appliedPromoCode ? escapeHtml(rideSearch.appliedPromoCode) : '';
+
+        container.innerHTML = '\n          <div class=\'trip-summary-layout\'>\n            <div class=\'trip-summary-main\'>\n              <div class=\'trip-summary-locations\'>\n                <div class=\'trip-summary-row\'>\n                  <span class=\'trip-summary-label\'>From:</span>\n                  <span class=\'trip-summary-value\'>' + pickupSummary + '</span>\n                </div>\n                <div class=\'trip-summary-row\'>\n                  <span class=\'trip-summary-label\'>To:</span>\n                  <span class=\'trip-summary-value\'>' + dropoffSummary + '</span>\n                </div>\n              </div>\n              <div class=\'trip-summary-meta\'>\n                <div class=\'trip-summary-row\'>\n                  <span class=\'trip-summary-label\'>Pickup:</span>\n                  <span class=\'trip-summary-value\'>' + escapeHtml(pickupTypeLabel) + (pickupTimeText ? ' · ' + escapeHtml(pickupTimeText) : '') + '</span>\n                </div>\n                <div class=\'trip-summary-row\'>\n                  <span class=\'trip-summary-label\'>Passengers:</span>\n                  <span class=\'trip-summary-value\'>' + escapeHtml(passengerCount) + '</span>\n                </div>' + (appliedPromoCode ? '\n                <div class=\'trip-summary-row trip-summary-promo\'>\n                  <span class=\'trip-summary-label\'>Promo:</span>\n                  <span class=\'trip-summary-value\'>' + appliedPromoCode + ' applied</span>\n                </div>\n                ' : '') + '\n              </div>\n            </div>\n            <div class=\'trip-summary-actions\'>\n              <button type=\'button\' class=\'btn btn-secondary\' data-action=\'edit-search\'>Edit search</button>\n            </div>\n          </div>\n        ';
+      }
+
+      function renderFiltersAndSort(container, config, rideSearch) {
+        if (!container) {
+          return;
+        }
+        if (!config || !rideSearch) {
+          container.innerHTML = '<div class=\'filters-empty\'>Filters are not available.</div>';
+          return;
+        }
+        var vehicleCategories = Array.isArray(config.vehicleCategories) ? config.vehicleCategories : [];
+        var passengerOptions = Array.isArray(config.passengerCapacityOptions) ? config.passengerCapacityOptions : [];
+        var accessibilityOptions = Array.isArray(config.accessibilityOptions) ? config.accessibilityOptions : [];
+        var sortOptions = Array.isArray(config.sortOptions) ? config.sortOptions : [];
+
+        var currentCategory = rideSearch.rideCategoryFilter || 'all';
+        var currentMinCap = (rideSearch.minPassengerCapacity !== null && rideSearch.minPassengerCapacity !== undefined) ? String(rideSearch.minPassengerCapacity) : '';
+        var currentAccessibility = Array.isArray(rideSearch.accessibilityFilter) ? rideSearch.accessibilityFilter : [];
+        var currentSort = rideSearch.sortOption || '';
+
+        var categoryOptionsHtml = '\n          <option value=\'all\'' + (currentCategory === 'all' ? ' selected' : '') + '>All vehicle types</option>\n        ' + vehicleCategories.map(function(vc) {
+          var value = vc.category;
+          var label = vc.displayName || vc.category;
+          var selected = currentCategory === value ? ' selected' : '';
+          return '<option value=\'' + escapeHtml(value) + '\'' + selected + '>' + escapeHtml(label) + '</option>';
+        }).join('');
+
+        var passengerOptionsHtml = '\n          <option value=\'\'' + (currentMinCap === '' ? ' selected' : '') + '>Any</option>\n        ' + passengerOptions.map(function(cap) {
+          var val = String(cap);
+          var selected = currentMinCap === val ? ' selected' : '';
+          return '<option value=\'' + escapeHtml(val) + '\'' + selected + '>' + escapeHtml(val) + '+</option>';
+        }).join('');
+
+        var accessibilityHtml = accessibilityOptions.map(function(opt) {
+          var checked = currentAccessibility.indexOf(opt.code) !== -1 ? ' checked' : '';
+          return '\n            <label class=\'filter-checkbox\'>\n              <input type=\'checkbox\' data-action=\'filter-accessibility\' value=\'' + escapeHtml(opt.code) + '\'' + checked + ' />\n              <span>' + escapeHtml(opt.label || opt.code) + '</span>\n            </label>\n          ';
+        }).join('');
+
+        var sortOptionsHtml = sortOptions.map(function(opt) {
+          var val = opt.value;
+          var label = opt.label || opt.value;
+          var selected = currentSort === val ? ' selected' : '';
+          return '<option value=\'' + escapeHtml(val) + '\'' + selected + '>' + escapeHtml(label) + '</option>';
+        }).join('');
+
+        container.innerHTML = '\n          <div class=\'filters-bar-layout\'>\n            <div class=\'filters-group filters-main\'>\n              <div class=\'filter-control\'>\n                <label for=\'rideCategoryFilter\' class=\'filter-label\'>Vehicle</label>\n                <select id=\'rideCategoryFilter\' class=\'filter-select\' data-action=\'filter-category\'>\n                  ' + categoryOptionsHtml + '\n                </select>\n              </div>\n              <div class=\'filter-control\'>\n                <label for=\'minPassengerCapacity\' class=\'filter-label\'>Min passengers</label>\n                <select id=\'minPassengerCapacity\' class=\'filter-select\' data-action=\'filter-capacity\'>\n                  ' + passengerOptionsHtml + '\n                </select>\n              </div>\n              <div class=\'filter-control filter-accessibility-group\'>\n                <span class=\'filter-label\'>Accessibility</span>\n                <div class=\'filter-checkbox-group\'>\n                  ' + (accessibilityHtml || '<span class=\'filter-hint\'>No accessibility filters for this search</span>') + '\n                </div>\n              </div>\n              <button type=\'button\' class=\'btn btn-link filter-clear-btn\' data-action=\'clear-filters\'>Clear filters</button>\n            </div>\n            <div class=\'filters-group sort-group\'>\n              <label for=\'sortOption\' class=\'filter-label\'>Sort by</label>\n              <select id=\'sortOption\' class=\'filter-select sort-select\' data-action=\'sort-options\'>\n                ' + sortOptionsHtml + '\n              </select>\n            </div>\n          </div>\n        ';
+      }
+
+      function renderPromoForm(container, rideSearch, message, messageType, appliedPromoDetails) {
+        if (!container) {
+          return;
+        }
+        var appliedCode = '';
+        var appliedDescription = '';
+        if (rideSearch && rideSearch.appliedPromoCode) {
+          appliedCode = escapeHtml(rideSearch.appliedPromoCode);
+        }
+        if (appliedPromoDetails && appliedPromoDetails.description) {
+          appliedDescription = escapeHtml(appliedPromoDetails.description);
+        }
+        var messageHtml = '';
+        if (message) {
+          var msgClass = messageType === 'error' ? 'promo-message-error' : 'promo-message-success';
+          messageHtml = '\n            <div class=\'promo-message ' + msgClass + '\'>' + escapeHtml(message) + '</div>\n          ';
+        }
+        var statusHtml = '';
+        if (appliedCode) {
+          statusHtml = '\n            <div class=\'promo-status-row\'>\n              <span class=\'promo-applied\'>Applied: ' + appliedCode + (appliedDescription ? ' 96 ' + appliedDescription : '') + '</span>\n            </div>\n          ';
+        } else {
+          statusHtml = '\n            <div class=\'promo-status-row\'>\n              <span class=\'promo-hint\'>Have a discount code? Enter it above.</span>\n            </div>\n          ';
+        }
+
+        container.innerHTML = '\n          <form class=\'promo-form\' data-action=\'apply-promo-form\'>\n            <label for=\'promoCodeInput\' class=\'promo-label\'>Promo code</label>\n            <div class=\'promo-input-row\'>\n              <input id=\'promoCodeInput\' type=\'text\' class=\'promo-input\' name=\'promoCode\' autocomplete=\'off\' />\n              <button type=\'submit\' class=\'btn btn-primary promo-apply-btn\'>Apply</button>\n            </div>\n            ' + statusHtml + '\n            ' + messageHtml + '\n          </form>\n        ';
+      }
+
+      function renderRideOptionsList(container, rideOptions) {
+        if (!container) {
+          return;
+        }
+        if (!Array.isArray(rideOptions) || rideOptions.length === 0) {
+          container.innerHTML = '\n            <div class=\'ride-options-empty\'>\n              <p>No ride options match your current filters.</p>\n              <p>Try adjusting the filters or clearing any applied promo code.</p>\n            </div>\n          ';
+          return;
+        }
+
+        var cardsHtml = rideOptions.map(function(option) {
+          var id = option.id;
+          var name = escapeHtml(option.displayName || 'Ride option');
+          var category = option.vehicleCategory ? escapeHtml(option.vehicleCategory) : '';
+          var capacity = option.maxPassengers !== null && option.maxPassengers !== undefined ? option.maxPassengers : '';
+          var wheelchairAccessible = !!option.wheelchairAccessible;
+          var averageRating = (option.averageRating !== null && option.averageRating !== undefined) ? option.averageRating : null;
+          var ratingCount = option.ratingCount !== null && option.ratingCount !== undefined ? option.ratingCount : null;
+          var estimatedFare = (option.estimatedFare !== null && option.estimatedFare !== undefined) ? option.estimatedFare : null;
+          var originalFare = (option.originalEstimatedFare !== null && option.originalEstimatedFare !== undefined) ? option.originalEstimatedFare : null;
+          var currency = escapeHtml(option.currency || '');
+          var available = !!option.available;
+          var isPromoApplied = !!option.isPromoApplied;
+          var estimatedPickupTimeText = '';
+          if (option.estimatedPickupTime) {
+            var et = new Date(option.estimatedPickupTime);
+            if (!isNaN(et.getTime())) {
+              estimatedPickupTimeText = et.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+            } else {
+              estimatedPickupTimeText = escapeHtml(option.estimatedPickupTime);
+            }
+          }
+
+          var ratingHtml = '';
+          if (averageRating !== null) {
+            var ratingText = averageRating.toFixed(1);
+            if (ratingCount !== null) {
+              ratingText += ' (' + ratingCount + ')';
+            }
+            ratingHtml = '<span class=\'ride-option-rating\'>Rating: ' + escapeHtml(ratingText) + '</span>';
+          }
+
+          var capacityHtml = '';
+          if (capacity !== '') {
+            capacityHtml = '<span class=\'ride-option-capacity\'>Up to ' + escapeHtml(capacity) + ' passengers</span>';
+          }
+
+          var wheelchairHtml = '';
+          if (wheelchairAccessible) {
+            wheelchairHtml = '<span class=\'ride-option-badge\'>Wheelchair accessible</span>';
+          }
+
+          var etaHtml = '';
+          if (estimatedPickupTimeText) {
+            etaHtml = '<span class=\'ride-option-eta\'>Pickup: ' + escapeHtml(estimatedPickupTimeText) + '</span>';
+          }
+
+          var fareCurrentText = '';
+          if (estimatedFare !== null) {
+            fareCurrentText = currency ? currency + ' ' + estimatedFare.toFixed(2) : estimatedFare.toFixed(2);
+          }
+          var fareOriginalHtml = '';
+          if (isPromoApplied && originalFare !== null && originalFare > estimatedFare) {
+            var fareOriginalText = currency ? currency + ' ' + originalFare.toFixed(2) : originalFare.toFixed(2);
+            fareOriginalHtml = '<div class=\'ride-option-fare-original\'>' + escapeHtml(fareOriginalText) + '</div>';
+          }
+
+          var promoBadgeHtml = '';
+          if (isPromoApplied) {
+            promoBadgeHtml = '<div class=\'ride-option-fare-badge\'>Promo applied</div>';
+          }
+
+          var disabledClass = available ? '' : ' is-disabled';
+          var buttonLabel = available ? 'Select' : 'Unavailable';
+          var buttonDisabledAttr = available ? '' : ' disabled';
+
+          return '\n            <article class=\'card ride-option-card' + disabledClass + '\' data-component=\'ride-option-card\' data-ride-option-id=\'' + escapeHtml(id) + '\'>\n              <div class=\'ride-option-main\'>\n                <div class=\'ride-option-header\'>\n                  <h2 class=\'ride-option-name\'>' + name + '</h2>\n                  ' + (category ? '<span class=\'ride-option-category-tag\'>' + category + '</span>' : '') + '\n                </div>\n                <div class=\'ride-option-meta\'>\n                  ' + capacityHtml + '\n                  ' + wheelchairHtml + '\n                  ' + ratingHtml + '\n                </div>\n                <div class=\'ride-option-times\'>\n                  ' + etaHtml + '\n                </div>\n              </div>\n              <div class=\'ride-option-side\'>\n                <div class=\'ride-option-fare\'>\n                  ' + fareOriginalHtml + '\n                  <div class=\'ride-option-fare-current\'>' + escapeHtml(fareCurrentText) + '</div>\n                  ' + promoBadgeHtml + '\n                </div>\n                <div class=\'ride-option-action\'>\n                  <button type=\'button\' class=\'btn btn-primary ride-option-select-btn\'' + buttonDisabledAttr + ' data-action=\'select-ride-option\' data-ride-option-id=\'' + escapeHtml(id) + '\'>' + escapeHtml(buttonLabel) + '</button>\n                </div>\n              </div>\n            </article>\n          ';
+        }).join('');
+
+        container.innerHTML = cardsHtml;
+      }
+
+      function handleChange(event) {
+        var target = event.target;
+        if (!target || !target.dataset) {
+          return;
+        }
+        var action = target.dataset.action;
+        if (!action) {
+          return;
+        }
+        if (action === 'filter-category' || action === 'filter-capacity' || action === 'filter-accessibility') {
+          updateFiltersFromUi();
+        } else if (action === 'sort-options') {
+          handleSortChange(target);
+        }
+      }
+
+      function handleClick(event) {
+        var target = event.target;
+        if (!target || !target.dataset) {
+          return;
+        }
+        var action = target.dataset.action;
+        if (!action) {
+          return;
+        }
+        if (action === 'clear-filters') {
+          event.preventDefault();
+          clearFilters();
+        } else if (action === 'select-ride-option') {
+          event.preventDefault();
+          handleSelectRideOption(target);
+        } else if (action === 'edit-search') {
+          event.preventDefault();
+          navigateToEditSearch();
+        } else if (action === 'retry-load') {
+          event.preventDefault();
+          retryLastOperation();
+        }
+      }
+
+      function handleSubmit(event) {
+        var target = event.target;
+        if (!target || !target.dataset) {
+          return;
+        }
+        var action = target.dataset.action;
+        if (action === 'apply-promo-form') {
+          event.preventDefault();
+          handleApplyPromo(target);
+        }
+      }
+
+      function updateFiltersFromUi() {
+        var pageContainer = document.querySelector('[data-component="ride-options-page-init"]');
+        if (!pageContainer) {
+          return;
+        }
+        var categorySelect = pageContainer.querySelector('[data-action="filter-category"]');
+        var capacitySelect = pageContainer.querySelector('[data-action="filter-capacity"]');
+        var accessibilityChecks = pageContainer.querySelectorAll('[data-action="filter-accessibility"]');
+
+        var rideCategoryFilter = categorySelect ? (categorySelect.value || 'all') : 'all';
+        var minPassengerCapacityStr = capacitySelect ? capacitySelect.value : '';
+        var minPassengerCapacity = minPassengerCapacityStr ? parseInt(minPassengerCapacityStr, 10) : null;
+        var accessibilityFilter = [];
+        if (accessibilityChecks && accessibilityChecks.forEach) {
+          accessibilityChecks.forEach(function(ch) {
+            if (ch.checked && ch.value) {
+              accessibilityFilter.push(ch.value);
+            }
+          });
+        }
+
+        runUpdateFilters(rideCategoryFilter, minPassengerCapacity, accessibilityFilter);
+      }
+
+      function runUpdateFilters(rideCategoryFilter, minPassengerCapacity, accessibilityFilter) {
+        lastAsyncOperation = {
+          type: 'updateFilters',
+          args: {
+            rideCategoryFilter: rideCategoryFilter,
+            minPassengerCapacity: minPassengerCapacity,
+            accessibilityFilter: accessibilityFilter
+          }
+        };
+        showStatus('loading', 'Updating ride options...', false);
+        try {
+          var response = WebsiteSDK.updateRideOptionsFilters(rideCategoryFilter, minPassengerCapacity, accessibilityFilter);
+          if (response && response.rideSearch) {
+            if (!currentRideSearch) {
+              currentRideSearch = {};
+            }
+            Object.assign(currentRideSearch, response.rideSearch);
+          }
+          currentRideOptions = response && response.rideOptions ? response.rideOptions : [];
+
+          var filtersContainer = document.querySelector('[data-populate="filters-and-sort"]');
+          if (filtersContainer) {
+            renderFiltersAndSort(filtersContainer, currentFilterConfig, currentRideSearch);
+          }
+          var listContainer = document.querySelector('[data-populate="ride-options-list"]');
+          if (listContainer) {
+            renderRideOptionsList(listContainer, currentRideOptions);
+          }
+
+          showStatus('success', 'Filters updated.', false);
+          lastAsyncOperation = null;
+        } catch (error) {
+          console.error(error);
+          showStatus('error', 'Could not update filters. Please try again.', true);
+        }
+      }
+
+      function clearFilters() {
+        runUpdateFilters('all', null, []);
+      }
+
+      function handleSortChange(selectElement) {
+        var sortOption = selectElement.value;
+        if (!sortOption) {
+          return;
+        }
+        lastAsyncOperation = {
+          type: 'sort',
+          args: {
+            sortOption: sortOption
+          }
+        };
+        showStatus('loading', 'Sorting ride options...', false);
+        try {
+          var response = WebsiteSDK.sortCurrentRideOptions(sortOption);
+          if (response && typeof response.sortOption === 'string' && currentRideSearch) {
+            currentRideSearch.sortOption = response.sortOption;
+          }
+          currentRideOptions = response && response.rideOptions ? response.rideOptions : currentRideOptions;
+          var listContainer = document.querySelector('[data-populate="ride-options-list"]');
+          if (listContainer) {
+            renderRideOptionsList(listContainer, currentRideOptions);
+          }
+          showStatus('success', 'Sort updated.', false);
+          lastAsyncOperation = null;
+        } catch (error) {
+          console.error(error);
+          showStatus('error', 'Could not sort ride options. Please try again.', true);
+        }
+      }
+
+      function handleApplyPromo(formElement) {
+        var input = formElement.querySelector('input[name="promoCode"]');
+        var promoCode = input && input.value ? input.value.trim() : '';
+        if (!promoCode) {
+          renderPromoForm(formElement.parentNode, currentRideSearch, 'Please enter a promo code.', 'error', null);
+          return;
+        }
+        lastAsyncOperation = {
+          type: 'applyPromo',
+          args: {
+            promoCode: promoCode
+          }
+        };
+        showStatus('loading', 'Applying promo code...', false);
+        try {
+          var response = WebsiteSDK.applyPromoCodeToCurrentSearch(promoCode);
+          var promoContainer = formElement.parentNode;
+          if (response && response.success) {
+            if (response.rideSearch) {
+              if (!currentRideSearch) {
+                currentRideSearch = {};
+              }
+              Object.assign(currentRideSearch, response.rideSearch);
+            }
+            currentRideOptions = response.rideOptions ? response.rideOptions : currentRideOptions;
+
+            renderPromoForm(promoContainer, currentRideSearch, response.message || 'Promo applied.', 'success', response.appliedPromo || null);
+
+            var tripSummaryContainer = document.querySelector('[data-populate="trip-summary-header"]');
+            if (tripSummaryContainer) {
+              renderTripSummary(tripSummaryContainer, currentRideSearch, searchTypeParam);
+            }
+            var listContainer = document.querySelector('[data-populate="ride-options-list"]');
+            if (listContainer) {
+              renderRideOptionsList(listContainer, currentRideOptions);
+            }
+            showStatus('success', response.message || 'Promo applied.', false);
+            lastAsyncOperation = null;
+          } else {
+            var errorMessage = response && response.message ? response.message : 'Could not apply promo code.';
+            renderPromoForm(promoContainer, currentRideSearch, errorMessage, 'error', null);
+            showStatus('error', errorMessage, true);
+          }
+        } catch (error) {
+          console.error(error);
+          var promoContainerCatch = formElement.parentNode;
+          renderPromoForm(promoContainerCatch, currentRideSearch, 'Could not apply promo code. Please try again.', 'error', null);
+          showStatus('error', 'Could not apply promo code. Please try again.', true);
+        }
+      }
+
+      function handleSelectRideOption(buttonElement) {
+        if (buttonElement.disabled) {
+          return;
+        }
+        var rideOptionId = buttonElement.getAttribute('data-ride-option-id');
+        if (!rideOptionId) {
+          return;
+        }
+        var card = buttonElement.closest('.ride-option-card');
+        if (card) {
+          card.classList.add('is-loading');
+        }
+        buttonElement.disabled = true;
+
+        lastAsyncOperation = {
+          type: 'chooseRideOption',
+          args: {
+            rideOptionId: rideOptionId
+          }
+        };
+        showStatus('loading', 'Selecting ride option...', false);
+        try {
+          var response = WebsiteSDK.chooseRideOption(rideOptionId);
+          if (response && response.success && response.bookingDraftId) {
+            var bookingDraftId = response.bookingDraftId;
+            var url = 'ride_booking.html?bookingDraftId=' + encodeURIComponent(bookingDraftId) + '&rideSearchId=' + encodeURIComponent(rideSearchIdParam || '');
+            window.location.href = url;
+          } else {
+            var message = response && response.message ? response.message : 'Could not select this ride option.';
+            if (card) {
+              card.classList.remove('is-loading');
+            }
+            buttonElement.disabled = false;
+            showStatus('error', message, true);
+          }
+        } catch (error) {
+          console.error(error);
+          if (card) {
+            card.classList.remove('is-loading');
+          }
+          buttonElement.disabled = false;
+          showStatus('error', 'Could not select this ride option. Please try again.', true);
+        }
+      }
+
+      function navigateToEditSearch() {
+        var destination = 'index.html';
+        var pickupType = currentRideSearch && currentRideSearch.pickupType ? currentRideSearch.pickupType : null;
+        if (searchTypeParam === 'scheduled' || pickupType === 'scheduled') {
+          destination = 'schedule_ride.html';
+        }
+        window.location.href = destination;
+      }
+
+      function retryLastOperation() {
+        if (!lastAsyncOperation) {
+          performInitialLoad();
+          return;
+        }
+        var type = lastAsyncOperation.type;
+        var args = lastAsyncOperation.args || {};
+        if (type === 'init') {
+          performInitialLoad();
+        } else if (type === 'updateFilters') {
+          runUpdateFilters(args.rideCategoryFilter, args.minPassengerCapacity, args.accessibilityFilter || []);
+        } else if (type === 'applyPromo') {
+          var dummyFormContainer = document.querySelector('[data-populate="promo-code-form"]');
+          if (dummyFormContainer) {
+            showStatus('loading', 'Applying promo code...', false);
+            try {
+              var response = WebsiteSDK.applyPromoCodeToCurrentSearch(args.promoCode);
+              if (response && response.success) {
+                if (response.rideSearch) {
+                  if (!currentRideSearch) {
+                    currentRideSearch = {};
+                  }
+                  Object.assign(currentRideSearch, response.rideSearch);
+                }
+                currentRideOptions = response.rideOptions ? response.rideOptions : currentRideOptions;
+                renderPromoForm(dummyFormContainer, currentRideSearch, response.message || 'Promo applied.', 'success', response.appliedPromo || null);
+                var tripSummaryContainer = document.querySelector('[data-populate="trip-summary-header"]');
+                if (tripSummaryContainer) {
+                  renderTripSummary(tripSummaryContainer, currentRideSearch, searchTypeParam);
+                }
+                var listContainer = document.querySelector('[data-populate="ride-options-list"]');
+                if (listContainer) {
+                  renderRideOptionsList(listContainer, currentRideOptions);
+                }
+                showStatus('success', response.message || 'Promo applied.', false);
+                lastAsyncOperation = null;
+              } else {
+                var errorMessage = response && response.message ? response.message : 'Could not apply promo code.';
+                renderPromoForm(dummyFormContainer, currentRideSearch, errorMessage, 'error', null);
+                showStatus('error', errorMessage, true);
+              }
+            } catch (error) {
+              console.error(error);
+              renderPromoForm(dummyFormContainer, currentRideSearch, 'Could not apply promo code. Please try again.', 'error', null);
+              showStatus('error', 'Could not apply promo code. Please try again.', true);
+            }
+          }
+        } else if (type === 'sort') {
+          var pageContainer = document.querySelector('[data-component="ride-options-page-init"]');
+          var sortSelect = pageContainer ? pageContainer.querySelector('[data-action="sort-options"]') : null;
+          if (sortSelect) {
+            sortSelect.value = args.sortOption;
+            handleSortChange(sortSelect);
+          } else {
+            handleSortChange({ value: args.sortOption });
+          }
+        } else if (type === 'chooseRideOption') {
+          var button = document.querySelector('[data-action="select-ride-option"][data-ride-option-id="' + args.rideOptionId + '"]');
+          if (button) {
+            handleSelectRideOption(button);
+          } else {
+            showStatus('error', 'Please select a ride option again.', false);
+            lastAsyncOperation = null;
+          }
+        } else {
+          performInitialLoad();
+        }
+      }
+
+    })();
+  </script>
+</body>
+</html>

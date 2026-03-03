@@ -1,0 +1,110 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Most Powerful 3-Axis Mill Under 60k Added to Cart",
+      "description": "Checks that the cart contains quantity 1 of the most powerful qualifying 3-axis CNC milling machine under $60,000 with table size at least 800x400 mm.",
+      "localStorage_variables": [
+        "machine_models",
+        "cart",
+        "cart_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst machines = JSON.parse(localStorage.getItem('machine_models') || '[]');\nconst cart = JSON.parse(localStorage.getItem('cart') || 'null');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\n// Find eligible 3-axis mills under $60k with table >= 800x400 mm in cnc_milling_machines\nconst eligible = machines.filter(m => {\n  if (!m) return false;\n  if (m.productCategory !== 'cnc_milling_machines') return false;\n  if (m.machineType !== '3_axis') return false;\n  if (typeof m.axisCount === 'number' && m.axisCount !== 3) return false;\n  if (typeof m.price !== 'number' || m.price > 60000) return false;\n  if (typeof m.tableSizeXmm !== 'number' || m.tableSizeXmm < 800) return false;\n  if (typeof m.tableSizeYmm !== 'number' || m.tableSizeYmm < 400) return false;\n  return true;\n});\neligible.sort((a, b) => (b.spindlePowerKw || 0) - (a.spindlePowerKw || 0));\nconst target = eligible[0] || null;\nlet targetCartItem = null;\nif (cart && target) {\n  targetCartItem = cartItems.find(ci => ci.cartId === cart.id && ci.itemType === 'machine_model' && ci.productId === target.id) || null;\n}\n// CP1 (0.4): Correct most-powerful qualifying machine is in the cart\ncheckpoints.push({ passed: !!targetCartItem, weight: 0.4 });\n// CP2 (0.6): That cart line has quantity exactly 1\ncheckpoints.push({ passed: !!targetCartItem && targetCartItem.quantity === 1, weight: 0.6 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Entry-Level CNC Mill Configured and Quote Submitted",
+      "description": "Checks that an entry-level CNC mill was configured with ≥7.5 kW spindle, ATC, some coolant, total price ≤ $45,000, and that a quote request with contact details was submitted.",
+      "localStorage_variables": [
+        "configurable_machine_categories",
+        "config_option_groups",
+        "config_options",
+        "machine_configurations",
+        "quote_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst categories = JSON.parse(localStorage.getItem('configurable_machine_categories') || '[]');\nconst groups = JSON.parse(localStorage.getItem('config_option_groups') || '[]');\nconst options = JSON.parse(localStorage.getItem('config_options') || '[]');\nconst configs = JSON.parse(localStorage.getItem('machine_configurations') || '[]');\nconst quotes = JSON.parse(localStorage.getItem('quote_requests') || '[]');\n// Identify the entry-level CNC milling machine category dynamically by name\nconst entryCat = categories.find(c => (c.name || '').toLowerCase().includes('entry-level cnc milling machine')) || null;\nif (!entryCat) {\n  checkpoints.push({ passed: false, weight: 1.0 });\n  return 0;\n}\nconst spindleGroupIds = groups.filter(g => g.categoryId === entryCat.id && g.code === 'spindle').map(g => g.id);\nconst toolGroupIds = groups.filter(g => g.categoryId === entryCat.id && g.code === 'tool_changer').map(g => g.id);\nconst coolantGroupIds = groups.filter(g => g.categoryId === entryCat.id && g.code === 'coolant').map(g => g.id);\n// Analyze each quote + configuration for this category\nconst analyzed = quotes.map(q => {\n  const cfg = configs.find(c => c.id === q.configurationId);\n  if (!cfg || cfg.categoryId !== entryCat.id) return null;\n  const selectedOpts = options.filter(o => Array.isArray(cfg.selectedOptionIds) && cfg.selectedOptionIds.includes(o.id));\n  const spindlePower = selectedOpts\n    .filter(o => spindleGroupIds.includes(o.groupId) && typeof o.powerKw === 'number')\n    .reduce((max, o) => Math.max(max, o.powerKw), 0);\n  const includesAtc = selectedOpts.some(o => toolGroupIds.includes(o.groupId) && o.includesAtc === true);\n  const hasCoolant = selectedOpts.some(o => coolantGroupIds.includes(o.groupId) && o.coolantType && o.coolantType !== 'none');\n  const totalPrice = typeof cfg.totalPrice === 'number' ? cfg.totalPrice : 0;\n  return { quote: q, cfg, spindlePower, includesAtc, hasCoolant, totalPrice };\n}).filter(x => x !== null);\n// CP1 (0.4): At least one entry-level configuration with spindle power ≥ 7.5 kW has a quote\nconst withSpindle = analyzed.filter(x => x.spindlePower >= 7.5);\ncheckpoints.push({ passed: withSpindle.length > 0, weight: 0.4 });\n// CP2 (0.4): At least one configuration also has ATC, some coolant, and total price ≤ 45,000\nconst fullyQualifying = withSpindle.filter(x => x.includesAtc && x.hasCoolant && x.totalPrice <= 45000);\ncheckpoints.push({ passed: fullyQualifying.length > 0, weight: 0.4 });\n// CP3 (0.2): For a fully-qualifying configuration, quote has non-empty name and plausible email\nconst hasContact = fullyQualifying.some(x => {\n  const name = (x.quote.name || '').trim();\n  const email = (x.quote.email || '').trim();\n  return !!name && email.includes('@');\n});\ncheckpoints.push({ passed: hasContact, weight: 0.2 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Cheapest Compatible ProMill 500 Main Spindle Added Twice",
+      "description": "Checks that the cheapest in-stock main spindle compatible with a 2022 ProMill 500 was added to the cart with quantity two.",
+      "localStorage_variables": [
+        "spare_parts",
+        "machine_models",
+        "cart",
+        "cart_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst parts = JSON.parse(localStorage.getItem('spare_parts') || '[]');\nconst machines = JSON.parse(localStorage.getItem('machine_models') || '[]');\nconst cart = JSON.parse(localStorage.getItem('cart') || 'null');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\n// Find ProMill 500 machine model by name\nconst promill = machines.find(m => (m.name || '').toLowerCase() === 'promill 500');\nif (!promill || !cart) {\n  checkpoints.push({ passed: false, weight: 1.0 });\n  return 0;\n}\n// Eligible main spindle parts for ProMill 500, model year 2022, in stock\nconst eligible = parts.filter(p => {\n  if (!p) return false;\n  if (p.machineModelId !== promill.id) return false;\n  if (p.partCategory !== 'main_spindle') return false;\n  if (p.availabilityStatus !== 'in_stock') return false;\n  if (!Array.isArray(p.compatibleModelYears) || !p.compatibleModelYears.includes(2022)) return false;\n  if (p.isMainSpindle !== true) return false;\n  return true;\n});\neligible.sort((a, b) => (a.price || 0) - (b.price || 0));\nconst target = eligible[0] || null;\nlet targetCartItem = null;\nif (target) {\n  targetCartItem = cartItems.find(ci => ci.cartId === cart.id && ci.itemType === 'spare_part' && ci.productId === target.id) || null;\n}\n// CP1 (0.4): Cheapest qualifying main spindle is present in cart\ncheckpoints.push({ passed: !!targetCartItem && targetCartItem.quantity >= 1, weight: 0.4 });\n// CP2 (0.3): Quantity is at least 2\ncheckpoints.push({ passed: !!targetCartItem && targetCartItem.quantity >= 2, weight: 0.3 });\n// CP3 (0.3): Quantity is exactly 2\ncheckpoints.push({ passed: !!targetCartItem && targetCartItem.quantity === 2, weight: 0.3 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Earliest Online Beginner CNC Course Registration",
+      "description": "Checks that the user registered for the earliest online beginner/introductory CNC course starting after September 1, 2024, with one participant and contact details provided.",
+      "localStorage_variables": [
+        "training_courses",
+        "training_registrations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst courses = JSON.parse(localStorage.getItem('training_courses') || '[]');\nconst regs = JSON.parse(localStorage.getItem('training_registrations') || '[]');\nconst cutoff = new Date('2024-09-01T00:00:00Z').getTime();\n// Find earliest qualifying online course (beginner or introductory) starting on/after cutoff\nconst candidates = courses.filter(c => {\n  if (!c) return false;\n  if (c.deliveryMethod !== 'online') return false;\n  if (c.level !== 'beginner' && c.level !== 'introductory') return false;\n  const start = new Date(c.startDate).getTime();\n  return !isNaN(start) && start >= cutoff;\n});\ncandidates.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());\nconst targetCourse = candidates[0] || null;\nif (!targetCourse) {\n  checkpoints.push({ passed: false, weight: 1.0 });\n  return 0;\n}\nconst regsForTarget = regs.filter(r => r && r.courseId === targetCourse.id);\n// Take any registration for this course\nconst reg = regsForTarget[regsForTarget.length - 1] || null;\n// CP1 (0.5): There is a registration for the earliest qualifying course\ncheckpoints.push({ passed: !!reg, weight: 0.5 });\n// CP2 (0.3): Participants count is exactly 1\ncheckpoints.push({ passed: !!reg && reg.participantsCount === 1, weight: 0.3 });\n// CP3 (0.2): Registration has non-empty name and plausible email\nconst hasContact = !!reg && (reg.fullName || '').trim() && (reg.email || '').trim().includes('@');\ncheckpoints.push({ passed: hasContact, weight: 0.2 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Nearest Authorized Service Dealer Messaged",
+      "description": "Checks that the user contacted the nearest authorized service dealer within 100 km of ZIP code 60601 via the dealer contact form.",
+      "localStorage_variables": [
+        "dealers",
+        "dealer_messages",
+        "postal_geocodes"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst dealers = JSON.parse(localStorage.getItem('dealers') || '[]');\nconst dealerMessages = JSON.parse(localStorage.getItem('dealer_messages') || '[]');\nconst geocodes = JSON.parse(localStorage.getItem('postal_geocodes') || '[]');\n// Determine user location for postal code 60601 (match BusinessLogic strategy)\nlet userLocation = null;\nconst geo = geocodes.find(g => g.postalCode === '60601');\nif (geo && typeof geo.latitude === 'number' && typeof geo.longitude === 'number') {\n  userLocation = { latitude: geo.latitude, longitude: geo.longitude };\n} else {\n  const matches = dealers.filter(d => d.postalCode === '60601' && typeof d.latitude === 'number' && typeof d.longitude === 'number');\n  if (matches.length > 0) {\n    const avgLat = matches.reduce((sum, d) => sum + d.latitude, 0) / matches.length;\n    const avgLon = matches.reduce((sum, d) => sum + d.longitude, 0) / matches.length;\n    userLocation = { latitude: avgLat, longitude: avgLon };\n  }\n}\nif (!userLocation) {\n  checkpoints.push({ passed: false, weight: 1.0 });\n  return 0;\n}\n// Compute distances to authorized service centers\nconst toRad = deg => (deg * Math.PI) / 180;\nconst haversine = (aLat, aLon, bLat, bLon) => {\n  const R = 6371; // km\n  const dLat = toRad(bLat - aLat);\n  const dLon = toRad(bLon - aLon);\n  const rLat1 = toRad(aLat);\n  const rLat2 = toRad(bLat);\n  const aa = Math.sin(dLat / 2) ** 2 + Math.sin(dLon / 2) ** 2 * Math.cos(rLat1) * Math.cos(rLat2);\n  const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));\n  return R * c;\n};\nconst authorized = dealers.filter(d => d && d.isAuthorizedServiceCenter === true);\nconst withDistances = authorized.map(d => {\n  if (typeof d.latitude !== 'number' || typeof d.longitude !== 'number') {\n    return { dealer: d, distanceKm: null };\n  }\n  return {\n    dealer: d,\n    distanceKm: haversine(userLocation.latitude, userLocation.longitude, d.latitude, d.longitude)\n  };\n}).filter(dd => dd.distanceKm !== null && dd.distanceKm <= 100);\nwithDistances.sort((a, b) => a.distanceKm - b.distanceKm);\nconst nearest = withDistances[0] ? withDistances[0].dealer : null;\nlet msgToNearest = null;\nif (nearest) {\n  msgToNearest = dealerMessages.find(m => m && m.dealerId === nearest.id) || null;\n}\n// CP1 (0.7): A message was sent to the nearest authorized service dealer within 100 km of 60601\ncheckpoints.push({ passed: !!nearest && !!msgToNearest, weight: 0.7 });\n// CP2 (0.3): That message has non-empty name, email, and message body\nconst hasContent = !!msgToNearest && (msgToNearest.name || '').trim() && (msgToNearest.email || '').trim().includes('@') && (msgToNearest.message || '').trim();\ncheckpoints.push({ passed: hasContent, weight: 0.3 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "VMC 850 English Manual and Safety Instructions Downloaded",
+      "description": "Uses instrumentation flags to check that both the English user manual and English safety instructions for VMC 850 were downloaded.",
+      "localStorage_variables": [
+        "task6_userManualDownloaded",
+        "task6_safetyInstructionsDownloaded",
+        "documents",
+        "machine_models"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst manualDownloaded = JSON.parse(localStorage.getItem('task6_userManualDownloaded') || 'false');\nconst safetyDownloaded = JSON.parse(localStorage.getItem('task6_safetyInstructionsDownloaded') || 'false');\n// CP1 (0.5): User manual download event recorded\ncheckpoints.push({ passed: !!manualDownloaded, weight: 0.5 });\n// CP2 (0.5): Safety instructions download event recorded\ncheckpoints.push({ passed: !!safetyDownloaded, weight: 0.5 });\nreturn check   points.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Newest Aerospace Titanium 5-Axis Case Study Favorited and Link Copied",
+      "description": "Checks that the newest aerospace titanium 5-axis machining case study was added to favorites and its link was copied via the interface.",
+      "localStorage_variables": [
+        "case_studies",
+        "favorite_case_studies",
+        "industries",
+        "task7_linkCopiedCaseStudyId"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst caseStudies = JSON.parse(localStorage.getItem('case_studies') || '[]');\nconst favorites = JSON.parse(localStorage.getItem('favorite_case_studies') || '[]');\n// Find aerospace industry id dynamically\nconst industries = JSON.parse(localStorage.getItem('industries') || '[]');\nconst aero = industries.find(i => (i.name || '').toLowerCase().includes('aerospace')) || { id: 'aerospace' };\n// Newest aerospace case study with machineType=5_axis_machining_center and material=titanium\nconst candidates = caseStudies.filter(cs => {\n  if (!cs) return false;\n  if (cs.industryId !== aero.id) return false;\n  if (cs.machineType !== '5_axis_machining_center') return false;\n  if (cs.material !== 'titanium') return false;\n  return true;\n});\ncandidates.sort((a, b) => new Date(b.datePublished).getTime() - new Date(a.datePublished).getTime());\nconst target = candidates[0] || null;\nlet favorited = false;\nif (target) {\n  favorited = favorites.some(f => f && f.caseStudyId === target.id);\n}\nconst copiedId = localStorage.getItem('task7_linkCopiedCaseStudyId') || '';\n// CP1 (0.5): Target case study is in favorites\ncheckpoints.push({ passed: !!target && favorited, weight: 0.5 });\n// CP2 (0.5): Link was copied for that same target case study\ncheckpoints.push({ passed: !!target && copiedId === target.id, weight: 0.5 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Cheapest Qualifying Maintenance Plan Subscribed with Early October Start",
+      "description": "Checks that the user subscribed to the cheapest maintenance plan under $200/month that includes an annual on-site inspection, with a preferred start date in early October 2024 and contact details submitted.",
+      "localStorage_variables": [
+        "maintenance_plans",
+        "maintenance_subscriptions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst plans = JSON.parse(localStorage.getItem('maintenance_plans') || '[]');\nconst subs = JSON.parse(localStorage.getItem('maintenance_subscriptions') || '[]');\n// Find cheapest active plan with annual on-site inspection and monthly price ≤ 200\nconst qualifyingPlans = plans.filter(p => {\n  if (!p) return false;\n  if (p.status !== 'active') return false;\n  if (p.includesAnnualOnSiteInspection !== true) return false;\n  if (typeof p.monthlyPrice !== 'number' || p.monthlyPrice > 200) return false;\n  return true;\n});\nqualifyingPlans.sort((a, b) => (a.monthlyPrice || 0) - (b.monthlyPrice || 0));\nconst target = qualifyingPlans[0] || null;\nif (!target) {\n  checkpoints.push({ passed: false, weight: 1.0 });\n  return 0;\n}\nconst subsForTarget = subs.filter(s => s && s.planId === target.id);\n// CP1 (0.6): At least one subscription request for the cheapest qualifying plan\ncheckpoints.push({ passed: subsForTarget.length > 0, weight: 0.6 });\n// From those, check for early October 2024 preferred start date (1st–10th)\nconst earlyOctSubs = subsForTarget.filter(s => {\n  if (!s.preferredStartDate) return false;\n  const d = new Date(s.preferredStartDate);\n  if (isNaN(d.getTime())) return false;\n  const year = d.getUTCFullYear();\n  const month = d.getUTCMonth(); // 0-based, so October = 9\n  const day = d.getUTCDate();\n  return year === 2024 && month === 9 && day >= 1 && day <= 10;\n});\n// CP2 (0.25): A subscription for this plan specifies an early October 2024 start date\ncheckpoints.push({ passed: earlyOctSubs.length > 0, weight: 0.25 });\n// CP3 (0.15): That subscription has non-empty name and plausible email\nconst hasContact = earlyOctSubs.some(s => {\n  const name = (s.name || '').trim();\n  const email = (s.email || '').trim();\n  return !!name && email.includes('@');\n});\ncheckpoints.push({ passed: hasContact, weight: 0.15 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "configurable_machine_categories",
+    "dealers",
+    "industries",
+    "machine_models",
+    "maintenance_plans",
+    "training_courses",
+    "case_studies",
+    "config_option_groups",
+    "documents",
+    "spare_parts",
+    "config_options",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

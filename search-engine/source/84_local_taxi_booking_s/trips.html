@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Local Taxi Booking Service</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='trips.css'>
+</head>
+<body class='site-body'>
+  <header class='site-header'>
+    <div class='top-bar'>
+      <div class='top-bar-inner container'>
+        <div class='top-bar-brand'>Local Taxi Booking</div>
+        <div class='top-bar-message'>Reliable local taxi service b7 Book online or schedule in advance</div>
+        <div class='top-bar-cta' aria-hidden='true'>
+          <div class='cta-outer'>
+            <div class='cta-inner'>
+              <span class='cta-icon'>&#x260E;</span>
+              <span class='cta-label'>Call Us</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class='nav-bar'>
+      <div class='nav-bar-inner container'>
+        <a href='index.html' class='brand-block'>
+          <div class='brand-mark'>
+            <div class='brand-mark-car'>Taxi
+Logo</div>
+          </div>
+          <div class='brand-text'>
+            <span class='brand-text-line'>City</span>
+            <span class='brand-text-line'>Taxis</span>
+          </div>
+        </a>
+
+        <nav class='main-nav' aria-label='Primary'>
+          <ul class='main-nav-list'>
+            <li class='main-nav-item'>
+              <a href='index.html' class='main-nav-link'>Home</a>
+            </li>
+            <li class='main-nav-item'>
+              <a href='schedule_ride.html' class='main-nav-link'>Schedule Ride</a>
+            </li>
+            <li class='main-nav-item'>
+              <a href='trips.html?tab=upcoming' class='main-nav-link is-active'>My Trips</a>
+            </li>
+            <li class='main-nav-item'>
+              <a href='saved_places.html' class='main-nav-link'>Saved Places</a>
+            </li>
+            <li class='main-nav-item'>
+              <a href='support.html' class='main-nav-link'>Help &amp; Support</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <main id='content' class='site-content'>
+    <div class='page-band page-band--trips'>
+      <div class='container trips-container' data-component='trips-page-controller'>
+        <header class='trips-header'>
+          <h1 class='trips-title'>MY TRIPS</h1>
+          <p class='trips-subtitle'>View and manage your upcoming and past trips.</p>
+        </header>
+
+        <div class='trips-tabs' data-component='trip-group-tabs' role='tablist' aria-label='Trip groups'>
+          <button type='button' class='trips-tab trips-tab--active' data-action='change-tab' data-tab-value='upcoming' role='tab' aria-selected='true' tabindex='0'>
+            Upcoming
+          </button>
+          <button type='button' class='trips-tab' data-action='change-tab' data-tab-value='past' role='tab' aria-selected='false' tabindex='-1'>
+            Past
+          </button>
+        </div>
+
+        <section class='trips-main' aria-live='polite'>
+          <div class='trips-status'>
+            <div class='trips-loading' data-populate='trips-loading' aria-live='polite'></div>
+            <div class='trips-error' data-populate='trips-error' hidden></div>
+          </div>
+
+          <ul class='trips-list' data-component='trips-list' data-populate='trips-list'></ul>
+
+          <section class='trips-empty' data-component='trips-empty-state' data-populate='trips-empty-state'></section>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner container'>
+      <div class='footer-top'>
+        <div class='footer-brand'>
+          <div class='footer-brand-mark'>City Taxis</div>
+        </div>
+        <nav class='footer-nav' aria-label='Footer'>
+          <a href='about.html' class='footer-nav-link'>About</a>
+          <a href='faq.html' class='footer-nav-link'>FAQ</a>
+          <a href='support.html?topic=trip_issues' class='footer-nav-link'>Support</a>
+          <a href='terms.html' class='footer-nav-link'>Terms &amp; Conditions</a>
+          <a href='privacy.html' class='footer-nav-link'>Privacy Policy</a>
+        </nav>
+      </div>
+      <div class='footer-bottom'>
+        <p class='footer-copy'>&copy; <span class='footer-year'>2024</span> Local Taxi Booking Service. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var state = {
+        currentTab: 'upcoming',
+        highlightTripId: null,
+        trips: [],
+        isLoading: false,
+        error: null
+      };
+
+      var tabsContainer = document.querySelector("[data-component='trip-group-tabs']");
+      var loadingContainer = document.querySelector("[data-populate='trips-loading']");
+      var errorContainer = document.querySelector("[data-populate='trips-error']");
+      var listContainer = document.querySelector("[data-populate='trips-list']");
+      var emptyContainer = document.querySelector("[data-populate='trips-empty-state']");
+      var pageController = document.querySelector("[data-component='trips-page-controller']");
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value).replace(/[&<>"']/g, function(ch) {
+          var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+          return map[ch] || ch;
+        });
+      }
+
+      function formatDateTime(isoString) {
+        if (!isoString) {
+          return '';
+        }
+        var date = new Date(isoString);
+        if (isNaN(date.getTime())) {
+          return '';
+        }
+        try {
+          return date.toLocaleString(undefined, {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+          });
+        } catch (e) {
+          return date.toString();
+        }
+      }
+
+      function formatCurrency(amount, currency) {
+        if (amount === null || amount === undefined || isNaN(amount)) {
+          return '';
+        }
+        var rounded = Number(amount).toFixed(2);
+        if (!currency) {
+          return rounded;
+        }
+        return currency + ' ' + rounded;
+      }
+
+      function formatVehicleCategory(category) {
+        if (!category) {
+          return '';
+        }
+        var c = String(category);
+        if (c === 'minivan_xl') {
+          return 'Minivan XL';
+        }
+        return c.replace(/_/g, ' ').replace(/\b\w/g, function(ch) {
+          return ch.toUpperCase();
+        });
+      }
+
+      function formatStatus(status) {
+        if (!status) {
+          return '';
+        }
+        var s = String(status);
+        return s.replace(/_/g, ' ').replace(/\b\w/g, function(ch) {
+          return ch.toUpperCase();
+        });
+      }
+
+      function sortTrips(group, trips) {
+        var copy = Array.isArray(trips) ? trips.slice() : [];
+        copy.sort(function(a, b) {
+          var da = Date.parse(a && a.pickupDatetimePlanned) || 0;
+          var db = Date.parse(b && b.pickupDatetimePlanned) || 0;
+          if (group === 'past') {
+            return db - da;
+          }
+          return da - db;
+        });
+        return copy;
+      }
+
+      function normalizeInitialUrl(tab, highlightTripId) {
+        var params = new URLSearchParams(window.location.search);
+        params.set('tab', tab);
+        if (highlightTripId) {
+          params.set('highlightTripId', highlightTripId);
+        } else {
+          params.delete('highlightTripId');
+        }
+        var newUrl = window.location.pathname + '?' + params.toString();
+        window.history.replaceState({}, '', newUrl);
+      }
+
+      function updateUrlForTab(tab) {
+        var params = new URLSearchParams(window.location.search);
+        params.set('tab', tab);
+        params.delete('highlightTripId');
+        var newUrl = window.location.pathname + '?' + params.toString();
+        window.history.replaceState({}, '', newUrl);
+      }
+
+      function setActiveTabUI() {
+        if (!tabsContainer) {
+          return;
+        }
+        var buttons = tabsContainer.querySelectorAll("[data-action='change-tab']");
+        buttons.forEach(function(btn) {
+          var value = btn.getAttribute('data-tab-value');
+          var isActive = value === state.currentTab;
+          btn.classList.toggle('trips-tab--active', isActive);
+          btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+          btn.setAttribute('tabindex', isActive ? '0' : '-1');
+        });
+      }
+
+      function renderLoading(container, isLoading) {
+        if (!container) {
+          return;
+        }
+        if (isLoading) {
+          container.hidden = false;
+          container.textContent = 'Loading your trips...';
+          container.setAttribute('aria-busy', 'true');
+        } else {
+          container.hidden = true;
+          container.textContent = '';
+          container.removeAttribute('aria-busy');
+        }
+      }
+
+      function renderError(container, errorMessage) {
+        if (!container) {
+          return;
+        }
+        if (errorMessage) {
+          container.hidden = false;
+          container.innerHTML = "<p class='trips-error-message'>" + escapeHtml(errorMessage) + "</p>" +
+            "<button type='button' class='trips-error-retry' data-action='retry-load-trips'>Try again</button>";
+        } else {
+          container.hidden = true;
+          container.textContent = '';
+        }
+      }
+
+      function renderTripsList(container, trips, pageState) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        var list = Array.isArray(trips) ? trips : [];
+        if (list.length === 0) {
+          container.setAttribute('aria-busy', 'false');
+          return;
+        }
+        var group = pageState.currentTab;
+        var highlightTripId = pageState.highlightTripId;
+        var nextTripId = null;
+        if (group === 'upcoming' && list.length > 0) {
+          nextTripId = list[0].tripId || null;
+        }
+        list.forEach(function(trip) {
+          var li = document.createElement('li');
+          li.className = 'trip-item';
+          li.setAttribute('data-component', 'trip-list-item');
+          if (trip && trip.tripId) {
+            li.setAttribute('data-trip-id', trip.tripId);
+          }
+          if (trip && trip.status) {
+            li.setAttribute('data-trip-status', trip.status);
+          }
+          if (trip && trip.canModify) {
+            li.setAttribute('data-can-modify', 'true');
+          }
+          if (trip && trip.canCancel) {
+            li.setAttribute('data-can-cancel', 'true');
+          }
+          if (trip && trip.tripId === highlightTripId) {
+            li.classList.add('trip-item--highlighted');
+          }
+          if (trip && nextTripId && trip.tripId === nextTripId) {
+            li.classList.add('trip-item--next');
+          }
+
+          var pickupName = trip && trip.pickupPlaceName ? trip.pickupPlaceName : 'Pickup location';
+          var dropoffName = trip && trip.dropoffPlaceName ? trip.dropoffPlaceName : 'Drop-off location';
+          var whenText = formatDateTime(trip && trip.pickupDatetimePlanned);
+          var statusText = formatStatus(trip && trip.status);
+          var vehicleText = formatVehicleCategory(trip && trip.vehicleCategory);
+
+          var markers = [];
+          if (trip && trip.tripId === nextTripId && group === 'upcoming') {
+            markers.push('Next trip');
+          }
+          if (trip && trip.tripId === highlightTripId) {
+            markers.push('Just updated');
+          }
+          var markersHtml = markers.map(function(label) {
+            return "<span class='trip-marker'>" + escapeHtml(label) + "</span>";
+          }).join('');
+
+          var fareLabel = '';
+          var fareValue = '';
+          if (group === 'past' && trip && typeof trip.finalFare === 'number') {
+            fareLabel = 'Fare';
+            fareValue = formatCurrency(trip.finalFare, trip.currency);
+          } else if (trip && typeof trip.estimatedFare === 'number') {
+            fareLabel = 'Estimated fare';
+            fareValue = formatCurrency(trip.estimatedFare, trip.currency);
+          }
+
+          var manageabilityHtml = '';
+          if (trip && (trip.canModify || trip.canCancel)) {
+            var parts = [];
+            if (trip.canModify) {
+              parts.push('Changes allowed');
+            }
+            if (trip.canCancel) {
+              parts.push('Cancellation allowed');
+            }
+            manageabilityHtml = "<span class='trip-manageability'>" + parts.map(escapeHtml).join(' b7 ') + "</span>";
+          } else {
+            manageabilityHtml = "<span class='trip-manageability trip-manageability--locked'>Changes not available</span>";
+          }
+
+          li.innerHTML = `
+            <div class="trip-item-card">
+              <div class="trip-item-main" data-action="open-trip-detail" role="button" tabindex="0">
+                <div class="trip-item-header">
+                  <div class="trip-route">
+                    <span class="trip-route-place trip-route-place--from">${escapeHtml(pickupName)}</span>
+                    <span class="trip-route-arrow">b7b7b7</span>
+                    <span class="trip-route-place trip-route-place--to">${escapeHtml(dropoffName)}</span>
+                  </div>
+                  <div class="trip-meta">
+                    <span class="trip-when">${escapeHtml(whenText)}</span>
+                    <span class="trip-status trip-status--${escapeHtml(trip && trip.status ? trip.status : '')}">${escapeHtml(statusText)}</span>
+                    ${markersHtml}
+                  </div>
+                </div>
+                <div class="trip-item-body">
+                  <div class="trip-details-left">
+                    <div class="trip-vehicle">${escapeHtml(vehicleText)}</div>
+                    ${manageabilityHtml}
+                  </div>
+                  <div class="trip-details-right">
+                    ${fareValue ? `<span class="trip-fare-label">${escapeHtml(fareLabel)}</span>` : ''}
+                    ${fareValue ? `<span class="trip-fare-amount">${escapeHtml(fareValue)}</span>` : ''}
+                  </div>
+                </div>
+              </div>
+              <div class="trip-item-footer">
+                <button type="button" class="trip-help-link" data-action="trip-get-help">Get help with this trip</button>
+              </div>
+            </div>
+          `;
+
+          container.appendChild(li);
+        });
+        container.setAttribute('aria-busy', 'false');
+      }
+
+      function renderEmptyState(container, trips, pageState) {
+        if (!container) {
+          return;
+        }
+        var hasTrips = Array.isArray(trips) && trips.length > 0;
+        if (hasTrips) {
+          container.hidden = true;
+          container.innerHTML = '';
+          return;
+        }
+        var headingText;
+        var bodyText;
+        var ctaLabel;
+        if (pageState.currentTab === 'past') {
+          headingText = 'No past trips yet';
+          bodyText = 'Completed and cancelled trips will appear here for easy reference.';
+          ctaLabel = 'Schedule your first trip';
+        } else {
+          headingText = 'No upcoming trips';
+          bodyText = 'When you schedule a ride, it will appear here so you can review, change, or cancel it.';
+          ctaLabel = 'Schedule a new trip';
+        }
+        container.hidden = false;
+        container.innerHTML = `
+          <div class="trips-empty-inner">
+            <h2 class="trips-empty-title">${escapeHtml(headingText)}</h2>
+            <p class="trips-empty-text">${escapeHtml(bodyText)}</p>
+            <button type="button" class="btn btn-primary trips-empty-cta" data-action="start-new-booking">${escapeHtml(ctaLabel)}</button>
+          </div>
+        `;
+      }
+
+      function loadTrips() {
+        state.isLoading = true;
+        state.error = null;
+        renderLoading(loadingContainer, true);
+        renderError(errorContainer, null);
+        var trips = [];
+        try {
+          if (typeof WebsiteSDK !== 'undefined' && typeof WebsiteSDK.getTripsList === 'function') {
+            trips = WebsiteSDK.getTripsList(state.currentTab);
+          } else {
+            state.error = 'Trip data is temporarily unavailable.';
+          }
+        } catch (e) {
+          state.error = 'Sorry, we could not load your trips. Please try again.';
+        }
+        trips = Array.isArray(trips) ? trips : [];
+        var sorted = sortTrips(state.currentTab, trips);
+        state.trips = sorted;
+        state.isLoading = false;
+        renderLoading(loadingContainer, false);
+        renderError(errorContainer, state.error);
+        renderTripsList(listContainer, state.trips, state);
+        renderEmptyState(emptyContainer, state.trips, state);
+      }
+
+      function handleTabChange(newTab) {
+        if (newTab !== 'upcoming' && newTab !== 'past') {
+          return;
+        }
+        if (state.currentTab === newTab) {
+          return;
+        }
+        state.currentTab = newTab;
+        state.highlightTripId = null;
+        updateUrlForTab(newTab);
+        setActiveTabUI();
+        state.trips = [];
+        renderTripsList(listContainer, [], state);
+        renderEmptyState(emptyContainer, [], state);
+        loadTrips();
+      }
+
+      function navigateToTripDetail(tripId) {
+        if (!tripId) {
+          return;
+        }
+        window.location.href = 'trip_detail.html?tripId=' + encodeURIComponent(tripId);
+      }
+
+      function navigateToTripSupport(tripId) {
+        if (!tripId) {
+          return;
+        }
+        var url = 'support.html?topic=trip_issues&tripId=' + encodeURIComponent(tripId);
+        window.location.href = url;
+      }
+
+      function navigateToNewBooking() {
+        window.location.href = 'schedule_ride.html';
+      }
+
+      function initFromUrl() {
+        var params = new URLSearchParams(window.location.search);
+        var tab = params.get('tab');
+        var highlightTripId = params.get('highlightTripId');
+        if (tab !== 'upcoming' && tab !== 'past') {
+          tab = 'upcoming';
+          normalizeInitialUrl(tab, highlightTripId);
+        }
+        state.currentTab = tab;
+        state.highlightTripId = highlightTripId || null;
+        setActiveTabUI();
+      }
+
+      if (pageController) {
+        pageController.addEventListener('click', function(event) {
+          var actionEl = event.target.closest('[data-action]');
+          if (!actionEl) {
+            return;
+          }
+          var action = actionEl.getAttribute('data-action');
+          if (action === 'change-tab') {
+            var newTab = actionEl.getAttribute('data-tab-value');
+            handleTabChange(newTab);
+          } else if (action === 'retry-load-trips') {
+            loadTrips();
+          } else if (action === 'open-trip-detail') {
+            var item = actionEl.closest("[data-component='trip-list-item']");
+            var tripId = item ? item.getAttribute('data-trip-id') : null;
+            navigateToTripDetail(tripId);
+          } else if (action === 'trip-get-help') {
+            var itemHelp = actionEl.closest("[data-component='trip-list-item']");
+            var tripIdHelp = itemHelp ? itemHelp.getAttribute('data-trip-id') : null;
+            navigateToTripSupport(tripIdHelp);
+          } else if (action === 'start-new-booking') {
+            navigateToNewBooking();
+          }
+        });
+
+        pageController.addEventListener('keydown', function(event) {
+          var target = event.target;
+          if (!target || target.getAttribute('data-action') !== 'open-trip-detail') {
+            return;
+          }
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            var item = target.closest("[data-component='trip-list-item']");
+            var tripId = item ? item.getAttribute('data-trip-id') : null;
+            navigateToTripDetail(tripId);
+          }
+        });
+      }
+
+      initFromUrl();
+      loadTrips();
+    });
+  </script>
+</body>
+</html>

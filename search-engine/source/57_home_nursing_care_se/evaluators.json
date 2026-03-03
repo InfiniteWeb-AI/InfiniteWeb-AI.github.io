@@ -1,0 +1,105 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Overnight 3-Night Budget Plan Request Evaluator",
+      "description": "Checks if the user requested an overnight care plan for three nights per week in mid-April 2026 under $180/night and chose the lowest-priced qualifying plan.",
+      "localStorage_variables": [
+        "care_plans",
+        "care_plan_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst carePlans = JSON.parse(localStorage.getItem('care_plans') || '[]');\nconst carePlanRequests = JSON.parse(localStorage.getItem('care_plan_requests') || '[]');\n\nconst midStart = new Date('2026-04-10T00:00:00Z');\nconst midEnd = new Date('2026-04-20T23:59:59Z');\n\nfunction isDateInMidAprilRange(iso) {\n  if (!iso) return false;\n  const d = new Date(iso);\n  if (isNaN(d.getTime())) return false;\n  return d >= midStart && d <= midEnd;\n}\n\n// All overnight care plans that allow 3 nights/week and are within budget\nconst allThreeNightBudgetPlans = carePlans.filter(p => {\n  if (!p || p.plan_type !== 'overnight_care') return false;\n  if (typeof p.price_per_night !== 'number') return false;\n  const allowed = Array.isArray(p.allowed_visit_frequencies) ? p.allowed_visit_frequencies : [];\n  if (!allowed.includes('three_nights_per_week')) return false;\n  if (p.price_per_night > 180) return false;\n  return true;\n});\n\nlet cheapestPlan = null;\nallThreeNightBudgetPlans.forEach(p => {\n  if (!cheapestPlan || p.price_per_night < cheapestPlan.price_per_night) {\n    cheapestPlan = p;\n  }\n});\n\n// Care plan requests that match task criteria\nconst qualifyingRequests = carePlanRequests.filter(r => {\n  if (!r) return false;\n  if (r.requested_visit_frequency !== 'three_nights_per_week') return false;\n  if (!isDateInMidAprilRange(r.requested_start_date)) return false;\n  if (typeof r.max_budget_per_night !== 'number') return false;\n  if (r.max_budget_per_night > 180) return false;\n  const plan = carePlans.find(p => p.id === r.carePlanId);\n  if (!plan || plan.plan_type !== 'overnight_care') return false;\n  if (typeof plan.price_per_night !== 'number') return false;\n  if (plan.price_per_night > 180) return false;\n  const allowed = Array.isArray(plan.allowed_visit_frequencies) ? plan.allowed_visit_frequencies : [];\n  if (!allowed.includes('three_nights_per_week')) return false;\n  return true;\n});\n\n// CP1 (0.4): At least one care plan request matches 3 nights/week in mid-April 2026 under $180/night for an overnight plan.\ncheckpoints.push({ passed: qualifyingRequests.length > 0, weight: 0.4 });\n\n// CP2 (0.6): Among those requests, user chose the lowest-priced qualifying overnight plan.\nlet hasCheapestRequested = false;\nif (cheapestPlan) {\n  hasCheapestRequested = qualifyingRequests.some(r => r && r.carePlanId === cheapestPlan.id);\n}\ncheckpoints.push({ passed: !!cheapestPlan && hasCheapestRequested, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Shortlist Spanish-Speaking Caregivers Evaluator",
+      "description": "Checks if the user favorited at least two caregivers within ~10 miles of ZIP 94105 who speak Spanish, have 5+ years of experience, and rating >= 4.5.",
+      "localStorage_variables": [
+        "caregivers",
+        "favorite_caregivers"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst caregivers = JSON.parse(localStorage.getItem('caregivers') || '[]');\nconst favorites = JSON.parse(localStorage.getItem('favorite_caregivers') || '[]');\n\nconst targetZip = '94105';\nconst radius = 10;\n\nfunction approximateDistance(c, zipCode, radiusMiles) {\n  if (!c) return Infinity;\n  if (c.primary_zip === zipCode) return 0;\n  const maxRadius = typeof c.max_service_radius_miles === 'number' ? c.max_service_radius_miles : null;\n  if (maxRadius !== null && maxRadius >= radiusMiles) return radiusMiles;\n  return radiusMiles + 1;\n}\n\nconst qualifyingFavoriteCaregivers = favorites\n  .map(f => caregivers.find(c => c && c.id === f.caregiverId))\n  .filter(c => {\n    if (!c || !c.is_active) return false;\n    const distance = approximateDistance(c, targetZip, radius);\n    if (distance > radius) return false;\n    const langs = Array.isArray(c.languages) ? c.languages : [];\n    if (!langs.includes('spanish')) return false;\n    if (typeof c.years_experience !== 'number' || c.years_experience < 5) return false;\n    if (typeof c.rating !== 'number' || c.rating < 4.5) return false;\n    return true;\n  });\n\n// CP1 (0.4): At least one favorited caregiver meets ALL language, distance, experience, and rating criteria.\ncheckpoints.push({ passed: qualifyingFavoriteCaregivers.length >= 1, weight: 0.4 });\n\n// CP2 (0.6): At least two favorited caregivers meet ALL the criteria (target of the task).\ncheckpoints.push({ passed: qualifyingFavoriteCaregivers.length >= 2, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Earliest Wound-Care Post-Surgery Visit Booking Evaluator",
+      "description": "Checks if the user, as a guest, booked the earliest available 2-hour wound-care post-surgery visit on March 20, 2026.",
+      "localStorage_variables": [
+        "time_slots",
+        "bookings"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst timeSlots = JSON.parse(localStorage.getItem('time_slots') || '[]');\nconst bookings = JSON.parse(localStorage.getItem('bookings') || '[]');\n\nconst targetServiceId = 'post_surgery_wound_care_visit';\nconst targetSpec = 'wound_care';\nconst targetDuration = 120;\nconst targetDate = '2026-03-20';\n\nfunction getDatePart(iso) {\n  if (!iso || typeof iso !== 'string') return null;\n  return iso.slice(0, 10);\n}\n\n// All wound-care 2-hour slots for the target date (ignoring status so we can still detect the earliest after booking).\nconst candidateSlots = timeSlots.filter(ts => {\n  if (!ts) return false;\n  if (ts.serviceId !== targetServiceId) return false;\n  if (ts.duration_minutes !== targetDuration) return false;\n  if (ts.required_specialization !== targetSpec) return false;\n  if (getDatePart(ts.start_datetime) !== targetDate) return false;\n  return true;\n});\n\nlet earliestSlot = null;\ncandidateSlots.forEach(ts => {\n  const d = new Date(ts.start_datetime);\n  if (!earliestSlot || d < new Date(earliestSlot.start_datetime)) {\n    earliestSlot = ts;\n  }\n});\n\n// Guest bookings matching service, specialization, date, and duration.\nconst guestBookings = bookings.filter(b => {\n  if (!b) return false;\n  if (b.serviceId !== targetServiceId) return false;\n  if (b.specialization_required !== targetSpec) return false;\n  if (getDatePart(b.start_datetime) !== targetDate) return false;\n  if (b.duration_minutes !== targetDuration) return false;\n  if (b.booking_source !== 'web_guest') return false;\n  if (b.status !== 'scheduled') return false;\n  return true;\n});\n\n// CP1 (0.4): User created at least one guest booking for a 2-hour wound-care post-surgery visit on March 20, 2026.\ncheckpoints.push({ passed: guestBookings.length > 0, weight: 0.4 });\n\n// CP2 (0.6): That guest booking uses the earliest qualifying time slot on that date.\nlet bookedEarliest = false;\nif (earliestSlot) {\n  bookedEarliest = guestBookings.some(b => b.timeSlotId === earliestSlot.id && b.start_datetime === earliestSlot.start_datetime && b.end_datetime === earliestSlot.end_datetime);\n}\ncheckpoints.push({ passed: !!earliestSlot && bookedEarliest, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Cheapest Dementia Care Package Selection Evaluator",
+      "description": "Checks if the user selected the cheaper dementia care package offering at least 3 visits per week and set a start date in early April 2026.",
+      "localStorage_variables": [
+        "care_plans",
+        "care_package_selections"
+      ],
+      "evaluation_logic": "const checkointsAlias = [];\nconst checkpoints = checkointsAlias; // just to ensure a simple variable name\n\nconst carePlans = JSON.parse(localStorage.getItem('care_plans') || '[]');\nconst selections = JSON.parse(localStorage.getItem('care_package_selections') || '[]');\n\nconst earlyStart = new Date('2026-04-01T00:00:00Z');\nconst earlyEnd = new Date('2026-04-10T23:59:59Z');\n\nfunction inEarlyAprilRange(iso) {\n  if (!iso) return false;\n  const d = new Date(iso);\n  if (isNaN(d.getTime())) return false;\n  return d >= earlyStart && d <= earlyEnd;\n}\n\n// All dementia care plans with at least 3 visits/week and a defined monthly price\nconst dementiaPlans = carePlans.filter(p => {\n  if (!p || p.plan_type !== 'dementia_care') return false;\n  if (typeof p.visits_per_week !== 'number' || p.visits_per_week < 3) return false;\n  if (typeof p.monthly_price !== 'number') return false;\n  return true;\n});\n\nlet cheapestPlan = null;\ndementiaPlans.forEach(p => {\n  if (!cheapestPlan || p.monthly_price < cheapestPlan.monthly_price) {\n    cheapestPlan = p;\n  }\n});\n\n// Selections that choose a dementia care package with >=3 visits/week and early April 2026 start.\nconst qualifyingSelections = selections.filter(sel => {\n  if (!sel) return false;\n  if (!inEarlyAprilRange(sel.selected_start_date)) return false;\n  const plan = carePlans.find(p => p && p.id === sel.carePlanId);\n  if (!plan || plan.plan_type !== 'dementia_care') return false;\n  if (typeof plan.visits_per_week !== 'number' || plan.visits_per_week < 3) return false;\n  return true;\n});\n\n// CP1 (0.4): User selected at least one dementia care package (>=3 visits/week) with a start date in early April 2026.\ncheckpoints.push({ passed: qualifyingSelections.length > 0, weight: 0.4 });\n\n// CP2 (0.6): Among those selections, user chose the cheapest qualifying dementia care package.\nlet choseCheapest = false;\nif (cheapestPlan) {\n  choseCheapest = qualifyingSelections.some(sel => sel.carePlanId === cheapestPlan.id);\n}\ncheckpoints.push({ passed: !!cheapestPlan && choseCheapest, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Needs Assessment and Phone Consultation Booking Evaluator",
+      "description": "Checks if the user completed a needs assessment (with responses) and then booked a 30-minute phone consultation on March 10, 2026 at 3:00 PM linked to that assessment.",
+      "localStorage_variables": [
+        "assessment_results",
+        "assessment_responses",
+        "consultation_time_slots",
+        "consultation_bookings"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst assessmentResults = JSON.parse(localStorage.getItem('assessment_results') || '[]');\nconst assessmentResponses = JSON.parse(localStorage.getItem('assessment_responses') || '[]');\nconst consultSlots = JSON.parse(localStorage.getItem('consultation_time_slots') || '[]');\nconst consultBookings = JSON.parse(localStorage.getItem('consultation_bookings') || '[]');\n\n// Assessment completion: at least one result with at least one response tied to it.\nconst resultIdsWithResponses = assessmentResults\n  .map(r => r && r.id)\n  .filter(id => !!id && assessmentResponses.some(resp => resp && resp.assessmentResultId === id));\n\nconst hasCompletedAssessment = resultIdsWithResponses.length > 0;\n\n// CP1 (0.4): User completed an assessment with at least one recorded response.\ncheckpoints.push({ passed: hasCompletedAssessment, weight: 0.4 });\n\n// Find the target 3:00 PM phone slot on March 10, 2026.\nconst targetStart = '2026-03-10T15:00:00Z';\nconst targetSlot = consultSlots.find(s => s && s.start_datetime === targetStart && s.channel === 'phone');\n\n// Consultation booking must be scheduled for that slot, via phone, and linked to an assessment result.\nconst qualifyingBookings = consultBookings.filter(b => {\n  if (!b) return false;\n  if (!targetSlot) return false;\n  if (b.consultationTimeSlotId !== targetSlot.id) return false;\n  if (b.channel !== 'phone') return false;\n  if (b.status !== 'scheduled') return false;\n  if (b.scheduled_start_datetime !== targetSlot.start_datetime) return false;\n  if (b.scheduled_end_datetime !== targetSlot.end_datetime) return false;\n  if (!b.relatedAssessmentResultId) return false;\n  const res = assessmentResults.find(r => r && r.id === b.relatedAssessmentResultId);\n  return !!res;\n});\n\nconst hasCorrectConsultation = qualifyingBookings.length > 0;\n\n// CP2 (0.6): User booked the correct 3:00 PM phone consultation slot on March 10, 2026, tied to an assessment result.\ncheckpoints.push({ passed: !!targetSlot && hasCorrectConsultation, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Most Popular Fall-Prevention Article Save and Share Evaluator",
+      "description": "Checks if the user saved and requested the share link for the most popular fall-prevention article from the last 12 months.",
+      "localStorage_variables": [
+        "article_categories",
+        "articles",
+        "saved_articles",
+        "task6_shareLinkInfo"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst categories = JSON.parse(localStorage.getItem('article_categories') || '[]');\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst saved = JSON.parse(localStorage.getItem('saved_articles') || '[]');\n\nlet shareInfoRaw = localStorage.getItem('task6_shareLinkInfo');\nlet shareInfo = null;\ntry {\n  shareInfo = shareInfoRaw ? JSON.parse(shareInfoRaw) : null;\n} catch (e) {\n  shareInfo = null;\n}\n\n// Emulate searchArticles for category \"Safety & Fall Prevention\" and date range \"last 12 months\", sorted by most_popular.\nconst fallCat = categories.find(c => c && c.slug === 'safety-fall-prevention');\nlet filtered = articles.slice();\n\nif (fallCat) {\n  filtered = filtered.filter(a => {\n    if (!a) return false;\n    if (a.primaryCategoryId === fallCat.id) return true;\n    const cats = Array.isArray(a.categoryIds) ? a.categoryIds : [];\n    return cats.includes(fallCat.id);\n  });\n}\n\nconst now = new Date();\nconst fromDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);\n\nfiltered = filtered.filter(a => {\n  if (!a || !a.publish_datetime) return false;\n  const pub = new Date(a.publish_datetime);\n  if (isNaN(pub.getTime())) return false;\n  return pub >= fromDate && pub <= now;\n});\n\nfiltered.sort((a, b) => {\n  const ap = typeof a.popularity_score === 'number' ? a.popularity_score : 0;\n  const bp = typeof b.popularity_score === 'number' ? b.popularity_score : 0;\n  if (bp !== ap) return bp - ap;\n  const av = typeof a.view_count === 'number' ? a.view_count : 0;\n  const bv = typeof b.view_count === 'number' ? b.view_count : 0;\n  return bv - av;\n});\n\nconst topArticle = filtered[0] || null;\n\n// CP1 (0.5): User saved the top fall-prevention article from the last 12 months.\nlet savedTop = false;\nif (topArticle) {\n  savedTop = saved.some(s => s && s.articleId === topArticle.id);\n}\ncheckpoints.push({ passed: !!topArticle && savedTop, weight: 0.5 });\n\n// CP2 (0.5): User requested the share link for that same top article (share info matches article id and URL).\nlet sharedTop = false;\nif (topArticle && shareInfo) {\n  sharedTop = shareInfo.articleId === topArticle.id && shareInfo.shareUrl === topArticle.share_url;\n}\ncheckpoints.push({ passed: !!topArticle && sharedTop, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Custom Weekly 10-Hour Care Plan Estimate Evaluator",
+      "description": "Checks if the user built a weekly estimate combining personal care, medication reminders, and household support under $700/week and submitted an estimate request.",
+      "localStorage_variables": [
+        "weekly_care_plan_estimates",
+        "weekly_care_plan_service_items",
+        "estimate_requests",
+        "care_services"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst estimates = JSON.parse(localStorage.getItem('weekly_care_plan_estimates') || '[]');\nconst items = JSON.parse(localStorage.getItem('weekly_care_plan_service_items') || '[]');\nconst requests = JSON.parse(localStorage.getItem('estimate_requests') || '[]');\nconst services = JSON.parse(localStorage.getItem('care_services') || '[]');\n\nfunction itemsForEstimate(estimateId) {\n  return items.filter(i => i && i.estimateId === estimateId);\n}\n\n// Estimate requests that use all three required service types and have total weekly cost under $700.\nconst qualifyingRequests = requests.filter(req => {\n  if (!req) return false;\n  const estimate = estimates.find(e => e && e.id === req.estimateId);\n  if (!estimate) return false;\n  if (estimate.status !== 'submitted') return false;\n  if (!req.full_name || !req.email || !req.phone) return false;\n  if (typeof estimate.total_weekly_cost !== 'number' || estimate.total_weekly_cost > 700) return false;\n\n  const estItems = itemsForEstimate(estimate.id);\n  if (estItems.length === 0) return false;\n\n  let hasPersonal = false;\n  let hasMed = false;\n  let hasHousehold = false;\n\n  estItems.forEach(it => {\n    const svc = services.find(s => s && s.id === it.serviceId);\n    if (!svc) return;\n    if (svc.service_type === 'personal_care') hasPersonal = true;\n    if (svc.service_type === 'medication_reminders') hasMed = true;\n    if (svc.service_type === 'household_support') hasHousehold = true;\n  });\n\n  if (!(hasPersonal && hasMed && hasHousehold)) return false;\n  return true;\n});\n\n// CP1 (0.6): User submitted at least one estimate request where the linked estimate includes all three required services and total weekly cost <= $700.\ncheckpoints.push({ passed: qualifyingRequests.length > 0, weight: 0.6 });\n\n// CP2 (0.4): For at least one such request, the total hours per week are \"around\" 10 (8–12 hours).\nconst qualifyingWithHours = qualifyingRequests.filter(req => {\n  const estimate = estimates.find(e => e && e.id === req.estimateId);\n  if (!estimate || typeof estimate.total_hours_per_week !== 'number') return false;\n  return estimate.total_hours_per_week >= 8 && estimate.total_hours_per_week <= 12;\n});\n\ncheckpoints.push({ passed: qualifyingWithHours.length > 0, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Existing Home Visit Reschedule Evaluator",
+      "description": "Checks if the user rescheduled booking HN123456 (Morgan) to March 8, 2026 at 10:00 AM using an appropriate time slot.",
+      "localStorage_variables": [
+        "bookings",
+        "time_slots"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst bookings = JSON.parse(localStorage.getItem('bookings') || '[]');\nconst timeSlots = JSON.parse(localStorage.getItem('time_slots') || '[]');\n\nfunction getDatePart(iso) {\n  if (!iso || typeof iso !== 'string') return null;\n  return iso.slice(0, 10);\n}\n\nfunction getTimePart(iso) {\n  if (!iso || typeof iso !== 'string') return null;\n  return iso.slice(11, 19);\n}\n\nconst booking = bookings.find(b => b && b.id === 'HN123456' && (b.client_last_name || '').toLowerCase() === 'morgan');\n\n// CP1 (0.4): Booking HN123456 exists for Morgan and is now set to March 8, 2026 at 10:00 AM.\nlet isRescheduledToTarget = false;\nif (booking) {\n  isRescheduledToTarget = getDatePart(booking.start_datetime) === '2026-03-08' && getTimePart(booking.start_datetime) === '10:00:00';\n}\ncheckpoints.push({ passed: isRescheduledToTarget, weight: 0.4 });\n\n// CP2 (0.6): The booking uses the time slot that corresponds to that 10:00 AM March 8, 2026 slot for the same service.\nlet usesCorrectSlot = false;\nif (booking && isRescheduledToTarget) {\n  const targetSlot = timeSlots.find(ts => ts && ts.serviceId === booking.serviceId && getDatePart(ts.start_datetime) === '2026-03-08' && getTimePart(ts.start_datetime) === '10:00:00');\n  if (targetSlot) {\n    usesCorrectSlot = booking.timeSlotId === targetSlot.id && booking.start_datetime === targetSlot.start_datetime && booking.end_datetime === targetSlot.end_datetime;\n  }\n}\ncheckpoints.push({ passed: usesCorrectSlot, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "article_categories",
+    "assessment_questions",
+    "care_services",
+    "caregivers",
+    "consultation_time_slots",
+    "articles",
+    "assessment_options",
+    "time_slots",
+    "bookings",
+    "care_plan_requests",
+    "care_plans",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

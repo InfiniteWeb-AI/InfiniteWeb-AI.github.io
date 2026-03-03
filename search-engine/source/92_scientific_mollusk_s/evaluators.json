@@ -1,0 +1,107 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Deep-Sea Mollusk Collection Evaluator",
+      "description": "Checks whether any collection contains at least 3 marine species with min_depth_m ≥ 1000 m and min_length_cm ≥ 10 cm.",
+      "localStorage_variables": [
+        "collections",
+        "collection_items",
+        "species"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst collections = JSON.parse(localStorage.getItem('collections') || '[]');\nconst collectionItems = JSON.parse(localStorage.getItem('collection_items') || '[]');\nconst species = JSON.parse(localStorage.getItem('species') || '[]');\n\n// Build species map\nconst speciesMap = new Map();\nfor (const s of species) {\n  if (s && s.id) speciesMap.set(s.id, s);\n}\n\n// Map collection_id -> array of species_ids\nconst itemsByCollection = new Map();\nfor (const ci of collectionItems) {\n  if (!ci || !ci.collection_id || !ci.species_id) continue;\n  if (!itemsByCollection.has(ci.collection_id)) itemsByCollection.set(ci.collection_id, []);\n  itemsByCollection.get(ci.collection_id).push(ci.species_id);\n}\n\nlet bestCount = 0;\nfor (const [colId, speciesIds] of itemsByCollection.entries()) {\n  const uniqueIds = Array.from(new Set(speciesIds));\n  let count = 0;\n  for (const sid of uniqueIds) {\n    const s = speciesMap.get(sid);\n    if (!s) continue;\n    if (s.habitat_type !== 'marine') continue;\n    if (typeof s.min_depth_m !== 'number' || s.min_depth_m < 1000) continue;\n    if (typeof s.min_length_cm !== 'number' || s.min_length_cm < 10) continue;\n    count++;\n  }\n  if (count > bestCount) bestCount = count;\n}\n\n// Checkpoints reward how many qualifying species the best collection contains\ncheckpoints.push({ passed: bestCount >= 1, weight: 0.34 });\ncheckpoints.push({ passed: bestCount >= 2, weight: 0.33 });\ncheckpoints.push({ passed: bestCount >= 3, weight: 0.33 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Highest-Risk Tridacna Comparison Evaluator",
+      "description": "Checks whether there is a comparison set containing exactly one species, and that species is the most threatened member of genus Tridacna.",
+      "localStorage_variables": [
+        "comparison_sets",
+        "comparison_items",
+        "species"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst comparisonSets = JSON.parse(localStorage.getItem('comparison_sets') || '[]');\nconst comparisonItems = JSON.parse(localStorage.getItem('comparison_items') || '[]');\nconst species = JSON.parse(localStorage.getItem('species') || '[]');\n\n// Map of conservation status severity\nconst severityMap = { cr: 7, en: 6, vu: 5, nt: 4, lc: 3, dd: 2, ne: 1 };\n\n// All Tridacna species\nconst tridacnaSpecies = species.filter(s => s && typeof s.genus_id === 'string' && s.genus_id.toLowerCase() === 'tridacna');\nif (!tridacnaSpecies || tridacnaSpecies.length === 0) {\n  return 0;\n}\n\n// Find the most threatened Tridacna species (could be a tie)\nlet maxSeverity = -1;\nlet bestSpeciesIds = [];\nfor (const s of tridacnaSpecies) {\n  const sev = severityMap[s.conservation_status] || 0;\n  if (sev > maxSeverity) {\n    maxSeverity = sev;\n    bestSpeciesIds = [s.id];\n  } else if (sev === maxSeverity) {\n    bestSpeciesIds.push(s.id);\n  }\n}\n\nlet hasPerfectSet = false;\nfor (const set of comparisonSets) {\n  if (!set || !set.id) continue;\n  const items = comparisonItems.filter(ci => ci && ci.comparison_set_id === set.id);\n  const uniqueSpeciesIds = Array.from(new Set(items.map(ci => ci.species_id).filter(Boolean)));\n  // Must be a single-species comparison\n  if (uniqueSpeciesIds.length !== 1) continue;\n  const sid = uniqueSpeciesIds[0];\n  if (bestSpeciesIds.includes(sid)) {\n    hasPerfectSet = true;\n    break;\n  }\n}\n\ncheckpoints.push({ passed: hasPerfectSet, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Invasive North America Freshwater Collection Evaluator",
+      "description": "Checks whether any collection contains at least 2 freshwater species that are invasive in North America with first_record_year ≥ 1950.",
+      "localStorage_variables": [
+        "collections",
+        "collection_items",
+        "species",
+        "species_distributions",
+        "regions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst collections = JSON.parse(localStorage.getItem('collections') || '[]');\nconst collectionItems = JSON.parse(localStorage.getItem('collection_items') || '[]');\nconst species = JSON.parse(localStorage.getItem('species') || '[]');\nconst distributions = JSON.parse(localStorage.getItem('species_distributions') || '[]');\nconst regions = JSON.parse(localStorage.getItem('regions') || '[]');\n\n// Find North America region id\nlet northAmericaId = null;\nfor (const r of regions) {\n  if (!r) continue;\n  if (r.name === 'North America' || r.id === 'north_america' || r.code === 'NA') {\n    northAmericaId = r.id;\n    break;\n  }\n}\nif (!northAmericaId) {\n  return 0;\n}\n\n// Index species and distributions\nconst speciesMap = new Map();\nfor (const s of species) {\n  if (s && s.id) speciesMap.set(s.id, s);\n}\n\nconst distsBySpecies = new Map();\nfor (const d of distributions) {\n  if (!d || !d.species_id) continue;\n  if (!distsBySpecies.has(d.species_id)) distsBySpecies.set(d.species_id, []);\n  distsBySpecies.get(d.species_id).push(d);\n}\n\n// Map collection -> qualifying invasive freshwater species in North America\nconst itemsByCollection = new Map();\nfor (const ci of collectionItems) {\n  if (!ci || !ci.collection_id || !ci.species_id) continue;\n  if (!itemsByCollection.has(ci.collection_id)) itemsByCollection.set(ci.collection_id, []);\n  itemsByCollection.get(ci.collection_id).push(ci.species_id);\n}\n\nlet bestCount = 0;\nfor (const [colId, speciesIds] of itemsByCollection.entries()) {\n  const uniqueIds = Array.from(new Set(speciesIds));\n  let count = 0;\n  for (const sid of uniqueIds) {\n    const s = speciesMap.get(sid);\n    if (!s) continue;\n    if (s.habitat_type !== 'freshwater') continue;\n    const dists = distsBySpecies.get(s.id) || [];\n    const hasQualifyingNA = dists.some(d => {\n      if (!d.is_present) return false;\n      if (d.region_id !== northAmericaId) return false;\n      if (typeof d.first_record_year !== 'number' || d.first_record_year < 1950) return false;\n      const status = d.occurrence_status;\n      const invasiveFlag = d.is_invasive === true || d.is_introduced === true || status === 'invasive' || status === 'introduced';\n      return invasiveFlag;\n    });\n    if (!hasQualifyingNA) continue;\n    count++;\n  }\n  if (count > bestCount) bestCount = count;\n}\n\ncheckpoints.push({ passed: bestCount >= 1, weight: 0.5 });\ncheckpoints.push({ passed: bestCount >= 2, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Largest Indo-Pacific Cephalopod List Evaluator",
+      "description": "Checks whether there is a collection containing exactly one species, and that species is the largest Indo-Pacific cephalopod with max_length_cm ≥ 50.",
+      "localStorage_variables": [
+        "collections",
+        "collection_items",
+        "species",
+        "species_distributions",
+        "regions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst collections = JSON.parse(localStorage.getItem('collections') || '[]');\nconst collectionItems = JSON.parse(localStorage.getItem('collection_items') || '[]');\nconst species = JSON.parse(localStorage.getItem('species') || '[]');\nconst distributions = JSON.parse(localStorage.getItem('species_distributions') || '[]');\nconst regions = JSON.parse(localStorage.getItem('regions') || '[]');\n\n// Find Indo-Pacific region id\nlet indoPacificId = null;\nfor (const r of regions) {\n  if (!r) continue;\n  if (r.name === 'Indo-Pacific' || r.id === 'indo_pacific' || r.code === 'indo_pacific') {\n    indoPacificId = r.id;\n    break;\n  }\n}\nif (!indoPacificId) {\n  return 0;\n}\n\n// Index distributions by species\nconst distsBySpecies = new Map();\nfor (const d of distributions) {\n  if (!d || !d.species_id) continue;\n  if (!distsBySpecies.has(d.species_id)) distsBySpecies.set(d.species_id, []);\n  distsBySpecies.get(d.species_id).push(d);\n}\n\n// Candidate cephalopods in Indo-Pacific with max_length_cm >= 50\nconst candidates = [];\nfor (const s of species) {\n  if (!s || !s.id) continue;\n  if (!s.class_id || s.class_id.toLowerCase() !== 'cephalopoda') continue;\n  if (typeof s.max_length_cm !== 'number' || s.max_length_cm < 50) continue;\n  const dists = distsBySpecies.get(s.id) || [];\n  const inIndoPacific = dists.some(d => d.is_present && d.region_id === indoPacificId);\n  if (!inIndoPacific) continue;\n  candidates.push(s);\n}\n\nif (candidates.length === 0) {\n  return 0;\n}\n\nlet maxLen = -Infinity;\nfor (const s of candidates) {\n  if (typeof s.max_length_cm === 'number' && s.max_length_cm > maxLen) {\n    maxLen = s.max_length_cm;\n  }\n}\n\nconst largestIds = candidates.filter(s => s.max_length_cm === maxLen).map(s => s.id);\n\n// Map collections -> species\nconst itemsByCollection = new Map();\nfor (const ci of collectionItems) {\n  if (!ci || !ci.collection_id || !ci.species_id) continue;\n  if (!itemsByCollection.has(ci.collection_id)) itemsByCollection.set(ci.collection_id, []);\n  itemsByCollection.get(ci.collection_id).push(ci.species_id);\n}\n\nlet hasPerfectCollection = false;\nfor (const [colId, speciesIds] of itemsByCollection.entries()) {\n  const uniqueIds = Array.from(new Set(speciesIds.filter(Boolean)));\n  if (uniqueIds.length !== 1) continue;\n  const sid = uniqueIds[0];\n  if (largestIds.includes(sid)) {\n    hasPerfectCollection = true;\n    break;\n  }\n}\n\ncheckpoints.push({ passed: hasPerfectCollection, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Cephalopod Camouflage Teaching Favorite Evaluator",
+      "description": "Checks whether at least one favorited teaching resource is about cephalopod camouflage, targets ages 12–14, and was published between 2019 and 2024.",
+      "localStorage_variables": [
+        "favorite_resources",
+        "teaching_resources"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst favorites = JSON.parse(localStorage.getItem('favorite_resources') || '[]');\nconst resources = JSON.parse(localStorage.getItem('teaching_resources') || '[]');\n\nconst resourceMap = new Map();\nfor (const r of resources) {\n  if (r && r.id) resourceMap.set(r.id, r);\n}\n\nconst qualifyingFavorites = favorites.filter(f => {\n  if (!f || !f.resource_id) return false;\n  const r = resourceMap.get(f.resource_id);\n  if (!r) return false;\n  const keywords = Array.isArray(r.keywords) ? r.keywords.map(k => String(k).toLowerCase()) : [];\n  const hasCamouflageKeyword = keywords.some(k => k.includes('cephalopod camouflage'));\n  if (!hasCamouflageKeyword) return false;\n  if (typeof r.target_age_min !== 'number' || typeof r.target_age_max !== 'number') return false;\n  if (r.target_age_min < 12 || r.target_age_max > 14) return false;\n  if (typeof r.publication_year !== 'number') return false;\n  if (r.publication_year < 2019 || r.publication_year > 2024) return false;\n  return true;\n});\n\ncheckpoints.push({ passed: qualifyingFavorites.length >= 1, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Japan vs Australia Distribution Comparison Evaluator",
+      "description": "Checks whether any comparison set includes at least one species present in both Japan and Australia and at least one species present in Japan but not Australia.",
+      "localStorage_variables": [
+        "comparison_sets",
+        "comparison_items",
+        "species_distributions",
+        "regions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst comparisonSets = JSON.parse(localStorage.getItem('comparison_sets') || '[]');\nconst comparisonItems = JSON.parse(localStorage.getItem('comparison_items') || '[]');\nconst distributions = JSON.parse(localStorage.getItem('species_distributions') || '[]');\nconst regions = JSON.parse(localStorage.getItem('regions') || '[]');\n\nlet japanId = null;\nlet australiaId = null;\nfor (const r of regions) {\n  if (!r) continue;\n  if (!japanId && (r.name === 'Japan' || r.id === 'japan' || r.code === 'JP')) japanId = r.id;\n  if (!australiaId && (r.name === 'Australia' || r.id === 'australia' || r.code === 'AU')) australiaId = r.id;\n}\nif (!japanId || !australiaId) {\n  return 0;\n}\n\n// Presence map: species_id -> { jp: bool, au: bool }\nconst presence = new Map();\nfor (const d of distributions) {\n  if (!d || !d.species_id || !d.is_present) continue;\n  if (d.region_id !== japanId && d.region_id !== australiaId) continue;\n  const entry = presence.get(d.species_id) || { jp: false, au: false };\n  if (d.region_id === japanId) entry.jp = true;\n  if (d.region_id === australiaId) entry.au = true;\n  presence.set(d.species_id, entry);\n}\n\n// Map comparison_set -> species_ids\nconst itemsBySet = new Map();\nfor (const ci of comparisonItems) {\n  if (!ci || !ci.comparison_set_id || !ci.species_id) continue;\n  if (!itemsBySet.has(ci.comparison_set_id)) itemsBySet.set(ci.comparison_set_id, []);\n  itemsBySet.get(ci.comparison_set_id).push(ci.species_id);\n}\n\nlet hasBothSpeciesSet = false;\nlet hasFullRequirementSet = false;\n\nfor (const set of comparisonSets) {\n  if (!set || !set.id) continue;\n  const speciesIds = Array.from(new Set((itemsBySet.get(set.id) || []).filter(Boolean)));\n  if (speciesIds.length === 0) continue;\n\n  const bothRegions = [];\n  const japanOnly = [];\n\n  for (const sid of speciesIds) {\n    const p = presence.get(sid);\n    if (!p) continue;\n    if (p.jp && p.au) bothRegions.push(sid);\n    if (p.jp && !p.au) japanOnly.push(sid);\n  }\n\n  if (bothRegions.length > 0) {\n    hasBothSpeciesSet = true;\n  }\n  if (bothRegions.length > 0 && japanOnly.length > 0) {\n    hasFullRequirementSet = true;\n    // We don't break so we can still correctly set hasBothSpeciesSet, but it's already true\n  }\n}\n\ncheckpoints.push({ passed: hasBothSpeciesSet, weight: 0.4 });\ncheckpoints.push({ passed: hasFullRequirementSet, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Earliest Western Atlantic Muricidae Bookmark Evaluator",
+      "description": "Checks whether the earliest-described Muricidae species present in the Western Atlantic is bookmarked, with partial credit for bookmarking any Western Atlantic Muricidae.",
+      "localStorage_variables": [
+        "bookmarked_species",
+        "species",
+        "species_distributions",
+        "regions",
+        "taxa"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst bookmarks = JSON.parse(localStorage.getItem('bookmarked_species') || '[]');\nconst species = JSON.parse(localStorage.getItem('species') || '[]');\nconst distributions = JSON.parse(localStorage.getItem('species_distributions') || '[]');\nconst regions = JSON.parse(localStorage.getItem('regions') || '[]');\nconst taxa = JSON.parse(localStorage.getItem('taxa') || '[]');\n\n// Find Muricidae family id\nlet muricidaeId = null;\nfor (const t of taxa) {\n  if (!t) continue;\n  if (t.rank === 'family' && t.name === 'Muricidae') {\n    muricidaeId = t.id;\n    break;\n  }\n}\nif (!muricidaeId) {\n  muricidaeId = 'muricidae';\n}\n\n// Find Western Atlantic region id\nlet waId = null;\nfor (const r of regions) {\n  if (!r) continue;\n  if (r.name === 'Western Atlantic' || r.id === 'western_atlantic' || r.code === 'western_atlantic') {\n    waId = r.id;\n    break;\n  }\n}\nif (!waId) {\n  return 0;\n}\n\n// Index distributions by species\nconst distsBySpecies = new Map();\nfor (const d of distributions) {\n  if (!d || !d.species_id) continue;\n  if (!distsBySpecies.has(d.species_id)) distsBySpecies.set(d.species_id, []);\n  distsBySpecies.get(d.species_id).push(d);\n}\n\n// Muricidae species present in Western Atlantic\nconst muricidaeWA = [];\nfor (const s of species) {\n  if (!s || !s.id) continue;\n  if (s.family_id !== muricidaeId) continue;\n  const dists = distsBySpecies.get(s.id) || [];\n  const presentInWA = dists.some(d => d.is_present && d.region_id === waId);\n  if (!presentInWA) continue;\n  muricidaeWA.push(s);\n}\n\nif (muricidaeWA.length === 0) {\n  return 0;\n}\n\n// Find earliest year_described among Muricidae in Western Atlantic\nlet minYear = Infinity;\nfor (const s of muricidaeWA) {\n  if (typeof s.year_described === 'number' && s.year_described < minYear) {\n    minYear = s.year_described;\n  }\n}\nif (!isFinite(minYear)) {\n  return 0;\n}\n\nconst earliestIds = muricidaeWA.filter(s => s.year_described === minYear).map(s => s.id);\n\nconst muricidaeWAIds = new Set(muricidaeWA.map(s => s.id));\nconst bookmarkedIds = new Set(bookmarks.map(b => b && b.species_id).filter(Boolean));\n\nconst bookmarkedMuricidaeWA = Array.from(bookmarkedIds).filter(id => muricidaeWAIds.has(id));\nconst bookmarkedEarliest = Array.from(bookmarkedIds).filter(id => earliestIds.includes(id));\n\n// Partial credit: any Western Atlantic Muricidae bookmarked; full credit: earliest one bookmarked\ncheckpoints.push({ passed: bookmarkedMuricidaeWA.length >= 1, weight: 0.4 });\ncheckpoints.push({ passed: bookmarkedEarliest.length >= 1, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Toxoglossan Gastropod Collection Evaluator",
+      "description": "Checks whether any collection contains at least 3 gastropod species with radula_type set to 'toxoglossan'.",
+      "localStorage_variables": [
+        "collections",
+        "collection_items",
+        "species"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst collections = JSON.parse(localStorage.getItem('collections') || '[]');\nconst collectionItems = JSON.parse(localStorage.getItem('collection_items') || '[]');\nconst species = JSON.parse(localStorage.getItem('species') || '[]');\n\nconst speciesMap = new Map();\nfor (const s of species) {\n  if (s && s.id) speciesMap.set(s.id, s);\n}\n\nconst itemsByCollection = new Map();\nfor (const ci of collectionItems) {\n  if (!ci || !ci.collection_id || !ci.species_id) continue;\n  if (!itemsByCollection.has(ci.collection_id)) itemsByCollection.set(ci.collection_id, []);\n  itemsByCollection.get(ci.collection_id).push(ci.species_id);\n}\n\nlet bestCount = 0;\nfor (const [colId, speciesIds] of itemsByCollection.entries()) {\n  const uniqueIds = Array.from(new Set(speciesIds));\n  let count = 0;\n  for (const sid of uniqueIds) {\n    const s = speciesMap.get(sid);\n    if (!s) continue;\n    if (!s.class_id || s.class_id.toLowerCase() !== 'gastropoda') continue;\n    if (s.radula_type !== 'toxoglossan') continue;\n    count++;\n  }\n  if (count > bestCount) bestCount = count;\n}\n\ncheckpoints.push({ passed: bestCount >= 1, weight: 0.34 });\ncheckpoints.push({ passed: bestCount >= 2, weight: 0.33 });\ncheckpoints.push({ passed: bestCount >= 3, weight: 0.33 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "regions",
+    "teaching_resources",
+    "species_distributions",
+    "taxa",
+    "species",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

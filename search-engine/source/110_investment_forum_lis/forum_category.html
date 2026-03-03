@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HYIP Programs Forum</title>
+    
+    <link rel="stylesheet" href="forum_category.css">
+</head>
+<body>
+    <div id="page">
+        <header class="site-header">
+            <div class="site-header__title-row">
+                <h1 class="site-title">Full version: <a href="index.html">Hyip'S</a></h1>
+            </div>
+
+            <nav class="site-header__nav-bar" aria-label="Main navigation">
+                <ul class="main-nav">
+                    <li class="main-nav__item"><a href="index.html">Home</a></li>
+                    <li class="main-nav__item"><a href="programs.html?view=all_programs">HYIP Listings</a></li>
+                    <li class="main-nav__item"><a href="programs.html?view=problematic_programs">Problematic Programs</a></li>
+                    <li class="main-nav__item"><a href="forum.html">Forum</a></li>
+                    <li class="main-nav__item"><a href="dashboard.html">Dashboard</a></li>
+                    <li class="main-nav__item"><a href="saved_programs.html">Saved Programs</a></li>
+                    <li class="main-nav__item"><a href="settings.html">Settings</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id="content" class="site-content" role="main">
+            <div class="content-box">
+                <div class="forum-category-page">
+                    <div class="forum-category-page__top-row">
+                        <section class="forum-category-header" data-component="category-header" data-populate="category-header">
+                            <!-- Category header content injected via JS -->
+                        </section>
+
+                        <section class="global-search" data-component="global-search-form">
+                            <form class="global-search__form" data-action="global-search-form">
+                                <label for="globalSearchInput">Search:</label>
+                                <input type="text" id="globalSearchInput" name="query" size="24" autocomplete="off" data-action="search-input">
+                                <select id="globalSearchType" name="type_filter">
+                                    <option value="all">All</option>
+                                    <option value="programs">Programs</option>
+                                    <option value="forum">Forum</option>
+                                </select>
+                                <button type="submit">Go</button>
+                                <button type="button" data-action="search-clear">Clear</button>
+                            </form>
+                            <div class="global-search__preview-wrapper">
+                                <div class="search-preview-panel" data-component="search-preview-results" data-populate="search-preview-results" hidden>
+                                    <!-- Search preview results injected via JS -->
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+
+                    <div class="forum-category-content" data-component="category-content">
+                        <nav class="forum-breadcrumbs" aria-label="Breadcrumb" data-component="category-breadcrumbs" data-populate="category-breadcrumbs">
+                            <!-- Breadcrumbs injected via JS -->
+                        </nav>
+
+                        <div class="thread-sorting" data-component="thread-sorting-controls" data-populate="thread-sorting-controls">
+                            <!-- Sorting controls injected via JS -->
+                        </div>
+
+                        <section class="thread-list-container">
+                            <div class="thread-list__status" data-component="category-data-loader" data-populate="category-data-loader">
+                                <!-- Loading / status text injected via JS -->
+                            </div>
+                            <ol class="thread-list__items" data-component="thread-list" data-populate="thread-list">
+                                <!-- Thread list items injected via JS -->
+                            </ol>
+                            <div class="thread-list__empty" data-component="thread-list-empty" data-populate="thread-list-empty" hidden>
+                                <!-- Empty state injected via JS -->
+                            </div>
+                            <div class="thread-list__pagination" data-component="thread-pagination" data-populate="thread-pagination">
+                                <!-- Pagination injected via JS -->
+                            </div>
+                        </section>
+                    </div>
+
+                    <div class="forum-category-page__no-category-message" data-component="no-category-message" hidden>
+                        <p>No forum category selected.</p>
+                        <p><a href="forum.html">Go back to Forum index</a>.</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="site-footer">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul class="footer-nav__list">
+                    <li class="footer-nav__item"><a href="about.html">About</a></li>
+                    <li class="footer-nav__item"><a href="help.html">Help / FAQ</a></li>
+                    <li class="footer-nav__item"><a href="contact.html">Contact</a></li>
+                    <li class="footer-nav__item"><a href="terms.html">Terms of Use</a></li>
+                    <li class="footer-nav__item"><a href="privacy.html">Privacy Policy</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">&copy; <span class="footer-year">2026</span> HYIP Programs Forum.</p>
+        </footer>
+    </div>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        'use strict';
+
+        // Registry of data-populate containers
+        const populateRegistry = {};
+        const populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function(el) {
+            const key = el.dataset.populate;
+            if (!populateRegistry[key]) {
+                populateRegistry[key] = [];
+            }
+            populateRegistry[key].push(el);
+        });
+
+        const noCategoryMessageEl = document.querySelector('[data-component="no-category-message"]');
+        const categoryContentEl = document.querySelector('[data-component="category-content"]');
+
+        let currentCategory = null;
+        let currentThreads = [];
+        let currentPagination = null;
+        let isLoadingThreads = false;
+
+        let lastSearchQuery = '';
+        let lastSearchTypeFilter = 'all';
+
+        function getUrlParamsObject() {
+            const url = new URL(window.location.href);
+            const params = url.searchParams;
+            const obj = {
+                categoryId: params.get('categoryId'),
+                sort_by: params.get('sort_by') || '',
+                page: undefined,
+                page_size: undefined
+            };
+            const pageStr = params.get('page');
+            const pageSizeStr = params.get('page_size');
+            const pageNum = pageStr ? parseInt(pageStr, 10) : NaN;
+            const pageSizeNum = pageSizeStr ? parseInt(pageSizeStr, 10) : NaN;
+            if (!isNaN(pageNum) && pageNum > 0) {
+                obj.page = pageNum;
+            }
+            if (!isNaN(pageSizeNum) && pageSizeNum > 0) {
+                obj.page_size = pageSizeNum;
+            }
+            return obj;
+        }
+
+        function updateUrlParams(params) {
+            const url = new URL(window.location.href);
+            const keys = Object.keys(params);
+            for (let i = 0; i < keys.length; i += 1) {
+                const key = keys[i];
+                const value = params[key];
+                if (value === null || value === undefined || value === '') {
+                    url.searchParams.delete(key);
+                } else {
+                    url.searchParams.set(key, String(value));
+                }
+            }
+            window.history.replaceState({}, '', url.toString());
+        }
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function pad2(n) {
+            return n < 10 ? '0' + n : String(n);
+        }
+
+        function formatDateTime(value) {
+            if (!value) {
+                return '';
+            }
+            const date = new Date(value);
+            if (isNaN(date.getTime())) {
+                return String(value);
+            }
+            const year = date.getFullYear();
+            const month = pad2(date.getMonth() + 1);
+            const day = pad2(date.getDate());
+            const hours = pad2(date.getHours());
+            const minutes = pad2(date.getMinutes());
+            return year + '-' + month + '-' + day + ' ' + hours + ':' + minutes;
+        }
+
+        // Render functions (must use passed container directly)
+
+        function renderCategoryHeader(container, category) {
+            if (!category) {
+                container.innerHTML = '';
+                return;
+            }
+            const safeName = escapeHtml(category.name || 'Forum Category');
+            const safeDescription = category.description ? escapeHtml(category.description) : '';
+            const threads = typeof category.thread_count === 'number' ? category.thread_count : 0;
+            const posts = typeof category.post_count === 'number' ? category.post_count : 0;
+            const lastActivity = category.last_activity_at ? formatDateTime(category.last_activity_at) : 'n/a';
+
+            const descriptionHtml = safeDescription ? '<p class="forum-category-header__description">' + safeDescription + '</p>' : '';
+
+            container.innerHTML = `
+                <h2 class="forum-category-header__title">${safeName}</h2>
+                ${descriptionHtml}
+                <p class="forum-category-header__stats">
+                    Threads: <span class="forum-category-header__threads">${threads}</span>
+                    &nbsp;|&nbsp;
+                    Posts: <span class="forum-category-header__posts">${posts}</span>
+                    &nbsp;|&nbsp;
+                    Last activity: <span class="forum-category-header__last-activity">${escapeHtml(lastActivity)}</span>
+                </p>
+                <button type="button" class="forum-category-header__new-thread-button" data-action="new-thread">New Thread</button>
+            `;
+        }
+
+        function renderBreadcrumbs(container, category) {
+            const parts = [];
+            parts.push('<a href="forum.html">Forum Index</a>');
+            if (category && category.name) {
+                const safeName = escapeHtml(category.name);
+                parts.push(`<span class="forum-breadcrumbs__separator"> &gt; </span>`);
+                // Active page text that can also act as reset via data-action
+                parts.push(`<span class="forum-breadcrumbs__current" data-action="reset-category-view">${safeName}</span>`);
+            }
+            container.innerHTML = parts.join('');
+        }
+
+        function renderThreadSortingControls(container, sortBy) {
+            const effectiveSort = sortBy || 'last_updated';
+            const newestSelected = effectiveSort === 'newest' ? ' selected' : '';
+            const mostRepliedSelected = effectiveSort === 'most_replied' ? ' selected' : '';
+            const lastUpdatedSelected = effectiveSort === 'last_updated' ? ' selected' : '';
+
+            container.innerHTML = `
+                <form class="thread-sorting__form">
+                    <label for="threadSortSelect">Sort by:</label>
+                    <select id="threadSortSelect" name="sort_by" data-action="change-sort">
+                        <option value="last_updated"${lastUpdatedSelected}>Last post (default)</option>
+                        <option value="newest"${newestSelected}>Newest threads</option>
+                        <option value="most_replied"${mostRepliedSelected}>Most replied</option>
+                    </select>
+                    <button type="button" data-action="reset-sort">Reset</button>
+                </form>
+            `;
+        }
+
+        function renderCategoryLoader(container, isLoading, errorMessage) {
+            if (isLoading) {
+                container.textContent = 'Loading threads...';
+                return;
+            }
+            if (errorMessage) {
+                container.textContent = errorMessage;
+                return;
+            }
+            container.textContent = '';
+        }
+
+        function renderThreadList(container, threads, pagination) {
+            container.innerHTML = '';
+            if (!threads || !threads.length) {
+                return;
+            }
+
+            let startIndex = 1;
+            if (pagination && typeof pagination.page === 'number' && typeof pagination.page_size === 'number') {
+                startIndex = (pagination.page - 1) * pagination.page_size + 1;
+            }
+
+            const prefixLabels = {
+                high_risk: '[HIGH-RISK]',
+                new: '[NEW]',
+                announcement: '[ANN]',
+                scam_warning: '[SCAM WARNING]'
+            };
+
+            for (let i = 0; i < threads.length; i += 1) {
+                const thread = threads[i];
+                const li = document.createElement('li');
+                li.className = 'thread-list__item';
+
+                const number = startIndex + i;
+                const title = escapeHtml(thread.title || 'Untitled');
+                const author = escapeHtml(thread.author_username || 'Unknown');
+                const replies = typeof thread.reply_count === 'number' ? thread.reply_count : 0;
+                const lastPost = thread.last_post_at ? formatDateTime(thread.last_post_at) : '';
+                const locked = thread.is_locked ? ' [LOCKED]' : '';
+                const subscribed = thread.is_subscribed ? ' [SUBSCRIBED]' : '';
+                const prefixRaw = thread.prefix || 'none';
+                const prefixLabel = prefixLabels[prefixRaw] || '';
+                const prefixHtml = prefixLabel ? `<span class="thread-list__prefix">${escapeHtml(prefixLabel)}</span> ` : '';
+
+                li.innerHTML = `
+                    <span class="thread-list__index">${number}.</span>
+                    ${prefixHtml}
+                    <a href="forum_thread.html?threadId=${encodeURIComponent(thread.id)}" class="thread-list__title" data-action="open-thread" data-thread-id="${escapeHtml(thread.id)}">${title}</a>
+                    <span class="thread-list__meta">
+                        &nbsp;-&nbsp; by ${author}
+                        ${lastPost ? ` &middot; last post ${escapeHtml(lastPost)}` : ''}
+                        ${locked}
+                        ${subscribed}
+                        &nbsp;<span class="thread-list__replies">(${replies} replies)</span>
+                    </span>
+                `;
+
+                container.appendChild(li);
+            }
+        }
+
+        function renderThreadListEmpty(container, threads) {
+            const hasThreads = threads && threads.length > 0;
+            if (hasThreads) {
+                container.textContent = '';
+                container.hidden = true;
+            } else {
+                container.textContent = 'No threads in this category yet.';
+                container.hidden = false;
+            }
+        }
+
+        function renderThreadPagination(container, pagination) {
+            container.innerHTML = '';
+            if (!pagination || !pagination.total_pages || pagination.total_pages <= 1) {
+                return;
+            }
+
+            const currentPage = typeof pagination.page === 'number' ? pagination.page : 1;
+            const totalPages = pagination.total_pages;
+            const pageSize = typeof pagination.page_size === 'number' ? pagination.page_size : 20;
+            const pageSizeOptions = [10, 20, 50];
+
+            let html = '<div class="thread-pagination__inner">';
+
+            if (currentPage > 1) {
+                html += '<a href="javascript:void(0)" data-action="prev-page" class="thread-pagination__link">Previous</a> ';
+            } else {
+                html += '<span class="thread-pagination__disabled">Previous</span> ';
+            }
+
+            for (let p = 1; p <= totalPages; p += 1) {
+                if (p === currentPage) {
+                    html += `<span class="thread-pagination__current">${p}</span> `;
+                } else {
+                    html += `<a href="javascript:void(0)" data-action="go-to-page" data-page="${p}" class="thread-pagination__link">${p}</a> `;
+                }
+            }
+
+            if (currentPage < totalPages) {
+                html += '<a href="javascript:void(0)" data-action="next-page" class="thread-pagination__link">Next</a>';
+            } else {
+                html += '<span class="thread-pagination__disabled">Next</span>';
+            }
+
+            html += ' <span class="thread-pagination__page-size-label">&nbsp;&nbsp;Per page:</span> ';
+            html += '<select class="thread-pagination__page-size" data-action="change-page-size">';
+            for (let i = 0; i < pageSizeOptions.length; i += 1) {
+                const size = pageSizeOptions[i];
+                const selected = size === pageSize ? ' selected' : '';
+                html += `<option value="${size}"${selected}>${size}</option>`;
+            }
+            html += '</select>';
+
+            html += '</div>';
+
+            container.innerHTML = html;
+        }
+
+        function renderSearchPreview(container, searchResult, query) {
+            const safeQuery = escapeHtml(query || '');
+            if (!searchResult) {
+                container.innerHTML = `<div class="search-preview__header">No results for "${safeQuery}"</div>`;
+                return;
+            }
+
+            const programs = searchResult.program_results || [];
+            const threads = searchResult.forum_thread_results || [];
+            const totalPrograms = typeof searchResult.total_program_results === 'number' ? searchResult.total_program_results : programs.length;
+            const totalThreads = typeof searchResult.total_forum_thread_results === 'number' ? searchResult.total_forum_thread_results : threads.length;
+
+            let html = '';
+            html += `<div class="search-preview__header">Search: "${safeQuery}" <button type="button" class="search-preview__close" data-action="close-search-preview">Close</button></div>`;
+
+            html += '<div class="search-preview__section">';
+            html += `<div class="search-preview__section-title">Programs (${totalPrograms})</div>`;
+            html += '<ul class="search-preview__list">';
+            if (!programs.length) {
+                html += '<li class="search-preview__item search-preview__item--empty">No programs found.</li>';
+            } else {
+                for (let i = 0; i < programs.length; i += 1) {
+                    const program = programs[i];
+                    const name = escapeHtml(program.name || 'Untitled program');
+                    html += `<li class="search-preview__item">`;
+                    html += `<a href="javascript:void(0)" class="search-preview__link-program" data-program-id="${escapeHtml(program.id)}">${name}</a>`;
+                    html += '</li>';
+                }
+            }
+            html += '</ul>';
+            html += '</div>';
+
+            html += '<div class="search-preview__section">';
+            html += `<div class="search-preview__section-title">Forum threads (${totalThreads})</div>`;
+            html += '<ul class="search-preview__list">';
+            if (!threads.length) {
+                html += '<li class="search-preview__item search-preview__item--empty">No forum threads found.</li>';
+            } else {
+                for (let j = 0; j < threads.length; j += 1) {
+                    const thread = threads[j];
+                    const title = escapeHtml(thread.title || 'Untitled thread');
+                    html += '<li class="search-preview__item">';
+                    html += `<a href="forum_thread.html?threadId=${encodeURIComponent(thread.id)}" class="search-preview__link-thread" data-action="open-thread-from-search" data-thread-id="${escapeHtml(thread.id)}">${title}</a>`;
+                    html += '</li>';
+                }
+            }
+            html += '</ul>';
+            html += '</div>';
+
+            container.innerHTML = html;
+        }
+
+        // Main loader
+        function loadCategoryAndThreadsFromUrl() {
+            const urlInfo = getUrlParamsObject();
+            const categoryId = urlInfo.categoryId;
+
+            if (!categoryId) {
+                currentCategory = null;
+                currentThreads = [];
+                currentPagination = null;
+                isLoadingThreads = false;
+
+                if (categoryContentEl) {
+                    categoryContentEl.style.display = 'none';
+                }
+                if (noCategoryMessageEl) {
+                    noCategoryMessageEl.hidden = false;
+                }
+
+                if (populateRegistry['category-header']) {
+                    populateRegistry['category-header'].forEach(function(container) {
+                        renderCategoryHeader(container, null);
+                    });
+                }
+                if (populateRegistry['category-breadcrumbs']) {
+                    populateRegistry['category-breadcrumbs'].forEach(function(container) {
+                        container.innerHTML = '';
+                    });
+                }
+                if (populateRegistry['thread-sorting-controls']) {
+                    populateRegistry['thread-sorting-controls'].forEach(function(container) {
+                        container.innerHTML = '';
+                    });
+                }
+                if (populateRegistry['thread-list']) {
+                    populateRegistry['thread-list'].forEach(function(container) {
+                        container.innerHTML = '';
+                    });
+                }
+                if (populateRegistry['thread-list-empty']) {
+                    populateRegistry['thread-list-empty'].forEach(function(container) {
+                        container.textContent = '';
+                        container.hidden = true;
+                    });
+                }
+                if (populateRegistry['thread-pagination']) {
+                    populateRegistry['thread-pagination'].forEach(function(container) {
+                        container.innerHTML = '';
+                    });
+                }
+                if (populateRegistry['category-data-loader']) {
+                    populateRegistry['category-data-loader'].forEach(function(container) {
+                        renderCategoryLoader(container, false, '');
+                    });
+                }
+                return;
+            }
+
+            if (categoryContentEl) {
+                categoryContentEl.style.display = '';
+            }
+            if (noCategoryMessageEl) {
+                noCategoryMessageEl.hidden = true;
+            }
+
+            const sortBy = urlInfo.sort_by || 'last_updated';
+            const page = urlInfo.page || undefined;
+            const pageSize = urlInfo.page_size || undefined;
+
+            isLoadingThreads = true;
+            if (populateRegistry['category-data-loader']) {
+                populateRegistry['category-data-loader'].forEach(function(container) {
+                    renderCategoryLoader(container, true, '');
+                });
+            }
+
+            try {
+                const result = WebsiteSDK.getForumCategoryThreads(categoryId, sortBy, page, pageSize);
+
+                currentCategory = result && result.category ? result.category : null;
+                currentThreads = result && result.threads ? result.threads : [];
+                currentPagination = result && result.pagination ? result.pagination : null;
+                isLoadingThreads = false;
+
+                if (populateRegistry['category-header']) {
+                    populateRegistry['category-header'].forEach(function(container) {
+                        renderCategoryHeader(container, currentCategory);
+                    });
+                }
+                if (populateRegistry['category-breadcrumbs']) {
+                    populateRegistry['category-breadcrumbs'].forEach(function(container) {
+                        renderBreadcrumbs(container, currentCategory);
+                    });
+                }
+                if (populateRegistry['thread-sorting-controls']) {
+                    populateRegistry['thread-sorting-controls'].forEach(function(container) {
+                        renderThreadSortingControls(container, sortBy);
+                    });
+                }
+                if (populateRegistry['thread-list']) {
+                    populateRegistry['thread-list'].forEach(function(container) {
+                        renderThreadList(container, currentThreads, currentPagination);
+                    });
+                }
+                if (populateRegistry['thread-list-empty']) {
+                    populateRegistry['thread-list-empty'].forEach(function(container) {
+                        renderThreadListEmpty(container, currentThreads);
+                    });
+                }
+                if (populateRegistry['thread-pagination']) {
+                    populateRegistry['thread-pagination'].forEach(function(container) {
+                        renderThreadPagination(container, currentPagination);
+                    });
+                }
+                if (populateRegistry['category-data-loader']) {
+                    populateRegistry['category-data-loader'].forEach(function(container) {
+                        renderCategoryLoader(container, false, '');
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to load forum category threads', err);
+                isLoadingThreads = false;
+                if (populateRegistry['category-data-loader']) {
+                    populateRegistry['category-data-loader'].forEach(function(container) {
+                        renderCategoryLoader(container, false, 'Error loading threads. Please try again.');
+                    });
+                }
+            }
+        }
+
+        loadCategoryAndThreadsFromUrl();
+
+        // Search handling
+        function handleSearchSubmit(form) {
+            const queryInput = form.querySelector('input[name="query"]');
+            const typeSelect = form.querySelector('select[name="type_filter"]');
+            const query = queryInput ? queryInput.value.trim() : '';
+            const typeFilter = typeSelect ? (typeSelect.value || 'all') : 'all';
+
+            lastSearchQuery = query;
+            lastSearchTypeFilter = typeFilter;
+
+            const previewContainers = populateRegistry['search-preview-results'] || [];
+
+            if (!query) {
+                previewContainers.forEach(function(container) {
+                    container.innerHTML = '';
+                    container.hidden = true;
+                });
+                return;
+            }
+
+            try {
+                const result = WebsiteSDK.searchSite(query, typeFilter, 1, 10);
+                previewContainers.forEach(function(container) {
+                    renderSearchPreview(container, result, query);
+                    container.hidden = false;
+                });
+            } catch (err) {
+                console.error('Search failed', err);
+                previewContainers.forEach(function(container) {
+                    container.innerHTML = '<div class="search-preview__error">Error searching. Please try again.</div>';
+                    container.hidden = false;
+                });
+            }
+        }
+
+        // Event listeners
+        document.addEventListener('submit', function(event) {
+            const form = event.target;
+            if (form && form.dataset.action === 'global-search-form') {
+                event.preventDefault();
+                handleSearchSubmit(form);
+            }
+        });
+
+        document.addEventListener('change', function(event) {
+            const target = event.target;
+            if (!target) {
+                return;
+            }
+            const action = target.dataset.action;
+
+            if (action === 'change-sort') {
+                const value = target.value || 'last_updated';
+                const params = {
+                    sort_by: value,
+                    page: 1
+                };
+                updateUrlParams(params);
+                loadCategoryAndThreadsFromUrl();
+            } else if (action === 'change-page-size') {
+                const size = parseInt(target.value, 10);
+                if (!isNaN(size) && size > 0) {
+                    const params = {
+                        page_size: size,
+                        page: 1
+                    };
+                    updateUrlParams(params);
+                    loadCategoryAndThreadsFromUrl();
+                }
+            }
+        });
+
+        document.addEventListener('click', function(event) {
+            const targetWithAction = event.target.closest('[data-action]');
+
+            if (!targetWithAction) {
+                // Click outside actionable elements: may close search preview if outside search area
+                const searchSection = document.querySelector('[data-component="global-search-form"]');
+                const previewContainers = populateRegistry['search-preview-results'] || [];
+                if (searchSection && !searchSection.contains(event.target)) {
+                    previewContainers.forEach(function(container) {
+                        container.hidden = true;
+                    });
+                }
+                return;
+            }
+
+            const action = targetWithAction.dataset.action;
+
+            if (action === 'new-thread') {
+                if (currentCategory && currentCategory.id) {
+                    const url = 'forum_new_thread.html?categoryId=' + encodeURIComponent(currentCategory.id);
+                    window.location.href = url;
+                }
+            } else if (action === 'open-thread' || action === 'open-thread-from-search') {
+                event.preventDefault();
+                const threadId = targetWithAction.dataset.threadId;
+                if (threadId) {
+                    const url = 'forum_thread.html?threadId=' + encodeURIComponent(threadId);
+                    window.location.href = url;
+                }
+            } else if (action === 'reset-sort') {
+                const params = {
+                    sort_by: null,
+                    page: 1
+                };
+                updateUrlParams(params);
+                loadCategoryAndThreadsFromUrl();
+            } else if (action === 'go-to-page') {
+                const pageStr = targetWithAction.dataset.page;
+                const pageNum = parseInt(pageStr, 10);
+                if (!isNaN(pageNum) && pageNum > 0) {
+                    const params = { page: pageNum };
+                    updateUrlParams(params);
+                    loadCategoryAndThreadsFromUrl();
+                }
+            } else if (action === 'next-page') {
+                event.preventDefault();
+                if (currentPagination && typeof currentPagination.page === 'number' && typeof currentPagination.total_pages === 'number') {
+                    const nextPage = currentPagination.page + 1;
+                    if (nextPage <= currentPagination.total_pages) {
+                        updateUrlParams({ page: nextPage });
+                        loadCategoryAndThreadsFromUrl();
+                    }
+                }
+            } else if (action === 'prev-page') {
+                event.preventDefault();
+                if (currentPagination && typeof currentPagination.page === 'number') {
+                    const prevPage = currentPagination.page - 1;
+                    if (prevPage >= 1) {
+                        updateUrlParams({ page: prevPage });
+                        loadCategoryAndThreadsFromUrl();
+                    }
+                }
+            } else if (action === 'search-clear') {
+                const searchSection = document.querySelector('[data-component="global-search-form"]');
+                if (searchSection) {
+                    const input = searchSection.querySelector('input[name="query"]');
+                    if (input) {
+                        input.value = '';
+                    }
+                }
+                const previewContainers = populateRegistry['search-preview-results'] || [];
+                previewContainers.forEach(function(container) {
+                    container.innerHTML = '';
+                    container.hidden = true;
+                });
+            } else if (action === 'close-search-preview') {
+                const previewContainers = populateRegistry['search-preview-results'] || [];
+                previewContainers.forEach(function(container) {
+                    container.hidden = true;
+                });
+            } else if (action === 'reset-category-view') {
+                if (currentCategory && currentCategory.id) {
+                    const params = {
+                        categoryId: currentCategory.id,
+                        sort_by: null,
+                        page: null,
+                        page_size: null
+                    };
+                    updateUrlParams(params);
+                    loadCategoryAndThreadsFromUrl();
+                }
+            }
+        });
+    });
+    </script>
+</body>
+</html>

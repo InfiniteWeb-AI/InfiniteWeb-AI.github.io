@@ -1,0 +1,111 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Create New Agility Herding Youngster Profile Evaluator",
+      "description": "Checks that the user created a new herding-group agility dog profile with club-only visibility, a 120–150 word biography, and exactly three activity tags.",
+      "localStorage_variables": [
+        "dog_profiles",
+        "dog_breeds",
+        "dog_activities",
+        "_metadata"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst dogs = JSON.parse(localStorage.getItem('dog_profiles') || '[]');\nconst breeds = JSON.parse(localStorage.getItem('dog_breeds') || '[]');\nconst dogActivities = JSON.parse(localStorage.getItem('dog_activities') || '[]');\nconst metadata = JSON.parse(localStorage.getItem('_metadata') || 'null');\nconst baseline = metadata && metadata.generatedAt ? new Date(metadata.generatedAt) : null;\n\n// Consider only profiles created after initial dataset load, if baseline is available\nconst recentDogs = dogs.filter(d => {\n  if (!baseline) return true;\n  const createdAt = d.createdAt ? new Date(d.createdAt) : null;\n  return createdAt && createdAt > baseline;\n});\n\n// Recent dogs that are herding-breed, in Agility Stars, and club-members visibility\nconst herdingAgilityDogs = recentDogs.filter(d => {\n  const breed = breeds.find(b => b.id === d.breedId);\n  return (\n    breed &&\n    breed.group === 'Herding' &&\n    d.sectionId === 'agility_stars' &&\n    d.visibility === 'club_members'\n  );\n});\n\n// Among those, require 120–150 word bio and exactly three activity tags\nconst fullyQualifyingDogs = herdingAgilityDogs.filter(d => {\n  const wordCount = typeof d.bioWordCount === 'number' ? d.bioWordCount : 0;\n  const activities = dogActivities.filter(da => da.dogProfileId === d.id);\n  return wordCount >= 120 && wordCount <= 150 && activities.length === 3;\n});\n\n// CP1 (0.5): At least one recent herding-group dog in Agility Stars with club-only visibility\ncheckpoints.push({\n  passed: herdingAgilityDogs.length >= 1,\n  weight: 0.5\n});\n\n// CP2 (0.5): At least one such dog also has a 120–150 word bio and exactly three activities\ncheckpoints.push({\n  passed: fullyQualifyingDogs.length >= 1,\n  weight: 0.5\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Cheapest Half-Page Yearbook Ad Edit Evaluator",
+      "description": "Checks that at least one yearbook ad was edited to use the least expensive half-page layout under $60, with 100–130 words, no add-ons, total ≤ $60, placed in General Dog Tributes, and online-only proofing.",
+      "localStorage_variables": [
+        "yearbook_ads",
+        "ad_sizes",
+        "yearbook_ad_addons"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst ads = JSON.parse(localStorage.getItem('yearbook_ads') || '[]');\nconst adSizes = JSON.parse(localStorage.getItem('ad_sizes') || '[]');\nconst adAddonsJoin = JSON.parse(localStorage.getItem('yearbook_ad_addons') || '[]');\n\n// Find the cheapest half-page size costing at most $60\nconst halfPageSizes = adSizes\n  .filter(s => s.category === 'half_page' && s.isActive !== false && (s.price || 0) <= 60)\n  .sort((a, b) => (a.price || 0) - (b.price || 0));\n\nconst cheapest = halfPageSizes[0] || null;\n\nlet sizeAndCostQualified = [];\nlet fullyQualifiedAds = [];\n\nif (cheapest) {\n  const candidates = ads.filter(a => {\n    const size = adSizes.find(s => s.id === a.adSizeId);\n    if (!size) return false;\n    if (a.adSizeId !== cheapest.id) return false;\n    if (typeof a.basePrice !== 'number' || a.basePrice !== size.price) return false;\n    if (typeof a.addonsTotal !== 'number' || a.addonsTotal !== 0) return false;\n    if (typeof a.totalPrice !== 'number' || a.totalPrice > 60) return false;\n    // Ensure no add-on join rows exist\n    const addonsForAd = adAddonsJoin.filter(j => j.yearbookAdId === a.id);\n    if (addonsForAd.length > 0) return false;\n    return true;\n  });\n\n  sizeAndCostQualified = candidates;\n\n  fullyQualifiedAds = candidates.filter(a => {\n    const wc = typeof a.adTextWordCount === 'number' ? a.adTextWordCount : 0;\n    return (\n      wc >= 100 && wc <= 130 &&\n      a.placementOptionId === 'general_dog_tributes' &&\n      a.proofingMethod === 'online_only'\n    );\n  });\n}\n\n// CP1 (0.5): At least one ad uses the cheapest qualifying half-page size with no add-ons and total ≤ $60\ncheckpoints.push({\n  passed: !!cheapest && sizeAndCostQualified.length >= 1,\n  weight: 0.5\n});\n\n// CP2 (0.5): Among those, at least one ad has 100–130 words, General Dog Tributes placement, and online-only proofing\ncheckpoints.push({\n  passed: fullyQualifiedAds.length >= 1,\n  weight: 0.5\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Two-Dog Cheapest 200+ Word Spread Evaluator",
+      "description": "Checks that the user created a new two-dog feature spread after initialization using the lowest-priced two-dog layout that supports ≥200 words, placed in the Companions & Families section, with at least 200 words of text.",
+      "localStorage_variables": [
+        "spreads",
+        "layouts",
+        "yearbook_sections",
+        "dog_profiles",
+        "_metadata"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst spreads = JSON.parse(localStorage.getItem('spreads') || '[]');\nconst layouts = JSON.parse(localStorage.getItem('layouts') || '[]');\nconst sections = JSON.parse(localStorage.getItem('yearbook_sections') || '[]');\nconst dogs = JSON.parse(localStorage.getItem('dog_profiles') || '[]');\nconst metadata = JSON.parse(localStorage.getItem('_metadata') || 'null');\nconst baseline = metadata && metadata.generatedAt ? new Date(metadata.generatedAt) : null;\n\n// Cheapest two-dog layout supporting at least 200 words\nconst candidateLayouts = layouts\n  .filter(l => (\n    l.spreadType === 'two_dog_feature' &&\n    l.isActive !== false &&\n    l.supportsDogCount >= 2 &&\n    typeof l.minTextWords === 'number' && l.minTextWords >= 200\n  ))\n  .sort((a, b) => (a.price || 0) - (b.price || 0));\n\nconst cheapest = candidateLayouts[0] || null;\n\nlet newSpreads = [];\nlet textQualified = [];\n\nif (cheapest) {\n  newSpreads = spreads.filter(s => {\n    if (s.spreadType !== 'two_dog_feature') return false;\n    if (s.layoutId !== cheapest.id) return false;\n    // Section must be Companions & Families style\n    const section = sections.find(sec => sec.id === s.sectionId);\n    if (!section) return false;\n    if (section.id !== 'companions_families' && section.code !== 'companions_families') return false;\n    // Exactly two existing, distinct dogs\n    if (!s.dog1Id || !s.dog2Id || s.dog1Id === s.dog2Id) return false;\n    const dog1 = dogs.find(d => d.id === s.dog1Id);\n    const dog2 = dogs.find(d => d.id === s.dog2Id);\n    if (!dog1 || !dog2) return false;\n    // Ensure it was created after initial dataset\n    const createdAt = s.createdAt ? new Date(s.createdAt) : null;\n    if (baseline && (!createdAt || createdAt <= baseline)) return false;\n    return true;\n  });\n\n  textQualified = newSpreads.filter(s => {\n    const wc = typeof s.textWordCount === 'number' ? s.textWordCount : 0;\n    return wc >= 200;\n  });\n}\n\n// CP1 (0.6): New spread uses cheapest qualifying two-dog layout and is in Companions & Families with two existing dogs\ncheckpoints.push({\n  passed: !!cheapest && newSpreads.length >= 1,\n  weight: 0.6\n});\n\n// CP2 (0.4): Such a spread has at least 200 words of text\ncheckpoints.push({\n  passed: textQualified.length >= 1,\n  weight: 0.4\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Nova Achievements 2020–2024 Filter & Sort Evaluator",
+      "description": "Checks that Nova has at least four achievements between 2020–2024 with at least two agility and two obedience, that the user filtered Nova’s achievements for 2020–2024 with minEvents and date-asc sort, and saved a date-ascending sort preference.",
+      "localStorage_variables": [
+        "achievements",
+        "achievements_sort_preferences",
+        "task4_achievementsFilterParams"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst achievements = JSON.parse(localStorage.getItem('achievements') || '[]');\nconst sortPrefs = JSON.parse(localStorage.getItem('achievements_sort_preferences') || '[]');\nconst filterParams = JSON.parse(localStorage.getItem('task4_achievementsFilterParams') || 'null');\n\nconst targetDogId = 'nova';\n\n// Achievements for Nova dated between 2020 and 2024 inclusive\nconst inRange = achievements.filter(a => {\n  if (a.dogProfileId !== targetDogId) return false;\n  if (!a.date) return false;\n  const dt = new Date(a.date);\n  if (isNaN(dt.getTime())) return false;\n  const year = dt.getFullYear();\n  return year >= 2020 && year <= 2024;\n});\n\nlet agilityCount = 0;\nlet obedienceCount = 0;\ninRange.forEach(a => {\n  if (a.type === 'agility') agilityCount += 1;\n  if (a.type === 'obedience') obedienceCount += 1;\n});\n\nconst totalInRange = inRange.length;\n\n// CP1 (0.4): Nova has ≥4 in-range achievements with at least 2 agility and 2 obedience\nconst cp1Passed = totalInRange >= 4 && agilityCount >= 2 && obedienceCount >= 2;\ncheckpoints.push({ passed: cp1Passed, weight: 0.4 });\n\n// CP2 (0.3): Filter params used for listing match Nova, 2020–2024, minEvents ≥4, sort by date asc\nlet cp2Passed = false;\nif (filterParams) {\n  cp2Passed = (\n    filterParams.dogProfileId === targetDogId &&\n    filterParams.fromYear === 2020 &&\n    filterParams.toYear === 2024 &&\n    (filterParams.minEvents == null || filterParams.minEvents >= 4) &&\n    filterParams.sortBy === 'date' &&\n    filterParams.sortDirection === 'asc'\n  );\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.3 });\n\n// CP3 (0.3): Saved sort preference for Nova is date ascending\nconst pref = sortPrefs.find(p => p.dogProfileId === targetDogId);\nconst cp3Passed = !!pref && pref.sortBy === 'date' && pref.sortDirection === 'asc';\ncheckpoints.push({ passed: cp3Passed, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Bella Profile Proof Approval with Comments Evaluator",
+      "description": "Checks that Bella’s profile proof was set to Approve with Changes with 3-day auto-approval and that it has at least one editors-only comment and one private comment.",
+      "localStorage_variables": [
+        "proofs",
+        "proof_comments"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst proofs = JSON.parse(localStorage.getItem('proofs') || '[]');\nconst comments = JSON.parse(localStorage.getItem('proof_comments') || '[]');\n\nconst proof = proofs.find(p => p.id === 'proof_bella_profile_2025');\n\n// CP1 (0.5): Proof decision is approve_with_changes with auto-approval enabled in 3 days\nconst cp1Passed = !!proof &&\n  proof.itemType === 'dog_profile' &&\n  proof.approvalDecision === 'approve_with_changes' &&\n  proof.autoApprovalEnabled === true &&\n  proof.autoApprovalDays === 3;\ncheckpoints.push({ passed: cp1Passed, weight: 0.5 });\n\n// CP2 (0.5): At least one editors_only comment and one private comment on this proof\nlet cp2Passed = false;\nif (proof) {\n  const forProof = comments.filter(c => c.proofId === proof.id);\n  const hasEditorOnly = forProof.some(c => c.visibility === 'editors_only');\n  const hasPrivate = forProof.some(c => c.visibility === 'private');\n  cp2Passed = hasEditorOnly && hasPrivate;\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Order 3 Softcover 2025 Yearbooks with Cheapest Shipping Evaluator",
+      "description": "Checks that the user placed an order for three softcover copies of the 2025 yearbook using pay-later invoice and the lowest-priced shipping option under $10.",
+      "localStorage_variables": [
+        "yearbook_orders",
+        "yearbook_editions",
+        "shipping_methods"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst orders = JSON.parse(localStorage.getItem('yearbook_orders') || '[]');\nconst editions = JSON.parse(localStorage.getItem('yearbook_editions') || '[]');\nconst shippingMethods = JSON.parse(localStorage.getItem('shipping_methods') || '[]');\n\nfunction calcShipping(method, qty, binding) {\n  if (!method) return 0;\n  const base = Number(method.baseCost) || 0;\n  const q = Number(qty) || 0;\n  let perAdditional = Number(method.costPerAdditionalCopy) || 0;\n  if (binding === 'softcover') {\n    perAdditional = 0;\n  }\n  if (q <= 0) return 0;\n  return base + perAdditional * Math.max(0, q - 1);\n}\n\nconst edition2025 = editions.find(e => e.year === 2025);\n\nlet candidateOrders = [];\nlet shippingQualifiedOrders = [];\n\nif (edition2025) {\n  candidateOrders = orders.filter(o => (\n    o.editionId === edition2025.id &&\n    o.quantity === 3 &&\n    o.binding === 'softcover' &&\n    o.paymentMethod === 'pay_later_invoice'\n  ));\n\n  if (candidateOrders.length > 0) {\n    const qty = 3;\n    const binding = 'softcover';\n\n    const underCap = shippingMethods\n      .filter(m => m.isActive !== false)\n      .map(m => ({ m, cost: calcShipping(m, qty, binding) }))\n      .filter(x => x.cost < 10)\n      .sort((a, b) => a.cost - b.cost);\n\n    const cheapest = underCap[0] || null;\n\n    if (cheapest) {\n      shippingQualifiedOrders = candidateOrders.filter(o => (\n        o.shippingMethodId === cheapest.m.id &&\n        Math.abs((o.shippingCost || 0) - cheapest.cost) < 0.01 &&\n        (o.shippingCost || 0) < 10\n      ));\n    }\n  }\n}\n\n// CP1 (0.6): An order exists for 3 softcover copies of the 2025 yearbook with pay-later invoice\ncheckpoints.push({\n  passed: candidateOrders.length >= 1,\n  weight: 0.6\n});\n\n// CP2 (0.4): Such an order uses the cheapest shipping method under $10 with matching calculated cost\ncheckpoints.push({\n  passed: shippingQualifiedOrders.length >= 1,\n  weight: 0.4\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Finalize and Lock Profiles by Biography Length Evaluator",
+      "description": "Checks that all profiles with biographies of at least 80 words are marked Final and locked, and all shorter-bio profiles remain Draft and unlocked.",
+      "localStorage_variables": [
+        "dog_profiles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst dogs = JSON.parse(localStorage.getItem('dog_profiles') || '[]');\n\nfunction calcWordCountForDog(d) {\n  if (typeof d.bioWordCount === 'number') return d.bioWordCount;\n  if (!d.biography || typeof d.biography !== 'string') return 0;\n  const trimmed = d.biography.trim();\n  if (!trimmed) return 0;\n  const count = trimmed.split(/\\s+/).filter(Boolean).length;\n  return Math.max(0, count - 1);\n}\n\nconst longDogs = [];\nconst shortDogs = [];\n\ndogs.forEach(d => {\n  const wc = calcWordCountForDog(d);\n  if (wc >= 80) {\n    longDogs.push(d);\n  } else {\n    shortDogs.push(d);\n  }\n});\n\nconst allLongCorrect = longDogs.every(d => d.status === 'final' && d.isLocked === true);\nconst allShortCorrect = shortDogs.every(d => d.status === 'draft' && !d.isLocked);\n\n// CP1 (0.5): All dogs with bio word count ≥80 are Final and locked\ncheckpoints.push({\n  passed: allLongCorrect,\n  weight: 0.5\n});\n\n// CP2 (0.5): All dogs with bio word count <80 are Draft and unlocked\ncheckpoints.push({\n  passed: allShortCorrect,\n  weight: 0.5\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Most Expensive Sponsorship ≤$75 Evaluator",
+      "description": "Checks that the user purchased the most expensive sponsorship package costing $75 or less, assigned it to an existing dog, and provided a 30–40 word sponsor message and display name.",
+      "localStorage_variables": [
+        "sponsorships",
+        "sponsorship_packages",
+        "dog_profiles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst sponsorships = JSON.parse(localStorage.getItem('sponsorships') || '[]');\nconst packages = JSON.parse(localStorage.getItem('sponsorship_packages') || '[]');\nconst dogs = JSON.parse(localStorage.getItem('dog_profiles') || '[]');\n\n// Find most expensive package with price ≤75\nconst eligiblePackages = packages\n  .filter(p => p.isActive !== false && (p.price || 0) <= 75)\n  .sort((a, b) => (a.price || 0) - (b.price || 0));\n\nconst targetPkg = eligiblePackages.length ? eligiblePackages[eligiblePackages.length - 1] : null;\n\nlet pkgAndDogQualified = [];\nlet fullyQualified = [];\n\nif (targetPkg) {\n  pkgAndDogQualified = sponsorships.filter(s => {\n    if (s.sponsorshipPackageId !== targetPkg.id) return false;\n    const dog = dogs.find(d => d.id === s.dogProfileId);\n    if (!dog) return false;\n    if (typeof s.totalPrice !== 'number' || s.totalPrice !== (targetPkg.price || 0)) return false;\n    return true;\n  });\n\n  fullyQualified = pkgAndDogQualified.filter(s => {\n    if (!s.sponsorName || typeof s.sponsorName !== 'string' || !s.sponsorName.trim()) return false;\n    const wc = typeof s.sponsorMessageWordCount === 'number' ? s.sponsorMessageWordCount : 0;\n    return wc >= 30 && wc <= 40;\n  });\n}\n\n// CP1 (0.5): Sponsorship exists using the most expensive package ≤$75 and assigned to an existing dog with correct total price\ncheckpoints.push({\n  passed: !!targetPkg && pkgAndDogQualified.length >= 1,\n  weight: 0.5\n});\n\n// CP2 (0.5): Such a sponsorship has a non-empty sponsor name and a 30–40 word message\ncheckpoints.push({\n  passed: fullyQualified.length >= 1,\n  weight: 0.5\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "activity_tags",
+    "ad_addons",
+    "ad_placement_options",
+    "ad_sizes",
+    "dog_breeds",
+    "layouts",
+    "shipping_methods",
+    "sponsorship_packages",
+    "yearbook_editions",
+    "yearbook_sections",
+    "dog_profiles",
+    "spreads",
+    "yearbook_ad_addons",
+    "yearbook_ads",
+    "proofs",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

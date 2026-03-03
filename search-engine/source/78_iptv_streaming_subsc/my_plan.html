@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IPTV Streaming Service</title>
+  <meta name="description" content="Shows the user's current IPTV subscription plan, add-ons, channels, and any pending changes, with actions to adjust the plan, manage add-ons, and proceed to checkout to confirm changes." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="my_plan.css" />
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to main content</a>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="index.html" class="brand">
+        <div class="brand-mark">8K</div>
+        <span class="brand-text">Stream8K</span>
+      </a>
+
+      <nav class="main-nav" aria-label="Primary navigation">
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="dashboard.html">Dashboard</a></li>
+          <li><a href="plans.html">Plans</a></li>
+          <li><a href="addons.html">Add-ons</a></li>
+          <li><a href="channels.html">Channels</a></li>
+          <li><a href="tv_guide.html">TV Guide</a></li>
+          <li><a href="my_plan.html">My Plan</a></li>
+          <li><a href="billing.html">Billing</a></li>
+          <li><a href="favorites.html">Favorites</a></li>
+          <li><a href="help.html">Help</a></li>
+        </ul>
+      </nav>
+
+      <div class="header-actions">
+        <a href="my_plan.html" class="btn btn-primary-nav">My Plan</a>
+
+        <div class="user-menu">
+          <a href="settings.html" class="user-avatar" aria-haspopup="true" aria-expanded="false">
+            <span class="user-initial">U</span>
+          </a>
+          <div class="user-dropdown" role="menu">
+            <a href="settings.html" role="menuitem">Settings</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main id="content" class="site-main" role="main">
+    <div class="my-plan-page" data-component="my-plan-page" data-populate="my-plan-summary">
+      <div class="my-plan-inner layout-container">
+        <div class="page-loader" data-component="my-plan-page-init" aria-live="polite"></div>
+
+        <header class="my-plan-header" data-component="navigation-context-header"></header>
+
+        <section class="pending-change-banner" data-component="pending-change-indicator" aria-live="polite"></section>
+
+        <section class="card-section plan-summary" data-component="plan-summary-section" aria-labelledby="plan-summary-heading"></section>
+
+        <section class="card-section addons-summary" data-component="addons-summary-section" aria-labelledby="addons-summary-heading"></section>
+
+        <section class="card-section channels-list" data-component="channels-list-section" aria-labelledby="channels-list-heading"></section>
+
+        <section class="card-section pricing-summary" data-component="pricing-summary-section" aria-labelledby="pricing-summary-heading"></section>
+      </div>
+    </div>
+
+    <div class="plan-actions-footer" data-component="plan-actions-footer"></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-main">
+      <div class="footer-column footer-branding">
+        <a href="index.html" class="brand footer-brand">
+          <div class="brand-mark">8K</div>
+          <span class="brand-text">Stream8K</span>
+        </a>
+        <p class="footer-description">
+          We are proud to offer the best IPTV subscription service in the world.
+        </p>
+      </div>
+
+      <div class="footer-column">
+        <h4 class="footer-heading">Company</h4>
+        <ul>
+          <li><a href="about.html">About</a></li>
+          <li><a href="help.html">Help &amp; Support</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-column">
+        <h4 class="footer-heading">Account</h4>
+        <ul>
+          <li><a href="plans.html">Plans</a></li>
+          <li><a href="billing.html">Billing</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-column">
+        <h4 class="footer-heading">Legal</h4>
+        <ul>
+          <li><a href="legal.html">Legal</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bottom">
+      <p class="copyright">
+        &copy; <span class="copyright-year">2026</span> Stream8K. All rights reserved.
+      </p>
+    </div>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+    (function() {
+      function escapeHtml(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/\"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        var urlParams = new URLSearchParams(window.location.search);
+        var fromParam = urlParams.get('from');
+        var changePreviewParam = urlParams.get('changePreview');
+
+        var state = {
+          from: fromParam,
+          changePreview: changePreviewParam === 'true',
+          hasPendingChange: false,
+          isPreviewMode: false,
+          pendingChangeStatus: null,
+          currentBillingCycle: 'monthly',
+          billingFocus: 'monthly',
+          channelsExpanded: false,
+          summary: null,
+          plansIndex: [],
+          addonsIndex: []
+        };
+
+        var rootContainer = document.querySelector('[data-populate="my-plan-summary"]');
+        if (!rootContainer) {
+          return;
+        }
+
+        function loadCatalogIndexes() {
+          try {
+            var plans = JSON.parse(localStorage.getItem('plans') || '[]');
+            var addons = JSON.parse(localStorage.getItem('addons') || '[]');
+            if (Array.isArray(plans)) {
+              state.plansIndex = plans;
+            }
+            if (Array.isArray(addons)) {
+              state.addonsIndex = addons;
+            }
+          } catch (e) {
+            state.plansIndex = [];
+            state.addonsIndex = [];
+          }
+        }
+
+        function init() {
+          var loader = rootContainer.querySelector('[data-component="my-plan-page-init"]');
+          if (loader) {
+            loader.className = 'page-loader';
+            loader.textContent = 'Loading your plana0details...';
+          }
+          try {
+            var summary = WebsiteSDK.getMyPlanSummary();
+            state.summary = summary || {};
+
+            var pendingWrapper = state.summary.pending_subscription_change || { exists: false };
+            state.hasPendingChange = !!pendingWrapper.exists;
+            var change = pendingWrapper.change || null;
+            state.pendingChangeStatus = change && change.status ? change.status : null;
+
+            var currentSub = state.summary.current_subscription || {};
+            state.currentBillingCycle = currentSub.billing_cycle || 'monthly';
+            state.billingFocus = state.currentBillingCycle;
+            state.isPreviewMode = state.hasPendingChange && state.changePreview;
+
+            loadCatalogIndexes();
+
+            if (loader) {
+              loader.textContent = '';
+            }
+
+            renderAll();
+          } catch (error) {
+            if (loader) {
+              loader.className = 'page-loader has-error';
+              loader.innerHTML = `
+                <div class="alert alert-error">
+                  <p>We couldn't load your subscription details. Please try again.</p>
+                  <button type="button" class="btn btn-secondary" data-action="retry-load">Retry</button>
+                </div>
+             `;
+            }
+          }
+        }
+
+        function renderAll() {
+          if (!state.summary) return;
+
+          renderContextHeader(rootContainer.querySelector('[data-component="navigation-context-header"]'));
+          renderPendingChange(rootContainer.querySelector('[data-component="pending-change-indicator"]'));
+          renderPlanSummary(rootContainer.querySelector('[data-component="plan-summary-section"]'));
+          renderAddonsSummary(rootContainer.querySelector('[data-component="addons-summary-section"]'));
+          renderChannelsList(rootContainer.querySelector('[data-component="channels-list-section"]'));
+          renderPricingSummary(rootContainer.querySelector('[data-component="pricing-summary-section"]'));
+          renderActionsFooter(document.querySelector('[data-component="plan-actions-footer"]'));
+        }
+
+        function renderContextHeader(container) {
+          if (!container) return;
+
+          var subtitle;
+          var from = state.from || '';
+
+          if (from === 'plans') {
+            if (state.isPreviewMode) {
+              subtitle = 'Review your new base plan before continuing to checkout.';
+            } else if (state.hasPendingChange) {
+              subtitle = 'You recently selected a new plan. Review and confirm your changes.';
+            } else {
+              subtitle = 'View your current base plan details.';
+            }
+          } else if (from === 'addons' || from === 'addon_detail') {
+            if (state.isPreviewMode) {
+              subtitle = 'Review how your add-on changes affect your subscription.';
+            } else if (state.hasPendingChange) {
+              subtitle = 'You have add-on changes waiting for confirmation.';
+            } else {
+              subtitle = 'See which add-ons are active on your plan.';
+            }
+          } else if (from === 'dashboard') {
+            if (state.hasPendingChange) {
+              subtitle = 'You have pending subscription changes awaiting confirmation.';
+            } else {
+              subtitle = 'Overview of your current subscription, add-ons, and charges.';
+            }
+          } else {
+            if (state.hasPendingChange) {
+              subtitle = 'You have a pending subscription update. Review and confirm it here.';
+            } else {
+              subtitle = 'Manage your IPTV plan, add-ons, channels, and pricing in one place.';
+            }
+          }
+
+          container.innerHTML = `
+            <h1 class="page-title">My Plan</h1>
+            <p class="page-subtitle">${escapeHtml(subtitle)}</p>
+         `;
+        }
+
+        function renderPendingChange(container) {
+          if (!container) return;
+
+          if (!state.hasPendingChange) {
+            container.innerHTML = '';
+            container.className = 'pending-change-banner is-hidden';
+            return;
+          }
+
+          var statusLabel = state.pendingChangeStatus ? state.pendingChangeStatus.replace(/_/g, ' ') : 'pending';
+          var baseClass = 'pending-change-banner';
+          var label;
+          var text;
+          var actionHtml = '';
+
+          if (state.isPreviewMode) {
+            baseClass += ' banner-strong';
+            label = 'Reviewing pending changes';
+            text = 'You have a pending subscription change in ' + escapeHtml(statusLabel) + ' state. Review the details below, then proceed to checkout to confirm.';
+          } else {
+            baseClass += ' banner-subtle';
+            label = 'Pending changes not yet confirmed';
+            text = 'You have a subscription change waiting for confirmation. Switch to preview mode to review the details.';
+            actionHtml = '<button type="button" class="btn btn-secondary btn-xs" data-action="preview-changes">Review changes</button>';
+          }
+
+          container.className = baseClass;
+          container.innerHTML = `
+            <div class="pending-change-inner">
+              <div class="pending-change-copy">
+                <span class="pending-change-label">${escapeHtml(label)}</span>
+                <p class="pending-change-text">${escapeHtml(text)}</p>
+              </div>
+              <div class="pending-change-actions">${actionHtml}</div>
+            </div>
+         `;
+        }
+
+        function renderPlanSummary(container) {
+          if (!container) return;
+
+          var currentPlan = state.summary.current_plan || {};
+          var sub = state.summary.current_subscription || {};
+
+          var billingCycle = sub.billing_cycle || 'monthly';
+          var nextBilling = sub.next_billing_date ? new Date(sub.next_billing_date) : null;
+          var nextBillingText = nextBilling ? nextBilling.toLocaleDateString() : 'Not available';
+          var statusText = sub.status ? sub.status.replace(/_/g, ' ') : 'unknown';
+
+          var streamsLimit = sub.simultaneous_streams_limit;
+          if (streamsLimit === undefined || streamsLimit === null) {
+            streamsLimit = currentPlan.max_simultaneous_streams;
+          }
+
+          var pendingPlanBlock = '';
+          var hasPendingPlanChange = false;
+
+          if (state.hasPendingChange && state.summary.pending_subscription_change && state.summary.pending_subscription_change.exists && state.summary.pending_subscription_change.change && state.summary.pending_subscription_change.change.selected_plan_id) {
+            var pendingPlanId = state.summary.pending_subscription_change.change.selected_plan_id;
+            var pendingPlan = null;
+            for (var i = 0; i < state.plansIndex.length; i++) {
+              if (state.plansIndex[i].id === pendingPlanId) {
+                pendingPlan = state.plansIndex[i];
+                break;
+              }
+            }
+            if (pendingPlan) {
+              hasPendingPlanChange = true;
+              pendingPlanBlock = `
+                <div class="plan-pending">
+                  <h3 class="plan-subheading">New plan after change</h3>
+                  <div class="plan-row plan-row-pending">
+                    <div class="plan-main">
+                      <div class="plan-name-row">
+                        <span class="plan-name">${escapeHtml(pendingPlan.name)}</span>
+                        <span class="plan-pill plan-pill-pending">Pending</span>
+                      </div>
+                      <p class="plan-description">${escapeHtml(pendingPlan.description || 'Your subscription will switch to this plan after you confirm the change.')}</p>
+                    </div>
+                    <div class="plan-meta">
+                      <div class="plan-meta-item">
+                        <span class="meta-label">Channels</span>
+                        <span class="meta-value">${escapeHtml(String(pendingPlan.channel_count || '0'))}</span>
+                      </div>
+                      <div class="plan-meta-item">
+                        <span class="meta-label">Streams</span>
+                        <span class="meta-value">${escapeHtml(String(pendingPlan.max_simultaneous_streams || '1'))}</span>
+                      </div>
+                      <div class="plan-meta-item">
+                        <span class="meta-label">Monthly</span>
+                        <span class="meta-value price">$${escapeHtml((pendingPlan.monthly_price || 0).toFixed(2))}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+             `;
+            }
+          }
+
+          var currentPlanBlock = `
+            <div class="plan-current">
+              <h2 id="plan-summary-heading" class="section-title">Base plan</h2>
+              <div class="plan-row">
+                <div class="plan-main">
+                  <div class="plan-name-row">
+                    <span class="plan-name">${escapeHtml(currentPlan.name || 'Unknown plan')}</span>
+                    <span class="plan-pill plan-pill-status">${escapeHtml(statusText)}</span>
+                  </div>
+                  <p class="plan-description">${escapeHtml(currentPlan.description || 'Base IPTV subscription currently active on your account.')}</p>
+                  <div class="plan-badges">
+                    <span class="badge badge-compact">Billing: ${escapeHtml(billingCycle)}</span>
+                    <span class="badge badge-compact">Next charge: ${escapeHtml(nextBillingText)}</span>
+                    <span class="badge badge-compact">Streams: ${escapeHtml(String(streamsLimit || '1'))} at once</span>
+                  </div>
+                </div>
+                <div class="plan-meta">
+                  <div class="plan-meta-item">
+                    <span class="meta-label">Channels</span>
+                    <span class="meta-value">${escapeHtml(String(currentPlan.channel_count || '0'))}</span>
+                  </div>
+                  <div class="plan-meta-item">
+                    <span class="meta-label">Monthly</span>
+                    <span class="meta-value price">$${escapeHtml(((currentPlan.monthly_price !== undefined && currentPlan.monthly_price !== null) ? currentPlan.monthly_price : (sub.base_monthly_price || 0)).toFixed(2))}</span>
+                  </div>
+                  <div class="plan-meta-item">
+                    <span class="meta-label">Annual</span>
+                    <span class="meta-value price">$${escapeHtml(((currentPlan.annual_price !== undefined && currentPlan.annual_price !== null) ? currentPlan.annual_price : (sub.base_annual_price || 0)).toFixed(2))}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="section-actions">
+                <button type="button" class="btn btn-link" data-action="change-plan">Change base plan</button>
+              </div>
+            </div>
+         `;
+
+          container.innerHTML = currentPlanBlock + (state.isPreviewMode && hasPendingPlanChange ? pendingPlanBlock : '');
+        }
+
+        function renderAddonsSummary(container) {
+          if (!container) return;
+
+          var activeAddons = state.summary.active_addons || [];
+          var hasActive = activeAddons.length > 0;
+
+          var pendingWrapper = state.summary.pending_subscription_change || { exists: false };
+          var change = pendingWrapper.change || {};
+          var selectedAddonIds = Array.isArray(change.selected_addon_ids) ? change.selected_addon_ids : [];
+          var removedAddonIds = Array.isArray(change.removed_addon_ids) ? change.removed_addon_ids : [];
+
+          var removedSet = {};
+          for (var r = 0; r < removedAddonIds.length; r++) {
+            removedSet[removedAddonIds[r]] = true;
+          }
+
+          var activeRowsHtml = '';
+          if (hasActive) {
+            for (var i = 0; i < activeAddons.length; i++) {
+              var addon = activeAddons[i];
+              var statusLabel = 'Active';
+              var statusClass = 'addon-status-active';
+
+              if (state.isPreviewMode && pendingWrapper.exists) {
+                if (removedSet[addon.id]) {
+                  statusLabel = 'Pending removal';
+                  statusClass = 'addon-status-removal';
+                } else if (selectedAddonIds.indexOf(addon.id) !== -1) {
+                  statusLabel = 'Will stay active';
+                  statusClass = 'addon-status-stays';
+                } else {
+                  statusLabel = 'No change';
+                  statusClass = 'addon-status-neutral';
+                }
+              }
+
+              activeRowsHtml += `
+                <li class="addon-row">
+                  <div class="addon-main">
+                    <div class="addon-name-row">
+                      <span class="addon-name">${escapeHtml(addon.name || 'Add-on')}</span>
+                      <span class="addon-status ${statusClass}">${escapeHtml(statusLabel)}</span>
+                    </div>
+                    <p class="addon-description">${escapeHtml(addon.description || '')}</p>
+                    <div class="addon-tags">
+                      <span class="badge badge-compact">${escapeHtml(addon.category || 'other')}</span>
+                      <span class="badge badge-compact">${escapeHtml(String(addon.included_channels_count || 0))} channels</span>
+                    </div>
+                  </div>
+                  <div class="addon-meta">
+                    <span class="meta-label">Monthly</span>
+                    <span class="meta-value price">$${escapeHtml((addon.monthly_price || 0).toFixed(2))}</span>
+                  </div>
+                </li>
+             `;
+            }
+          }
+
+          var newAddonsHtml = '';
+          if (state.isPreviewMode && pendingWrapper.exists && selectedAddonIds.length > 0) {
+            var currentIdsSet = {};
+            for (var j = 0; j < activeAddons.length; j++) {
+              currentIdsSet[activeAddons[j].id] = true;
+            }
+            var addedAny = false;
+            var toRender = '';
+            for (var k = 0; k < selectedAddonIds.length; k++) {
+              var addonId = selectedAddonIds[k];
+              if (currentIdsSet[addonId]) continue;
+              var catalogAddon = null;
+              for (var a = 0; a < state.addonsIndex.length; a++) {
+                if (state.addonsIndex[a].id === addonId) {
+                  catalogAddon = state.addonsIndex[a];
+                  break;
+                }
+              }
+              if (catalogAddon) {
+                addedAny = true;
+                toRender += `
+                  <li class="addon-row addon-row-new">
+                    <div class="addon-main">
+                      <div class="addon-name-row">
+                        <span class="addon-name">${escapeHtml(catalogAddon.name || 'Add-on')}</span>
+                        <span class="addon-status addon-status-addition">Pending addition</span>
+                      </div>
+                      <p class="addon-description">${escapeHtml(catalogAddon.description || 'This add-on will be added after you confirm your changes.')}</p>
+                      <div class="addon-tags">
+                        <span class="badge badge-compact">${escapeHtml(catalogAddon.category || 'other')}</span>
+                        <span class="badge badge-compact">${escapeHtml(String(catalogAddon.included_channels_count || 0))} channels</span>
+                      </div>
+                    </div>
+                    <div class="addon-meta">
+                      <span class="meta-label">Monthly</span>
+                      <span class="meta-value price">$${escapeHtml((catalogAddon.monthly_price || 0).toFixed(2))}</span>
+                    </div>
+                  </li>
+               `;
+              }
+            }
+            if (addedAny) {
+              newAddonsHtml = `
+                <div class="addons-pending-additions">
+                  <h3 class="addons-subheading">Add-ons to be added</h3>
+                  <ul class="addon-list addon-list-pending">${toRender}</ul>
+                </div>
+             `;
+            }
+          }
+
+          var listHtml;
+          if (!hasActive && !newAddonsHtml) {
+            listHtml = `
+              <p class="section-empty">You don't have any add-ons on your subscription yet.</p>
+           `;
+          } else {
+            listHtml = '';
+            if (hasActive) {
+              listHtml += `
+                <div class="addons-active">
+                  <h3 class="addons-subheading">Active add-ons</h3>
+                  <ul class="addon-list">${activeRowsHtml}</ul>
+                </div>
+             `;
+            }
+            if (newAddonsHtml) {
+              listHtml += newAddonsHtml;
+            }
+          }
+
+          container.innerHTML = `
+            <div class="section-header">
+              <h2 id="addons-summary-heading" class="section-title">Add-ons</h2>
+              <button type="button" class="btn btn-link" data-action="manage-addons">Manage add-ons</button>
+            </div>
+            ${listHtml}
+         `;
+        }
+
+        function renderChannelsList(container) {
+          if (!container) return;
+
+          var channels = state.summary.included_channels || [];
+          var total = channels.length;
+
+          if (total === 0) {
+            container.innerHTML = `
+              <h2 id="channels-list-heading" class="section-title">Included channels</h2>
+              <p class="section-empty">Channel data for this plan is not available right now.</p>
+           `;
+            return;
+          }
+
+          var maxCollapsed = 20;
+          var showAll = state.channelsExpanded;
+          var visibleChannels = showAll ? channels : channels.slice(0, maxCollapsed);
+          var countVisible = visibleChannels.length;
+
+          var itemsHtml = '';
+          for (var i = 0; i < visibleChannels.length; i++) {
+            var ch = visibleChannels[i];
+            var number = (ch.channel_number !== undefined && ch.channel_number !== null) ? String(ch.channel_number) : '';
+            var qualityBadges = '';
+            if (ch.is_hd) {
+              qualityBadges += '<span class="badge badge-compact">HD</span>';
+            }
+            if (ch.is_4k) {
+              qualityBadges += '<span class="badge badge-compact">4K</span>';
+            }
+            itemsHtml += `
+              <li class="channel-item">
+                <div class="channel-main">
+                  <div class="channel-name-row">
+                    ${number ? `<span class="channel-number">${escapeHtml(number)}</span>` : ''}
+                    <span class="channel-name">${escapeHtml(ch.name || 'Channel')}</span>
+                  </div>
+                  <div class="channel-meta-row">
+                    <span class="channel-meta">${escapeHtml(ch.genre || 'other')}</span>
+                    <span class="channel-meta">${escapeHtml(ch.primary_language || 'Unknown')}</span>
+                    <span class="channel-meta-group">${qualityBadges}</span>
+                  </div>
+                </div>
+              </li>
+           `;
+          }
+
+          var toggleLabel;
+          if (showAll) {
+            toggleLabel = 'Show fewer channels';
+          } else if (total > maxCollapsed) {
+            toggleLabel = 'Show all ' + total + ' channels';
+          } else {
+            toggleLabel = '';
+          }
+
+          var toggleHtml = '';
+          if (toggleLabel) {
+            toggleHtml = `
+              <button type="button" class="btn btn-link" data-action="toggle-channels">${escapeHtml(toggleLabel)}</button>
+           `;
+          }
+
+          container.innerHTML = `
+            <div class="section-header">
+              <h2 id="channels-list-heading" class="section-title">Included channels</h2>
+              <p class="section-caption">Channels included in your base plan.</p>
+            </div>
+            <ul class="channel-list-grid">${itemsHtml}</ul>
+            <div class="section-footer">
+              <span class="section-footer-text">Showing ${escapeHtml(String(countVisible))} of ${escapeHtml(String(total))} channels</span>
+              ${toggleHtml}
+            </div>
+         `;
+        }
+
+        function renderPricingSummary(container) {
+          if (!container) return;
+
+          var pricing = state.summary.pricing_summary || {};
+          var currentMonthly = pricing.current_monthly_total || 0;
+          var currentAnnual = pricing.current_annual_total || 0;
+          var pendingMonthly = pricing.pending_new_monthly_total || 0;
+          var pendingAnnual = pricing.pending_new_annual_total || 0;
+
+          var hasPendingTotals = state.hasPendingChange && pendingMonthly > 0;
+
+          var focus = state.billingFocus || 'monthly';
+
+          var monthlyClass = 'billing-toggle';
+          var annualClass = 'billing-toggle';
+          if (focus === 'monthly') {
+            monthlyClass += ' is-active';
+          } else {
+            annualClass += ' is-active';
+          }
+
+          var bodyHtml;
+
+          if (state.isPreviewMode && hasPendingTotals) {
+            bodyHtml = `
+              <div class="pricing-toggle-row">
+                <span class="pricing-toggle-label">Focus</span>
+                <div class="pricing-toggle-group">
+                  <button type="button" class="${monthlyClass}" data-action="billing-toggle" data-billing="monthly">Monthly</button>
+                  <button type="button" class="${annualClass}" data-action="billing-toggle" data-billing="annual">Annual</button>
+                </div>
+              </div>
+              <div class="pricing-comparison">
+                <div class="pricing-column pricing-current">
+                  <h3 class="pricing-subheading">Current</h3>
+                  <p class="pricing-main-amount">${focus === 'monthly'
+                    ? `$${escapeHtml(currentMonthly.toFixed(2))} / mo`
+                    : `$${escapeHtml(currentAnnual.toFixed(2))} / yr`}</p>
+                  <p class="pricing-secondary">$${escapeHtml(currentMonthly.toFixed(2))} / mo &middot; $${escapeHtml(currentAnnual.toFixed(2))} / yr</p>
+                </div>
+                <div class="pricing-column pricing-new">
+                  <h3 class="pricing-subheading">After changes</h3>
+                  <p class="pricing-main-amount pricing-main-amount-new">${focus === 'monthly'
+                    ? `$${escapeHtml(pendingMonthly.toFixed(2))} / mo`
+                    : `$${escapeHtml(pendingAnnual.toFixed(2))} / yr`}</p>
+                  <p class="pricing-secondary">$${escapeHtml(pendingMonthly.toFixed(2))} / mo &middot; $${escapeHtml(pendingAnnual.toFixed(2))} / yr</p>
+                  <p class="pricing-delta">${(function() {
+                    if (focus === 'monthly') {
+                      var diffM = pendingMonthly - currentMonthly;
+                      var signM = diffM > 0 ? '+' : '';
+                      return 'Change: ' + signM + '$' + escapeHtml(diffM.toFixed(2)) + ' / mo';
+                    } else {
+                      var diffA = pendingAnnual - currentAnnual;
+                      var signA = diffA > 0 ? '+' : '';
+                      return 'Change: ' + signA + '$' + escapeHtml(diffA.toFixed(2)) + ' / yr';
+                    }
+                  })()}</p>
+                </div>
+              </div>
+           `;
+          } else {
+            bodyHtml = `
+              <div class="pricing-toggle-row">
+                <span class="pricing-toggle-label">Focus</span>
+                <div class="pricing-toggle-group">
+                  <button type="button" class="${monthlyClass}" data-action="billing-toggle" data-billing="monthly">Monthly</button>
+                  <button type="button" class="${annualClass}" data-action="billing-toggle" data-billing="annual">Annual</button>
+                </div>
+              </div>
+              <div class="pricing-single">
+                <p class="pricing-main-amount">${focus === 'monthly'
+                  ? `$${escapeHtml(currentMonthly.toFixed(2))} / mo`
+                  : `$${escapeHtml(currentAnnual.toFixed(2))} / yr`}</p>
+                <p class="pricing-secondary">$${escapeHtml(currentMonthly.toFixed(2))} / mo &middot; $${escapeHtml(currentAnnual.toFixed(2))} / yr</p>
+              </div>
+           `;
+          }
+
+          container.innerHTML = `
+            <h2 id="pricing-summary-heading" class="section-title">Pricing summary</h2>
+            ${bodyHtml}
+         `;
+        }
+
+        function renderActionsFooter(container) {
+          if (!container) return;
+
+          if (!state.summary) {
+            container.innerHTML = '';
+            container.className = 'plan-actions-footer';
+            return;
+          }
+
+          var allowedStatuses = ['draft', 'pending_confirmation'];
+          var isCheckoutEnabled = state.hasPendingChange && state.pendingChangeStatus && allowedStatuses.indexOf(state.pendingChangeStatus) !== -1;
+
+          var statusText;
+          if (state.hasPendingChange) {
+            statusText = 'You have pending subscription changes that are not yet confirmed.';
+          } else {
+            statusText = 'Your current subscription is active. Make changes to your plan or add-ons to update your pricing.';
+          }
+
+          var checkoutBtnClasses = 'btn btn-primary';
+          var checkoutAttrs = '';
+          if (!isCheckoutEnabled) {
+            checkoutBtnClasses += ' btn-disabled';
+            checkoutAttrs = ' aria-disabled="true" disabled';
+          }
+
+          container.className = 'plan-actions-footer';
+          container.innerHTML = `
+            <div class="plan-actions-footer-inner">
+              <div class="plan-actions-text">
+                <p class="plan-actions-status">${escapeHtml(statusText)}</p>
+              </div>
+              <div class="plan-actions-buttons">
+                <button type="button" class="btn btn-secondary" data-action="change-plan">Change base plan</button>
+                <button type="button" class="btn btn-secondary" data-action="manage-addons">Manage add-ons</button>
+                <button type="button" class="${checkoutBtnClasses}" data-action="proceed-checkout"${checkoutAttrs}>Proceed to checkout</button>
+              </div>
+            </div>
+         `;
+        }
+
+        function handleAction(action, element) {
+          if (!action) return;
+
+          if (action === 'retry-load') {
+            init();
+            return;
+          }
+
+          if (action === 'change-plan') {
+            window.location.href = 'plans.html?context=change_plan';
+            return;
+          }
+
+          if (action === 'manage-addons') {
+            window.location.href = 'addons.html?from=my_plan';
+            return;
+          }
+
+          if (action === 'proceed-checkout') {
+            if (element.getAttribute('aria-disabled') === 'true' || element.disabled) {
+              return;
+            }
+            window.location.href = 'checkout.html?from=my_plan&context=plan_or_addon_change';
+            return;
+          }
+
+          if (action === 'preview-changes') {
+            if (!state.hasPendingChange) return;
+            state.changePreview = true;
+            state.isPreviewMode = true;
+            var currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.set('changePreview', 'true');
+            window.history.replaceState(null, '', currentUrl.toString());
+            renderAll();
+            return;
+          }
+
+          if (action === 'toggle-channels') {
+            state.channelsExpanded = !state.channelsExpanded;
+            renderChannelsList(rootContainer.querySelector('[data-component="channels-list-section"]'));
+            return;
+          }
+
+          if (action === 'billing-toggle') {
+            var billing = element.getAttribute('data-billing');
+            if (billing === 'monthly' || billing === 'annual') {
+              state.billingFocus = billing;
+              renderPricingSummary(rootContainer.querySelector('[data-component="pricing-summary-section"]'));
+            }
+            return;
+          }
+        }
+
+        document.addEventListener('click', function(event) {
+          var target = event.target;
+          if (!target) return;
+          var actionEl = target.closest('[data-action]');
+          if (!actionEl) return;
+          var action = actionEl.getAttribute('data-action');
+          handleAction(action, actionEl);
+        });
+
+        init();
+      });
+    })();
+  </script>
+</body>
+</html>

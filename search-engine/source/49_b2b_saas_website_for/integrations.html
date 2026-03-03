@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Konnect AI - Integrations</title>
+  <meta name="description" content="Manage external integrations, view their connection status, and configure CRM connections including authentication, field mappings, and sync options." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="integrations.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner container">
+      <a href="index.html" class="brand" aria-label="Konnect AI home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-text">ODF</span>
+      </a>
+      <nav class="primary-nav" aria-label="Main navigation">
+        <ul class="nav-list">
+          <li class="nav-item"><a href="index.html" class="nav-link">Home</a></li>
+          <li class="nav-item"><a href="bots.html" class="nav-link">Bots</a></li>
+          <li class="nav-item"><a href="automations.html" class="nav-link">Automations</a></li>
+          <li class="nav-item"><a href="analytics_dashboard.html" class="nav-link">Analytics</a></li>
+          <li class="nav-item"><a href="knowledge_base.html" class="nav-link">Knowledge Base</a></li>
+          <li class="nav-item is-active"><a href="settings.html" class="nav-link">Settings</a></li>
+          <li class="nav-item"><a href="pricing.html" class="nav-link">Pricing</a></li>
+        </ul>
+      </nav>
+      <div class="nav-actions">
+        <a href="pricing.html" class="btn btn-secondary">GET A DEMO</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="content" class="site-main" role="main">
+    <section class="integrations-page" aria-label="Integrations configuration workspace">
+      <div class="container">
+        <div class="page-header-row">
+          <a href="javascript:void(0)" class="back-link" data-component="back-to-settings-link" data-action="navigate-back-settings">
+            <span class="icon icon-chevron-left" aria-hidden="true"></span>
+            <span>Back to Settings</span>
+          </a>
+        </div>
+
+        <div class="integrations-layout">
+          <aside class="integrations-overview-column" aria-label="Integrations overview list">
+            <div class="card integrations-overview-card" data-component="integrations-list" data-populate="integrations-overview">
+              <!-- Integrations overview list will be rendered here by JavaScript -->
+            </div>
+          </aside>
+
+          <section class="integration-config-column" aria-label="Integration configuration">
+            <div class="card integration-config-card" data-component="integration-config-panel" data-populate="integration-config">
+              <!-- Integration configuration panel, forms, mappings, and error states will be rendered here by JavaScript -->
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner container">
+      <div class="footer-branding">
+        <div class="footer-logo">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-text">ODF</span>
+        </div>
+        <p class="footer-tagline">AI customer communications for modern teams.</p>
+      </div>
+      <nav class="footer-nav" aria-label="Footer navigation">
+        <a href="about.html" class="footer-link">About</a>
+        <a href="contact.html" class="footer-link">Contact</a>
+        <a href="knowledge_base.html" class="footer-link">Knowledge Base</a>
+        <a href="pricing.html" class="footer-link">Pricing</a>
+      </nav>
+      <p class="footer-meta">© <span data-year></span> Konnect AI. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var urlParams = new URLSearchParams(window.location.search);
+      var initialIntegrationId = urlParams.get('integrationId');
+
+      var overviewContainer = null;
+      var configContainer = null;
+
+      var populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function (el) {
+        var type = el.dataset.populate;
+        if (type === 'integrations-overview') {
+          overviewContainer = el;
+        } else if (type === 'integration-config') {
+          configContainer = el;
+        }
+      });
+
+      var pageState = {
+        integrationId: initialIntegrationId,
+        mode: initialIntegrationId ? 'config' : 'overview',
+        overview: {
+          items: [],
+          isLoading: false,
+          error: null
+        },
+        config: {
+          isLoading: false,
+          error: null,
+          integration: null,
+          availablePlatformFields: [],
+          availableCrmFieldsByObject: {},
+          form: {
+            apiKey: '',
+            environment: '',
+            syncNewConversations: true,
+            autoCreateContacts: true,
+            fieldMappings: []
+          },
+          previousApiKey: ''
+        },
+        save: {
+          isSaving: false,
+          error: null,
+          success: false
+        }
+      };
+
+      function formatIntegrationType(type) {
+        if (!type) return '';
+        switch (type) {
+          case 'crm':
+            return 'CRM';
+          case 'helpdesk':
+            return 'Helpdesk';
+          case 'analytics':
+            return 'Analytics';
+          case 'data_warehouse':
+            return 'Data warehouse';
+          case 'other_integration':
+            return 'Other integration';
+          default:
+            return type;
+        }
+      }
+
+      function formatStatus(status) {
+        if (!status) return '';
+        switch (status) {
+          case 'connected':
+            return 'Connected';
+          case 'disconnected':
+            return 'Disconnected';
+          default:
+            return status;
+        }
+      }
+
+      function formatEnvironment(env) {
+        if (!env) return '';
+        switch (env) {
+          case 'sandbox':
+            return 'Sandbox';
+          case 'production':
+            return 'Production';
+          default:
+            return env;
+        }
+      }
+
+      function createPill(text, extraClass) {
+        var span = document.createElement('span');
+        span.className = 'pill' + (extraClass ? ' ' + extraClass : '');
+        span.textContent = text;
+        return span;
+      }
+
+      function renderIntegrationsOverview(container, state) {
+        container.innerHTML = '';
+
+        var header = document.createElement('div');
+        header.className = 'card-header';
+
+        var title = document.createElement('h1');
+        title.className = 'card-title';
+        title.textContent = 'Integrations';
+        header.appendChild(title);
+
+        var subtitle = document.createElement('p');
+        subtitle.className = 'card-subtitle';
+        subtitle.textContent = 'View all available integrations and their connection status.';
+        header.appendChild(subtitle);
+
+        container.appendChild(header);
+
+        if (state.isLoading) {
+          var loading = document.createElement('div');
+          loading.className = 'loading-state';
+          loading.textContent = 'Loading integrationsa0b7b7b7';
+          container.appendChild(loading);
+          return;
+        }
+
+        if (state.error) {
+          var error = document.createElement('div');
+          error.className = 'alert alert-error';
+          error.textContent = state.error;
+          container.appendChild(error);
+          return;
+        }
+
+        if (!state.items || state.items.length === 0) {
+          var empty = document.createElement('div');
+          empty.className = 'empty-state';
+          empty.textContent = 'No integrations are available yet.';
+          container.appendChild(empty);
+          return;
+        }
+
+        var list = document.createElement('ul');
+        list.className = 'integrations-list-items';
+
+        state.items.forEach(function (integration) {
+          var li = document.createElement('li');
+          li.className = 'integrations-list-item';
+
+          var row = document.createElement('div');
+          row.className = 'integration-row';
+
+          if (pageState.integrationId && pageState.integrationId === integration.id) {
+            row.classList.add('is-active');
+          }
+
+          var mainButton = document.createElement('button');
+          mainButton.type = 'button';
+          mainButton.className = 'integration-row-main';
+          mainButton.dataset.action = 'select-integration';
+          mainButton.dataset.integrationId = integration.id;
+          mainButton.addEventListener('click', handleSelectIntegration);
+
+          var nameBlock = document.createElement('div');
+          nameBlock.className = 'integration-primary';
+
+          var nameEl = document.createElement('div');
+          nameEl.className = 'integration-name';
+          nameEl.textContent = integration.name || '';
+          nameBlock.appendChild(nameEl);
+
+          var meta = document.createElement('div');
+          meta.className = 'integration-meta';
+
+          var typeText = document.createElement('span');
+          typeText.className = 'integration-type';
+          typeText.textContent = formatIntegrationType(integration.type);
+          meta.appendChild(typeText);
+
+          nameBlock.appendChild(meta);
+          mainButton.appendChild(nameBlock);
+
+          var statusBlock = document.createElement('div');
+          statusBlock.className = 'integration-status-block';
+
+          var statusClass = integration.status === 'connected' ? 'pill-success' : 'pill-neutral';
+          var statusPill = createPill(formatStatus(integration.status), 'integration-status-pill ' + statusClass);
+          statusBlock.appendChild(statusPill);
+
+          mainButton.appendChild(statusBlock);
+          row.appendChild(mainButton);
+
+          var actions = document.createElement('div');
+          actions.className = 'integration-row-actions';
+
+          var configureBtn = document.createElement('button');
+          configureBtn.type = 'button';
+          configureBtn.className = 'btn btn-link integration-configure-btn';
+          configureBtn.dataset.action = 'configure-integration';
+          configureBtn.dataset.integrationId = integration.id;
+          configureBtn.textContent = 'Configure';
+          configureBtn.addEventListener('click', handleSelectIntegration);
+
+          actions.appendChild(configureBtn);
+          row.appendChild(actions);
+
+          li.appendChild(row);
+          list.appendChild(li);
+        });
+
+        container.appendChild(list);
+      }
+
+      function ensureFormFieldMappingsInitialized(configState) {
+        if (!pageState.config.form.fieldMappings || pageState.config.form.fieldMappings.length === 0) {
+          var initialMappings = [];
+          if (configState && configState.fieldMappings && Array.isArray(configState.fieldMappings) && configState.fieldMappings.length > 0) {
+            configState.fieldMappings.forEach(function (m) {
+              initialMappings.push({
+                platformField: m.platform_field || '',
+                crmObjectType: m.crm_object_type || '',
+                crmField: m.crm_field || '',
+                isPrimary: !!m.is_primary
+              });
+            });
+          } else if (pageState.config.availablePlatformFields && pageState.config.availablePlatformFields.length > 0) {
+            pageState.config.availablePlatformFields.forEach(function (pf, index) {
+              initialMappings.push({
+                platformField: pf,
+                crmObjectType: '',
+                crmField: '',
+                isPrimary: index === 0
+              });
+            });
+          }
+          pageState.config.form.fieldMappings = initialMappings;
+        }
+      }
+
+      function renderIntegrationConfig(container, fullState) {
+        container.innerHTML = '';
+
+        var mode = fullState.mode;
+        var cfg = fullState.config;
+        var save = fullState.save;
+
+        if (mode !== 'config') {
+          var placeholderHeader = document.createElement('div');
+          placeholderHeader.className = 'panel-header';
+
+          var placeholderTitle = document.createElement('h2');
+          placeholderTitle.className = 'panel-title';
+          placeholderTitle.textContent = 'Select an integration to configure';
+          placeholderHeader.appendChild(placeholderTitle);
+
+          var placeholderBody = document.createElement('p');
+          placeholderBody.className = 'panel-description';
+          placeholderBody.textContent = 'Choose an integration from the list on the left to edit connection settings, sync options, and field mappings.';
+          container.appendChild(placeholderHeader);
+          container.appendChild(placeholderBody);
+          return;
+        }
+
+        if (cfg.isLoading) {
+          var loadingHeader = document.createElement('div');
+          loadingHeader.className = 'panel-header';
+
+          var loadingTitle = document.createElement('h2');
+          loadingTitle.className = 'panel-title';
+          loadingTitle.textContent = 'Loading integrationa0b7b7b7';
+          loadingHeader.appendChild(loadingTitle);
+
+          container.appendChild(loadingHeader);
+
+          var loadingBody = document.createElement('div');
+          loadingBody.className = 'loading-state';
+          loadingBody.textContent = 'Fetching configuration detailsa0b7b7b7';
+          container.appendChild(loadingBody);
+          return;
+        }
+
+        if (cfg.error) {
+          var errorHeader = document.createElement('div');
+          errorHeader.className = 'panel-header';
+
+          var errorTitle = document.createElement('h2');
+          errorTitle.className = 'panel-title';
+          errorTitle.textContent = 'Unable to load integration';
+          errorHeader.appendChild(errorTitle);
+          container.appendChild(errorHeader);
+
+          var errorPanel = document.createElement('div');
+          errorPanel.className = 'alert alert-error';
+          errorPanel.dataset.component = 'integration-error-state';
+
+          var errorText = document.createElement('p');
+          errorText.textContent = cfg.error;
+          errorPanel.appendChild(errorText);
+
+          var errorActions = document.createElement('div');
+          errorActions.className = 'alert-actions';
+
+          var retryBtn = document.createElement('button');
+          retryBtn.type = 'button';
+          retryBtn.className = 'btn btn-primary';
+          retryBtn.dataset.action = 'retry-load-config';
+          retryBtn.textContent = 'Retry';
+          retryBtn.addEventListener('click', handleRetryLoadConfig);
+          errorActions.appendChild(retryBtn);
+
+          var backBtn = document.createElement('button');
+          backBtn.type = 'button';
+          backBtn.className = 'btn btn-secondary';
+          backBtn.dataset.action = 'return-to-overview';
+          backBtn.textContent = 'Return to overview';
+          backBtn.addEventListener('click', handleReturnToOverview);
+          errorActions.appendChild(backBtn);
+
+          errorPanel.appendChild(errorActions);
+          container.appendChild(errorPanel);
+          return;
+        }
+
+        if (!cfg.integration) {
+          var noData = document.createElement('div');
+          noData.className = 'empty-state';
+          noData.textContent = 'No integration is selected.';
+          container.appendChild(noData);
+          return;
+        }
+
+        ensureFormFieldMappingsInitialized(null);
+
+        var integration = cfg.integration;
+
+        var header = document.createElement('div');
+        header.className = 'panel-header';
+
+        var title = document.createElement('h2');
+        title.className = 'panel-title';
+        title.textContent = integration.name || '';
+        header.appendChild(title);
+
+        var headerMeta = document.createElement('div');
+        headerMeta.className = 'panel-meta';
+
+        var typePill = createPill(formatIntegrationType(integration.type), 'pill-neutral');
+        headerMeta.appendChild(typePill);
+
+        if (integration.status) {
+          var statusClass = integration.status === 'connected' ? 'pill-success' : 'pill-neutral';
+          var statusPill = createPill(formatStatus(integration.status), 'integration-status-pill ' + statusClass);
+          headerMeta.appendChild(statusPill);
+        }
+
+        header.appendChild(headerMeta);
+        container.appendChild(header);
+
+        if (cfg.error || save.error || save.success) {
+          var feedbackPanel = document.createElement('div');
+          feedbackPanel.dataset.component = 'integration-error-state';
+
+          if (save.error) {
+            feedbackPanel.className = 'alert alert-error';
+            var errText = document.createElement('p');
+            errText.textContent = save.error;
+            feedbackPanel.appendChild(errText);
+          } else if (save.success) {
+            feedbackPanel.className = 'alert alert-success';
+            var okText = document.createElement('p');
+            okText.textContent = 'Configuration saved successfully.';
+            feedbackPanel.appendChild(okText);
+          }
+
+          if (feedbackPanel.className) {
+            container.appendChild(feedbackPanel);
+          }
+        }
+
+        var formSection = document.createElement('section');
+        formSection.className = 'panel-section integration-connection-form-section';
+        formSection.dataset.component = 'integration-connection-form';
+
+        var formTitle = document.createElement('h3');
+        formTitle.className = 'section-title';
+        formTitle.textContent = 'Connection';
+        formSection.appendChild(formTitle);
+
+        var formDescription = document.createElement('p');
+        formDescription.className = 'section-description';
+        formDescription.textContent = 'Provide credentials and environment to connect this integration.';
+        formSection.appendChild(formDescription);
+
+        var fieldGroupApiKey = document.createElement('div');
+        fieldGroupApiKey.className = 'form-group';
+
+        var apiLabel = document.createElement('label');
+        apiLabel.setAttribute('for', 'integration-api-key');
+        apiLabel.textContent = 'API key';
+        fieldGroupApiKey.appendChild(apiLabel);
+
+        var apiInput = document.createElement('input');
+        apiInput.id = 'integration-api-key';
+        apiInput.name = 'apiKey';
+        apiInput.type = 'password';
+        apiInput.autocomplete = 'off';
+        apiInput.required = true;
+        apiInput.className = 'input';
+
+        if (cfg.previousApiKey) {
+          apiInput.placeholder = 'Existing key is configured. Enter a new key to replace it.';
+        }
+
+        apiInput.value = cfg.form.apiKey || '';
+
+        apiInput.dataset.action = 'input-api-key';
+        apiInput.addEventListener('input', function (event) {
+          pageState.config.form.apiKey = event.target.value;
+        });
+
+        fieldGroupApiKey.appendChild(apiInput);
+        formSection.appendChild(fieldGroupApiKey);
+
+        var fieldGroupEnv = document.createElement('div');
+        fieldGroupEnv.className = 'form-group';
+
+        var envLabel = document.createElement('label');
+        envLabel.setAttribute('for', 'integration-environment');
+        envLabel.textContent = 'Environment';
+        fieldGroupEnv.appendChild(envLabel);
+
+        var envSelect = document.createElement('select');
+        envSelect.id = 'integration-environment';
+        envSelect.name = 'environment';
+        envSelect.required = true;
+        envSelect.className = 'select';
+        envSelect.dataset.action = 'change-environment';
+
+        var envPlaceholderOpt = document.createElement('option');
+        envPlaceholderOpt.value = '';
+        envPlaceholderOpt.textContent = 'Select environment';
+        envSelect.appendChild(envPlaceholderOpt);
+
+        var envValues = ['sandbox', 'production'];
+        envValues.forEach(function (envVal) {
+          var opt = document.createElement('option');
+          opt.value = envVal;
+          opt.textContent = formatEnvironment(envVal);
+          if (cfg.form.environment === envVal || (!cfg.form.environment && integration.environment === envVal)) {
+            opt.selected = true;
+            pageState.config.form.environment = envVal;
+          }
+          envSelect.appendChild(opt);
+        });
+
+        envSelect.addEventListener('change', function (event) {
+          pageState.config.form.environment = event.target.value;
+        });
+
+        fieldGroupEnv.appendChild(envSelect);
+        formSection.appendChild(fieldGroupEnv);
+
+        container.appendChild(formSection);
+
+        var syncSection = document.createElement('section');
+        syncSection.className = 'panel-section integration-sync-options-section';
+        syncSection.dataset.component = 'integration-sync-options-toggle-group';
+
+        var syncTitle = document.createElement('h3');
+        syncTitle.className = 'section-title';
+        syncTitle.textContent = 'Sync options';
+        syncSection.appendChild(syncTitle);
+
+        var syncControls = document.createElement('div');
+        syncControls.className = 'toggle-group';
+
+        var syncNewWrapper = document.createElement('label');
+        syncNewWrapper.className = 'toggle-control';
+
+        var syncNewInput = document.createElement('input');
+        syncNewInput.type = 'checkbox';
+        syncNewInput.name = 'syncNewConversations';
+        syncNewInput.checked = cfg.form.syncNewConversations;
+        syncNewInput.dataset.action = 'toggle-sync-new-conversations';
+        syncNewInput.addEventListener('change', function (event) {
+          pageState.config.form.syncNewConversations = !!event.target.checked;
+        });
+
+        var syncNewLabelText = document.createElement('span');
+        syncNewLabelText.textContent = 'Sync new conversations to CRM';
+
+        syncNewWrapper.appendChild(syncNewInput);
+        syncNewWrapper.appendChild(syncNewLabelText);
+        syncControls.appendChild(syncNewWrapper);
+
+        var autoCreateWrapper = document.createElement('label');
+        autoCreateWrapper.className = 'toggle-control';
+
+        var autoCreateInput = document.createElement('input');
+        autoCreateInput.type = 'checkbox';
+        autoCreateInput.name = 'autoCreateContacts';
+        autoCreateInput.checked = cfg.form.autoCreateContacts;
+        autoCreateInput.dataset.action = 'toggle-auto-create-contacts';
+        autoCreateInput.addEventListener('change', function (event) {
+          pageState.config.form.autoCreateContacts = !!event.target.checked;
+        });
+
+        var autoCreateLabelText = document.createElement('span');
+        autoCreateLabelText.textContent = 'Auto-create contacts';
+
+        autoCreateWrapper.appendChild(autoCreateInput);
+        autoCreateWrapper.appendChild(autoCreateLabelText);
+        syncControls.appendChild(autoCreateWrapper);
+
+        syncSection.appendChild(syncControls);
+        container.appendChild(syncSection);
+
+        var mappingSection = document.createElement('section');
+        mappingSection.className = 'panel-section field-mapping-section';
+        mappingSection.dataset.component = 'field-mapping-editor';
+
+        var mappingTitle = document.createElement('h3');
+        mappingTitle.className = 'section-title';
+        mappingTitle.textContent = 'Field mappings';
+        mappingSection.appendChild(mappingTitle);
+
+        var mappingDescription = document.createElement('p');
+        mappingDescription.className = 'section-description';
+        mappingDescription.textContent = 'Map platform contact fields to CRM objects and fields.';
+        mappingSection.appendChild(mappingDescription);
+
+        var mappingTable = document.createElement('div');
+        mappingTable.className = 'mapping-table';
+
+        var mappingHeaderRow = document.createElement('div');
+        mappingHeaderRow.className = 'mapping-row mapping-row-header';
+
+        var hPlatform = document.createElement('div');
+        hPlatform.className = 'mapping-col mapping-col-platform';
+        hPlatform.textContent = 'Platform field';
+
+        var hObject = document.createElement('div');
+        hObject.className = 'mapping-col mapping-col-object';
+        hObject.textContent = 'CRM object';
+
+        var hField = document.createElement('div');
+        hField.className = 'mapping-col mapping-col-field';
+        hField.textContent = 'CRM field';
+
+        var hPrimary = document.createElement('div');
+        hPrimary.className = 'mapping-col mapping-col-primary';
+        hPrimary.textContent = 'Primary';
+
+        var hActions = document.createElement('div');
+        hActions.className = 'mapping-col mapping-col-actions';
+        hActions.textContent = '';
+
+        mappingHeaderRow.appendChild(hPlatform);
+        mappingHeaderRow.appendChild(hObject);
+        mappingHeaderRow.appendChild(hField);
+        mappingHeaderRow.appendChild(hPrimary);
+        mappingHeaderRow.appendChild(hActions);
+        mappingTable.appendChild(mappingHeaderRow);
+
+        if (!cfg.form.fieldMappings || cfg.form.fieldMappings.length === 0) {
+          var emptyRow = document.createElement('div');
+          emptyRow.className = 'mapping-empty';
+          emptyRow.textContent = 'No mappings defined yet.';
+          mappingTable.appendChild(emptyRow);
+        } else {
+          cfg.form.fieldMappings.forEach(function (mapping, index) {
+            var row = document.createElement('div');
+            row.className = 'mapping-row';
+            row.dataset.index = String(index);
+
+            var colPlatform = document.createElement('div');
+            colPlatform.className = 'mapping-col mapping-col-platform';
+
+            var platformSelect = document.createElement('select');
+            platformSelect.className = 'select';
+            platformSelect.dataset.action = 'change-mapping-platform-field';
+            platformSelect.dataset.index = String(index);
+
+            var pfPlaceholder = document.createElement('option');
+            pfPlaceholder.value = '';
+            pfPlaceholder.textContent = 'Select field';
+            platformSelect.appendChild(pfPlaceholder);
+
+            (cfg.availablePlatformFields || []).forEach(function (pf) {
+              var opt = document.createElement('option');
+              opt.value = pf;
+              opt.textContent = pf;
+              if (mapping.platformField === pf) {
+                opt.selected = true;
+              }
+              platformSelect.appendChild(opt);
+            });
+
+            platformSelect.addEventListener('change', function (event) {
+              var idx = parseInt(event.target.dataset.index, 10);
+              pageState.config.form.fieldMappings[idx].platformField = event.target.value;
+            });
+
+            colPlatform.appendChild(platformSelect);
+            row.appendChild(colPlatform);
+
+            var colObject = document.createElement('div');
+            colObject.className = 'mapping-col mapping-col-object';
+
+            var objectSelect = document.createElement('select');
+            objectSelect.className = 'select';
+            objectSelect.dataset.action = 'change-mapping-crm-object-type';
+            objectSelect.dataset.index = String(index);
+
+            var objectPlaceholder = document.createElement('option');
+            objectPlaceholder.value = '';
+            objectPlaceholder.textContent = 'Select object';
+            objectSelect.appendChild(objectPlaceholder);
+
+            var objectKeys = Object.keys(cfg.availableCrmFieldsByObject || {});
+            objectKeys.forEach(function (objKey) {
+              var optObj = document.createElement('option');
+              optObj.value = objKey;
+              optObj.textContent = objKey;
+              if (mapping.crmObjectType === objKey) {
+                optObj.selected = true;
+              }
+              objectSelect.appendChild(optObj);
+            });
+
+            objectSelect.addEventListener('change', function (event) {
+              var idx = parseInt(event.target.dataset.index, 10);
+              pageState.config.form.fieldMappings[idx].crmObjectType = event.target.value;
+              pageState.config.form.fieldMappings[idx].crmField = '';
+              renderIntegrationConfig(configContainer, pageState);
+            });
+
+            colObject.appendChild(objectSelect);
+            row.appendChild(colObject);
+
+            var colField = document.createElement('div');
+            colField.className = 'mapping-col mapping-col-field';
+
+            var fieldSelect = document.createElement('select');
+            fieldSelect.className = 'select';
+            fieldSelect.dataset.action = 'change-mapping-crm-field';
+            fieldSelect.dataset.index = String(index);
+
+            var fieldPlaceholder = document.createElement('option');
+            fieldPlaceholder.value = '';
+            fieldPlaceholder.textContent = 'Select field';
+            fieldSelect.appendChild(fieldPlaceholder);
+
+            var fieldsForObject = [];
+            if (mapping.crmObjectType && cfg.availableCrmFieldsByObject && cfg.availableCrmFieldsByObject[mapping.crmObjectType]) {
+              fieldsForObject = cfg.availableCrmFieldsByObject[mapping.crmObjectType];
+            }
+
+            fieldsForObject.forEach(function (f) {
+              var optField = document.createElement('option');
+              optField.value = f;
+              optField.textContent = f;
+              if (mapping.crmField === f) {
+                optField.selected = true;
+              }
+              fieldSelect.appendChild(optField);
+            });
+
+            fieldSelect.addEventListener('change', function (event) {
+              var idx = parseInt(event.target.dataset.index, 10);
+              pageState.config.form.fieldMappings[idx].crmField = event.target.value;
+            });
+
+            colField.appendChild(fieldSelect);
+            row.appendChild(colField);
+
+            var colPrimary = document.createElement('div');
+            colPrimary.className = 'mapping-col mapping-col-primary';
+
+            var primaryLabel = document.createElement('label');
+            primaryLabel.className = 'checkbox-primary';
+
+            var primaryInput = document.createElement('input');
+            primaryInput.type = 'checkbox';
+            primaryInput.dataset.action = 'toggle-mapping-is-primary';
+            primaryInput.dataset.index = String(index);
+            primaryInput.checked = !!mapping.isPrimary;
+
+            primaryInput.addEventListener('change', function (event) {
+              var idx = parseInt(event.target.dataset.index, 10);
+              var checked = !!event.target.checked;
+              pageState.config.form.fieldMappings.forEach(function (m, i) {
+                m.isPrimary = i === idx ? checked : m.isPrimary && i === idx;
+              });
+              if (checked) {
+                pageState.config.form.fieldMappings.forEach(function (m, i) {
+                  if (i !== idx && m.crmObjectType === pageState.config.form.fieldMappings[idx].crmObjectType && m.crmField === pageState.config.form.fieldMappings[idx].crmField) {
+                    m.isPrimary = false;
+                  }
+                });
+              }
+              renderIntegrationConfig(configContainer, pageState);
+            });
+
+            var primaryText = document.createElement('span');
+            primaryText.textContent = 'Primary';
+
+            primaryLabel.appendChild(primaryInput);
+            primaryLabel.appendChild(primaryText);
+            colPrimary.appendChild(primaryLabel);
+            row.appendChild(colPrimary);
+
+            var colActions = document.createElement('div');
+            colActions.className = 'mapping-col mapping-col-actions';
+
+            var removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'btn btn-quiet btn-icon-only';
+            removeBtn.dataset.action = 'remove-mapping-row';
+            removeBtn.dataset.index = String(index);
+            removeBtn.setAttribute('aria-label', 'Remove mapping');
+            removeBtn.textContent = 'd7';
+
+            removeBtn.addEventListener('click', function (event) {
+              var idx = parseInt(event.target.dataset.index, 10);
+              pageState.config.form.fieldMappings.splice(idx, 1);
+              renderIntegrationConfig(configContainer, pageState);
+            });
+
+            colActions.appendChild(removeBtn);
+            row.appendChild(colActions);
+
+            mappingTable.appendChild(row);
+          });
+        }
+
+        mappingSection.appendChild(mappingTable);
+
+        var addRowContainer = document.createElement('div');
+        addRowContainer.className = 'mapping-add-row';
+
+        var addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'btn btn-secondary';
+        addBtn.dataset.action = 'add-mapping-row';
+        addBtn.textContent = 'Add mapping';
+        addBtn.addEventListener('click', function () {
+          pageState.config.form.fieldMappings.push({
+            platformField: '',
+            crmObjectType: '',
+            crmField: '',
+            isPrimary: false
+          });
+          renderIntegrationConfig(configContainer, pageState);
+        });
+
+        addRowContainer.appendChild(addBtn);
+        mappingSection.appendChild(addRowContainer);
+
+        container.appendChild(mappingSection);
+
+        var submitBar = document.createElement('div');
+        submitBar.className = 'integration-config-submit-bar';
+        submitBar.dataset.component = 'integration-config-submit-bar';
+
+        var submitInfo = document.createElement('div');
+        submitInfo.className = 'submit-info';
+
+        if (integration.status === 'connected') {
+          submitInfo.textContent = 'Changes will update the existing connection.';
+        } else {
+          submitInfo.textContent = 'Complete the fields to connect this integration.';
+        }
+
+        submitBar.appendChild(submitInfo);
+
+        var submitActions = document.createElement('div');
+        submitActions.className = 'submit-actions';
+
+        var saveBtn = document.createElement('button');
+        saveBtn.type = 'button';
+        saveBtn.className = 'btn btn-primary';
+        saveBtn.dataset.action = 'save-integration-config';
+        saveBtn.textContent = save.isSaving ? 'Savinga0b7b7b7' : 'Save configuration';
+        saveBtn.disabled = save.isSaving;
+
+        saveBtn.addEventListener('click', handleSaveIntegrationConfig);
+
+        var cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'btn btn-quiet';
+        cancelBtn.dataset.action = 'return-to-overview';
+        cancelBtn.textContent = 'Back to overview';
+        cancelBtn.addEventListener('click', handleReturnToOverview);
+
+        submitActions.appendChild(cancelBtn);
+        submitActions.appendChild(saveBtn);
+        submitBar.appendChild(submitActions);
+
+        container.appendChild(submitBar);
+      }
+
+      function loadOverview() {
+        if (!overviewContainer) return;
+        pageState.overview.isLoading = true;
+        pageState.overview.error = null;
+        renderIntegrationsOverview(overviewContainer, pageState.overview);
+        try {
+          var integrations = WebsiteSDK.getIntegrationsOverview();
+          if (!Array.isArray(integrations)) {
+            integrations = [];
+          }
+          pageState.overview.items = integrations;
+        } catch (err) {
+          pageState.overview.error = 'We could not load integrations. Please refresh the page.';
+        }
+        pageState.overview.isLoading = false;
+        renderIntegrationsOverview(overviewContainer, pageState.overview);
+      }
+
+      function loadConfig(integrationId) {
+        if (!configContainer || !integrationId) return;
+        pageState.config.isLoading = true;
+        pageState.config.error = null;
+        pageState.config.integration = null;
+        pageState.save.error = null;
+        pageState.save.success = false;
+        renderIntegrationConfig(configContainer, pageState);
+        try {
+          var configState = WebsiteSDK.getIntegrationConfigState(integrationId);
+          if (!configState || !configState.integration) {
+            throw new Error('Integration not found.');
+          }
+          pageState.config.integration = configState.integration;
+          pageState.config.availablePlatformFields = Array.isArray(configState.availablePlatformFields) ? configState.availablePlatformFields : [];
+          pageState.config.availableCrmFieldsByObject = configState.availableCrmFieldsByObject || {};
+
+          pageState.config.form.apiKey = '';
+          pageState.config.previousApiKey = configState.integration.api_key || '';
+
+          if (configState.integration.environment) {
+            pageState.config.form.environment = configState.integration.environment;
+          }
+
+          if (typeof configState.integration.sync_new_conversations === 'boolean') {
+            pageState.config.form.syncNewConversations = configState.integration.sync_new_conversations;
+          }
+          if (typeof configState.integration.auto_create_contacts === 'boolean') {
+            pageState.config.form.autoCreateContacts = configState.integration.auto_create_contacts;
+          }
+
+          pageState.config.form.fieldMappings = [];
+          ensureFormFieldMappingsInitialized(configState);
+        } catch (err) {
+          pageState.config.error = 'We couldnb4t load this integration configuration. Please try again or return to the overview.';
+        }
+        pageState.config.isLoading = false;
+        renderIntegrationConfig(configContainer, pageState);
+      }
+
+      function handleSelectIntegration(event) {
+        var id = event.currentTarget.dataset.integrationId;
+        if (!id) return;
+        window.location.href = 'integrations.html?integrationId=' + encodeURIComponent(id);
+      }
+
+      function handleRetryLoadConfig() {
+        if (!pageState.integrationId) return;
+        loadConfig(pageState.integrationId);
+      }
+
+      function handleReturnToOverview() {
+        window.location.href = 'integrations.html';
+      }
+
+      function validateConfigForm() {
+        var form = pageState.config.form;
+        if (!form.apiKey && !pageState.config.previousApiKey) {
+          return 'API key is required.';
+        }
+        if (!form.environment) {
+          return 'Environment is required.';
+        }
+
+        if (!form.fieldMappings || form.fieldMappings.length === 0) {
+          return 'At least one field mapping is required.';
+        }
+
+        for (var i = 0; i < form.fieldMappings.length; i++) {
+          var m = form.fieldMappings[i];
+          if (!m.platformField || !m.crmObjectType || !m.crmField) {
+            return 'Each mapping must include a platform field, CRM object, and CRM field.';
+          }
+        }
+        return null;
+      }
+
+      function handleSaveIntegrationConfig() {
+        if (!pageState.integrationId || !pageState.config.integration) return;
+        var validationError = validateConfigForm();
+        if (validationError) {
+          pageState.save.error = validationError;
+          pageState.save.success = false;
+          renderIntegrationConfig(configContainer, pageState);
+          return;
+        }
+
+        pageState.save.isSaving = true;
+        pageState.save.error = null;
+        pageState.save.success = false;
+        renderIntegrationConfig(configContainer, pageState);
+
+        var form = pageState.config.form;
+        var apiKeyToSend = form.apiKey || pageState.config.previousApiKey || '';
+
+        var payloadMappings = (form.fieldMappings || []).map(function (m) {
+          return {
+            platformField: m.platformField,
+            crmObjectType: m.crmObjectType,
+            crmField: m.crmField,
+            isPrimary: !!m.isPrimary
+          };
+        });
+
+        try {
+          var result = WebsiteSDK.configureCrmIntegration(
+            pageState.integrationId,
+            apiKeyToSend,
+            form.environment,
+            !!form.syncNewConversations,
+            !!form.autoCreateContacts,
+            payloadMappings
+          );
+
+          if (!result || !result.success) {
+            throw new Error('Configuration failed');
+          }
+
+          if (result.integration) {
+            pageState.config.integration = result.integration;
+            pageState.config.previousApiKey = result.integration.api_key || apiKeyToSend;
+
+            if (pageState.overview.items && pageState.overview.items.length > 0) {
+              for (var i = 0; i < pageState.overview.items.length; i++) {
+                if (pageState.overview.items[i].id === result.integration.id) {
+                  pageState.overview.items[i] = result.integration;
+                  break;
+                }
+              }
+              if (overviewContainer) {
+                renderIntegrationsOverview(overviewContainer, pageState.overview);
+              }
+            }
+          }
+
+          if (result.fieldMappings && Array.isArray(result.fieldMappings)) {
+            pageState.config.form.fieldMappings = result.fieldMappings.map(function (m) {
+              return {
+                platformField: m.platform_field,
+                crmObjectType: m.crm_object_type,
+                crmField: m.crm_field,
+                isPrimary: !!m.is_primary
+              };
+            });
+          }
+
+          pageState.save.success = true;
+          pageState.save.error = null;
+          pageState.config.form.apiKey = '';
+        } catch (err) {
+          pageState.save.error = 'We couldnb4t save this configuration. Please try again.';
+          pageState.save.success = false;
+        }
+
+        pageState.save.isSaving = false;
+        renderIntegrationConfig(configContainer, pageState);
+      }
+
+      var actionElements = document.querySelectorAll('[data-action="navigate-back-settings"]');
+      actionElements.forEach(function (el) {
+        el.addEventListener('click', function (event) {
+          event.preventDefault();
+          window.location.href = 'settings.html?section=integrations';
+        });
+      });
+
+      if (overviewContainer) {
+        loadOverview();
+      }
+
+      if (pageState.mode === 'config' && configContainer) {
+        loadConfig(pageState.integrationId);
+      } else if (configContainer) {
+        renderIntegrationConfig(configContainer, pageState);
+      }
+    });
+  </script>
+  <script>
+    (function () {
+      var yearEl = document.querySelector('[data-year]');
+      if (yearEl) {
+        yearEl.textContent = new Date().getFullYear();
+      }
+    })();
+  </script>
+</body>
+</html>

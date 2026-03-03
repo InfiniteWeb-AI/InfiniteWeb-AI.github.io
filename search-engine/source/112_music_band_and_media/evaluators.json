@@ -1,0 +1,110 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Two Cheapest M T-Shirts Under $30 in Cart Evaluator",
+      "description": "Checks whether the cart contains the two cheapest distinct size M T-shirts priced at or under $30.",
+      "localStorage_variables": [
+        "products",
+        "cart_items",
+        "carts"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\n\n// Find eligible T-shirts: apparel, t_shirt, active, M available, price <= 30\nconst eligibleTees = products.filter(p => {\n  return p && p.status === 'active' && p.categoryId === 'apparel' && p.subtype === 't_shirt' &&\n    typeof p.price === 'number' && p.price <= 30 &&\n    Array.isArray(p.sizesAvailable) && p.sizesAvailable.includes('m');\n});\n\n// Sort by price ascending, then by createdAt ascending for stability\neligibleTees.sort((a, b) => {\n  const pa = a.price || 0;\n  const pb = b.price || 0;\n  if (pa !== pb) return pa - pb;\n  const da = new Date(a.createdAt || 0).getTime();\n  const db = new Date(b.createdAt || 0).getTime();\n  return da - db;\n});\n\nconst cheapestTwo = eligibleTees.slice(0, 2);\nconst cheapestIdsSet = new Set(cheapestTwo.map(p => p.id));\n\n// Check cart for those specific products with selectedSize 'm'\nconst qualifyingCartProductIds = new Set();\ncartItems.forEach(item => {\n  if (!item) return;\n  if (item.itemType === 'product' && item.quantity > 0 && item.selectedSize === 'm' && cheapestIdsSet.has(item.productId)) {\n    qualifyingCartProductIds.add(item.productId);\n  }\n});\n\nconst qualifyingCount = qualifyingCartProductIds.size;\n\n// CP1 (0.4): At least one of the two cheapest qualifying tees in size M is in the cart\ncheckpoints.push({ passed: qualifyingCount >= 1, weight: 0.4 });\n\n// CP2 (0.6): Both of the two cheapest qualifying tees in size M are in the cart\ncheckpoints.push({ passed: qualifyingCount >= 2, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Newest Qualifying Music Video in Favorites Evaluator",
+      "description": "Checks whether the newest published music video from 2023 or later was added to the Favorites playlist.",
+      "localStorage_variables": [
+        "videos",
+        "playlists",
+        "playlist_items",
+        "albums"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst videos = JSON.parse(localStorage.getItem('videos') || '[]');\nconst playlists = JSON.parse(localStorage.getItem('playlists') || '[]');\nconst playlistItems = JSON.parse(localStorage.getItem('playlist_items') || '[]');\n\n// All qualifying music videos (published, type music_video, year >= 2023)\nconst qualifyingVideos = videos.filter(v => {\n  if (!v || v.status !== 'published' || v.videoType !== 'music_video') return false;\n  const d = new Date(v.releaseDate);\n  if (isNaN(d.getTime())) return false;\n  return d.getUTCFullYear() >= 2023;\n});\n\nlet newestVideo = null;\nif (qualifyingVideos.length > 0) {\n  newestVideo = qualifyingVideos.slice().sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate))[0];\n}\n\n// Find Favorites playlist (system favorites first, then by name)\nlet favoritesPlaylist = playlists.find(pl => pl && pl.isSystem === true && pl.systemType === 'favorites');\nif (!favoritesPlaylist) {\n  favoritesPlaylist = playlists.find(pl => (pl.name || '').toLowerCase() === 'favorites');\n}\n\nlet qualifyingInFavorites = [];\nlet newestInFavorites = false;\n\nif (favoritesPlaylist && newestVideo) {\n  const favItems = playlistItems.filter(it => it && it.playlistId === favoritesPlaylist.id && it.contentType === 'video');\n\n  qualifyingInFavorites = favItems.filter(it => {\n    const video = videos.find(v => v.id === it.videoId);\n    if (!video) return false;\n    if (video.status !== 'published' || video.videoType !== 'music_video') return false;\n    const d = new Date(video.releaseDate);\n    if (isNaN(d.getTime())) return false;\n    return d.getUTCFullYear() >= 2023;\n  });\n\n  newestInFavorites = qualifyingInFavorites.some(it => it.videoId === newestVideo.id);\n}\n\n// CP1 (0.4): At least one qualifying (2023+, music_video) video was added to Favorites\ncheckpoints.push({ passed: qualifyingInFavorites.length >= 1, weight: 0.4 });\n\n// CP2 (0.6): The newest qualifying music video was added to Favorites\ncheckpoints.push({ passed: newestInFavorites, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Workout Mix Playlist Tracks and Albums Evaluator",
+      "description": "Checks whether a 'Workout Mix' playlist exists with exactly 5 tracks between 3–5 minutes from at least 3 different albums.",
+      "localStorage_variables": [
+        "playlists",
+        "playlist_items",
+        "tracks",
+        "albums"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst playlists = JSON.parse(localStorage.getItem('playlists') || '[]');\nconst playlistItems = JSON.parse(localStorage.getItem('playlist_items') || '[]');\nconst tracks = JSON.parse(localStorage.getItem('tracks') || '[]');\n\n// Find playlist named 'Workout Mix'\nconst workoutPlaylist = playlists.find(pl => (pl.name || '').toLowerCase() === 'workout mix');\n\n// CP1 (0.3): Playlist with the correct name exists\ncheckpoints.push({ passed: !!workoutPlaylist, weight: 0.3 });\n\nlet durationOk = false;\nlet threeAlbums = false;\n\nif (workoutPlaylist) {\n  const items = playlistItems.filter(it => it && it.playlistId === workoutPlaylist.id && it.contentType === 'track');\n  const detailedTracks = items\n    .map(it => tracks.find(t => t.id === it.trackId))\n    .filter(t => !!t && typeof t.durationSeconds === 'number');\n\n  const trackCount = detailedTracks.length;\n  const allDurationsWithinRange = detailedTracks.every(t => t.durationSeconds >= 180 && t.durationSeconds <= 300);\n\n  durationOk = (trackCount === 5 && allDurationsWithinRange);\n\n  const albumIdSet = new Set(detailedTracks.map(t => t.albumId).filter(Boolean));\n  threeAlbums = (durationOk && albumIdSet.size >= 3);\n}\n\n// CP2 (0.3): Playlist has exactly 5 tracks, all between 3 and 5 minutes\ncheckpoints.push({ passed: durationOk, weight: 0.3 });\n\n// CP3 (0.4): Those 5 tracks come from at least 3 distinct albums\ncheckpoints.push({ passed: threeAlbums, weight: 0.4 });\n\nreturn checkPointsTotal = checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Second-Cheapest LA August 2025 Tickets in Cart Evaluator",
+      "description": "Checks whether two tickets of the second-cheapest available ticket type were added for a Los Angeles show in August 2025.",
+      "localStorage_variables": [
+        "events",
+        "ticket_types",
+        "cart_items",
+        "carts"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst ticketTypes = JSON.parse(localStorage.getItem('ticket_types') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\n\n// Find LA events in August 2025 with tickets on sale\nconst laAugEvents = events.filter(e => {\n  if (!e || !e.ticketsOnSale) return false;\n  if ((e.city || '').toLowerCase() !== 'los angeles') return false;\n  const d = new Date(e.eventDateTime);\n  if (isNaN(d.getTime())) return false;\n  return d.getUTCFullYear() === 2025 && (d.getUTCMonth() + 1) === 8;\n});\n\nlet targetTicketTypeId = null;\n\nif (laAugEvents.length > 0) {\n  const event = laAugEvents[0];\n  const availableTickets = ticketTypes.filter(t => t && t.eventId === event.id && t.isAvailable === true && typeof t.price === 'number');\n  availableTickets.sort((a, b) => (a.price || 0) - (b.price || 0));\n  if (availableTickets.length >= 2) {\n    targetTicketTypeId = availableTickets[1].id; // second-cheapest by price\n  }\n}\n\nlet qtyForTarget = 0;\n\nif (targetTicketTypeId) {\n  cartItems.forEach(item => {\n    if (!item) return;\n    if (item.itemType === 'ticket' && item.ticketTypeId === targetTicketTypeId && item.quantity > 0) {\n      qtyForTarget += Number(item.quantity) || 0;\n    }\n  });\n}\n\n// CP1 (0.4): At least one ticket of the second-cheapest LA August 2025 type is in the cart\ncheckpoints.push({ passed: qtyForTarget >= 1, weight: 0.4 });\n\n// CP2 (0.6): At least two tickets of that specific type are in the cart\ncheckpoints.push({ passed: qtyForTarget >= 2, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Correct Digital Edition of Same Album in Cart Evaluator",
+      "description": "Checks whether the user added the correct digital edition (based on track count and price rule) of an album that has both standard and deluxe digital versions.",
+      "localStorage_variables": [
+        "products",
+        "albums",
+        "tracks",
+        "cart_items",
+        "carts"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\n\n// Group digital albums by albumId\nconst digitalByAlbum = {};\nproducts.forEach(p => {\n  if (!p) return;\n  if (p.status === 'active' && p.categoryId === 'music' && p.subtype === 'digital_album' && p.albumId) {\n    if (!digitalByAlbum[p.albumId]) digitalByAlbum[p.albumId] = [];\n    digitalByAlbum[p.albumId].push(p);\n  }\n});\n\n// Find an album that has at least two digital editions (e.g., standard + deluxe)\nlet albumGroup = null;\nfor (const albumId in digitalByAlbum) {\n  if (Object.prototype.hasOwnProperty.call(digitalByAlbum, albumId)) {\n    const group = digitalByAlbum[albumId];\n    if (group.length >= 2) {\n      albumGroup = group;\n      break;\n    }\n  }\n}\n\nlet expectedProductId = null;\n\nif (albumGroup && albumGroup.length >= 2) {\n  // Preferred edition: highest trackCount; if tie, highest price\n  let preferred = albumGroup[0];\n  albumGroup.forEach(p => {\n    const tc = typeof p.trackCount === 'number' ? p.trackCount : 0;\n    const bestTc = typeof preferred.trackCount === 'number' ? preferred.trackCount : 0;\n    if (tc > bestTc) {\n      preferred = p;\n    } else if (tc === bestTc && (p.price || 0) > (preferred.price || 0)) {\n      preferred = p;\n    }\n  });\n\n  if ((preferred.price || 0) <= 20) {\n    expectedProductId = preferred.id;\n  } else {\n    // Fallback: cheapest edition in the group (standard)\n    const sorted = albumGroup.slice().sort((a, b) => (a.price || 0) - (b.price || 0));\n    expectedProductId = sorted[0] ? sorted[0].id : null;\n  }\n}\n\nlet expectedQty = 0;\nlet otherGroupQty = 0;\n\nif (expectedProductId && albumGroup) {\n  const groupIds = new Set(albumGroup.map(p => p.id));\n  cartItems.forEach(item => {\n    if (!item) return;\n    if (item.itemType === 'product' && item.productId && item.quantity > 0 && groupIds.has(item.productId)) {\n      if (item.productId === expectedProductId) {\n        expectedQty += Number(item.quantity) || 0;\n      } else {\n        otherGroupQty += Number(item.quantity) || 0;\n      }\n    }\n  });\n}\n\n// CP1 (0.5): The correct edition (per track-count and price rule) was added to the cart\ncheckpoints.push({ passed: expectedQty > 0, weight: 0.5 });\n\n// CP2 (0.5): No other digital edition of the same album was added in addition to the correct one\ncheckpoints.push({ passed: expectedQty > 0 && otherGroupQty === 0, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Newsletter Subscription Weekly with Required Interests Evaluator",
+      "description": "Checks whether there is a newsletter subscription with name, email, region North America, weekly frequency, and at least three interests including tours, new releases, and merch offers.",
+      "localStorage_variables": [
+        "newsletter_subscriptions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst subs = JSON.parse(localStorage.getItem('newsletter_subscriptions') || '[]');\n\nfunction slugifyInterest(str) {\n  if (!str) return '';\n  return String(str).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');\n}\n\nconst requiredSlugs = ['tour_announcements', 'new_music_releases', 'exclusive_merch_offers'];\n\n// Subscriptions with name, email, weekly frequency, region North America, >=3 interests, and at least one required interest\nconst partialSubs = subs.filter(sub => {\n  if (!sub) return false;\n  if (!sub.name || !sub.email) return false;\n  if (sub.frequency !== 'weekly') return false;\n  const regionRaw = sub.region || '';\n  const regionNorm = String(regionRaw).trim().toLowerCase().replace(/ /g, '_');\n  if (regionNorm !== 'north_america') return false;\n  if (!Array.isArray(sub.interests) || sub.interests.length < 3) return false;\n  const interestSlugs = sub.interests.map(slugifyInterest);\n  return requiredSlugs.some(req => interestSlugs.includes(req));\n});\n\n// Among those, subscriptions that include all three required interests\nconst fullSubs = partialSubs.filter(sub => {\n  const interestSlugs = sub.interests.map(slugifyInterest);\n  return requiredSlugs.every(req => interestSlugs.includes(req));\n});\n\n// CP1 (0.4): At least one subscription meets all non-interest criteria and includes at least one required interest\ncheckpoints.push({ passed: partialSubs.length > 0, weight: 0.4 });\n\n// CP2 (0.6): At least one subscription includes all three required interests\ncheckpoints.push({ passed: fullSubs.length > 0, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Saved 2024 Tour Diary Posts and Opened from Reading List Evaluator",
+      "description": "Checks whether three 2024 'Tour Diary' posts were saved to the default reading list and one of those saved posts was opened from that list (via instrumentation).",
+      "localStorage_variables": [
+        "task7_openedSavedTourDiary2024Article",
+        "articles",
+        "reading_lists",
+        "reading_list_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst readingLists = JSON.parse(localStorage.getItem('reading_lists') || '[]');\nconst readingListItems = JSON.parse(localStorage.getItem('reading_list_items') || '[]');\n\nlet instrument = null;\ntry {\n  const raw = localStorage.getItem('task7_openedSavedTourDiary2024Article');\n  instrument = raw ? JSON.parse(raw) : null;\n} catch (e) {\n  instrument = null;\n}\n\n// Default reading list (or fallback by name)\nlet defaultList = readingLists.find(rl => rl && rl.isDefault === true);\nif (!defaultList) {\n  defaultList = readingLists.find(rl => (rl.name || '').toLowerCase() === 'reading list');\n}\n\n// All 2024 Tour Diary published articles\nconst tourDiary2024Ids = articles\n  .filter(a => {\n    if (!a || a.status !== 'published') return false;\n    if (a.category !== 'Tour Diary') return false;\n    const d = new Date(a.publishedAt);\n    if (isNaN(d.getTime())) return false;\n    return d.getUTCFullYear() === 2024;\n  })\n  .map(a => a.id);\n\nlet savedTourDiaryItems = [];\nif (defaultList) {\n  savedTourDiaryItems = readingListItems.filter(it => it && it.readingListId === defaultList.id && tourDiary2024Ids.includes(it.articleId));\n}\n\n// CP1 (0.5): At least three qualifying 2024 Tour Diary posts saved to the default reading list\ncheckpoints.push({ passed: savedTourDiaryItems.length >= 3, weight: 0.5 });\n\n// Check that the instrumented opened article is one of the saved 2024 Tour Diary posts\nlet openedIsSavedTourDiary2024 = false;\nif (instrument && instrument.articleId && defaultList) {\n  const openedId = instrument.articleId;\n  const wasSaved = savedTourDiaryItems.some(it => it.articleId === openedId);\n  const art = articles.find(a => a.id === openedId);\n  const is2024TourDiary = !!art && art.category === 'Tour Diary' && art.status === 'published' && (() => {\n    const d = new Date(art.publishedAt);\n    return !isNaN(d.getTime()) && d.getUTCFullYear() === 2024;\n  })();\n  openedIsSavedTourDiary2024 = wasSaved && is2024TourDiary;\n}\n\n// CP2 (0.5): The instrumented opened article was a saved 2024 Tour Diary post from the reading list\ncheckpoints.push({ passed: openedIsSavedTourDiary2024, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Vinyl + Hoodie Bundle Under Conditional Price Evaluator",
+      "description": "Checks whether the cart contains the third vinyl <= $40 and the correct hoodie (most expensive <= $60, or under $50 if the primary bundle would exceed $100).",
+      "localStorage_variables": [
+        "products",
+        "cart_items",
+        "carts"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\n\n// Eligible vinyls: music, vinyl_album, active, price <= 40\nconst vinyls = products.filter(p => {\n  return p && p.status === 'active' && p.categoryId === 'music' && p.subtype === 'vinyl_album' && typeof p.price === 'number' && p.price <= 40;\n});\n\n// Sort vinyls by newest first (createdAt desc) to mirror store listing\nvinyls.sort((a, b) => {\n  const da = new Date(a.createdAt || 0).getTime();\n  const db = new Date(b.createdAt || 0).getTime();\n  return db - da;\n});\n\nconst thirdVinyl = vinyls.length >= 3 ? vinyls[2] : null;\n\n// Hoodies: apparel, hoodie, active, price <= 60\nconst hoodies = products.filter(p => {\n  return p && p.status === 'active' && p.categoryId === 'apparel' && p.subtype === 'hoodie' && typeof p.price === 'number' && p.price <= 60;\n});\n\n// Primary hoodie: most expensive within <= 60\nhoodies.sort((a, b) => (b.price || 0) - (a.price || 0));\nconst primaryHoodie = hoodies[0] || null;\n\n// Fallback hoodie: under 50, choose most expensive under 50\nconst fallbackHoodies = hoodies.filter(h => h.price < 50);\nfallbackHoodies.sort((a, b) => (b.price || 0) - (a.price || 0));\nconst fallbackHoodie = fallbackHoodies[0] || null;\n\nlet expectedHoodie = null;\nif (thirdVinyl && primaryHoodie) {\n  const bundleSubtotalPrimary = (thirdVinyl.price || 0) + (primaryHoodie.price || 0);\n  if (bundleSubtotalPrimary > 100 && fallbackHoodie) {\n    expectedHoodie = fallbackHoodie;\n  } else {\n    expectedHoodie = primaryHoodie;\n  }\n}\n\nlet hasThirdVinyl = false;\nlet hasExpectedHoodie = false;\n\ncartItems.forEach(item => {\n  if (!item || item.itemType !== 'product' || item.quantity <= 0) return;\n  if (thirdVinyl && item.productId === thirdVinyl.id) {\n    hasThirdVinyl = true;\n  }\n  if (expectedHoodie && item.productId === expectedHoodie.id) {\n    hasExpectedHoodie = true;\n  }\n});\n\n// CP1 (0.4): The third qualifying vinyl (<= $40) is in the cart\ncheckpoints.push({ passed: !!thirdVinyl && hasThirdVinyl, weight: 0.4 });\n\n// CP2 (0.6): The third vinyl AND the correct hoodie (per bundle price rule) are both in the cart\ncheckpoints.push({ passed: !!thirdVinyl && !!expectedHoodie && hasThirdVinyl && hasExpectedHoodie, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "articles",
+    "playlists",
+    "reading_lists",
+    "videos",
+    "albums",
+    "tracks",
+    "products",
+    "events",
+    "ticket_types",
+    "order_items",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

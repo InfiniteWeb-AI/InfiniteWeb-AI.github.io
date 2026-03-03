@@ -1,0 +1,104 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Cheapest Chicago Networking Event Registration Evaluator",
+      "description": "Checks whether the user registered for the cheapest qualifying in-person networking event in Chicago next month under $40, using the cheapest ticket and providing industry=Technology and graduation_year=2015.",
+      "localStorage_variables": [
+        "events",
+        "event_ticket_types",
+        "event_registrations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst tickets = JSON.parse(localStorage.getItem('event_ticket_types') || '[]');\nconst regs = JSON.parse(localStorage.getItem('event_registrations') || '[]');\n\nfunction parseDate(v) {\n  const d = new Date(v);\n  return isNaN(d.getTime()) ? null : d;\n}\n\n// Determine next calendar month based on current date\nconst now = new Date();\nconst year = now.getUTCFullYear();\nconst month = now.getUTCMonth(); // 0-based\nconst nextMonthYear = month === 11 ? year + 1 : year;\nconst nextMonth = month === 11 ? 0 : month + 1;\nconst rangeStart = new Date(Date.UTC(nextMonthYear, nextMonth, 1, 0, 0, 0, 0));\nconst rangeEnd = new Date(Date.UTC(nextMonthYear, nextMonth + 1, 0, 23, 59, 59, 999));\n\n// Find candidate in-person networking events in Chicago during that month\nconst candidateEvents = events.filter((e) => {\n  if (e.status !== 'scheduled') return false;\n  if (!e.city || String(e.city).toLowerCase() !== 'chicago') return false;\n  if (e.is_virtual) return false;\n  if (e.event_type !== 'networking') return false;\n  const d = parseDate(e.start_datetime);\n  if (!d) return false;\n  return d >= rangeStart && d <= rangeEnd;\n});\n\nfunction getCheapestTicketUnderMax(eventId, maxPrice) {\n  const tt = tickets.filter((t) => t.event_id === eventId && typeof t.price === 'number' && t.price <= maxPrice);\n  if (!tt.length) return null;\n  tt.sort((a, b) => a.price - b.price);\n  return tt[0];\n}\n\nconst maxPrice = 40;\nlet cheapestEvent = null;\nlet cheapestTicket = null;\n\ncandidateEvents.forEach((ev) => {\n  const t = getCheapestTicketUnderMax(ev.id, maxPrice);\n  if (!t) return;\n  if (!cheapestTicket || t.price < cheapestTicket.price) {\n    cheapestTicket = t;\n    cheapestEvent = ev;\n  }\n});\n\nlet regsForCheapest = [];\nlet regsForCheapestAndYear = [];\nlet regsFullyCorrect = [];\n\nif (cheapestEvent && cheapestTicket) {\n  regsForCheapest = regs.filter(\n    (r) => r.event_id === cheapestEvent.id && r.ticket_type_id === cheapestTicket.id && r.quantity >= 1\n  );\n  regsForCheapestAndYear = regsForCheapest.filter((r) => r.graduation_year === 2015);\n  regsFullyCorrect = regsForCheapestAndYear.filter(\n    (r) => String(r.industry || '').toLowerCase() === 'technology'\n  );\n}\n\n// CP1 (0.4): Registered for the cheapest qualifying ticket of the correct event\ncheckpoints.push({ passed: regsForCheapest.length > 0, weight: 0.4 });\n// CP2 (0.3): That registration records graduation year 2015\ncheckpoints.push({ passed: regsForCheapestAndYear.length > 0, weight: 0.3 });\n// CP3 (0.3): That registration records industry = 'technology'\ncheckpoints.push({ passed: regsFullyCorrect.length > 0, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Student Scholarships Offline Pledge Evaluator",
+      "description": "Checks whether the user submitted a single non-recurring, offline (non-card) $75 pledge/gift to the Student Scholarships fund as an 'in honor of' tribute for Jordan Lee.",
+      "localStorage_variables": [
+        "funds",
+        "gifts"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst funds = JSON.parse(localStorage.getItem('funds') || '[]');\nconst gifts = JSON.parse(localStorage.getItem('gifts') || '[]');\n\nconst scholarshipFunds = funds.filter((f) => {\n  const code = String(f.code || '').toLowerCase();\n  const name = String(f.name || '').toLowerCase();\n  const desc = String(f.description || '').toLowerCase();\n  return f.is_active && (code === 'student_scholarships' || name.includes('scholar') || desc.includes('scholar'));\n});\n\nconst scholarshipFundIds = new Set(scholarshipFunds.map((f) => f.id));\n\nconst offlineMethods = ['bill_me_later', 'pay_by_mail', 'on_campus_billing', 'other_offline'];\n\n// Gifts/pledges to the scholarships fund via offline non-card methods, not recurring\nconst baseGifts = gifts.filter((g) => {\n  if (!scholarshipFundIds.has(g.fund_id)) return false;\n  if (offlineMethods.indexOf(g.payment_method) === -1) return false;\n  if (g.is_payment_completed_online) return false;\n  if (g.gift_type === 'recurring_gift') return false;\n  return true;\n});\n\nconst correctAmountGifts = baseGifts.filter((g) => g.amount === 75);\n\nfunction normalizeName(name) {\n  return String(name || '').trim().toLowerCase();\n}\n\nconst fullyCorrectGifts = correctAmountGifts.filter((g) => {\n  if (g.tribute_type !== 'in_honor_of') return false;\n  if (normalizeName(g.tribute_name) !== 'jordan lee') return false;\n  return true;\n});\n\n// CP1 (0.3): Non-recurring offline gift/pledge made to a scholarships-designated fund\ncheckpoints.push({ passed: baseGifts.length > 0, weight: 0.3 });\n// CP2 (0.3): Such a gift/pledge with the exact amount of $75\ncheckpoints.push({ passed: correctAmountGifts.length > 0, weight: 0.3 });\n// CP3 (0.4): Such a gift/pledge marked as an 'in honor of' tribute specifically for Jordan Lee\ncheckpoints.push({ passed: fullyCorrectGifts.length > 0, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Alumni Newsletter Monthly Career & Events Subscription Evaluator",
+      "description": "Checks whether the user created a newsletter subscription with monthly digest frequency that selects only the Career Services and Alumni Events topics, using the expected sample email for full credit.",
+      "localStorage_variables": [
+        "newsletter_topics",
+        "newsletter_subscriptions",
+        "newsletter_subscription_topics"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst topics = JSON.parse(localStorage.getItem('newsletter_topics') || '[]');\nconst subs = JSON.parse(localStorage.getItem('newsletter_subscriptions') || '[]');\nconst subTopics = JSON.parse(localStorage.getItem('newsletter_subscription_topics') || '[]');\n\nconst topicById = {};\ntopics.forEach((t) => {\n  topicById[t.id] = t;\n});\n\nfunction getTopicCodesForSubscription(subId) {\n  const links = subTopics.filter((st) => st.subscription_id === subId);\n  const codes = links\n    .map((st) => (topicById[st.topic_id] && topicById[st.topic_id].code) || null)\n    .filter(Boolean);\n  return Array.from(new Set(codes));\n}\n\nconst REQUIRED_CODES = ['career_services', 'alumni_events'];\n\nconst subsWithCorrectTopics = subs.filter((sub) => {\n  if (sub.frequency !== 'monthly_digest') return false;\n  if (!sub.consent_email_communications) return false;\n  const codes = getTopicCodesForSubscription(sub.id);\n  if (codes.length !== REQUIRED_CODES.length) return false;\n  return REQUIRED_CODES.every((code) => codes.indexOf(code) !== -1);\n});\n\nconst fullyCorrectSubs = subsWithCorrectTopics.filter((sub) => sub.email === 'sample.alum@example.com');\n\n// CP1 (0.6): Subscription with monthly digest frequency and ONLY Career Services & Alumni Events topics\ncheckpoints.push({ passed: subsWithCorrectTopics.length > 0, weight: 0.6 });\n// CP2 (0.4): Such a subscription uses the expected sample email address\ncheckpoints.push({ passed: fullyCorrectSubs.length > 0, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "California Chapter Join Evaluator",
+      "description": "Checks whether the user joined the California alumni chapter with membership fee ≤ $30 that has the highest number of upcoming events, as an alumnus/alumna with graduation year 2010.",
+      "localStorage_variables": [
+        "chapters",
+        "chapter_memberships"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst chapters = JSON.parse(localStorage.getItem('chapters') || '[]');\nconst memberships = JSON.parse(localStorage.getItem('chapter_memberships') || '[]');\n\n// Eligible CA chapters with membership fee <= 30 and active\nconst caChapters = chapters.filter((c) => {\n  const state = String(c.state || '').toLowerCase();\n  return state === 'ca' && c.is_active && typeof c.membership_fee === 'number' && c.membership_fee <= 30;\n});\n\n// Sort by upcoming_events_count desc, then name A-Z\ncaChapters.sort((a, b) => {\n  const ea = typeof a.upcoming_events_count === 'number' ? a.upcoming_events_count : 0;\n  const eb = typeof b.upcoming_events_count === 'number' ? b.upcoming_events_count : 0;\n  if (ea !== eb) return eb - ea;\n  const na = String(a.name || '').toLowerCase();\n  const nb = String(b.name || '').toLowerCase();\n  if (na < nb) return -1;\n  if (na > nb) return 1;\n  return 0;\n});\n\nconst bestChapter = caChapters[0] || null;\n\nlet membershipsForBest = [];\nlet membershipsFullyCorrect = [];\n\nif (bestChapter) {\n  membershipsForBest = memberships.filter(\n    (m) => m.chapter_id === bestChapter.id && m.role === 'alumni'\n  );\n  membershipsFullyCorrect = membershipsForBest.filter((m) => m.graduation_year === 2010);\n}\n\n// CP1 (0.6): Joined the correct California chapter as an alumnus/alumna\ncheckpoints.push({ passed: membershipsForBest.length > 0, weight: 0.6 });\n// CP2 (0.4): That membership records graduation year 2010\ncheckpoints.push({ passed: membershipsFullyCorrect.length > 0, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Travel Benefits Top-Two Save Evaluator",
+      "description": "Checks whether the user saved the first two active travel-related benefits (travel or travel_transportation) with at least a 10% discount when sorted by discount from highest to lowest.",
+      "localStorage_variables": [
+        "benefits",
+        "saved_benefits"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst benefits = JSON.parse(localStorage.getItem('benefits') || '[]');\nconst savedBenefits = JSON.parse(localStorage.getItem('saved_benefits') || '[]');\n\nconst allowedCategories = new Set(['travel', 'travel_transportation']);\n\nconst eligibleBenefits = benefits.filter((b) => {\n  if (!b.is_active) return false;\n  if (!allowedCategories.has(b.category)) return false;\n  if (typeof b.discount_percentage !== 'number' || b.discount_percentage < 10) return false;\n  return true;\n});\n\n// Sort by discount_percentage desc, then name A-Z\neligibleBenefits.sort((a, b) => {\n  const da = typeof a.discount_percentage === 'number' ? a.discount_percentage : 0;\n  const db = typeof b.discount_percentage === 'number' ? b.discount_percentage : 0;\n  if (da !== db) return db - da;\n  const na = String(a.name || '').toLowerCase();\n  const nb = String(b.name || '').toLowerCase();\n  if (na < nb) return -1;\n  if (na > nb) return 1;\n  return 0;\n});\n\nconst top1 = eligibleBenefits[0] || null;\nconst top2 = eligibleBenefits[1] || null;\n\nfunction isSaved(benefit) {\n  if (!benefit) return false;\n  return savedBenefits.some((sb) => sb.benefit_id === benefit.id);\n}\n\nconst savedTop1 = isSaved(top1);\nconst savedTop2 = isSaved(top2);\n\n// CP1 (0.5): Saved the top (highest-discount) qualifying travel-related benefit\ncheckpoints.push({ passed: savedTop1, weight: 0.5 });\n// CP2 (0.5): Also saved the second-highest qualifying travel-related benefit\ncheckpoints.push({ passed: savedTop2, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "San Francisco Software Engineering Contacts Evaluator",
+      "description": "Checks whether the user added the top three qualifying San Francisco software engineering alumni (2010–2020) to a contact list, based on last-name A–Z ordering.",
+      "localStorage_variables": [
+        "alumni_profiles",
+        "contact_lists",
+        "contact_list_entries"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst profiles = JSON.parse(localStorage.getItem('alumni_profiles') || '[]');\nconst entries = JSON.parse(localStorage.getItem('contact_list_entries') || '[]');\n\n// Eligible profiles: San Francisco, CA, software_engineering, grad 2010–2020 inclusive, visible\nconst eligibleProfiles = profiles.filter((p) => {\n  const city = String(p.city || '').toLowerCase();\n  const state = String(p.state || '').toLowerCase();\n  const industry = String(p.industry || '').toLowerCase();\n  const year = typeof p.graduation_year === 'number' ? p.graduation_year : null;\n  if (city !== 'san francisco') return false;\n  if (state !== 'ca') return false;\n  if (industry !== 'software_engineering') return false;\n  if (year == null || year < 2010 || year > 2020) return false;\n  if (!p.is_visible_in_directory) return false;\n  return true;\n});\n\n// Sort by last_name A–Z, then first_name\neligibleProfiles.sort((a, b) => {\n  const la = String(a.last_name || '').toLowerCase();\n  const lb = String(b.last_name || '').toLowerCase();\n  if (la !== lb) return la < lb ? -1 : 1;\n  const fa = String(a.first_name || '').toLowerCase();\n  const fb = String(b.first_name || '').toLowerCase();\n  if (fa < fb) return -1;\n  if (fa > fb) return 1;\n  return 0;\n});\n\nconst targetProfiles = eligibleProfiles.slice(0, 3);\nconst targetIds = targetProfiles.map((p) => p.id);\n\nconst qualifyingEntries = entries.filter((e) => targetIds.indexOf(e.alumni_profile_id) !== -1);\n\n// CP1 (0.3): Added at least one of the top three qualifying SF software engineering alumni to a contact list\ncheckpoints.push({ passed: qualifyingEntries.length >= 1, weight: 0.3 });\n// CP2 (0.3): Added at least two of them\ncheckpoints.push({ passed: qualifyingEntries.length >= 2, weight: 0.3 });\n// CP3 (0.4): Added all three of them\ncheckpoints.push({ passed: qualifyingEntries.length >= 3, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Current Students Mentor Enrollment Evaluator",
+      "description": "Checks whether the user enrolled as a mentor in an active mentoring program serving current students, with 2 hours/month availability, video chat as preferred format, and expertise topics including technology and entrepreneurship, as an alumnus/alumna (grad year 2008).",
+      "localStorage_variables": [
+        "mentoring_programs",
+        "mentor_expertise_topics",
+        "mentor_enrollments",
+        "mentor_enrollment_expertise"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst programs = JSON.parse(localStorage.getItem('mentoring_programs') || '[]');\nconst topics = JSON.parse(localStorage.getItem('mentor_expertise_topics') || '[]');\nconst enrollments = JSON.parse(localStorage.getItem('mentor_enrollments') || '[]');\nconst enrollmentTopics = JSON.parse(localStorage.getItem('mentor_enrollment_expertise') || '[]');\n\nconst currentStudentPrograms = programs.filter((p) => p.audience === 'current_students' && p.is_active);\nconst programIds = new Set(currentStudentPrograms.map((p) => p.id));\n\nconst topicById = {};\ntopics.forEach((t) => {\n  topicById[t.id] = t;\n});\n\nfunction getTopicCodesForEnrollment(enrollmentId) {\n  const links = enrollmentTopics.filter((e) => e.mentor_enrollment_id === enrollmentId);\n  const codes = links\n    .map((l) => (topicById[l.expertise_topic_id] && topicById[l.expertise_topic_id].code) || null)\n    .filter(Boolean);\n  return Array.from(new Set(codes));\n}\n\nconst baseEnrollments = enrollments.filter((e) => programIds.has(e.mentoring_program_id));\n\nconst meetingAndTimeEnrollments = baseEnrollments.filter(\n  (e) => e.preferred_meeting_format === 'video_chat' && e.availability_hours_per_month === 2\n);\n\nconst topicEnrollments = meetingAndTimeEnrollments.filter((e) => {\n  const codes = getTopicCodesForEnrollment(e.id);\n  return codes.indexOf('technology') !== -1 && codes.indexOf('entrepreneurship') !== -1;\n});\n\nconst fullyCorrectEnrollments = topicEnrollments.filter(\n  (e) => e.affiliation === 'alumnus_alumna' && e.graduation_year === 2008\n);\n\n// CP1 (0.4): Enrolled in an active program for current students with 2 hours/month via video chat\ncheckpoints.push({ passed: meetingAndTimeEnrollments.length > 0, weight: 0.4 });\n// CP2 (0.3): Such enrollment has expertise topics including both technology and entrepreneurship\ncheckpoints.push({ passed: topicEnrollments.length > 0, weight: 0.3 });\n// CP3 (0.3): Such enrollment is as an alumnus/alumna with graduation year 2008\ncheckpoints.push({ passed: fullyCorrectEnrollments.length > 0, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Highest-Value Child-of-Alumni Scholarship Save Evaluator",
+      "description": "Checks whether the user saved the highest-award active scholarship for undergraduate children of alumni with a deadline after March 1, 2025, and added a note indicating it is for an undergraduate child of an alum with a post–early 2025 deadline.",
+      "localStorage_variables": [
+        "scholarships",
+        "saved_scholarships"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst scholarships = JSON.parse(localStorage.getItem('scholarships') || '[]');\nconst saved = JSON.parse(localStorage.getItem('saved_scholarships') || '[]');\n\nfunction parseDate(v) {\n  const d = new Date(v);\n  return isNaN(d.getTime()) ? null : d;\n}\n\nconst cutoff = new Date('2025-03-01T00:00:00Z');\n\nconst eligible = scholarships.filter((s) => {\n  if (!s.is_active) return false;\n  if (s.eligibility_group !== 'children_of_alumni') return false;\n  if (s.level_of_study !== 'undergraduate') return false;\n  const d = parseDate(s.deadline);\n  if (!d || !(d > cutoff)) return false;\n  return true;\n});\n\nfunction getMaxAward(s) {\n  if (typeof s.award_amount_max === 'number') return s.award_amount_max;\n  if (typeof s.award_amount === 'number') return s.award_amount;\n  return 0;\n}\n\neligible.sort((a, b) => getMaxAward(b) - getMaxAward(a));\n\nconst topScholarship = eligible[0] || null;\n\nlet savedTop = null;\nif (topScholarship) {\n  savedTop = saved.find((ss) => ss.scholarship_id === topScholarship.id) || null;\n}\n\nlet noteIsDescriptive = false;\nif (savedTop) {\n  const note = String(savedTop.note || '').toLowerCase();\n  const mentionsUndergrad = note.includes('undergrad') || note.includes('undergraduate');\n  const mentionsChild =\n    note.includes('child of alum') || note.includes('children of alumni') || note.includes('child of an alum');\n  const mentionsDeadline =\n    note.includes('post') || note.includes('after') || note.includes('3/1/2025') || note.includes('march 2025');\n  noteIsDescriptive = mentionsUndergrad && mentionsChild && mentionsDeadline;\n}\n\n// CP1 (0.6): Saved the highest-award eligible scholarship matching the criteria\ncheckpoints.push({ passed: !!savedTop, weight: 0.6 });\n// CP2 (0.4): The saved scholarship note indicates it's for an undergraduate child of an alum with a post–early 2025 deadline\ncheckpoints.push({ passed: !!savedTop && noteIsDescriptive, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "alumni_profiles",
+    "benefits",
+    "contact_lists",
+    "funds",
+    "mentor_expertise_topics",
+    "mentoring_programs",
+    "newsletter_topics",
+    "scholarships",
+    "event_ticket_types",
+    "events",
+    "chapters",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

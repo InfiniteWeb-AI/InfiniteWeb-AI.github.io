@@ -1,0 +1,101 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Highest-Paying Youth/Education Grant Saved Evaluator",
+      "description": "Checks whether the user saved an open youth- or education-focused grant (min award ≥ $5,000, deadline May–Dec 2025) and that the saved grant is one of those with the highest maximum award among all qualifying grants.",
+      "localStorage_variables": [
+        "grant_programs",
+        "saved_grants",
+        "focus_areas"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst programs = JSON.parse(localStorage.getItem('grant_programs') || '[]');\nconst savedGrants = JSON.parse(localStorage.getItem('saved_grants') || '[]');\n\n// Identify qualifying programs per task criteria\nconst deadlineStart = new Date('2025-05-01T00:00:00Z');\nconst deadlineEnd = new Date('2025-12-31T23:59:59Z');\n\nconst qualifyingPrograms = programs.filter(p => {\n  if (!p || p.status !== 'open') return false;\n  if (typeof p.minAwardAmount !== 'number' || p.minAwardAmount < 5000) return false;\n  const fa = Array.isArray(p.focusAreaCodes) ? p.focusAreaCodes : [];\n  const hasRequiredFocus = fa.includes('education') || fa.includes('youth_families');\n  if (!hasRequiredFocus) return false;\n  if (!p.applicationDeadline) return false;\n  const d = new Date(p.applicationDeadline);\n  if (isNaN(d.getTime())) return false;\n  if (d < deadlineStart || d > deadlineEnd) return false;\n  return true;\n});\n\nif (qualifyingPrograms.length === 0) {\n  // No qualifying programs exist; user cannot complete task\n  checkpoints.push({ passed: false, weight: 1.0 });\n} else {\n  const qualifyingProgramIds = qualifyingPrograms.map(p => p.id);\n  const qualifyingSaved = savedGrants.filter(s => s && qualifyingProgramIds.includes(s.grantProgramId));\n\n  // Determine the highest maxAwardAmount among qualifying programs\n  const maxMaxAward = Math.max(...qualifyingPrograms.map(p => typeof p.maxAwardAmount === 'number' ? p.maxAwardAmount : 0));\n  const bestPrograms = qualifyingPrograms.filter(p => p.maxAwardAmount === maxMaxAward);\n  const bestProgramIds = bestPrograms.map(p => p.id);\n\n  const bestSaved = savedGrants.filter(s => s && bestProgramIds.includes(s.grantProgramId));\n\n  // CP1 (0.40): User saved at least one grant that meets ALL the youth/education, amount, status, and deadline criteria\n  checkpoints.push({ passed: qualifyingSaved.length >= 1, weight: 0.40 });\n\n  // CP2 (0.60): Among those qualifying programs, user saved at least one of the highest-paying (max award) grants\n  checkpoints.push({ passed: bestSaved.length >= 1, weight: 0.60 });\n}\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Organization Account & Profile Program Areas Evaluator",
+      "description": "Checks whether the user has an organization account with an organization profile set to 501(c)(3) nonprofit, a modest six-figure budget, and exactly Environment and Neighborhoods as program areas.",
+      "localStorage_variables": [
+        "accounts",
+        "organization_profiles",
+        "focus_areas",
+        "currentAccountId"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst accounts = JSON.parse(localStorage.getItem('accounts') || '[]');\nconst profiles = JSON.parse(localStorage.getItem('organization_profiles') || '[]');\n\n// Find organization profiles that match the requested criteria\nconst matchingProfiles = profiles.filter(p => {\n  if (!p) return false;\n  // Organization type 501(c)(3)\n  if (p.organizationType !== 'nonprofit_501c3') return false;\n  // Program areas exactly Environment + Neighborhoods\n  const codes = Array.isArray(p.programAreaCodes) ? p.programAreaCodes : [];\n  const hasEnv = codes.includes('environment');\n  const hasNeigh = codes.includes('neighborhoods');\n  const exactTwo = codes.length === 2 && hasEnv && hasNeigh;\n  if (!exactTwo) return false;\n  // Modest six-figure budget (100k–300k as reasonable range)\n  const budget = typeof p.annualBudget === 'number' ? p.annualBudget : 0;\n  if (budget < 100000 || budget > 300000) return false;\n  return true;\n});\n\nconst profile = matchingProfiles[0] || null;\n\n// CP1 (0.60): There exists an organization profile that is 501(c)(3), has a modest six-figure budget, and ONLY Environment & Neighborhoods as program areas\ncheckpoints.push({ passed: !!profile, weight: 0.60 });\n\nlet profileHasOrgAccount = false;\nif (profile) {\n  const acc = accounts.find(a => a && a.id === profile.accountId);\n  profileHasOrgAccount = !!acc && acc.accountType === 'organization_account';\n}\n\n// CP2 (0.40): That profile is linked to an account whose type is organization_account (i.e., a true organization account)\ncheckpoints.push({ passed: profileHasOrgAccount, weight: 0.40 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Neighborhood Grant Draft Application Under $5k Evaluator",
+      "description": "Checks whether the user has an individual applicant account and a draft application for a neighborhood-focused grant whose maximum award is ≤ $5,000, with basic project information filled in.",
+      "localStorage_variables": [
+        "accounts",
+        "grant_programs",
+        "grant_applications",
+        "focus_areas",
+        "currentAccountId"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst accounts = JSON.parse(localStorage.getItem('accounts') || '[]');\nconst programs = JSON.parse(localStorage.getItem('grant_programs') || '[]');\nconst applications = JSON.parse(localStorage.getItem('grant_applications') || '[]');\n\n// CP1 (0.40): At least one individual applicant account exists\nconst hasIndividualAccount = accounts.some(a => a && a.accountType === 'individual_applicant');\ncheckpoints.push({ passed: hasIndividualAccount, weight: 0.40 });\n\n// Identify neighborhood-focused programs with max award ≤ $5,000\nconst qualifyingPrograms = programs.filter(p => {\n  if (!p) return false;\n  const hasNeighborhoodFocus = Array.isArray(p.focusAreaCodes) && p.focusAreaCodes.includes('neighborhoods');\n  if (!hasNeighborhoodFocus) return false;\n  if (typeof p.maxAwardAmount !== 'number' || p.maxAwardAmount > 5000) return false;\n  return true;\n});\n\nconst qualifyingProgramIds = qualifyingPrograms.map(p => p.id);\n\n// Draft applications on qualifying grants with basic info filled\nconst qualifyingDraftApps = applications.filter(app => {\n  if (!app) return false;\n  if (app.applicationStatus !== 'draft') return false;\n  if (!qualifyingProgramIds.includes(app.grantProgramId)) return false;\n  // Basic project information\n  if (!app.projectTitle || !String(app.projectTitle).trim()) return false;\n  if (typeof app.requestedAmount !== 'number' || app.requestedAmount <= 0) return false;\n  if (app.requestedAmount > 5000) return false; // ensure request is not above task limit\n  if (!app.projectStartDate || !String(app.projectStartDate).trim()) return false;\n  return true;\n});\n\n// CP2 (0.60): There is a draft application with filled-in basic info for a neighborhood grant whose max award ≤ $5,000\ncheckpoints.push({ passed: qualifyingDraftApps.length >= 1, weight: 0.60 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Lower-Match Arts Grant Saved to Plan Evaluator",
+      "description": "Checks whether the user saved to an application plan the arts & culture grant that has the lower match requirement between the first two open arts grants by soonest deadline.",
+      "localStorage_variables": [
+        "grant_programs",
+        "saved_grants",
+        "application_plans",
+        "focus_areas"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst programs = JSON.parse(localStorage.getItem('grant_programs') || '[]');\nconst savedGrants = JSON.parse(localStorage.getItem('saved_grants') || '[]');\nconst plans = JSON.parse(localStorage.getItem('application_plans') || '[]');\n\n// Find open arts & culture programs and sort by soonest deadline\nconst artsPrograms = programs\n  .filter(p => {\n    if (!p || p.status !== 'open') return false;\n    const hasArts = Array.isArray(p.focusAreaCodes) && p.focusAreaCodes.includes('arts_culture');\n    if (!hasArts) return false;\n    if (!p.applicationDeadline) return false;\n    const d = new Date(p.applicationDeadline);\n    return !isNaN(d.getTime());\n  })\n  .sort((a, b) => new Date(a.applicationDeadline) - new Date(b.applicationDeadline));\n\nconst firstTwo = artsPrograms.slice(0, 2);\n\nlet lowerMatchProgramIds = [];\nif (firstTwo.length > 0) {\n  const matchPercents = firstTwo.map(p => typeof p.matchRequiredPercent === 'number' ? p.matchRequiredPercent : Infinity);\n  const minMatch = Math.min(...matchPercents);\n  lowerMatchProgramIds = firstTwo.filter(p => p.matchRequiredPercent === minMatch).map(p => p.id);\n}\n\n// Saved grants for the lower-match program(s)\nconst savedLowerMatch = savedGrants.filter(s => s && lowerMatchProgramIds.includes(s.grantProgramId));\nconst savedLowerMatchWithPlan = savedLowerMatch.filter(s => s.planId && plans.some(pl => pl && pl.id === s.planId));\n\n// CP1 (0.70): User saved at least one of the first-two arts grants that has the LOWER match requirement\ncheckpoints.push({ passed: savedLowerMatch.length >= 1, weight: 0.70 });\n\n// CP2 (0.30): That lower-match grant is saved into an application plan (i.e., has a valid planId)\ncheckpoints.push({ passed: savedLowerMatchWithPlan.length >= 1, weight: 0.30 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Health 2023 Mid-Range Grant Comparison Evaluator",
+      "description": "Checks whether the user saved a comparison containing three 2023 health-related awards between $10,000 and $25,000, and that the comparison corresponds to the first three such results by amount (high to low).",
+      "localStorage_variables": [
+        "grant_awards",
+        "grant_comparisons",
+        "focus_areas"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst awards = JSON.parse(localStorage.getItem('grant_awards') || '[]');\nconst comparisons = JSON.parse(localStorage.getItem('grant_comparisons') || '[]');\n\n// Qualifying awards: 2023, health_wellness focus, amount between 10k and 25k, awarded\nconst qualifyingAwards = awards.filter(a => {\n  if (!a) return false;\n  if (a.awardStatus !== 'awarded') return false;\n  if (a.yearAwarded !== 2023) return false;\n  if (!Array.isArray(a.focusAreaCodes) || !a.focusAreaCodes.includes('health_wellness')) return false;\n  if (typeof a.amountAwarded !== 'number') return false;\n  if (a.amountAwarded < 10000 || a.amountAwarded > 25000) return false;\n  return true;\n});\n\n// Sort by amount_desc (default for searchPastGrants)\nqualifyingAwards.sort((a, b) => (b.amountAwarded || 0) - (a.amountAwarded || 0));\nconst topThree = qualifyingAwards.slice(0, 3);\nconst topThreeIds = topThree.map(a => a.id);\n\nlet comparisonWith3Qualifying = null;\nlet comparisonMatchesTopThree = false;\n\nfor (const cmp of comparisons) {\n  if (!cmp) continue;\n  const ids = Array.isArray(cmp.grantAwardIds) ? cmp.grantAwardIds : [];\n  const cmpAwards = ids.map(id => awards.find(a => a && a.id === id)).filter(Boolean);\n\n  const qualifyingInCmp = cmpAwards.filter(a => {\n    if (!a) return false;\n    if (a.awardStatus !== 'awarded') return false;\n    if (a.yearAwarded !== 2023) return false;\n    if (!Array.isArray(a.focusAreaCodes) || !a.focusAreaCodes.includes('health_wellness')) return false;\n    if (typeof a.amountAwarded !== 'number') return false;\n    if (a.amountAwarded < 10000 || a.amountAwarded > 25000) return false;\n    return true;\n  });\n\n  if (!comparisonWith3Qualifying && qualifyingInCmp.length >= 3) {\n    comparisonWith3Qualifying = cmp;\n  }\n\n  if (!comparisonMatchesTopThree && topThreeIds.length === 3) {\n    if (ids.length === 3 && topThreeIds.every(id => ids.includes(id))) {\n      comparisonMatchesTopThree = true;\n    }\n  }\n}\n\n// CP1 (0.50): Some saved comparison includes at least three awards that meet ALL the 2023 health mid-range criteria\ncheckpoints.push({ passed: !!comparisonWith3Qualifying, weight: 0.50 });\n\n// CP2 (0.50): A saved comparison exists whose three awards are EXACTLY the first three qualifying results by amount (high to low)\ncheckpoints.push({ passed: comparisonMatchesTopThree, weight: 0.50 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Youth & Environment Monthly Email Alerts Evaluator",
+      "description": "Checks whether the user subscribed to active email alerts with countywide focus, interests exactly Youth & Families and Environment, monthly frequency, and email enabled but SMS disabled.",
+      "localStorage_variables": [
+        "email_alert_subscriptions",
+        "focus_areas"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst subs = JSON.parse(localStorage.getItem('email_alert_subscriptions') || '[]');\n\nconst qualifyingSubs = subs.filter(s => {\n  if (!s || !s.isActive) return false;\n  if (s.geographicFocus !== 'entire_county') return false;\n  if (s.emailFrequency !== 'monthly') return false;\n\n  const codes = Array.isArray(s.interestAreaCodes) ? s.interestAreaCodes : [];\n  const hasYouth = codes.includes('youth_families');\n  const hasEnv = codes.includes('environment');\n  const exactTwo = codes.length === 2 && hasYouth && hasEnv;\n  if (!exactTwo) return false;\n\n  const methods = Array.isArray(s.notificationMethods) ? s.notificationMethods : [];\n  const hasEmail = methods.includes('email');\n  const hasSms = methods.includes('sms_text');\n  if (!hasEmail || hasSms) return false;\n\n  return true;\n});\n\n// Single combined checkpoint (1.0): At least one active subscription matches ALL specified criteria\ncheckpoints.push({ passed: qualifyingSubs.length >= 1, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Eligibility Question for Flagship Community Grant Evaluator",
+      "description": "Checks whether the user submitted a contact form message with topic 'Eligibility Question', preferred response 'email', and linked it to the flagship community grant that supports education, youth, health, and neighborhoods.",
+      "localStorage_variables": [
+        "contact_messages",
+        "grant_programs"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst messages = JSON.parse(localStorage.getItem('contact_messages') || '[]');\nconst programs = JSON.parse(localStorage.getItem('grant_programs') || '[]');\n\n// Identify flagship programs that support all four specified focus areas\nconst flagshipPrograms = programs.filter(p => {\n  if (!p || !p.isFlagshipProgram) return false;\n  const fa = Array.isArray(p.focusAreaCodes) ? p.focusAreaCodes : [];\n  return fa.includes('education') && fa.includes('youth_families') && fa.includes('neighborhoods') && fa.includes('health_wellness');\n});\n\nconst flagshipIds = flagshipPrograms.map(p => p.id);\n\n// Messages with correct topic and response method\nconst topicAndResponseMessages = messages.filter(m => m && m.topic === 'eligibility_question' && m.preferredResponseMethod === 'email');\n\n// Among those, messages tied to the correct flagship program\nconst flagshipMessages = topicAndResponseMessages.filter(m => flagshipIds.includes(m.grantProgramId));\n\n// CP1 (0.50): User submitted at least one message with topic 'Eligibility Question' and preferred response 'email'\ncheckpoints.push({ passed: topicAndResponseMessages.length >= 1, weight: 0.50 });\n\n// CP2 (0.50): Such a message is specifically linked to the flagship program that covers education, youth, health, and neighborhoods\ncheckpoints.push({ passed: flagshipMessages.length >= 1, weight: 0.50 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Individual Deadline Reminder & News Email Settings Evaluator",
+      "description": "Checks whether, for an individual applicant account, notification settings have deadline reminder emails enabled 14 days before deadlines, grant update emails enabled, and news/blog emails disabled.",
+      "localStorage_variables": [
+        "accounts",
+        "notification_settings",
+        "currentAccountId"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst accounts = JSON.parse(localStorage.getItem('accounts') || '[]');\nconst settingsList = JSON.parse(localStorage.getItem('notification_settings') || '[]');\n\n// Settings that match the required configuration\nconst matchingSettings = settingsList.filter(s => {\n  if (!s) return false;\n  if (!s.deadlineRemindersEnabled) return false;\n  if (s.deadlineReminderDaysBefore !== 14) return false;\n  if (!s.grantUpdatesEmailEnabled) return false;\n  if (s.newsBlogEmailEnabled) return false;\n  return true;\n});\n\n// CP1 (0.40): At least one notification settings record matches ALL the requested values\ncheckpoints.push({ passed: matchingSettings.length >= 1, weight: 0.40 });\n\nlet matchingForIndividualAccount = false;\nfor (const s of matchingSettings) {\n  const acc = accounts.find(a => a && a.id === s.accountId);\n  if (acc && acc.accountType === 'individual_applicant') {\n    matchingForIndividualAccount = true;\n    break;\n  }\n}\n\n// CP2 (0.60): Those settings are associated with an account of type 'individual_applicant'\ncheckpoints.push({ passed: matchingForIndividualAccount, weight: 0.60 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "focus_areas",
+    "grant_programs",
+    "grant_awards",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

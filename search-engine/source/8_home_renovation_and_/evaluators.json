@@ -1,0 +1,100 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Cheapest Rear Extension Quote Request Evaluator",
+      "description": "Checks that the user requested a quote for the cheapest 20–30 sqm rear extension under $80,000 with correct postcode, budget, and note.",
+      "localStorage_variables": [
+        "packages",
+        "quote_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst packages = JSON.parse(localStorage.getItem('packages') || '[]');\nconst quotes = JSON.parse(localStorage.getItem('quote_requests') || '[]');\n\n// Find qualifying rear extension packages between 20–30 sqm and <= $80,000\nconst qualifyingPackages = packages.filter(p => \n  p.category_id === 'extensions' &&\n  p.project_type === 'rear_extension' &&\n  typeof p.size_sqm === 'number' && p.size_sqm >= 20 && p.size_sqm <= 30 &&\n  typeof p.price === 'number' && p.price <= 80000\n);\n\nlet cheapestPackage = null;\nfor (const p of qualifyingPackages) {\n  if (!cheapestPackage || p.price < cheapestPackage.price) {\n    cheapestPackage = p;\n  }\n}\n\nlet quotesForCheapest = [];\nif (cheapestPackage) {\n  quotesForCheapest = quotes.filter(q => q.package_id === cheapestPackage.id);\n}\n\n// CP1 (0.40): User submitted a quote request for the cheapest qualifying package\ncheckpoints.push({\n  passed: !!cheapestPackage && quotesForCheapest.length > 0,\n  weight: 0.40\n});\n\n// Among those, check postcode and budget\nconst quotesWithDetails = quotesForCheapest.filter(q => \n  q.postcode === '3000' && Number(q.budget) === 80000\n);\n\n// CP2 (0.30): Quote request for the cheapest package includes correct postcode and budget\ncheckpoints.push({\n  passed: quotesWithDetails.length > 0,\n  weight: 0.30\n});\n\n// Check note content\nconst quotesWithNote = quotesWithDetails.filter(q => \n  (q.note || '').trim() === '25 sqm rear extension with open-plan kitchen'\n);\n\n// CP3 (0.30): Quote request also includes the correct note about a 25 sqm rear extension with open-plan kitchen\ncheckpoints.push({\n  passed: quotesWithNote.length > 0,\n  weight: 0.30\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Cheapest Kitchen Renovation Consultation Booking Evaluator",
+      "description": "Checks that the user booked a weekday afternoon consultation for the cheapest kitchen renovation package under $35,000 on a Wednesday between 2–4 pm.",
+      "localStorage_variables": [
+        "packages",
+        "consultation_bookings"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst packages = JSON.parse(localStorage.getItem('packages') || '[]');\nconst bookings = JSON.parse(localStorage.getItem('consultation_bookings') || '[]');\n\n// Find qualifying kitchen renovation packages under $35,000\nconst qualifyingPackages = packages.filter(p => \n  p.category_id === 'kitchen_renovations' &&\n  p.project_type === 'kitchen_renovation' &&\n  typeof p.price === 'number' && p.price <= 35000\n);\n\nlet cheapestPackage = null;\nfor (const p of qualifyingPackages) {\n  if (!cheapestPackage || p.price < cheapestPackage.price) {\n    cheapestPackage = p;\n  }\n}\n\nlet bookingsForCheapest = [];\nif (cheapestPackage) {\n  bookingsForCheapest = bookings.filter(b => \n    b.package_id === cheapestPackage.id &&\n    b.project_type === 'kitchen_renovation'\n  );\n}\n\n// CP1 (0.40): Consultation booking exists for the cheapest qualifying kitchen package\ncheckpoints.push({\n  passed: !!cheapestPackage && bookingsForCheapest.length > 0,\n  weight: 0.40\n});\n\n// Filter to afternoon slots between 2–4 pm (2:00 pm or 3:00 pm)\nconst afternoonBookings = bookingsForCheapest.filter(b => \n  b.time_of_day === 'afternoon' &&\n  (b.time_slot_label === '2:00 pm' || b.time_slot_label === '3:00 pm')\n);\n\n// CP2 (0.30): Booking is for an afternoon slot between 2 pm and 4 pm\ncheckpoints.push({\n  passed: afternoonBookings.length > 0,\n  weight: 0.30\n});\n\n// From those, check that the date is a Wednesday\nconst wedAfternoonBookings = afternoonBookings.filter(b => {\n  const d = new Date(b.consultation_date);\n  return !isNaN(d.getTime()) && d.getDay() === 3; // 3 = Wednesday\n});\n\n// CP3 (0.30): Booking falls on a Wednesday afternoon\ncheckpoints.push({\n  passed: wedAfternoonBookings.length > 0,\n  weight: 0.30\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Larger Floor-Area Extension Shortlist Evaluator",
+      "description": "Checks that the user compared extension packages under $120,000 and added the one with the larger added floor area to their shortlist.",
+      "localStorage_variables": [
+        "packages",
+        "package_compare_sets",
+        "package_compare_items",
+        "package_shortlists",
+        "package_shortlist_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst packages = JSON.parse(localStorage.getItem('packages') || '[]');\nconst compareSets = JSON.parse(localStorage.getItem('package_compare_sets') || '[]');\nconst compareItems = JSON.parse(localStorage.getItem('package_compare_items') || '[]');\nconst shortlistItems = JSON.parse(localStorage.getItem('package_shortlist_items') || '[]');\n\nconst activeSet = compareSets.find(cs => cs && cs.is_active);\nlet comparedPackages = [];\nif (activeSet) {\n  const comparedIds = compareItems\n    .filter(it => it.compare_set_id === activeSet.id)\n    .map(it => it.package_id);\n  comparedPackages = packages.filter(p => comparedIds.includes(p.id));\n}\n\n// Qualifying compared extensions under $120,000\nconst qualifyingCompared = comparedPackages.filter(p => \n  p.category_id === 'extensions' &&\n  typeof p.price === 'number' && p.price <= 120000\n);\n\nlet largestPackage = null;\nfor (const p of qualifyingCompared) {\n  const area = typeof p.added_floor_area_sqm === 'number' ? p.added_floor_area_sqm : 0;\n  if (!largestPackage || area > (typeof largestPackage.added_floor_area_sqm === 'number' ? largestPackage.added_floor_area_sqm : 0)) {\n    largestPackage = p;\n  }\n}\n\nconst shortlistedIds = shortlistItems.map(it => it.package_id);\n\n// CP1 (0.40): User compared at least two qualifying extension packages under $120,000\ncheckpoints.push({\n  passed: qualifyingCompared.length >= 2,\n  weight: 0.40\n});\n\n// CP2 (0.60): Among compared packages, the one with the largest added floor area is in the shortlist\ncheckpoints.push({\n  passed: !!largestPackage && shortlistedIds.includes(largestPackage.id),\n  weight: 0.60\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Loft Conversion Ideas List Evaluator",
+      "description": "Checks that the user saved three loft conversion projects (2023 or later, rating ≥ 4.5) to their Ideas list.",
+      "localStorage_variables": [
+        "projects",
+        "ideas_lists",
+        "ideas_list_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst projects = JSON.parse(localStorage.getItem('projects') || '[]');\nconst ideasItems = JSON.parse(localStorage.getItem('ideas_list_items') || '[]');\n\nconst savedProjectIds = ideasItems.map(it => it.project_id);\n\nconst qualifyingSaved = savedProjectIds.filter(id => {\n  const p = projects.find(pr => pr.id === id);\n  return p &&\n    p.project_type === 'loft_conversion' &&\n    typeof p.completion_year === 'number' && p.completion_year >= 2023 &&\n    typeof p.rating === 'number' && p.rating >= 4.5;\n});\n\nconst count = qualifyingSaved.length;\n\n// CP1 (0.20): At least 1 qualifying loft conversion project saved\ncheckpoints.push({ passed: count >= 1, weight: 0.20 });\n// CP2 (0.30): At least 2 qualifying projects saved\ncheckpoints.push({ passed: count >= 2, weight: 0.30 });\n// CP3 (0.50): At least 3 qualifying projects saved\ncheckpoints.push({ passed: count >= 3, weight: 0.50 });\n\nreturn checkoints = checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Full Home Renovation Cost Estimate Email Evaluator",
+      "description": "Checks that the user created a 3-bed, 2-bath full home renovation estimate with mid-range finishes and $180,000 budget, then emailed the summary to user@example.com.",
+      "localStorage_variables": [
+        "cost_estimates",
+        "cost_estimate_emails"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst estimates = JSON.parse(localStorage.getItem('cost_estimates') || '[]');\nconst emails = JSON.parse(localStorage.getItem('cost_estimate_emails') || '[]');\n\n// Find estimates matching the required parameters\nconst targetEstimates = estimates.filter(e => \n  e.project_type === 'full_home_renovation' &&\n  e.bedrooms === 3 &&\n  e.bathrooms === 2 &&\n  e.finish_level === 'mid_range' &&\n  Number(e.budget) === 180000\n);\n\n// CP1 (0.40): User generated at least one matching cost estimate\ncheckpoints.push({\n  passed: targetEstimates.length > 0,\n  weight: 0.40\n});\n\n// Check for an email sent for one of these estimates to user@example.com\nlet emailMatch = false;\nfor (const em of emails) {\n  if (targetEstimates.some(te => te.id === em.estimate_id) && em.recipient_email === 'user@example.com') {\n    emailMatch = true;\n    break;\n  }\n}\n\n// CP2 (0.60): User emailed the summary for a matching estimate to user@example.com\ncheckpoints.push({\n  passed: emailMatch,\n  weight: 0.60\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Planning Permit Article Reading List Evaluator",
+      "description": "Checks that the user searched for a 2023+ planning permit extensions article, saved a qualifying article to the reading list, and reopened it from that list.",
+      "localStorage_variables": [
+        "task6_searchParams",
+        "task6_savedArticleMeta",
+        "task6_reopenedArticleId",
+        "articles",
+        "reading_lists",
+        "reading_list_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst searchParams = JSON.parse(localStorage.getItem('task6_searchParams') || 'null');\nconst savedMeta = JSON.parse(localStorage.getItem('task6_savedArticleMeta') || 'null');\nconst reopenedId = localStorage.getItem('task6_reopenedArticleId') || null;\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst readingItems = JSON.parse(localStorage.getItem('reading_list_items') || '[]');\n\n// Helper to check if an article is about planning permits for extensions and 2023+\nfunction isPlanningPermitExtensionArticle(article) {\n  if (!article) return false;\n  const yearOk = typeof article.year === 'number' && article.year >= 2023;\n  const title = (article.title || '').toLowerCase();\n  const content = (article.content || '').toLowerCase();\n  const tags = Array.isArray(article.tags) ? article.tags.map(t => t.toLowerCase()) : [];\n\n  const tagMatch = tags.some(t => t.includes('planning permit') && t.includes('extension'));\n  const textMatch = (title.includes('planning permit') || content.includes('planning permit')) &&\n                    (title.includes('extension') || content.includes('extension'));\n  return yearOk && (tagMatch || textMatch);\n}\n\n// CP1 (0.30): User searched with a query mentioning planning permits and extensions, with min_year >= 2023\nlet cp1Passed = false;\nif (searchParams) {\n  const q = (searchParams.query || '').toLowerCase();\n  const minYear = typeof searchParams.min_year === 'number' ? searchParams.min_year : null;\n  const mentionsPlanning = q.includes('planning permit');\n  const mentionsExtension = q.includes('extension');\n  cp1Passed = mentionsPlanning && mentionsExtension && minYear !== null && minYear >= 2023;\n}\ncheckpoints.push({ passed: cp1Passed, weight: 0.30 });\n\n// CP2 (0.40): User saved a qualifying planning-permit-for-extensions article to the reading list\nlet cp2Passed = false;\nlet savedArticle = null;\nif (savedMeta && savedMeta.article_id) {\n  savedArticle = articles.find(a => a.id === savedMeta.article_id);\n  const inReadingList = readingItems.some(ri => ri.article_id === savedMeta.article_id);\n  cp2Passed = isPlanningPermitExtensionArticle(savedArticle) && inReadingList;\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.40 });\n\n// CP3 (0.30): User reopened the same qualifying article from the reading list\nlet cp3Passed = false;\nif (cp2Passed && reopenedId && savedMeta && savedMeta.article_id) {\n  cp3Passed = reopenedId === savedMeta.article_id;\n}\ncheckpoints.push({ passed: cp3Passed, weight: 0.30 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Bathroom Renovation Warranty FAQ Contact Evaluator",
+      "description": "Checks that the user used the bathroom renovation warranty FAQ’s contact link to send a follow-up question with appropriate subject and contact details.",
+      "localStorage_variables": [
+        "faq_items",
+        "contact_messages"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst faqs = JSON.parse(localStorage.getItem('faq_items') || '[]');\nconst messages = JSON.parse(localStorage.getItem('contact_messages') || '[]');\n\nconst bathroomWarrantyFaq = faqs.find(f => Array.isArray(f.keywords) && f.keywords.includes('bathroom renovation warranty'));\n\nlet candidateMessages = [];\nif (bathroomWarrantyFaq) {\n  candidateMessages = messages.filter(m => \n    m.related_faq_id === bathroomWarrantyFaq.id &&\n    m.source_page === 'faq_page'\n  );\n}\n\n// CP1 (0.40): At least one contact message was sent from the FAQ page linked to the bathroom renovation warranty FAQ\ncheckpoints.push({\n  passed: candidateMessages.length > 0,\n  weight: 0.40\n});\n\n// Filter to messages with correct subject and that mention warranty\nconst followupMessages = candidateMessages.filter(m => \n  m.subject_type === 'bathroom_renovation' &&\n  typeof m.message === 'string' && m.message.toLowerCase().includes('warranty')\n);\n\n// CP2 (0.30): Message is a follow-up about bathroom renovation warranty (subject and content)\ncheckpoints.push({\n  passed: followupMessages.length > 0,\n  weight: 0.30\n});\n\n// From those, check that contact details (email and phone) are provided and look valid\nconst detailedMessages = followupMessages.filter(m => {\n  const email = m.email || '';\n  const phone = m.phone || '';\n  const emailOk = email.includes('@');\n  const phoneDigits = phone.replace(/\\D/g, '');\n  const phoneOk = phoneDigits.length >= 8;\n  return emailOk && phoneOk;\n});\n\n// CP3 (0.30): Follow-up message includes usable email and phone contact details\ncheckpoints.push({\n  passed: detailedMessages.length > 0,\n  weight: 0.30\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Multi-Project Renovation Plan Submission Evaluator",
+      "description": "Checks that the user submitted a renovation plan containing a $20,000 apartment bathroom renovation and a $25,000 house deck extension, with contact details filled in.",
+      "localStorage_variables": [
+        "renovation_plans",
+        "renovation_plan_projects"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst plans = JSON.parse(localStorage.getItem('renovation_plans') || '[]');\nconst planProjects = JSON.parse(localStorage.getItem('renovation_plan_projects') || '[]');\n\n// Find submitted plans that contain both required projects\nconst candidatePlans = plans.filter(p => p.status === 'submitted').filter(p => {\n  const projects = planProjects.filter(pp => pp.plan_id === p.id);\n  const hasBathroom = projects.some(prj => \n    prj.project_type === 'bathroom_renovation' &&\n    Number(prj.budget) === 20000 &&\n    prj.property_type === 'apartment'\n  );\n  const hasDeck = projects.some(prj => \n    prj.project_type === 'deck_extension' &&\n    Number(prj.budget) === 25000 &&\n    prj.property_type === 'house'\n  );\n  return hasBathroom && hasDeck;\n});\n\n// CP1 (0.60): At least one submitted plan includes both the $20k apartment bathroom and $25k house deck projects\ncheckpoints.push({\n  passed: candidatePlans.length > 0,\n  weight: 0.60\n});\n\n// Among those plans, check that contact details are populated\nconst completedPlans = candidatePlans.filter(p => {\n  const nameOk = !!(p.name && p.name.trim());\n  const emailOk = !!(p.email && p.email.includes('@'));\n  const phoneOk = !!(p.phone && p.phone.trim());\n  const postcodeOk = !!(p.postcode && p.postcode.trim());\n  return nameOk && emailOk && phoneOk && postcodeOk;\n});\n\n// CP2 (0.40): Plan with required projects also includes filled-in contact details\ncheckpoints.push({\n  passed: completedPlans.length > 0,\n  weight: 0.40\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "articles",
+    "faq_items",
+    "packages",
+    "projects",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

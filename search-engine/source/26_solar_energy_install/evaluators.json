@@ -1,0 +1,102 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "5 kW Quote Under $120 Saved Evaluator",
+      "description": "Checks whether the user configured a 5 kW residential quote for ZIP 94110 with the correct inputs and saved at least one plan from that request whose estimated monthly payment is at or below $120.",
+      "localStorage_variables": [
+        "quote_requests",
+        "quote_plans",
+        "saved_quotes"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst quoteRequests = JSON.parse(localStorage.getItem('quote_requests') || '[]');\nconst quotePlans = JSON.parse(localStorage.getItem('quote_plans') || '[]');\nconst savedQuotes = JSON.parse(localStorage.getItem('saved_quotes') || '[]');\n\n// QuoteRequests matching the task inputs\nconst matchingRequests = quoteRequests.filter(qr =>\n  qr &&\n  qr.property_type === 'residential' &&\n  qr.zip_code === '94110' &&\n  qr.roof_area_sqft === 1200 &&\n  qr.average_monthly_bill === 150 &&\n  qr.desired_system_size_kw === 5\n);\nconst matchingRequestIds = matchingRequests.map(qr => qr.id);\n\n// Saved quotes originating from those requests via the quote tool\nconst savedFromMatchingRequests = savedQuotes.filter(sq =>\n  sq &&\n  sq.source_type === 'quote_tool' &&\n  sq.quote_request_id &&\n  matchingRequestIds.includes(sq.quote_request_id)\n);\n\n// CP1 (0.4): User saved at least one quote generated from a correctly configured 5 kW residential request\ncheckpoints.push({\n  passed: savedFromMatchingRequests.length > 0,\n  weight: 0.4\n});\n\n// Among those saved quotes, check if any has estimated_monthly_payment <= 120\nconst qualifyingSaved = savedFromMatchingRequests.filter(sq => {\n  const plan = quotePlans.find(p => p.id === sq.quote_plan_id);\n  return plan && typeof plan.estimated_monthly_payment === 'number' && plan.estimated_monthly_payment <= 120;\n});\n\n// CP2 (0.6): At least one saved quote from the correct request has estimated monthly payment <= $120\ncheckpoints.push({\n  passed: qualifyingSaved.length > 0,\n  weight: 0.6\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "6–8 kW Package Cheapest Qualifying Added Evaluator",
+      "description": "Checks whether the user added to their quote list the correct residential package between 6–8 kW: within the first two cheapest results, under $15,000, with panel warranty ≥ 20 years, and that they chose the cheapest qualifying one.",
+      "localStorage_variables": [
+        "solar_packages",
+        "quote_plans",
+        "saved_quotes",
+        "panel_models"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst packages = JSON.parse(localStorage.getItem('solar_packages') || '[]');\nconst savedQuotes = JSON.parse(localStorage.getItem('saved_quotes') || '[]');\n\n// Active residential packages between 6 and 8 kW\nconst filtered = packages.filter(p =>\n  p &&\n  p.status === 'active' &&\n  p.system_type === 'residential' &&\n  typeof p.system_size_kw === 'number' &&\n  p.system_size_kw >= 6 &&\n  p.system_size_kw <= 8\n);\n\n// Sort by total price ascending\nfiltered.sort((a, b) => {\n  const av = a.total_price;\n  const bv = b.total_price;\n  if (av === bv) return 0;\n  return av - bv;\n});\n\n// First two results\nconst firstTwo = filtered.slice(0, 2);\nconst firstTwoIds = firstTwo.map(p => p.id);\n\n// Among the first two, those under $15,000 with panel warranty >= 20 years\nconst qualifyingInFirstTwo = firstTwo.filter(p =>\n  typeof p.total_price === 'number' &&\n  p.total_price < 15000 &&\n  typeof p.panel_warranty_years === 'number' &&\n  p.panel_warranty_years >= 20\n);\n\n// Cheapest qualifying package among the first two (if any)\nlet cheapestQualifying = null;\nif (qualifyingInFirstTwo.length > 0) {\n  cheapestQualifying = qualifyingInFirstTwo.reduce((min, p) =>\n    !min || p.total_price < min.total_price ? p : min,\n    null\n  );\n}\n\n// Saved quotes that came from solar packages\nconst savedFromPackages = savedQuotes.filter(sq => sq && sq.source_type === 'solar_package');\n\n// Saved quotes whose source package is one of the first two and meets price & warranty criteria\nconst qualifyingSaved = savedFromPackages.filter(sq => {\n  const pkg = packages.find(p => p.id === sq.source_reference_id);\n  return pkg &&\n    firstTwoIds.includes(pkg.id) &&\n    typeof pkg.total_price === 'number' &&\n    pkg.total_price < 15000 &&\n    typeof pkg.panel_warranty_years === 'number' &&\n    pkg.panel_warranty_years >= 20;\n});\n\n// CP1 (0.6): User added to their quote list a package from the first two results that meets the price and warranty thresholds\ncheckpoints.push({\n  passed: qualifyingSaved.length > 0,\n  weight: 0.6\n});\n\n// CP2 (0.4): The added package is the cheapest qualifying package among the first two\nlet savedCheapest = false;\nif (cheapestQualifying && qualifyingSaved.length > 0) {\n  savedCheapest = qualifyingSaved.some(sq => {\n    const pkg = packages.find(p => p.id === sq.source_reference_id);\n    return pkg && pkg.id === cheapestQualifying.id;\n  });\n}\ncheckpoints.push({\n  passed: savedCheapest,\n  weight: 0.4\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Earliest Weekday 10AM Virtual Consultation Booked Evaluator",
+      "description": "Checks whether the user booked a virtual residential consultation for ZIP 78704 at a 10:00 AM slot and that the slot corresponds to the earliest available weekday 10:00 AM virtual slot.",
+      "localStorage_variables": [
+        "consultation_slots",
+        "consultation_appointments"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst slots = JSON.parse(localStorage.getItem('consultation_slots') || '[]');\nconst appointments = JSON.parse(localStorage.getItem('consultation_appointments') || '[]');\n\n// Appointments matching the task context\nconst matchingAppointments = appointments.filter(a =>\n  a &&\n  a.consultation_type === 'virtual' &&\n  a.property_type === 'residential' &&\n  a.zip_code === '78704'\n);\n\nfunction isVirtualWeekdayTen(slot) {\n  if (!slot || slot.consultation_type !== 'virtual' || !slot.is_weekday) return false;\n  const d = new Date(slot.start_datetime);\n  return d.getUTCHours() === 10 && d.getUTCMinutes() === 0;\n}\n\n// Slots that are 10:00 AM virtual weekday and were available at some point\nconst slotsWithPossibleAvailability = slots.filter(s => {\n  if (!isVirtualWeekdayTen(s)) return false;\n  const wasBookable = s.is_available || appointments.some(a => a.slot_id === s.id);\n  return wasBookable;\n});\n\nlet earliestSlot = null;\nslotsWithPossibleAvailability.forEach(s => {\n  if (!earliestSlot) {\n    earliestSlot = s;\n  } else if (new Date(s.start_datetime) < new Date(earliestSlot.start_datetime)) {\n    earliestSlot = s;\n  }\n});\n\n// CP1 (0.5): User booked a virtual residential consultation for ZIP 78704 at 10:00 AM using a slot-based booking\nlet hasTenAmBooking = false;\nif (matchingAppointments.length > 0) {\n  hasTenAmBooking = matchingAppointments.some(a => {\n    const slot = slots.find(s => s.id === a.slot_id);\n    if (!slot) return false;\n    return isVirtualWeekdayTen(slot) && a.appointment_datetime === slot.start_datetime;\n  });\n}\ncheckpoints.push({\n  passed: hasTenAmBooking,\n  weight: 0.5\n});\n\n// CP2 (0.5): The booked slot is the earliest available weekday 10:00 AM virtual slot\nlet bookedEarliest = false;\nif (earliestSlot && matchingAppointments.length > 0) {\n  bookedEarliest = matchingAppointments.some(a => a.slot_id === earliestSlot.id);\n}\ncheckpoints.push({\n  passed: bookedEarliest,\n  weight: 0.5\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Most Recent Federal Tax Credit Article Saved with Tag Evaluator",
+      "description": "Checks whether the user saved the most recent relevant federal solar tax credit article to their reading list and tagged it with 'Incentives 2024'.",
+      "localStorage_variables": [
+        "articles",
+        "saved_articles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst savedArticles = JSON.parse(localStorage.getItem('saved_articles') || '[]');\n\nconst query = 'federal solar tax credit';\n\n// Determine relevant articles (similar to searchArticles)\nconst relevantArticles = articles.filter(a => {\n  if (!a || !a.is_published) return false;\n  const pieces = [a.title || '', a.summary || '', a.content || ''];\n  if (Array.isArray(a.tags)) pieces.push(a.tags.join(' '));\n  const haystack = pieces.join(' ').toLowerCase();\n  return haystack.includes(query.toLowerCase());\n});\n\n// Sort relevant articles by published_at desc (newest first)\nrelevantArticles.sort((a, b) => {\n  const ad = a.published_at || '';\n  const bd = b.published_at || '';\n  if (ad === bd) return 0;\n  return ad > bd ? -1 : 1;\n});\n\nconst mostRecentRelevant = relevantArticles[0] || null;\n\nfunction hasIncentives2024Tag(tags) {\n  const arr = Array.isArray(tags) ? tags : [];\n  return arr.some(t => typeof t === 'string' && t.toLowerCase() === 'incentives 2024'.toLowerCase());\n}\n\n// Saved items whose article is relevant and have the required tag\nconst qualifyingSaved = savedArticles.filter(sa => {\n  const art = articles.find(a => a.id === sa.article_id);\n  if (!art || !art.is_published) return false;\n  const isRelevant = relevantArticles.some(ra => ra.id === art.id);\n  if (!isRelevant) return false;\n  return hasIncentives2024Tag(sa.tags);\n});\n\n// CP1 (0.6): User saved at least one relevant federal tax credit article with an 'Incentives 2024' tag\ncheckpoints.push({\n  passed: qualifyingSaved.length > 0,\n  weight: 0.6\n});\n\n// CP2 (0.4): The saved article with that tag is the most recent relevant article\nlet savedMostRecent = false;\nif (mostRecentRelevant && qualifyingSaved.length > 0) {\n  savedMostRecent = qualifyingSaved.some(sa => sa.article_id === mostRecentRelevant.id);\n}\ncheckpoints.push({\n  passed: savedMostRecent,\n  weight: 0.4\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Savings Scenario $1500+ for ZIP 85001 Saved Evaluator",
+      "description": "Checks whether the user saved a savings scenario for ZIP 85001 with the specified inputs and at least $1,500 estimated annual savings under the name 'Target $1500+ savings'.",
+      "localStorage_variables": [
+        "savings_scenarios"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst scenarios = JSON.parse(localStorage.getItem('savings_scenarios') || '[]');\n\n// Scenarios matching the requested inputs and name\nconst matchingBase = scenarios.filter(s =>\n  s &&\n  s.name === 'Target $1500+ savings' &&\n  s.zip_code === '85001' &&\n  s.monthly_electric_bill === 200 &&\n  s.roof_orientation === 'south_facing' &&\n  s.shading_level === 'low_0_25'\n);\n\n// Among those, scenarios achieving at least $1,500 estimated annual savings\nconst adequateSavings = matchingBase.filter(s =>\n  typeof s.estimated_annual_savings === 'number' &&\n  s.estimated_annual_savings >= 1500\n);\n\n// CP1 (0.4): User saved a scenario with the correct name and input parameters\ncheckpoints.push({\n  passed: matchingBase.length > 0,\n  weight: 0.4\n});\n\n// CP2 (0.6): That scenario achieves at least $1,500 in estimated annual savings\ncheckpoints.push({\n  passed: adequateSavings.length > 0,\n  weight: 0.6\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Top-Rated Qualifying Installer Contacted Evaluator",
+      "description": "Checks whether the user contacted an installer within 25 miles of ZIP 30301 with rating ≥ 4.5 and ≥ 50 reviews, and that the contacted installer is the highest-rated among those qualifiers.",
+      "localStorage_variables": [
+        "installers",
+        "installer_contacts",
+        "installer_reviews"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst installers = JSON.parse(localStorage.getItem('installers') || '[]');\nconst contacts = JSON.parse(localStorage.getItem('installer_contacts') || '[]');\n\n// Qualifying installers according to the task constraints\nconst qualifyingInstallers = installers.filter(i =>\n  i &&\n  i.is_active &&\n  typeof i.distance_miles === 'number' && i.distance_miles <= 25 &&\n  typeof i.overall_rating === 'number' && i.overall_rating >= 4.5 &&\n  typeof i.review_count === 'number' && i.review_count >= 50\n);\n\n// Sort qualifying installers by rating desc (highest first)\nqualifyingInstallers.sort((a, b) => {\n  const av = a.overall_rating;\n  const bv = b.overall_rating;\n  if (av === bv) return 0;\n  return bv - av;\n});\n\nconst topInstaller = qualifyingInstallers[0] || null;\n\n// Contacts sent to qualifying installers\nconst contactsToQualifiers = contacts.filter(c => {\n  const inst = installers.find(i => i.id === c.installer_id);\n  return inst && qualifyingInstallers.some(q => q.id === inst.id);\n});\n\n// CP1 (0.4): User sent at least one contact message to an installer meeting the distance, rating, and review-count criteria\ncheckpoints.push({\n  passed: contactsToQualifiers.length > 0,\n  weight: 0.4\n});\n\n// CP2 (0.6): User contacted the top-rated installer among those qualifiers\nlet contactedTop = false;\nif (topInstaller && contactsToQualifiers.length > 0) {\n  contactedTop = contactsToQualifiers.some(c => c.installer_id === topInstaller.id);\n}\ncheckpoints.push({\n  passed: contactedTop,\n  weight: 0.6\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "16×400W + ≥10 kWh Battery Design Summary Viewed Evaluator",
+      "description": "Checks whether the user created a residential asphalt-shingle design with 16×400W panels, at least 10 kWh of battery storage, string inverter, and viewed its system summary (tracked via task7_summaryViewed).",
+      "localStorage_variables": [
+        "system_designs",
+        "panel_models",
+        "battery_options",
+        "task7_summaryViewed"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst designs = JSON.parse(localStorage.getItem('system_designs') || '[]');\nconst panelModels = JSON.parse(localStorage.getItem('panel_models') || '[]');\nconst batteryOptions = JSON.parse(localStorage.getItem('battery_options') || '[]');\nconst summaryMeta = JSON.parse(localStorage.getItem('task7_summaryViewed') || 'null');\n\nfunction designMeetsRequirements(design) {\n  if (!design) return false;\n  if (design.system_type !== 'residential') return false;\n  if (design.roof_type !== 'asphalt_shingle') return false;\n  if (design.inverter_type !== 'string_inverter') return false;\n  if (design.panel_quantity !== 16) return false;\n  if (!design.include_battery) return false;\n  if (typeof design.battery_capacity_kwh !== 'number' || design.battery_capacity_kwh < 10) return false;\n\n  const panel = panelModels.find(p => p.id === design.panel_model_id);\n  if (!panel) return false;\n  if (panel.wattage !== 400) return false;\n  return true;\n}\n\n// Any design in the store that meets the configuration requirements\nconst validDesigns = designs.filter(d => designMeetsRequirements(d));\n\n// CP1 (0.4): User created a system design that meets all configuration requirements\ncheckpoints.push({\n  passed: validDesigns.length > 0,\n  weight: 0.4\n});\n\n// CP2 (0.6): The viewed system summary (task7_summaryViewed.designId) corresponds to a design meeting all requirements\nlet viewedValidSummary = false;\nif (summaryMeta && summaryMeta.designId) {\n  const viewedDesign = designs.find(d => d.id === summaryMeta.designId);\n  viewedValidSummary = designMeetsRequirements(viewedDesign);\n}\n\ncheckpoints.push({\n  passed: viewedValidSummary,\n  weight: 0.6\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Lowest-APR Qualifying Financing Pre-Application Saved Evaluator",
+      "description": "Checks whether the user saved a draft financing pre-application for an $18,000 project in ZIP 60601 with credit range 680–719, and that the chosen option is the lowest-APR offer among those with upfront payment ≤ $3,000 and estimated monthly payments ≤ $150.",
+      "localStorage_variables": [
+        "financing_comparisons",
+        "financing_quote_results",
+        "financing_options",
+        "financing_pre_applications"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst comparisons = JSON.parse(localStorage.getItem('financing_comparisons') || '[]');\nconst results = JSON.parse(localStorage.getItem('financing_quote_results') || '[]');\nconst preApps = JSON.parse(localStorage.getItem('financing_pre_applications') || '[]');\n\n// Pre-applications matching the task context\nconst taskPreApps = preApps.filter(pa =>\n  pa &&\n  pa.project_cost === 18000 &&\n  pa.zip_code === '60601' &&\n  pa.credit_score_range === '680_719' &&\n  pa.status === 'draft'\n);\n\n// CP1 (0.4): User saved at least one draft pre-application with the correct project cost, ZIP, and credit range\ncheckpoints.push({\n  passed: taskPreApps.length > 0,\n  weight: 0.4\n});\n\n// All comparisons for this project context\nconst taskComparisons = comparisons.filter(c =>\n  c &&\n  c.project_cost === 18000 &&\n  c.zip_code === '60601' &&\n  c.credit_score_range === '680_719'\n);\nconst taskComparisonIds = taskComparisons.map(c => c.id);\n\n// All quote results for those comparisons\nconst taskResults = results.filter(r => taskComparisonIds.includes(r.comparison_id));\n\n// Results that meet the upfront and monthly payment constraints\nconst qualifyingResults = taskResults.filter(r =>\n  typeof r.estimated_upfront_payment === 'number' && r.estimated_upfront_payment <= 3000 &&\n  typeof r.estimated_monthly_payment === 'number' && r.estimated_monthly_payment <= 150\n);\n\nlet hasBestQualifyingPreApp = false;\nif (qualifyingResults.length > 0 && taskPreApps.length > 0) {\n  const minApr = qualifyingResults.reduce((min, r) =>\n    (min === null || r.apr < min) ? r.apr : min,\n    null\n  );\n\n  hasBestQualifyingPreApp = taskPreApps.some(pa =>\n    qualifyingResults.some(r =>\n      r.financing_option_id === pa.financing_option_id &&\n      r.term_years === pa.term_years &&\n      r.apr === minApr\n    )\n  );\n}\n\n// CP2 (0.6): The saved pre-application uses the lowest-APR option among qualifying financing results\ncheckpoints.push({\n  passed: hasBestQualifyingPreApp,\n  weight: 0.6\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "articles",
+    "battery_options",
+    "consultation_slots",
+    "financing_options",
+    "installers",
+    "panel_models",
+    "solar_packages",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

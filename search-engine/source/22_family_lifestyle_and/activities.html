@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Love, Healing &amp; A Happy Home</title>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='framework.css'>
+  <link rel='stylesheet' href='activities.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='hero'>
+      <div class='hero-inner container'>
+        <h1 class='site-title'>LOVE, HEALING &amp; A HAPPY HOME</h1>
+        <p class='site-tagline'>Inspiration for a warm, peaceful, and joyful life</p>
+      </div>
+    </div>
+
+    <nav class='primary-nav' aria-label='Primary'>
+      <div class='container'>
+        <ul class='nav-list'>
+          <li class='nav-item'><a href='index.html'>Home</a></li>
+          <li class='nav-item'><a href='recipes.html'>Recipes</a></li>
+          <li class='nav-item'><a href='activities.html'>Activities</a></li>
+          <li class='nav-item'><a href='search.html'>Articles</a></li>
+          <li class='nav-item'><a href='shop.html'>Shop</a></li>
+          <li class='nav-item'><a href='planner.html'>Planner</a></li>
+          <li class='nav-item'><a href='tools.html'>Tools</a></li>
+          <li class='nav-item'><a href='saved_lists.html'>Saved Lists</a></li>
+        </ul>
+      </div>
+    </nav>
+  </header>
+
+  <main id='content' class='site-main'>
+    <div class='container'>
+      <section class='activities-page' aria-label='Browse family activities'>
+        <div class='activities-top-row'>
+          <button type='button' class='planner-link-cta' data-component='activities-contextual-planner-link' data-action='open-planner'>
+            Open Planner
+          </button>
+        </div>
+
+        <section id='activities-filter-bar' class='activities-filter-bar' data-component='activities-filter-bar' data-populate='activity-filter-options' aria-label='Filter activities'>
+          <div class='activities-filter-bar-inner'>
+            <p class='activities-filter-loading'>Loading filters…</p>
+          </div>
+        </section>
+
+        <div class='activities-sort-row'>
+          <div class='activities-sort-control' data-component='activities-sort-control'>
+            <label for='activities-sort-select'>Sort</label>
+            <select id='activities-sort-select' data-action='change-sort'>
+              <option value=''>Best match</option>
+              <option value='duration_asc'>Shortest first</option>
+              <option value='duration_desc'>Longest first</option>
+              <option value='newest'>Newest</option>
+            </select>
+          </div>
+        </div>
+
+        <section class='activities-results-section'>
+          <div id='activities-loader' class='activities-loader' data-component='activities-list-data-loader' aria-live='polite' hidden>
+            Loading activities…
+          </div>
+
+          <section id='activities-results-list' class='activities-results-list' data-component='activities-results-list' data-populate='activities-list' aria-label='Activity results'>
+            <!-- Activities will be rendered here -->
+          </section>
+
+          <nav id='activities-pagination' class='activities-pagination' data-component='activities-pagination-controls' aria-label='Activities pagination'>
+            <!-- Pagination buttons will be rendered here -->
+          </nav>
+        </section>
+      </section>
+
+      <section class='activities-selection-toolbar' data-component='activities-selection-toolbar' hidden>
+        <div class='selection-toolbar-inner'>
+          <div class='selection-toolbar-summary'>
+            <span class='selection-count' data-populate='selection-count'>0</span>
+            <span class='selection-label'>activities selected</span>
+          </div>
+          <div class='selection-toolbar-actions'>
+            <button type='button' class='selection-action-primary' data-action='selection-open-next'>Open one selected</button>
+            <button type='button' class='selection-action-secondary' data-action='selection-clear'>Clear</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='container footer-inner'>
+      <nav class='footer-nav' aria-label='Footer'>
+        <ul class='footer-links'>
+          <li class='footer-item'><a href='about.html'>About</a></li>
+          <li class='footer-item'><a href='contact.html'>Contact</a></li>
+          <li class='footer-item'><a href='newsletter_preferences.html'>Newsletter Preferences</a></li>
+          <li class='footer-item'><a href='planner.html'>Planner</a></li>
+          <li class='footer-item'><a href='privacy.html'>Privacy Policy</a></li>
+          <li class='footer-item'><a href='terms.html'>Terms of Use</a></li>
+        </ul>
+      </nav>
+      <p class='footer-meta'>&copy; 2026 Family Treasure</p>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const PAGE_SIZE = 10;
+
+    const filterBar = document.querySelector('[data-component=activities-filter-bar]');
+    const sortSelect = document.getElementById('activities-sort-select');
+    const resultsContainer = document.getElementById('activities-results-list');
+    const paginationContainer = document.getElementById('activities-pagination');
+    const loader = document.getElementById('activities-loader');
+    const selectionToolbar = document.querySelector('[data-component=activities-selection-toolbar]');
+    const selectionCountEl = selectionToolbar ? selectionToolbar.querySelector('[data-populate=selection-count]') : null;
+
+    const filterLabelMaps = {
+      ageGroup: new Map(),
+      location: new Map(),
+      costType: new Map(),
+      maxDurationMinutes: new Map()
+    };
+
+    const selectedActivityIds = new Set();
+
+    function getUrlState() {
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+      const ageGroup = params.get('ageGroup');
+      const location = params.get('location');
+      const costType = params.get('costType');
+      const maxDurationStr = params.get('maxDurationMinutes');
+      const maxDurationMinutes = maxDurationStr ? parseInt(maxDurationStr, 10) : null;
+      const sortBy = params.get('sortBy') || '';
+      const pageStr = params.get('page');
+      const page = pageStr ? parseInt(pageStr, 10) : 1;
+      return { ageGroup: ageGroup, location: location, costType: costType, maxDurationMinutes: maxDurationMinutes, sortBy: sortBy, page: page, params: params };
+    }
+
+    function updateUrlParams(partial, options) {
+      const opts = options || {};
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+
+      Object.keys(partial).forEach(function(key) {
+        const value = partial[key];
+        if (value === null || typeof value === 'undefined' || value === '') {
+          params.delete(key);
+        } else {
+          params.set(key, String(value));
+        }
+      });
+
+      if (opts.resetPage) {
+        params.delete('page');
+      }
+
+      url.search = params.toString();
+      window.history.replaceState({}, '', url.toString());
+      onUrlStateChanged();
+    }
+
+    function normalizeFilterValue(field, rawValue) {
+      if (!rawValue && rawValue !== 0) {
+        return undefined;
+      }
+      if (!filterLabelMaps[field] || filterLabelMaps[field].size === 0) {
+        return rawValue;
+      }
+      if (field === 'maxDurationMinutes') {
+        const asNumber = parseInt(rawValue, 10);
+        if (filterLabelMaps[field].has(asNumber)) {
+          return asNumber;
+        }
+        return undefined;
+      }
+      if (filterLabelMaps[field].has(rawValue)) {
+        return rawValue;
+      }
+      return undefined;
+    }
+
+    function showLoader() {
+      if (loader) {
+        loader.hidden = false;
+      }
+    }
+
+    function hideLoader() {
+      if (loader) {
+        loader.hidden = true;
+      }
+    }
+
+    function renderFilterBar(container, options, urlState) {
+      container.innerHTML = '';
+      const wrapper = document.createElement('div');
+      wrapper.className = 'activities-filter-bar-inner';
+
+      function buildGroup(labelText, fieldName, items) {
+        if (!items || !items.length) {
+          return null;
+        }
+        const group = document.createElement('div');
+        group.className = 'filter-group';
+
+        const label = document.createElement('span');
+        label.className = 'filter-group-label';
+        label.textContent = labelText;
+        group.appendChild(label);
+
+        const optionsWrap = document.createElement('div');
+        optionsWrap.className = 'filter-options';
+
+        items.forEach(function(item) {
+          const value = item.value;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'filter-chip';
+          btn.dataset.filterType = fieldName;
+          btn.dataset.filterValue = String(value);
+          btn.setAttribute('aria-pressed', 'false');
+          btn.textContent = item.label;
+          optionsWrap.appendChild(btn);
+
+          if (fieldName === 'maxDurationMinutes') {
+            filterLabelMaps[fieldName].set(Number(value), item.label);
+          } else {
+            filterLabelMaps[fieldName].set(value, item.label);
+          }
+        });
+
+        group.appendChild(optionsWrap);
+        return group;
+      }
+
+      const ageGroupGroup = buildGroup('Age', 'ageGroup', options.ageGroups || []);
+      const locationGroup = buildGroup('Location', 'location', options.locations || []);
+      const costGroup = buildGroup('Cost', 'costType', options.costTypes || []);
+      const durationGroup = buildGroup('Time', 'maxDurationMinutes', options.durationOptionsMinutes || []);
+
+      [ageGroupGroup, locationGroup, costGroup, durationGroup].forEach(function(group) {
+        if (group) {
+          wrapper.appendChild(group);
+        }
+      });
+
+      const clearWrap = document.createElement('div');
+      clearWrap.className = 'filter-clear-wrap';
+      const clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.className = 'filter-clear-button';
+      clearBtn.dataset.action = 'clear-filters';
+      clearBtn.textContent = 'Clear filters';
+      clearWrap.appendChild(clearBtn);
+      wrapper.appendChild(clearWrap);
+
+      container.appendChild(wrapper);
+
+      updateFilterChipSelection(urlState);
+    }
+
+    function updateFilterChipSelection(urlState) {
+      if (!filterBar) {
+        return;
+      }
+      const fields = ['ageGroup', 'location', 'costType', 'maxDurationMinutes'];
+      fields.forEach(function(field) {
+        const currentValue = urlState[field];
+        const chips = filterBar.querySelectorAll('[data-filter-type=' + field + ']');
+        chips.forEach(function(chip) {
+          const val = chip.dataset.filterValue;
+          let matches = false;
+          if (field === 'maxDurationMinutes') {
+            const currentNum = typeof currentValue === 'number' ? currentValue : (currentValue ? parseInt(currentValue, 10) : null);
+            const chipNum = parseInt(val, 10);
+            matches = currentNum != null && chipNum === currentNum;
+          } else {
+            matches = !!currentValue && val === currentValue;
+          }
+          if (matches) {
+            chip.classList.add('is-selected');
+            chip.setAttribute('aria-pressed', 'true');
+          } else {
+            chip.classList.remove('is-selected');
+            chip.setAttribute('aria-pressed', 'false');
+          }
+        });
+      });
+    }
+
+    function renderActivitiesList(container, activities) {
+      container.innerHTML = '';
+      const list = document.createElement('div');
+      list.className = 'activities-card-list';
+
+      if (!activities || !activities.length) {
+        const empty = document.createElement('p');
+        empty.className = 'activities-empty-state';
+        empty.textContent = 'No activities match your filters yet. Try adjusting the filters above.';
+        container.appendChild(empty);
+        return;
+      }
+
+      activities.forEach(function(activity) {
+        const card = document.createElement('article');
+        card.className = 'activity-card';
+        card.tabIndex = 0;
+        card.dataset.activityId = activity.id;
+
+        const header = document.createElement('div');
+        header.className = 'activity-card-header';
+
+        const selectWrap = document.createElement('label');
+        selectWrap.className = 'activity-card-select';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.dataset.action = 'toggle-selection';
+        checkbox.dataset.activityId = activity.id;
+        selectWrap.appendChild(checkbox);
+
+        const sr = document.createElement('span');
+        sr.className = 'visually-hidden';
+        sr.textContent = 'Select this activity';
+        selectWrap.appendChild(sr);
+
+        header.appendChild(selectWrap);
+
+        const title = document.createElement('h2');
+        title.className = 'activity-card-title';
+        title.textContent = activity.title || 'Untitled activity';
+        header.appendChild(title);
+
+        card.appendChild(header);
+
+        if (activity.summary) {
+          const summary = document.createElement('p');
+          summary.className = 'activity-card-summary';
+          summary.textContent = activity.summary;
+          card.appendChild(summary);
+        }
+
+        const meta = document.createElement('dl');
+        meta.className = 'activity-card-meta';
+
+        function addMetaItem(label, value) {
+          if (!value && value !== 0) {
+            return;
+          }
+          const dt = document.createElement('dt');
+          dt.textContent = label;
+          const dd = document.createElement('dd');
+          dd.textContent = String(value);
+          meta.appendChild(dt);
+          meta.appendChild(dd);
+        }
+
+        const ageLabelMap = filterLabelMaps.ageGroup;
+        const locationLabelMap = filterLabelMaps.location;
+        const costLabelMap = filterLabelMaps.costType;
+
+        const ageLabel = ageLabelMap && ageLabelMap.get(activity.ageGroup) ? ageLabelMap.get(activity.ageGroup) : activity.ageGroup;
+        const locationLabel = locationLabelMap && locationLabelMap.get(activity.location) ? locationLabelMap.get(activity.location) : activity.location;
+        const costLabel = costLabelMap && costLabelMap.get(activity.costType) ? costLabelMap.get(activity.costType) : activity.costType;
+        const durationLabel = activity.durationMinutes ? activity.durationMinutes + ' min' : '';
+
+        addMetaItem('Age', ageLabel);
+        addMetaItem('Location', locationLabel);
+        addMetaItem('Cost', costLabel);
+        addMetaItem('Time', durationLabel);
+
+        card.appendChild(meta);
+
+        const actionsRow = document.createElement('div');
+        actionsRow.className = 'activity-card-actions';
+
+        const viewLink = document.createElement('button');
+        viewLink.type = 'button';
+        viewLink.className = 'activity-card-link';
+        viewLink.dataset.action = 'open-activity-detail';
+        viewLink.dataset.activityId = activity.id;
+        viewLink.textContent = 'View details';
+        actionsRow.appendChild(viewLink);
+
+        card.appendChild(actionsRow);
+
+        list.appendChild(card);
+      });
+
+      container.appendChild(list);
+
+      syncSelectionCheckboxes();
+    }
+
+    function renderPagination(container, totalCount, currentPage) {
+      container.innerHTML = '';
+      if (!totalCount) {
+        return;
+      }
+      const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+      if (totalPages <= 1) {
+        return;
+      }
+      if (currentPage > totalPages) {
+        updateUrlParams({ page: totalPages }, { resetPage: false });
+        return;
+      }
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'pagination-inner';
+
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.className = 'pagination-button pagination-prev';
+      prevBtn.dataset.action = 'change-page';
+      prevBtn.dataset.page = String(Math.max(1, currentPage - 1));
+      prevBtn.disabled = currentPage === 1;
+      prevBtn.textContent = 'Previous';
+      wrapper.appendChild(prevBtn);
+
+      const pagesWrap = document.createElement('div');
+      pagesWrap.className = 'pagination-pages';
+
+      const maxButtons = 5;
+      let start = Math.max(1, currentPage - 2);
+      let end = Math.min(totalPages, start + maxButtons - 1);
+      if (end - start < maxButtons - 1) {
+        start = Math.max(1, end - maxButtons + 1);
+      }
+
+      for (let page = start; page <= end; page += 1) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pagination-button pagination-page';
+        btn.dataset.action = 'change-page';
+        btn.dataset.page = String(page);
+        btn.textContent = String(page);
+        if (page === currentPage) {
+          btn.classList.add('is-active');
+          btn.setAttribute('aria-current', 'page');
+        }
+        pagesWrap.appendChild(btn);
+      }
+
+      wrapper.appendChild(pagesWrap);
+
+      const nextBtn = document.createElement('button');
+      nextBtn.type = 'button';
+      nextBtn.className = 'pagination-button pagination-next';
+      nextBtn.dataset.action = 'change-page';
+      nextBtn.dataset.page = String(Math.min(totalPages, currentPage + 1));
+      nextBtn.disabled = currentPage === totalPages;
+      nextBtn.textContent = 'Next';
+      wrapper.appendChild(nextBtn);
+
+      container.appendChild(wrapper);
+    }
+
+    function syncSelectionCheckboxes() {
+      if (!resultsContainer) {
+        return;
+      }
+      const checkboxes = resultsContainer.querySelectorAll('input[type=checkbox][data-action=toggle-selection]');
+      checkboxes.forEach(function(cb) {
+        const id = cb.dataset.activityId;
+        cb.checked = selectedActivityIds.has(id);
+        const card = cb.closest('.activity-card');
+        if (card) {
+          if (cb.checked) {
+            card.classList.add('is-selected');
+          } else {
+            card.classList.remove('is-selected');
+          }
+        }
+      });
+      updateSelectionToolbar();
+    }
+
+    function updateSelectionToolbar() {
+      if (!selectionToolbar || !selectionCountEl) {
+        return;
+      }
+      const count = selectedActivityIds.size;
+      selectionCountEl.textContent = String(count);
+      if (count > 0) {
+        selectionToolbar.hidden = false;
+      } else {
+        selectionToolbar.hidden = true;
+      }
+    }
+
+    function navigateToActivityDetail(activityId) {
+      if (!activityId) {
+        return;
+      }
+      const currentUrl = new URL(window.location.href);
+      const params = new URLSearchParams(currentUrl.search);
+      params.set('id', activityId);
+      const query = params.toString();
+      window.location.href = 'activity_detail.html' + (query ? '?' + query : '');
+    }
+
+    function openPlannerWithContext() {
+      const currentUrl = new URL(window.location.href);
+      const params = new URLSearchParams(currentUrl.search);
+      const query = params.toString();
+      window.location.href = 'planner.html' + (query ? '?' + query : '');
+    }
+
+    function refreshActivities() {
+      const urlState = getUrlState();
+      const normalizedAgeGroup = normalizeFilterValue('ageGroup', urlState.ageGroup);
+      const normalizedLocation = normalizeFilterValue('location', urlState.location);
+      const normalizedCostType = normalizeFilterValue('costType', urlState.costType);
+      const normalizedMaxDuration = normalizeFilterValue('maxDurationMinutes', urlState.maxDurationMinutes);
+      const sortBy = urlState.sortBy || undefined;
+      const page = urlState.page || 1;
+
+      showLoader();
+      try {
+        const response = WebsiteSDK.listActivities(
+          normalizedAgeGroup,
+          normalizedLocation,
+          normalizedCostType,
+          normalizedMaxDuration,
+          undefined,
+          sortBy,
+          page,
+          PAGE_SIZE
+        );
+        const activities = response && response.activities ? response.activities : [];
+        const totalCount = response && typeof response.totalCount === 'number' ? response.totalCount : activities.length;
+
+        renderActivitiesList(resultsContainer, activities);
+        renderPagination(paginationContainer, totalCount, page);
+      } catch (error) {
+        if (resultsContainer) {
+          resultsContainer.innerHTML = '';
+          const errorEl = document.createElement('p');
+          errorEl.className = 'activities-error';
+          errorEl.textContent = 'We had trouble loading activities. Please try again in a moment.';
+          resultsContainer.appendChild(errorEl);
+        }
+        if (paginationContainer) {
+          paginationContainer.innerHTML = '';
+        }
+        // eslint-disable-next-line no-console
+        console.error(error);
+      } finally {
+        hideLoader();
+      }
+    }
+
+    function onUrlStateChanged() {
+      const state = getUrlState();
+      if (sortSelect) {
+        sortSelect.value = state.sortBy || '';
+      }
+      updateFilterChipSelection(state);
+      refreshActivities();
+    }
+
+    function handleFilterBarClick(event) {
+      const chip = event.target.closest('[data-filter-type]');
+      if (!chip) {
+        return;
+      }
+      const field = chip.dataset.filterType;
+      const value = chip.dataset.filterValue;
+      const state = getUrlState();
+      let newValue;
+      if (field === 'maxDurationMinutes') {
+        const currentNum = state.maxDurationMinutes != null ? parseInt(state.maxDurationMinutes, 10) : null;
+        const chipNum = parseInt(value, 10);
+        newValue = currentNum === chipNum ? null : chipNum;
+      } else {
+        const current = state[field];
+        newValue = current === value ? null : value;
+      }
+      const partial = {};
+      partial[field] = newValue;
+      partial.page = 1;
+      updateUrlParams(partial, { resetPage: true });
+    }
+
+    if (filterBar) {
+      filterBar.addEventListener('click', handleFilterBarClick);
+    }
+
+    if (resultsContainer) {
+      resultsContainer.addEventListener('click', function(event) {
+        const target = event.target;
+        const action = target.dataset ? target.dataset.action : null;
+        if (action === 'toggle-selection') {
+          event.stopPropagation();
+          const checkbox = target;
+          const id = checkbox.dataset.activityId;
+          if (checkbox.checked) {
+            selectedActivityIds.add(id);
+          } else {
+            selectedActivityIds.delete(id);
+          }
+          syncSelectionCheckboxes();
+          return;
+        }
+        if (action === 'open-activity-detail') {
+          event.stopPropagation();
+          const id = target.dataset.activityId;
+          navigateToActivityDetail(id);
+          return;
+        }
+        const card = target.closest('.activity-card');
+        if (card) {
+          const id = card.dataset.activityId;
+          navigateToActivityDetail(id);
+        }
+      });
+
+      resultsContainer.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          const card = event.target.closest('.activity-card');
+          if (card) {
+            event.preventDefault();
+            const id = card.dataset.activityId;
+            navigateToActivityDetail(id);
+          }
+        }
+      });
+    }
+
+    if (paginationContainer) {
+      paginationContainer.addEventListener('click', function(event) {
+        const target = event.target;
+        const action = target.dataset ? target.dataset.action : null;
+        if (action === 'change-page') {
+          const pageStr = target.dataset.page;
+          const page = pageStr ? parseInt(pageStr, 10) : 1;
+          updateUrlParams({ page: page }, { resetPage: false });
+        }
+      });
+    }
+
+    document.body.addEventListener('click', function(event) {
+      const target = event.target;
+      if (!target.dataset || !target.dataset.action) {
+        return;
+      }
+      const action = target.dataset.action;
+      if (action === 'clear-filters') {
+        updateUrlParams({
+          ageGroup: null,
+          location: null,
+          costType: null,
+          maxDurationMinutes: null,
+          page: 1
+        }, { resetPage: true });
+      } else if (action === 'selection-clear') {
+        selectedActivityIds.clear();
+        syncSelectionCheckboxes();
+      } else if (action === 'selection-open-next') {
+        const ids = Array.from(selectedActivityIds);
+        if (ids.length > 0) {
+          navigateToActivityDetail(ids[0]);
+        }
+      } else if (action === 'open-planner') {
+        openPlannerWithContext();
+      }
+    });
+
+    if (sortSelect) {
+      sortSelect.addEventListener('change', function() {
+        const value = sortSelect.value || '';
+        updateUrlParams({ sortBy: value || null, page: 1 }, { resetPage: true });
+      });
+    }
+
+    window.addEventListener('popstate', function() {
+      onUrlStateChanged();
+    });
+
+    (function initPopulate() {
+      const populateElements = document.querySelectorAll('[data-populate]');
+      const urlState = getUrlState();
+      let activitiesRequested = false;
+      populateElements.forEach(function(element) {
+        const type = element.dataset.populate;
+        if (type === 'activity-filter-options') {
+          try {
+            const options = WebsiteSDK.getActivityFilterOptions();
+            renderFilterBar(element, options, urlState);
+          } catch (error) {
+            element.innerHTML = '';
+            const msg = document.createElement('p');
+            msg.className = 'activities-error';
+            msg.textContent = 'Filters are unavailable right now.';
+            element.appendChild(msg);
+            // eslint-disable-next-line no-console
+            console.error(error);
+          }
+        } else if (type === 'activities-list' && !activitiesRequested) {
+          activitiesRequested = true;
+        }
+      });
+      if (sortSelect) {
+        sortSelect.value = urlState.sortBy || '';
+      }
+      refreshActivities();
+    }());
+  });
+  </script>
+</body>
+</html>

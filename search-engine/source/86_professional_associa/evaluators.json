@@ -1,0 +1,98 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Earliest CO Lead Safety Workshop Under $80 Registration Evaluator",
+      "description": "Checks whether the user registered (at any tier price ≤ $80) for the earliest Lead Climbing Safety workshop in Colorado with basePrice ≤ $80.",
+      "localStorage_variables": [
+        "events",
+        "event_registrations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst regs = JSON.parse(localStorage.getItem('event_registrations') || '[]');\n\n// Find qualifying workshops in CO with basePrice <= 80\nconst qualifyingEvents = events.filter(e => {\n  if (!e) return false;\n  if (e.eventType !== 'workshops') return false;\n  if (e.workshopType !== 'Lead Climbing Safety') return false;\n  if (e.state !== 'CO') return false;\n  if (typeof e.basePrice !== 'number') return false;\n  return e.basePrice <= 80;\n});\n\nlet targetEvent = null;\nif (qualifyingEvents.length > 0) {\n  targetEvent = qualifyingEvents.slice().sort((a, b) => {\n    const ta = a.startDateTime ? new Date(a.startDateTime).getTime() : Infinity;\n    const tb = b.startDateTime ? new Date(b.startDateTime).getTime() : Infinity;\n    return ta - tb;\n  })[0];\n}\n\nlet qualifyingRegistrations = [];\nif (targetEvent) {\n  qualifyingRegistrations = regs.filter(r => {\n    if (!r || r.eventId !== targetEvent.id) return false;\n    const price = typeof r.registrationTierPrice === 'number' ? r.registrationTierPrice : null;\n    return price !== null && price <= 80;\n  });\n}\n\n// Single checkpoint: user has at least one qualifying registration for the correct earliest event at price <= 80\ncheckpoints.push({ passed: targetEvent != null && qualifyingRegistrations.length >= 1, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "1-Year Professional Routesetter Membership Purchase Evaluator",
+      "description": "Checks whether the user purchased an active individual routesetter membership with a 12-month term under $120, auto-renew turned off, and successful payment.",
+      "localStorage_variables": [
+        "membership_plans",
+        "membership_purchases"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst plans = JSON.parse(localStorage.getItem('membership_plans') || '[]');\nconst purchases = JSON.parse(localStorage.getItem('membership_purchases') || '[]');\n\n// Identify qualifying routesetter membership terms: active, individual, routesetter-focused, 12 months, price < 120\nconst qualifyingTerms = [];\nplans.forEach(p => {\n  if (!p) return;\n  if (p.category !== 'individual') return;\n  if (p.status !== 'active') return;\n  const name = (p.name || '').toLowerCase();\n  const code = (p.code || '').toLowerCase();\n  const isRoutesetterPlan = name.includes('routesetter') || code.includes('routesetter');\n  if (!isRoutesetterPlan) return;\n  const terms = Array.isArray(p.availableTerms) ? p.availableTerms : [];\n  terms.forEach(t => {\n    if (!t) return;\n    if (t.durationMonths !== 12) return;\n    if (typeof t.price !== 'number' || t.price >= 120) return;\n    qualifyingTerms.push({ planId: p.id, term: t });\n  });\n});\n\nlet targetPlanIds = new Set();\nlet maxPriceThreshold = 120;\nqualifyingTerms.forEach(qt => {\n  targetPlanIds.add(qt.planId);\n});\n\n// Find purchases that match any qualifying routesetter plan with 12-month duration, price < 120, autoRenew false, and paid\nconst qualifyingPurchases = purchases.filter(p => {\n  if (!p) return false;\n  if (!targetPlanIds.has(p.membershipPlanId)) return false;\n  if (p.termDurationMonths !== 12) return false;\n  if (typeof p.price !== 'number' || p.price >= maxPriceThreshold) return false;\n  if (p.autoRenew !== false) return false;\n  if (p.paymentStatus !== 'paid') return false;\n  return true;\n});\n\n// Single checkpoint: at least one qualifying membership purchase meeting all criteria\ncheckpoints.push({ passed: targetPlanIds.size > 0 && qualifyingPurchases.length >= 1, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Advanced Anchor-Building Articles Bookmarking Evaluator",
+      "description": "Checks whether the user bookmarked three advanced-level anchor-building articles from 2023 or later, and whether they were bookmarked in most-recent-first order.",
+      "localStorage_variables": [
+        "articles",
+        "reading_lists"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst readingLists = JSON.parse(localStorage.getItem('reading_lists') || '[]');\nconst readingList = Array.isArray(readingLists) && readingLists.length > 0 ? readingLists[0] : null;\nconst articleIds = readingList && Array.isArray(readingList.articleIds) ? readingList.articleIds : [];\n\nconst minDateMs = new Date('2023-01-01T00:00:00Z').getTime();\n\n// Qualifying articles: advanced, tagged 'anchor building', publicationDate >= 2023-01-01\nconst qualifyingArticles = articles.filter(a => {\n  if (!a) return false;\n  if (a.skillLevel !== 'advanced') return false;\n  const tags = Array.isArray(a.tags) ? a.tags : [];\n  if (!tags.includes('anchor building')) return false;\n  const t = a.publicationDate ? new Date(a.publicationDate).getTime() : NaN;\n  if (isNaN(t)) return false;\n  return t >= minDateMs;\n});\n\nconst qualifyingById = {};\nqualifyingArticles.forEach(a => { qualifyingById[a.id] = a; });\n\n// Order of qualifying articles as they appear in the reading list (i.e., bookmark order)\nconst sequenceInList = articleIds\n  .map(id => qualifyingById[id])\n  .filter(a => !!a);\n\nconst countQualifyingBookmarked = sequenceInList.length;\n\n// Expected most-recent-first order (top 3 by publicationDate desc)\nconst expectedOrderIds = qualifyingArticles\n  .slice()\n  .sort((a, b) => {\n    const ta = a.publicationDate ? new Date(a.publicationDate).getTime() : 0;\n    const tb = b.publicationDate ? new Date(b.publicationDate).getTime() : 0;\n    return tb - ta;\n  })\n  .map(a => a.id);\n\nlet orderCorrect = false;\nif (expectedOrderIds.length >= 3 && sequenceInList.length >= 3) {\n  const firstThreeIds = sequenceInList.slice(0, 3).map(a => a.id);\n  orderCorrect = firstThreeIds.every((id, idx) => id === expectedOrderIds[idx]);\n}\n\n// CP1-3: number of qualifying advanced anchor-building (2023+) articles actually bookmarked\ncheckpoints.push({ passed: countQualifyingBookmarked >= 1, weight: 0.25 });\ncheckpoints.push({ passed: countQualifyingBookmarked >= 2, weight: 0.25 });\ncheckpoints.push({ passed: countQualifyingBookmarked >= 3, weight: 0.25 });\n\n// CP4: the first three qualifying bookmarks are in most-recent-first order\ncheckpoints.push({ passed: orderCorrect, weight: 0.25 });\n\nreturn checklists = checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);\n"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Favorite Closest Youth-Program Gyms Near Denver Evaluator",
+      "description": "Checks whether the user added the two closest gyms within 20 miles of Denver that have youth programs to their favorite gyms list.",
+      "localStorage_variables": [
+        "gyms",
+        "favorite_gyms_lists"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst gyms = JSON.parse(localStorage.getItem('gyms') || '[]');\nconst favLists = JSON.parse(localStorage.getItem('favorite_gyms_lists') || '[]');\nconst favList = Array.isArray(favLists) && favLists.length > 0 ? favLists[0] : null;\nconst favGymIds = favList && Array.isArray(favList.gymIds) ? favList.gymIds : [];\n\n// Qualifying gyms: in Colorado, with youth programs, within 20 miles (based on distanceFromSearchOrigin)\nconst qualifyingGyms = gyms.filter(g => {\n  if (!g) return false;\n  if (g.state !== 'CO') return false;\n  if (g.hasYouthPrograms !== true) return false;\n  const d = typeof g.distanceFromSearchOrigin === 'number' ? g.distanceFromSearchOrigin : Infinity;\n  return d <= 20;\n});\n\nconst sortedByDistance = qualifyingGyms.slice().sort((a, b) => {\n  const da = typeof a.distanceFromSearchOrigin === 'number' ? a.distanceFromSearchOrigin : Infinity;\n  const db = typeof b.distanceFromSearchOrigin === 'number' ? b.distanceFromSearchOrigin : Infinity;\n  return da - db;\n});\n\nconst targetTopTwo = sortedByDistance.slice(0, 2);\nconst targetIds = targetTopTwo.map(g => g.id);\n\nconst qualifyingFavorites = targetIds.filter(id => favGymIds.includes(id));\n\n// CP1: at least one of the two closest qualifying gyms is in favorites\ncheckpoints.push({ passed: targetIds.length === 2 && qualifyingFavorites.length >= 1, weight: 0.5 });\n\n// CP2: both of the two closest qualifying gyms are in favorites\ncheckpoints.push({ passed: targetIds.length === 2 && qualifyingFavorites.length === 2, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);\n"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Newest Pacific Head Routesetter Job Application Evaluator",
+      "description": "Checks whether the user applied with a saved profile to the newest head routesetter job in the Pacific region with annual salary ≥ $55,000.",
+      "localStorage_variables": [
+        "job_postings",
+        "saved_profiles",
+        "job_applications"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst jobs = JSON.parse(localStorage.getItem('job_postings') || '[]');\nconst profiles = JSON.parse(localStorage.getItem('saved_profiles') || '[]');\nconst apps = JSON.parse(localStorage.getItem('job_applications') || '[]');\n\n// Qualifying jobs: head_routesetter, pacific region, salaryUnit per_year, salaryMin >= 55000\nconst qualifyingJobs = jobs.filter(j => {\n  if (!j) return false;\n  if (j.role !== 'head_routesetter') return false;\n  if (j.region !== 'pacific') return false;\n  if (j.salaryUnit !== 'per_year') return false;\n  const minSalary = typeof j.salaryMin === 'number' ? j.salaryMin : null;\n  if (minSalary === null || minSalary < 55000) return false;\n  return true;\n});\n\nlet targetJob = null;\nif (qualifyingJobs.length > 0) {\n  targetJob = qualifyingJobs.slice().sort((a, b) => {\n    const ta = a.postedDate ? new Date(a.postedDate).getTime() : 0;\n    const tb = b.postedDate ? new Date(b.postedDate).getTime() : 0;\n    return tb - ta; // newest first\n  })[0];\n}\n\nconst profileIdSet = new Set((profiles || []).map(p => p.id));\n\nlet qualifyingApplications = [];\nif (targetJob) {\n  qualifyingApplications = apps.filter(a => {\n    if (!a) return false;\n    if (a.jobPostingId !== targetJob.id) return false;\n    if (!profileIdSet.has(a.savedProfileId)) return false;\n    return true;\n  });\n}\n\n// Single checkpoint: at least one application using a saved profile to the correct newest qualifying job\ncheckpoints.push({ passed: targetJob != null && qualifyingApplications.length >= 1, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);\n"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Cheapest May 2025 Seattle-Area Youth Bouldering Competition Registration Evaluator",
+      "description": "Checks whether the user registered a youth participant for the least expensive May 2025 bouldering competition within 100 miles of Seattle, using the lowest-priced tier and no add-ons.",
+      "localStorage_variables": [
+        "events",
+        "event_registrations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst regs = JSON.parse(localStorage.getItem('event_registrations') || '[]');\n\n// Helper: distance in miles between two lat/lon pairs\nfunction distMiles(lat1, lon1, lat2, lon2) {\n  if ([lat1, lon1, lat2, lon2].some(v => typeof v !== 'number')) return Infinity;\n  const toRad = v => v * Math.PI / 180;\n  const R = 3958.8;\n  const dLat = toRad(lat2 - lat1);\n  const dLon = toRad(lon2 - lon1);\n  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +\n            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *\n            Math.sin(dLon/2) * Math.sin(dLon/2);\n  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));\n  return R * c;\n}\n\nconst originLat = 47.6062; // Seattle\nconst originLon = -122.3321;\nconst mayStart = new Date('2025-05-01T00:00:00Z').getTime();\nconst juneStart = new Date('2025-06-01T00:00:00Z').getTime();\n\n// Qualifying competitions: bouldering, in May 2025, within 100 miles of Seattle\nconst qualifyingEvents = events.filter(e => {\n  if (!e) return false;\n  if (e.eventType !== 'competitions') return false;\n  if (e.discipline !== 'bouldering') return false;\n  const t = e.startDateTime ? new Date(e.startDateTime).getTime() : NaN;\n  if (isNaN(t) || t < mayStart || t >= juneStart) return false;\n  const d = distMiles(originLat, originLon, e.latitude, e.longitude);\n  if (d > 100) return false;\n  if (typeof e.basePrice !== 'number') return false;\n  return true;\n});\n\nlet targetEvent = null;\nif (qualifyingEvents.length > 0) {\n  targetEvent = qualifyingEvents.slice().sort((a, b) => {\n    const pa = typeof a.basePrice === 'number' ? a.basePrice : Infinity;\n    const pb = typeof b.basePrice === 'number' ? b.basePrice : Infinity;\n    if (pa !== pb) return pa - pb; // cheapest first\n    const ta = a.startDateTime ? new Date(a.startDateTime).getTime() : Infinity;\n    const tb = b.startDateTime ? new Date(b.startDateTime).getTime() : Infinity;\n    return ta - tb;\n  })[0];\n}\n\nlet lowestTier = null;\nif (targetEvent && Array.isArray(targetEvent.availableTiers) && targetEvent.availableTiers.length > 0) {\n  lowestTier = targetEvent.availableTiers.reduce((minT, t) => {\n    if (!t || typeof t.price !== 'number') return minT;\n    if (!minT) return t;\n    return t.price < minT.price ? t : minT;\n  }, null);\n}\n\nlet regsForTarget = [];\nlet regsYouthNoAddOns = [];\nlet regsYouthNoAddOnsLowestTier = [];\n\nif (targetEvent) {\n  regsForTarget = regs.filter(r => r && r.eventId === targetEvent.id);\n  regsYouthNoAddOns = regsForTarget.filter(r => {\n    const age = (r.ageCategory || '').toString().toLowerCase();\n    const addOns = Array.isArray(r.selectedAddOns) ? r.selectedAddOns : [];\n    return age === 'youth' && addOns.length === 0;\n  });\n  if (lowestTier) {\n    regsYouthNoAddOnsLowestTier = regsYouthNoAddOns.filter(r => {\n      const price = typeof r.registrationTierPrice === 'number' ? r.registrationTierPrice : null;\n      const name = r.registrationTierName || '';\n      return price === lowestTier.price && name === lowestTier.name;\n    });\n  }\n}\n\n// CP1 (0.4): Registered a youth participant with no add-ons for the correct cheapest qualifying event\ncheckpoints.push({ passed: targetEvent != null && regsYouthNoAddOns.length >= 1, weight: 0.4 });\n\n// CP2 (0.6): That registration also used the lowest-priced registration tier\ncheckpoints.push({ passed: targetEvent != null && lowestTier != null && regsYouthNoAddOnsLowestTier.length >= 1, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);\n"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Highest-Rated Short Intermediate Course Enrollment & Learning Plan Evaluator",
+      "description": "Checks whether the user enrolled in the highest-rated intermediate course under 8 weeks with rating ≥ 4.5 and added it to their learning plan.",
+      "localStorage_variables": [
+        "courses",
+        "course_enrollments",
+        "learning_plans"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst courses = JSON.parse(localStorage.getItem('courses') || '[]');\nconst enrollments = JSON.parse(localStorage.getItem('course_enrollments') || '[]');\nconst plans = JSON.parse(localStorage.getItem('learning_plans') || '[]');\nconst plan = Array.isArray(plans) && plans.length > 0 ? plans[0] : null;\nconst planCourseIds = plan && Array.isArray(plan.courseIds) ? plan.courseIds : [];\n\n// Qualifying courses: level intermediate, durationWeeks < 8, rating >= 4.5\nconst qualifyingCourses = courses.filter(c => {\n  if (!c) return false;\n  if (c.level !== 'intermediate') return false;\n  if (typeof c.durationWeeks !== 'number' || c.durationWeeks >= 8) return false;\n  if (typeof c.rating !== 'number' || c.rating < 4.5) return false;\n  return true;\n});\n\nlet targetCourse = null;\nif (qualifyingCourses.length > 0) {\n  targetCourse = qualifyingCourses.slice().sort((a, b) => {\n    const ra = typeof a.rating === 'number' ? a.rating : 0;\n    const rb = typeof b.rating === 'number' ? b.rating : 0;\n    if (rb !== ra) return rb - ra; // highest rating first\n    const ca = typeof a.ratingCount === 'number' ? a.ratingCount : 0;\n    const cb = typeof b.ratingCount === 'number' ? b.ratingCount : 0;\n    return cb - ca; // tie-break by ratingCount\n  })[0];\n}\n\nlet enrolled = false;\nlet inPlan = false;\n\nif (targetCourse) {\n  enrolled = enrollments.some(e => e && e.courseId === targetCourse.id && e.status !== 'cancelled');\n  inPlan = planCourseIds.includes(targetCourse.id);\n}\n\n// CP1 (0.4): Enrolled in the correct highest-rated qualifying intermediate course\ncheckpoints.push({ passed: targetCourse != null && enrolled, weight: 0.4 });\n\n// CP2 (0.6): Enrolled in that course AND it is present in the learning plan\ncheckpoints.push({ passed: targetCourse != null && enrolled && inPlan, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);\n"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Online Evening Safety Standards Committee Volunteering Evaluator",
+      "description": "Checks whether the user submitted at least one volunteer interest form to an online evening safety standards committee with at least two areas of interest selected.",
+      "localStorage_variables": [
+        "committees",
+        "volunteer_interest_submissions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst committees = JSON.parse(localStorage.getItem('committees') || '[]');\nconst submissions = JSON.parse(localStorage.getItem('volunteer_interest_submissions') || '[]');\n\n// Qualifying committees: safety_standards, online, evenings, accepting volunteers\nconst qualifyingCommittees = committees.filter(c => {\n  if (!c) return false;\n  if (c.category !== 'safety_standards') return false;\n  if (c.meetingFormat !== 'online') return false;\n  if (c.meetingTime !== 'evenings') return false;\n  if (c.isAcceptingVolunteers !== true) return false;\n  return true;\n});\n\nconst qualifyingCommitteeIds = new Set(qualifyingCommittees.map(c => c.id));\n\nconst qualifyingSubmissions = submissions.filter(s => {\n  if (!s) return false;\n  if (!qualifyingCommitteeIds.has(s.committeeId)) return false;\n  const areas = Array.isArray(s.areasOfInterest) ? s.areasOfInterest.filter(v => !!v) : [];\n  return areas.length >= 2;\n});\n\n// Single checkpoint: at least one qualifying volunteer interest submission\ncheckpoints.push({ passed: qualifyingCommitteeIds.size > 0 && qualifyingSubmissions.length >= 1, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);\n"
+    }
+  ],
+  "static_data_types": [
+    "articles",
+    "committees",
+    "courses",
+    "events",
+    "gyms",
+    "job_postings",
+    "membership_plans",
+    "saved_profiles",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

@@ -1,0 +1,132 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Home Office 2-Hour Mid-September Cheapest Slot Booking Evaluator",
+      "description": "Checks that the user booked a 2-hour in-home home office decluttering session in mid-September between 2–5 pm for Alex Rivera with pay-at-appointment, and chose the cheapest qualifying slot under $200.",
+      "localStorage_variables": [
+        "services",
+        "session_options",
+        "availability_slots",
+        "bookings"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst services = JSON.parse(localStorage.getItem('services') || '[]');\nconst slots = JSON.parse(localStorage.getItem('availability_slots') || '[]');\nconst bookings = JSON.parse(localStorage.getItem('bookings') || '[]');\n\n// Helper: does a slot meet the time/price/service criteria (but NOT tied to a specific booking)?\nfunction slotMeetsCriteria(slot) {\n  if (!slot || !slot.start_datetime) return false;\n  const service = services.find(s => s.id === slot.service_id);\n  if (!service || service.category_id !== 'home_office') return false;\n  if (slot.location_type !== 'in_home') return false;\n  if (slot.duration_minutes !== 120) return false;\n  const price = Number(slot.price_total || 0);\n  if (price > 200) return false;\n  const start = new Date(slot.start_datetime);\n  if (isNaN(start.getTime())) return false;\n  const year = start.getUTCFullYear();\n  const month = start.getUTCMonth(); // 0-based, 8 = September\n  const day = start.getUTCDate();\n  // Mid-September 2026: loosely treat as days 10–20 of September 2026\n  if (year !== 2026 || month !== 8 || day < 10 || day > 20) return false;\n  const hour = start.getUTCHours();\n  // Afternoon window 2–5 pm (14:00–17:59 start)\n  if (hour < 14 || hour > 17) return false;\n  return true;\n}\n\n// All candidate slots that could satisfy the task\nconst candidateSlots = slots.filter(slotMeetsCriteria);\n\n// Find bookings that meet all requirements EXCEPT the \"cheapest\" constraint\nconst qualifyingBookings = bookings.filter(b => {\n  if (!b || !b.availability_slot_id) return false;\n  if (b.customer_name !== 'Alex Rivera') return false;\n  if (b.customer_email !== 'alex.rivera@example.com') return false;\n  if (b.customer_phone !== '555-123-7890') return false;\n  if (b.payment_option !== 'pay_at_appointment') return false;\n\n  const slot = slots.find(s => s.id === b.availability_slot_id);\n  if (!slotMeetsCriteria(slot)) return false;\n\n  return true;\n});\n\n// Determine the cheapest candidate slot under all constraints (regardless of booking)\nlet cheapestSlot = null;\nif (candidateSlots.length > 0) {\n  cheapestSlot = candidateSlots.reduce((min, s) => {\n    if (!min) return s;\n    const pMin = Number(min.price_total || 0);\n    const pS = Number(s.price_total || 0);\n    return pS < pMin ? s : min;\n  }, null);\n}\n\n// Checkpoint 1 (0.6): User created at least one booking for Alex Rivera that meets\n// all time/location/service/price criteria with pay-at-appointment.\ncheckpoints.push({\n  passed: qualifyingBookings.length > 0,\n  weight: 0.6\n});\n\n// Checkpoint 2 (0.4): Among all qualifying slots, the booked one is the cheapest.\nconst bookedCheapest = !!(cheapestSlot && qualifyingBookings.some(b => {\n  const slot = slots.find(s => s.id === b.availability_slot_id);\n  return slot && slot.id === cheapestSlot.id;\n}));\n\ncheckpoints.push({\n  passed: bookedCheapest,\n  weight: 0.4\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Whole-Home 3-Bedroom Package with Two Low-Cost Add-ons Evaluator",
+      "description": "Checks that the user configured a whole-home package for 3 bedrooms with exactly two add-ons, each under $50, combined under $80, and added that configuration to the cart.",
+      "localStorage_variables": [
+        "packages",
+        "package_categories",
+        "addon_services",
+        "package_configurations",
+        "cart",
+        "cart_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst packages = JSON.parse(localStorage.getItem('packages') || '[]');\nconst addons = JSON.parse(localStorage.getItem('addon_services') || '[]');\nconst packageConfigurations = JSON.parse(localStorage.getItem('package_configurations') || '[]');\nconst cart = JSON.parse(localStorage.getItem('cart') || 'null');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\n\n// Identify whole-home packages\nconst wholeHomePackageIds = packages\n  .filter(p => p && p.category_id === 'whole_home')\n  .map(p => p.id);\n\n// Find cart items that are package items for whole-home packages\nconst wholeHomeCartItems = (cart && Array.isArray(cart.items) ? cart.items : [])\n  .map(id => cartItems.find(ci => ci && ci.id === id))\n  .filter(ci => ci && ci.item_type === 'package' && wholeHomePackageIds.includes(ci.package_id));\n\n// For each such cart item, verify its configuration meets the bedroom/add-on constraints\nlet hasValidConfiguredPackage = false;\nfor (const ci of wholeHomeCartItems) {\n  const cfg = packageConfigurations.find(pc => pc && pc.id === ci.package_configuration_id);\n  if (!cfg) continue;\n\n  if (cfg.bedrooms !== 3) continue;\n  const selectedIds = Array.isArray(cfg.selected_addon_ids) ? cfg.selected_addon_ids : [];\n  if (selectedIds.length !== 2) continue;\n\n  const selectedAddons = addons.filter(a => a && selectedIds.includes(a.id));\n  if (selectedAddons.length !== 2) continue;\n\n  const prices = selectedAddons.map(a => Number(a.price || 0));\n  if (prices.some(p => p >= 50)) continue;\n  const sum = prices.reduce((s, p) => s + p, 0);\n  if (sum >= 80) continue;\n\n  hasValidConfiguredPackage = true;\n  break;\n}\n\n// Single checkpoint (1.0): At least one package in the cart is a whole-home package\n// configured for 3 bedrooms with exactly two add-ons, each under $50 and combined under $80.\ncheckpoints.push({\n  passed: hasValidConfiguredPackage,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Clear Closet Bins Added x4 to Cart Evaluator",
+      "description": "Checks that the user added quantity 4 of a single clear closet storage bin product to the cart, with price $15–$30, capacity ≥20L, free shipping, and rating ≥4.",
+      "localStorage_variables": [
+        "product_categories",
+        "products",
+        "product_variants",
+        "cart",
+        "cart_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst cart = JSON.parse(localStorage.getItem('cart') || 'null');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\n\n// Find qualifying products in Closet & Wardrobe Storage that match all criteria\nconst qualifyingProducts = products.filter(p => {\n  if (!p || p.status !== 'active') return false;\n  if (p.category_id !== 'closet_wardrobe_storage') return false;\n  const price = Number(p.price || 0);\n  if (price < 15 || price > 30) return false;\n  if (typeof p.capacity_liters !== 'number' || p.capacity_liters < 20) return false;\n  if (!p.free_shipping) return false;\n  if (!p.color || String(p.color).toLowerCase() !== 'clear') return false;\n  const rating = Number(p.average_rating || 0);\n  if (rating < 4) return false;\n  return true;\n});\n\nconst qualifyingIds = qualifyingProducts.map(p => p.id);\n\n// Look for a cart item with quantity exactly 4 for one qualifying product\nlet hasFourQualifyingBins = false;\nif (cart && Array.isArray(cart.items)) {\n  for (const id of cart.items) {\n    const ci = cartItems.find(x => x && x.id === id);\n    if (!ci || ci.item_type !== 'product') continue;\n    if (!qualifyingIds.includes(ci.product_id)) continue;\n    if (Number(ci.quantity || 0) === 4) {\n      hasFourQualifyingBins = true;\n      break;\n    }\n  }\n}\n\n// Single checkpoint (1.0): Cart contains a line with quantity 4 of a qualifying clear bin product.\ncheckpoints.push({\n  passed: hasFourQualifyingBins,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Cheapest 3×60 Virtual Coaching Bundle with Promo Evaluator",
+      "description": "Checks that the user purchased the cheapest 3-session 60-minute virtual coaching bundle, applied the TIDY10 promo code, and proceeded to checkout using Jordan Kim’s contact details with a discount applied.",
+      "localStorage_variables": [
+        "packages",
+        "cart",
+        "cart_items",
+        "promo_codes",
+        "orders",
+        "order_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst packages = JSON.parse(localStorage.getItem('packages') || '[]');\nconst promoCodes = JSON.parse(localStorage.getItem('promo_codes') || '[]');\nconst orders = JSON.parse(localStorage.getItem('orders') || '[]');\nconst orderItems = JSON.parse(localStorage.getItem('order_items') || '[]');\n\n// Determine the cheapest virtual coaching bundle with 3 sessions of 60 minutes\nconst candidateBundles = packages.filter(p => {\n  if (!p) return false;\n  if (p.category_id !== 'virtual_decluttering_coaching') return false;\n  if (typeof p.session_count !== 'number' || p.session_count !== 3) return false;\n  if (typeof p.session_length_minutes !== 'number' || p.session_length_minutes !== 60) return false;\n  return p.status === 'active';\n});\n\nlet cheapestBundle = null;\nif (candidateBundles.length > 0) {\n  cheapestBundle = candidateBundles.reduce((min, p) => {\n    if (!min) return p;\n    const priceMin = Number(min.base_price || 0);\n    const priceP = Number(p.base_price || 0);\n    return priceP < priceMin ? p : min;\n  }, null);\n}\n\n// Find orders created with Jordan Kim's contact details\nconst jordanOrders = orders.filter(o => o && o.contact_name === 'Jordan Kim' && o.contact_email === 'jordan.kim@example.com');\n\n// Among those, find one that contains the cheapest qualifying bundle as a package item\nlet targetOrder = null;\nif (cheapestBundle && jordanOrders.length > 0) {\n  for (const o of jordanOrders) {\n    const items = (o.items || []).map(id => orderItems.find(oi => oi && oi.id === id)).filter(Boolean);\n    const hasBundle = items.some(oi => oi.item_type === 'package' && oi.reference_id === cheapestBundle.id);\n    if (hasBundle) {\n      targetOrder = o;\n      break;\n    }\n  }\n}\n\n// Locate the TIDY10 promo code\nconst tidyPromo = promoCodes.find(p => p && String(p.code || '').toUpperCase() === 'TIDY10' && p.is_active);\nlet tidyIsCurrentlyValid = false;\nif (tidyPromo) {\n  const now = new Date();\n  let within = true;\n  if (tidyPromo.valid_from) {\n    within = within && now >= new Date(tidyPromo.valid_from);\n  }\n  if (tidyPromo.valid_to) {\n    within = within && now <= new Date(tidyPromo.valid_to);\n  }\n  tidyIsCurrentlyValid = within;\n}\n\n// Checkpoint 1 (0.4): Jordan's order exists and includes the cheapest qualifying 3×60 virtual bundle.\ncheckpoints.push({\n  passed: !!targetOrder,\n  weight: 0.4\n});\n\n// Checkpoint 2 (0.3): That order used the TIDY10 promo code, which is an active 10% code.\nconst usedTidy10 = !!(targetOrder && tidyPromo && tidyIsCurrentlyValid && targetOrder.promo_code && String(targetOrder.promo_code).toUpperCase() === 'TIDY10' && tidyPromo.discount_type === 'percentage' && Number(tidyPromo.discount_value || 0) === 10);\ncheckpoints.push({\n  passed: usedTidy10,\n  weight: 0.3\n});\n\n// Checkpoint 3 (0.3): The promo actually produced a discount on the order total.\nconst discountApplied = !!(targetOrder && Number(targetOrder.discount_total || 0) > 0);\ncheckpoints.push({\n  passed: discountApplied,\n  weight: 0.3\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "In-Home Assessment Request for 2-Bedroom Apartment Evaluator",
+      "description": "Checks that the user submitted an in-home assessment request for a 2-bedroom, 900 sq ft apartment on Wednesday evening with a note about a budget under $400, using Taylor Morgan’s contact details.",
+      "localStorage_variables": [
+        "assessment_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst requests = JSON.parse(localStorage.getItem('assessment_requests') || '[]');\n\nconst matchingRequest = requests.find(r => {\n  if (!r) return false;\n  if (r.name !== 'Taylor Morgan') return false;\n  if (r.email !== 'taylor.morgan@example.com') return false;\n  // Home details\n  if (r.home_type !== 'apartment') return false;\n  if (typeof r.bedrooms !== 'number' || r.bedrooms !== 2) return false;\n  if (typeof r.square_footage !== 'number' || r.square_footage !== 900) return false;\n  // Preferred day/time\n  if (r.preferred_day !== 'wednesday') return false;\n  if (r.preferred_time_window !== 'evening_5_8') return false;\n  // Budget note text and numeric budget\n  const notes = String(r.notes || '').toLowerCase();\n  if (!notes.includes('budget') || !notes.includes('400')) return false;\n  if (typeof r.budget_amount !== 'number' || !(r.budget_amount <= 400)) return false;\n  return true;\n});\n\n// Single checkpoint (1.0): Such a fully matching assessment request exists.\ncheckpoints.push({\n  passed: !!matchingRequest,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Recent Small-Kitchen Article Saved and Free Checklist Added Evaluator",
+      "description": "Checks that the user saved a recent kitchen organization article about small kitchens and added a related free checklist download to the cart.",
+      "localStorage_variables": [
+        "blog_categories",
+        "tags",
+        "articles",
+        "reading_list_items",
+        "downloads",
+        "cart",
+        "cart_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst readingListItems = JSON.parse(localStorage.getItem('reading_list_items') || '[]');\nconst downloads = JSON.parse(localStorage.getItem('downloads') || '[]');\nconst cart = JSON.parse(localStorage.getItem('cart') || 'null');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\n\n// Threshold for \"within the last 6 months\" based on ground truth (2025-09-03)\nconst thresholdDate = new Date('2025-09-03T00:00:00Z');\n\n// 1. Find saved articles that match: Kitchen Organization + Small Kitchens tag + recent\nconst savedArticleIds = readingListItems.map(r => r.article_id);\n\nconst qualifyingSavedArticles = articles.filter(a => {\n  if (!a) return false;\n  if (!savedArticleIds.includes(a.id)) return false;\n  if (a.category_id !== 'kitchen_organization') return false;\n  if (!Array.isArray(a.tag_ids) || !a.tag_ids.includes('small_kitchens')) return false;\n  const pub = new Date(a.published_at);\n  if (isNaN(pub.getTime()) || pub < thresholdDate) return false;\n  return true;\n});\n\nconst qualifyingArticleIds = qualifyingSavedArticles.map(a => a.id);\n\n// 2. Among cart items, find free checklist downloads that are related to at least one qualifying article\nlet hasRelatedFreeChecklistInCart = false;\nif (cart && Array.isArray(cart.items)) {\n  for (const id of cart.items) {\n    const ci = cartItems.find(x => x && x.id === id);\n    if (!ci || ci.item_type !== 'download') continue;\n    const dl = downloads.find(d => d && d.id === ci.download_id);\n    if (!dl) continue;\n    if (dl.type !== 'checklist' || !dl.is_free) continue;\n    const relatedIds = Array.isArray(dl.related_article_ids) ? dl.related_article_ids : [];\n    const overlaps = relatedIds.some(aid => qualifyingArticleIds.includes(aid));\n    if (overlaps) {\n      hasRelatedFreeChecklistInCart = true;\n      break;\n    }\n  }\n}\n\n// Checkpoint 1 (0.4): At least one qualifying recent small-kitchen article is saved.\ncheckpoints.push({\n  passed: qualifyingSavedArticles.length > 0,\n  weight: 0.4\n});\n\n// Checkpoint 2 (0.6): A free checklist download related to one of those articles is in the cart.\ncheckpoints.push({\n  passed: hasRelatedFreeChecklistInCart,\n  weight: 0.6\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Physical $150 Gift Card with Neutral Design and Standard Shipping Evaluator",
+      "description": "Checks that the user configured a $150 physical gift card with a neutral design for Sam Lee, set Standard Shipping under $8, and proceeded to checkout so that an order exists for that configuration.",
+      "localStorage_variables": [
+        "gift_card_products",
+        "gift_card_designs",
+        "gift_card_configurations",
+        "shipping_methods",
+        "cart",
+        "cart_items",
+        "orders",
+        "order_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst giftProducts = JSON.parse(localStorage.getItem('gift_card_products') || '[]');\nconst giftDesigns = JSON.parse(localStorage.getItem('gift_card_designs') || '[]');\nconst giftConfigs = JSON.parse(localStorage.getItem('gift_card_configurations') || '[]');\nconst shippingMethods = JSON.parse(localStorage.getItem('shipping_methods') || '[]');\nconst cart = JSON.parse(localStorage.getItem('cart') || 'null');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst orders = JSON.parse(localStorage.getItem('orders') || '[]');\nconst orderItems = JSON.parse(localStorage.getItem('order_items') || '[]');\n\n// 1. Find a gift card configuration that matches the physical $150 card and neutral design and names/occasion\nlet matchingConfig = null;\nfor (const cfg of giftConfigs) {\n  if (!cfg) continue;\n  const product = giftProducts.find(p => p && p.id === cfg.gift_card_product_id && p.is_active);\n  if (!product || product.type !== 'physical') continue;\n  const amount = Number(cfg.amount || 0);\n  if (amount !== 150) continue;\n  // Check min/max bounds just to ensure it's within allowed range\n  if (typeof product.min_amount === 'number' && amount < product.min_amount) continue;\n  if (typeof product.max_amount === 'number' && amount > product.max_amount) continue;\n\n  const design = cfg.design_id ? giftDesigns.find(d => d && d.id === cfg.design_id) : null;\n  if (!design || !design.is_neutral) continue; // neutral, non-seasonal\n\n  if (cfg.occasion !== 'birthday') continue;\n  if (cfg.recipient_name !== 'Sam Lee') continue;\n  if (cfg.sender_name !== 'Pat Jordan') continue;\n\n  matchingConfig = cfg;\n  break;\n}\n\n// 2. Check that there is a cart item for this config with Standard Shipping under $8\nlet hasStandardShipping = false;\nif (matchingConfig && cart && Array.isArray(cart.items)) {\n  for (const id of cart.items) {\n    const ci = cartItems.find(x => x && x.id === id);\n    if (!ci || ci.item_type !== 'gift_card') continue;\n    if (ci.gift_card_configuration_id !== matchingConfig.id) continue;\n    const sm = shippingMethods.find(sm => sm && sm.id === ci.shipping_method_id);\n    if (!sm) continue;\n    if (sm.code === 'standard' && Number(sm.price || 0) < 8) {\n      hasStandardShipping = true;\n      break;\n    }\n  }\n}\n\n// 3. Verify an order exists that includes this gift card configuration (i.e., checkout started)\nlet orderIncludesConfig = false;\nif (matchingConfig) {\n  for (const o of orders) {\n    if (!o || !Array.isArray(o.items)) continue;\n    const items = o.items.map(id => orderItems.find(oi => oi && oi.id === id)).filter(Boolean);\n    const hasCfg = items.some(oi => oi.item_type === 'gift_card' && oi.reference_id === matchingConfig.id);\n    if (hasCfg) {\n      orderIncludesConfig = true;\n      break;\n    }\n  }\n}\n\n// Checkpoint 1 (0.4): A matching physical $150 neutral-design birthday gift card configuration for Sam Lee/Pat Jordan exists.\ncheckpoints.push({\n  passed: !!matchingConfig,\n  weight: 0.4\n});\n\n// Checkpoint 2 (0.3): That configuration is in the cart with Standard Shipping under $8.\ncheckpoints.push({\n  passed: !!matchingConfig && hasStandardShipping,\n  weight: 0.3\n});\n\n// Checkpoint 3 (0.3): An order exists that includes this gift card configuration (user reached checkout).\ncheckpoints.push({\n  passed: !!matchingConfig && orderIncludesConfig,\n  weight: 0.3\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Highest-Rated ≥10-Hour Closet Package Saturday Morning Booking Evaluator",
+      "description": "Checks that the user booked the highest-rated closet package with at least 10 hours and price under $600 for a Saturday next month between 9:00 am and 1:00 pm.",
+      "localStorage_variables": [
+        "package_categories",
+        "packages",
+        "availability_slots",
+        "bookings"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst packages = JSON.parse(localStorage.getItem('packages') || '[]');\nconst slots = JSON.parse(localStorage.getItem('availability_slots') || '[]');\nconst bookings = JSON.parse(localStorage.getItem('bookings') || '[]');\n\n// 1. Determine the eligible closet packages (≥10 hours, price < 600) and pick highest rated\nconst eligiblePackages = packages.filter(p => {\n  if (!p) return false;\n  if (p.category_id !== 'closet_wardrobe_organization') return false;\n  if (typeof p.total_hours !== 'number' || p.total_hours < 10) return false;\n  if (Number(p.base_price || 0) > 600) return false;\n  return p.status === 'active';\n});\n\nlet bestPackage = null;\nif (eligiblePackages.length > 0) {\n  bestPackage = eligiblePackages.reduce((best, p) => {\n    if (!best) return p;\n    const rBest = Number(best.average_rating || 0);\n    const rP = Number(p.average_rating || 0);\n    if (rP > rBest) return p;\n    if (rP < rBest) return best;\n    // tie-breaker: cheaper first\n    const priceBest = Number(best.base_price || 0);\n    const priceP = Number(p.base_price || 0);\n    return priceP < priceBest ? p : best;\n  }, null);\n}\n\n// 2. Define next-month Saturday morning criteria based on ground truth (April 2026)\n// Ground truth uses 2026-04 as the next month, so constrain to April 2026 Saturdays 9:00–13:00.\nfunction slotMeetsTimeWindow(slot) {\n  if (!slot || !slot.start_datetime) return false;\n  const start = new Date(slot.start_datetime);\n  if (isNaN(start.getTime())) return false;\n  const year = start.getUTCFullYear();\n  const month = start.getUTCMonth(); // 0-based, 3 = April\n  if (year !== 2026 || month !== 3) return false;\n  const dayOfWeek = start.getUTCDay(); // 6 = Saturday\n  if (dayOfWeek !== 6) return false;\n  const hour = start.getUTCHours();\n  if (hour < 9 || hour >= 13) return false;\n  return true;\n}\n\n// 3. Find bookings that are for the bestPackage and within the required time window\nconst qualifyingBookings = bookings.filter(b => {\n  if (!b || !bestPackage) return false;\n  if (b.package_id !== bestPackage.id) return false;\n  const slot = slots.find(s => s && s.id === b.availability_slot_id);\n  if (!slotMeetsTimeWindow(slot)) return false;\n  if (slot.location_type !== 'in_home') return false;\n  return true;\n});\n\n// Single checkpoint (1.0): At least one booking exists for the highest-rated eligible package in the correct Saturday morning window.\ncheckpoints.push({\n  passed: qualifyingBookings.length > 0,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "blog_categories",
+    "gift_card_designs",
+    "package_categories",
+    "payment_methods",
+    "product_categories",
+    "promo_codes",
+    "service_categories",
+    "shipping_methods",
+    "tags",
+    "gift_card_products",
+    "packages",
+    "products",
+    "services",
+    "addon_services",
+    "product_variants",
+    "session_options",
+    "availability_slots",
+    "articles",
+    "downloads",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

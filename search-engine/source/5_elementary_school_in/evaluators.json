@@ -1,0 +1,103 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Earliest 4th Grade Math/Science Program Saved Evaluator",
+      "description": "Checks whether the user saved a 4th-grade math/science after-school program costing ≤ $40/month, ending by 4:30 PM, and whether the earliest-start qualifying program was saved.",
+      "localStorage_variables": [
+        "after_school_programs",
+        "program_favorites"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst programs = JSON.parse(localStorage.getItem('after_school_programs') || '[]');\nconst favorites = JSON.parse(localStorage.getItem('program_favorites') || '[]');\nfunction parseTimeToMinutes(timeStr) {\n  if (!timeStr || typeof timeStr !== 'string') return null;\n  const match = timeStr.trim().match(/^(\\d{1,2}):(\\d{2})\\s*([AaPp][Mm])$/);\n  if (!match) return null;\n  let hours = parseInt(match[1], 10);\n  const minutes = parseInt(match[2], 10);\n  const period = match[3].toUpperCase();\n  if (period === 'PM' && hours < 12) hours += 12;\n  if (period === 'AM' && hours === 12) hours = 0;\n  return hours * 60 + minutes;\n}\nconst maxEndMinutes = parseTimeToMinutes('4:30 PM');\nconst qualifyingPrograms = programs.filter(p => {\n  if (!p || !p.is_active) return false;\n  const grades = Array.isArray(p.grade_levels) ? p.grade_levels : [];\n  if (!grades.includes('fourth_grade')) return false;\n  if (p.category !== 'math_science') return false;\n  const isFree = p.fee_frequency === 'free';\n  const feeAmount = isFree ? 0 : (p.fee_amount || 0);\n  if (!isFree && p.fee_frequency !== 'per_month') return false;\n  if (feeAmount > 40) return false;\n  const endMins = parseTimeToMinutes(p.end_time);\n  if (endMins == null || endMins > maxEndMinutes) return false;\n  return true;\n});\nlet earliestProgram = null;\nif (qualifyingPrograms.length > 0) {\n  earliestProgram = qualifyingPrograms.reduce((best, p) => {\n    if (!best) return p;\n    const bestStart = parseTimeToMinutes(best.start_time);\n    const pStart = parseTimeToMinutes(p.start_time);\n    if (pStart == null) return best;\n    if (bestStart == null || pStart < bestStart) return p;\n    return best;\n  }, null);\n}\nconst favoriteProgramIds = favorites.map(f => f && f.program_id).filter(id => !!id);\nconst savedQualifyingIds = qualifyingPrograms\n  .map(p => p.id)\n  .filter(id => favoriteProgramIds.includes(id));\n// CP1 (0.4): User saved at least one qualifying program that matches all criteria\ncheckpoints.push({ passed: savedQualifyingIds.length >= 1, weight: 0.4 });\n// CP2 (0.6): User saved the earliest-start qualifying program\nconst savedEarliest = !!(earliestProgram && favoriteProgramIds.includes(earliestProgram.id));\ncheckpoints.push({ passed: savedEarliest, weight: 0.6 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Three Vegetarian Nut-Free Lunches Planned Evaluator",
+      "description": "Checks whether the user added vegetarian, nut-free primary lunch entrées for three different days in the 'Week of March 9' menu, starting from the earliest qualifying days.",
+      "localStorage_variables": [
+        "menu_weeks",
+        "daily_menu_entries",
+        "menu_items",
+        "meal_plan_weeks",
+        "meal_plan_entries"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst menuWeeks = JSON.parse(localStorage.getItem('menu_weeks') || '[]');\nconst dailyEntries = JSON.parse(localStorage.getItem('daily_menu_entries') || '[]');\nconst menuItems = JSON.parse(localStorage.getItem('menu_items') || '[]');\nconst mealPlanWeeks = JSON.parse(localStorage.getItem('meal_plan_weeks') || '[]');\nconst mealPlanEntries = JSON.parse(localStorage.getItem('meal_plan_entries') || '[]');\n// Find the target menu week by label\nconst targetWeek = menuWeeks.find(w => w && w.label === 'Week of March 9');\nlet targetTriplet = [];\nif (targetWeek) {\n  const weekEntries = dailyEntries.filter(e => e && e.menu_week_id === targetWeek.id && e.meal_type === 'lunch' && e.is_primary_entree);\n  const vegNutEntries = weekEntries.filter(e => {\n    const item = menuItems.find(m => m && m.id === e.menu_item_id);\n    if (!item) return false;\n    return item.item_type === 'entree' && item.is_vegetarian && item.is_nut_free;\n  });\n  vegNutEntries.sort((a, b) => {\n    const da = new Date(a.date).getTime();\n    const db = new Date(b.date).getTime();\n    return da - db;\n  });\n  const seenDates = new Set();\n  const uniqueByDay = [];\n  for (const e of vegNutEntries) {\n    const dKey = e.date;\n    if (!seenDates.has(dKey)) {\n      seenDates.add(dKey);\n      uniqueByDay.push(e);\n    }\n  }\n  targetTriplet = uniqueByDay.slice(0, 3).map(e => ({ date: e.date, menu_item_id: e.menu_item_id }));\n}\nlet qualifyingCount = 0;\nif (targetWeek && targetTriplet.length > 0) {\n  const relatedMealPlanWeeks = mealPlanWeeks.filter(mpw => mpw && mpw.menu_week_id === targetWeek.id);\n  const relatedMealPlanWeekIds = relatedMealPlanWeeks.map(mpw => mpw.id);\n  const relatedEntries = mealPlanEntries.filter(me => me && relatedMealPlanWeekIds.includes(me.meal_plan_week_id));\n  const matches = targetTriplet.filter(t => relatedEntries.some(me => me.menu_item_id === t.menu_item_id && me.date === t.date));\n  qualifyingCount = matches.length;\n}\n// CP1 (0.2): At least 1 of the earliest three qualifying veg/nut-free primary lunches is planned\ncheckpoints.push({ passed: targetTriplet.length >= 1 && qualifyingCount >= 1, weight: 0.2 });\n// CP2 (0.3): At least 2 of the earliest three qualifying lunches are planned\ncheckpoints.push({ passed: targetTriplet.length >= 2 && qualifyingCount >= 2, weight: 0.3 });\n// CP3 (0.5): All first 3 earliest qualifying lunches are planned\ncheckpoints.push({ passed: targetTriplet.length >= 3 && qualifyingCount >= 3, weight: 0.5 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Earliest Oak Street Elementary Route Saved Evaluator",
+      "description": "Checks whether the user saved an active K-5 Oak Street route arriving before 7:45 AM and whether the earliest-arriving qualifying route was saved.",
+      "localStorage_variables": [
+        "bus_routes",
+        "saved_routes"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst routes = JSON.parse(localStorage.getItem('bus_routes') || '[]');\nconst savedRoutes = JSON.parse(localStorage.getItem('saved_routes') || '[]');\nfunction parseTimeToMinutes(timeStr) {\n  if (!timeStr || typeof timeStr !== 'string') return null;\n  const match = timeStr.trim().match(/^(\\d{1,2}):(\\d{2})\\s*([AaPp][Mm])$/);\n  if (!match) return null;\n  let hours = parseInt(match[1], 10);\n  const minutes = parseInt(match[2], 10);\n  const period = match[3].toUpperCase();\n  if (period === 'PM' && hours < 12) hours += 12;\n  if (period === 'AM' && hours === 12) hours = 0;\n  return hours * 60 + minutes;\n}\nconst cutoff = parseTimeToMinutes('7:45 AM');\nconst qualifyingRoutes = routes.filter(r => {\n  if (!r || !r.is_active) return false;\n  if (r.grade_range !== 'k_5_elementary') return false;\n  const streets = Array.isArray(r.served_streets) ? r.served_streets : [];\n  const hasOak = streets.some(s => (s || '').toLowerCase().includes('oak street'));\n  if (!hasOak) return false;\n  const arrMins = parseTimeToMinutes(r.arrival_time_at_school);\n  if (arrMins == null || arrMins >= cutoff) return false;\n  return true;\n});\nlet earliestRoute = null;\nif (qualifyingRoutes.length > 0) {\n  earliestRoute = qualifyingRoutes.reduce((best, r) => {\n    if (!best) return r;\n    const bestArr = parseTimeToMinutes(best.arrival_time_at_school);\n    const rArr = parseTimeToMinutes(r.arrival_time_at_school);\n    if (rArr == null) return best;\n    if (bestArr == null || rArr < bestArr) return r;\n    return best;\n  }, null);\n}\nconst savedRouteIds = savedRoutes.map(sr => sr && sr.bus_route_id).filter(id => !!id);\nconst savedQualifyingIds = qualifyingRoutes\n  .map(r => r.id)\n  .filter(id => savedRouteIds.includes(id));\n// CP1 (0.4): User saved at least one qualifying Oak Street K-5 route arriving before 7:45 AM\ncheckpoints.push({ passed: savedQualifyingIds.length >= 1, weight: 0.4 });\n// CP2 (0.6): User saved the earliest-arriving qualifying route\nconst savedEarliest = !!(earliestRoute && savedRouteIds.includes(earliestRoute.id));\ncheckpoints.push({ passed: savedEarliest, weight: 0.6 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "First Two April Evening 1st-Grade Events Saved Evaluator",
+      "description": "Checks whether the user saved the first two April events for 1st-grade families that start between 5:00 PM and 8:00 PM.",
+      "localStorage_variables": [
+        "events",
+        "saved_events"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst savedEvents = JSON.parse(localStorage.getItem('saved_events') || '[]');\nfunction minutesUtc(dateStr) {\n  const d = new Date(dateStr);\n  return d.getUTCHours() * 60 + d.getUTCMinutes();\n}\nconst startWindow = 17 * 60; // 5:00 PM\nconst endWindow = 20 * 60;   // 8:00 PM\nconst qualifyingEvents = events.filter(ev => {\n  if (!ev || !ev.start_datetime) return false;\n  const d = new Date(ev.start_datetime);\n  const year = d.getUTCFullYear();\n  const month = d.getUTCMonth() + 1; // 1-12\n  if (year !== 2026 || month !== 4) return false;\n  if (ev.audience !== 'first_grade_families') return false;\n  if (ev.is_all_day) return false;\n  const mins = minutesUtc(ev.start_datetime);\n  if (mins < startWindow || mins > endWindow) return false;\n  return true;\n});\nqualifyingEvents.sort((a, b) => new Date(a.start_datetime).getTime() - new Date(b.start_datetime).getTime());\nconst targetEvents = qualifyingEvents.slice(0, 2);\nconst savedEventIds = savedEvents.map(se => se && se.event_id).filter(id => !!id);\nconst savedTargetCount = targetEvents.filter(ev => savedEventIds.includes(ev.id)).length;\n// CP1 (0.4): User saved at least one of the first two qualifying April evening events for 1st-grade families\ncheckpoints.push({ passed: targetEvents.length >= 1 && savedTargetCount >= 1, weight: 0.4 });\n// CP2 (0.6): User saved both of the first two qualifying events\ncheckpoints.push({ passed: targetEvents.length >= 2 && savedTargetCount >= 2, weight: 0.6 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Most Experienced 3rd-Grade Math Teacher Contacted Evaluator",
+      "description": "Checks whether the user sent a message via the on-site form to the most experienced 3rd-grade math teacher, and whether the message body mentions 'math homework expectations'.",
+      "localStorage_variables": [
+        "staff_members",
+        "teacher_messages"
+      ],
+      "evaluation_logic": "const checkouts = [];\n// alias to stay consistent with earlier naming\nconst checkpoints = checkouts;\nconst staff = JSON.parse(localStorage.getItem('staff_members') || '[]');\nconst messages = JSON.parse(localStorage.getItem('teacher_messages') || '[]');\nconst mathThirdTeachers = staff.filter(s => {\n  if (!s || !s.is_teacher) return false;\n  const grades = Array.isArray(s.grade_levels) ? s.grade_levels : [];\n  if (!grades.includes('third_grade')) return false;\n  if (s.primary_subject !== 'math') return false;\n  return true;\n});\nlet topTeacher = null;\nif (mathThirdTeachers.length > 0) {\n  topTeacher = mathThirdTeachers.reduce((best, s) => {\n    if (!best) return s;\n    const bestYears = best.years_of_experience || 0;\n    const sYears = s.years_of_experience || 0;\n    return sYears > bestYears ? s : best;\n  }, null);\n}\nlet msgsToTop = [];\nlet msgsToTopWithPhrase = [];\nif (topTeacher) {\n  msgsToTop = messages.filter(m => m && m.staff_member_id === topTeacher.id);\n  msgsToTopWithPhrase = msgsToTop.filter(m => {\n    const body = (m.message_body || '').toLowerCase();\n    return body.includes('math homework expectations');\n  });\n}\n// CP1 (0.4): At least one message sent via the form to the most experienced 3rd-grade math teacher\ncheckpoints.push({ passed: topTeacher != null && msgsToTop.length >= 1, weight: 0.4 });\n// CP2 (0.6): At least one such message explicitly mentions 'math homework expectations'\ncheckpoints.push({ passed: topTeacher != null && msgsToTopWithPhrase.length >= 1, weight: 0.6 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "2nd Grade 30-Minute Homework Policy Bookmarked Evaluator",
+      "description": "Checks whether the user bookmarked the 2nd-grade homework time guidelines section that limits nightly homework to 30 minutes.",
+      "localStorage_variables": [
+        "policy_sections",
+        "bookmarks"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst sections = JSON.parse(localStorage.getItem('policy_sections') || '[]');\nconst bookmarks = JSON.parse(localStorage.getItem('bookmarks') || '[]');\nconst qualifyingSections = sections.filter(s => {\n  if (!s) return false;\n  if (s.grade_level !== 'second_grade') return false;\n  if (s.section_key !== 'homework_time_guidelines') return false;\n  if (s.nightly_homework_minutes_limit !== 30) return false;\n  return true;\n});\nconst qualifyingIds = qualifyingSections.map(s => s.id);\nconst bookmarkedQualifying = bookmarks.filter(b => b && qualifyingIds.includes(b.policy_section_id));\n// Single CP (1.0): User bookmarked the correct 2nd-grade homework time guidelines section with a 30-minute limit\ncheckpoints.push({ passed: bookmarkedQualifying.length >= 1, weight: 1.0 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Four Cheapest Optional 2nd Grade Supply Items Added Evaluator",
+      "description": "Checks whether the user added the four lowest-cost optional 2nd-grade supply items (each costing $5.00 or less) to their supply checklist.",
+      "localStorage_variables": [
+        "supply_items",
+        "supply_checklists",
+        "supply_checklist_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst supplyItems = JSON.parse(localStorage.getItem('supply_items') || '[]');\nconst checklists = JSON.parse(localStorage.getItem('supply_checklists') || '[]');\nconst checklistItems = JSON.parse(localStorage.getItem('supply_checklist_items') || '[]');\nconst optionalItems = supplyItems.filter(i => {\n  if (!i) return false;\n  if (i.grade_level !== 'second_grade') return false;\n  if (i.is_required) return false;\n  if (typeof i.estimated_cost !== 'number') return false;\n  return i.estimated_cost <= 5.0;\n});\noptionalItems.sort((a, b) => {\n  const costDiff = (a.estimated_cost || 0) - (b.estimated_cost || 0);\n  if (costDiff !== 0) return costDiff;\n  const na = (a.name || '').toLowerCase();\n  const nb = (b.name || '').toLowerCase();\n  if (na < nb) return -1;\n  if (na > nb) return 1;\n  return 0;\n});\nconst targetItems = optionalItems.slice(0, 4);\nlet qualifyingCount = 0;\nif (targetItems.length > 0) {\n  const secondGradeChecklist = checklists.find(cl => cl && cl.grade_level === 'second_grade');\n  if (secondGradeChecklist) {\n    const clItems = checklistItems.filter(ci => ci && ci.supply_checklist_id === secondGradeChecklist.id);\n    const targetIds = targetItems.map(i => i.id);\n    const foundTargetIds = targetIds.filter(id => clItems.some(ci => ci.supply_item_id === id));\n    qualifyingCount = foundTargetIds.length;\n  }\n}\n// CP1-4: Credit for adding 1, 2, 3, and all 4 of the cheapest qualifying optional items\ncheckpoints.push({ passed: targetItems.length >= 1 && qualifyingCount >= 1, weight: 0.25 });\ncheckpoints.push({ passed: targetItems.length >= 2 && qualifyingCount >= 2, weight: 0.25 });\ncheckpoints.push({ passed: targetItems.length >= 3 && qualifyingCount >= 3, weight: 0.25 });\ncheckpoints.push({ passed: targetItems.length >= 4 && qualifyingCount >= 4, weight: 0.25 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "First July 9–3 Camp Interest Submitted Evaluator",
+      "description": "Checks whether the user submitted an interest form for the earliest July summer camp session that runs 9:00 AM–3:00 PM and costs no more than $150 per week.",
+      "localStorage_variables": [
+        "summer_camp_sessions",
+        "camp_interest_submissions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst sessions = JSON.parse(localStorage.getItem('summer_camp_sessions') || '[]');\nconst submissions = JSON.parse(localStorage.getItem('camp_interest_submissions') || '[]');\nconst qualifyingSessions = sessions.filter(s => {\n  if (!s || !s.is_active) return false;\n  if (s.month !== 'july') return false;\n  if (s.daily_start_time !== '9:00 AM') return false;\n  if (s.daily_end_time !== '3:00 PM') return false;\n  if (typeof s.weekly_fee !== 'number') return false;\n  return s.weekly_fee <= 150;\n});\nqualifyingSessions.sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());\nconst targetSession = qualifyingSessions[0] || null;\nlet hasSubmissionForTarget = false;\nif (targetSession) {\n  const subsForTarget = submissions.filter(sub => sub && sub.camp_session_id === targetSession.id);\n  hasSubmissionForTarget = subsForTarget.length >= 1;\n}\n// Single CP (1.0): User submitted at least one interest form for the earliest qualifying July 9–3 camp under $150/week\ncheckpoints.push({ passed: hasSubmissionForTarget, weight: 1.0 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "after_school_programs",
+    "bus_routes",
+    "events",
+    "menu_items",
+    "menu_weeks",
+    "policy_sections",
+    "staff_members",
+    "summer_camp_sessions",
+    "supply_items",
+    "bus_stops",
+    "daily_menu_entries",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

@@ -1,0 +1,101 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "VR Safety Training Quote Under 15k for 50 People",
+      "description": "Checks if the user requested a quote for a qualifying VR safety training package for 50 participants under $15,000, and that the chosen package is the cheapest qualifying option.",
+      "localStorage_variables": [
+        "quote_requests",
+        "service_packages",
+        "service_categories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst quoteRequests = JSON.parse(localStorage.getItem('quote_requests') || '[]');\nconst servicePackages = JSON.parse(localStorage.getItem('service_packages') || '[]');\n\nconst targetParticipants = 50;\nconst maxBudget = 15000;\n\n// Find qualifying VR training packages in Training & Simulation that can handle 50 participants under $15k\nconst qualifyingPackages = servicePackages.filter(sp => {\n  if (!sp || sp.status !== 'active') return false;\n  if (sp.service_category_id !== 'training_simulation') return false;\n  if (sp.technology !== 'vr') return false;\n  if (sp.experience_type !== 'training') return false;\n  if (typeof sp.base_price !== 'number' || sp.base_price > maxBudget) return false;\n  const minP = typeof sp.min_participants === 'number' ? sp.min_participants : null;\n  const maxP = typeof sp.max_participants === 'number' ? sp.max_participants : null;\n  const minOk = (minP == null) || (minP <= targetParticipants);\n  const maxOk = (maxP == null) || (maxP >= targetParticipants);\n  return minOk && maxOk;\n});\n\n// Determine the cheapest qualifying package(s)\nlet cheapestPrice = null;\nlet cheapestPackageIds = [];\nqualifyingPackages.forEach(sp => {\n  if (typeof sp.base_price !== 'number') return;\n  if (cheapestPrice == null || sp.base_price < cheapestPrice) {\n    cheapestPrice = sp.base_price;\n    cheapestPackageIds = [sp.id];\n  } else if (sp.base_price === cheapestPrice) {\n    cheapestPackageIds.push(sp.id);\n  }\n});\n\n// Quote requests for qualifying packages with exactly 50 participants\nconst qualifyingQuoteRequests = quoteRequests.filter(qr => {\n  if (!qr || qr.request_type !== 'service_package' || !qr.service_package_id) return false;\n  if (qr.number_of_participants !== targetParticipants) return false;\n  return qualifyingPackages.some(sp => sp.id === qr.service_package_id);\n});\n\n// CP1 (0.6): User submitted at least one quote request for a qualifying VR safety package WITH 50 participants\ncheckpoints.push({\n  passed: qualifyingQuoteRequests.length > 0,\n  weight: 0.6\n});\n\n// CP2 (0.4): At least one qualifying quote request is for the CHEAPEST qualifying package\nconst cheapestQuote = qualifyingQuoteRequests.some(qr => cheapestPackageIds.includes(qr.service_package_id));\ncheckpoints.push({\n  passed: cheapestPackageIds.length > 0 && cheapestQuote,\n  weight: 0.4\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "AR Product Launch Brief Under 40k With 100k+ Reach",
+      "description": "Checks if the user created a project brief for an AR product launch campaign under $40,000 with expected reach of at least 100,000 people.",
+      "localStorage_variables": [
+        "project_briefs",
+        "service_packages",
+        "service_categories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst projectBriefs = JSON.parse(localStorage.getItem('project_briefs') || '[]');\nconst servicePackages = JSON.parse(localStorage.getItem('service_packages') || '[]');\n\nconst maxBudget = 40000;\nconst minReach = 100000;\n\n// Qualifying AR product launch campaigns under budget with required reach in Marketing & Brand Experiences\nconst qualifyingPackages = servicePackages.filter(sp => {\n  if (!sp || sp.status !== 'active') return false;\n  if (sp.service_category_id !== 'marketing_brand') return false;\n  if (sp.technology !== 'ar') return false;\n  if (sp.experience_type !== 'product_launch') return false;\n  if (typeof sp.base_price !== 'number' || sp.base_price > maxBudget) return false;\n  if (typeof sp.expected_reach !== 'number' || sp.expected_reach < minReach) return false;\n  return true;\n});\n\nconst qualifyingPackageIds = qualifyingPackages.map(sp => sp.id);\n\n// Project briefs that target one of the qualifying campaigns\nconst qualifyingBriefs = projectBriefs.filter(pb => {\n  if (!pb || !pb.related_service_package_id) return false;\n  return qualifyingPackageIds.includes(pb.related_service_package_id);\n});\n\n// CP1 (1.0): User created at least one project brief for a qualifying AR product launch campaign\ncheckpoints.push({\n  passed: qualifyingBriefs.length > 0,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Shortlist 3 VR Case Studies Across Retail, Healthcare, and Education",
+      "description": "Checks if the user saved three VR case studies—one each from retail, healthcare, and education—to the same saved collection.",
+      "localStorage_variables": [
+        "case_studies",
+        "saved_collections",
+        "saved_collection_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst caseStudies = JSON.parse(localStorage.getItem('case_studies') || '[]');\nconst collectionItems = JSON.parse(localStorage.getItem('saved_collection_items') || '[]');\n\n// Consider only saved case studies with VR technology in the target industries\nconst csById = {};\ncaseStudies.forEach(cs => { if (cs && cs.id) csById[cs.id] = cs; });\n\n// Group qualifying items by collection\nconst groups = {};\ncollectionItems.forEach(it => {\n  if (!it || it.item_type !== 'case_study') return;\n  const cs = csById[it.item_id];\n  if (!cs) return;\n  if (cs.technology !== 'vr') return;\n  if (!['retail', 'healthcare', 'education'].includes(cs.industry)) return;\n  if (!groups[it.collection_id]) groups[it.collection_id] = [];\n  groups[it.collection_id].push({ item: it, cs });\n});\n\nlet hasCompleteCollection = false;\nObject.keys(groups).forEach(colId => {\n  const items = groups[colId];\n  if (!items || items.length < 3) return;\n  const industries = new Set(items.map(x => x.cs.industry));\n  if (industries.has('retail') && industries.has('healthcare') && industries.has('education')) {\n    hasCompleteCollection = true;\n  }\n});\n\n// CP1 (1.0): At least one collection contains VR case studies covering all three industries in the SAME collection\ncheckpoints.push({\n  passed: hasCompleteCollection,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Configure New York Pop-Up Installation 500–800 Attendees",
+      "description": "Checks if the user saved a New York pop-up configuration for ~500–800 attendees with at least two interactive zones, one photo booth, an estimated total between $25k and $35k, and submitted it for a quote.",
+      "localStorage_variables": [
+        "experience_configurations",
+        "experience_configuration_modules",
+        "experience_modules",
+        "quote_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst configs = JSON.parse(localStorage.getItem('experience_configurations') || '[]');\nconst configModules = JSON.parse(localStorage.getItem('experience_configuration_modules') || '[]');\nconst modules = JSON.parse(localStorage.getItem('experience_modules') || '[]');\nconst quoteRequests = JSON.parse(localStorage.getItem('quote_requests') || '[]');\n\nconst modulesById = {};\nmodules.forEach(m => { if (m && m.id) modulesById[m.id] = m; });\n\n// Candidate configurations in New York with audience 500–800, total between 25k and 35k, and marked as submitted\nconst candidateConfigs = configs.filter(ec => {\n  if (!ec) return false;\n  if (ec.is_submitted_for_quote !== true) return false;\n  const city = (ec.location_city || '').toLowerCase();\n  const display = (ec.location_display || '').toLowerCase();\n  const isNY = city.includes('new york') || display.includes('new york');\n  if (!isNY) return false;\n  const minA = typeof ec.audience_min === 'number' ? ec.audience_min : null;\n  const maxA = typeof ec.audience_max === 'number' ? ec.audience_max : null;\n  if (minA == null || maxA == null) return false;\n  if (minA < 500 || maxA > 800) return false;\n  if (typeof ec.estimated_total !== 'number') return false;\n  if (ec.estimated_total < 25000 || ec.estimated_total > 35000) return false;\n  return true;\n});\n\nlet hasQualifyingConfig = false;\n\ncandidateConfigs.forEach(ec => {\n  if (!ec || hasQualifyingConfig) return;\n  const ecId = ec.id;\n  const lines = configModules.filter(cm => cm && cm.experience_configuration_id === ecId);\n  if (!lines.length) return;\n\n  let interactiveCount = 0;\n  let photoBoothCount = 0;\n\n  lines.forEach(line => {\n    const mod = modulesById[line.experience_module_id];\n    if (!mod) return;\n    const qty = typeof line.quantity === 'number' && line.quantity > 0 ? line.quantity : 1;\n    if (mod.module_type === 'interactive_zone') interactiveCount += qty;\n    if (mod.module_type === 'photo_booth') photoBoothCount += qty;\n  });\n\n  const hasEnoughZones = interactiveCount >= 2;\n  const hasPhotoBooth = photoBoothCount >= 1;\n\n  const hasQuote = quoteRequests.some(qr => {\n    return qr && qr.request_type === 'popup_configuration' && qr.experience_configuration_id === ecId;\n  });\n\n  if (hasEnoughZones && hasPhotoBooth && hasQuote) {\n    hasQualifyingConfig = true;\n  }\n});\n\n// CP1 (1.0): At least one New York configuration meets audience, pricing, module composition, and quote-submission requirements\ncheckpoints.push({\n  passed: hasQualifyingConfig,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Register for Beginner XR Strategy Workshop Within 60 Days Under $300",
+      "description": "Checks if the user registered for a beginner-level XR strategy event within 60 days of registration, costing under $300, with exactly one ticket.",
+      "localStorage_variables": [
+        "events",
+        "event_registrations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst eventRegistrations = JSON.parse(localStorage.getItem('event_registrations') || '[]');\n\nconst eventsById = {};\nevents.forEach(e => { if (e && e.id) eventsById[e.id] = e; });\n\nconst sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;\n\nconst qualifyingRegistrations = eventRegistrations.filter(er => {\n  if (!er || !er.event_id) return false;\n  const ev = eventsById[er.event_id];\n  if (!ev) return false;\n  // Event criteria\n  if (ev.topic !== 'xr_strategy') return false;\n  if (ev.level !== 'beginner') return false;\n  if (typeof ev.price !== 'number' || ev.price > 300) return false;\n  // Ticket count\n  if (er.number_of_tickets !== 1) return false;\n  // Timing: event start within 60 days after registration\n  const start = new Date(ev.start_datetime);\n  const regDate = new Date(er.registered_at);\n  if (isNaN(start.getTime()) || isNaN(regDate.getTime())) return false;\n  const diffMs = start.getTime() - regDate.getTime();\n  if (diffMs < 0 || diffMs > sixtyDaysMs) return false;\n  return true;\n});\n\n// CP1 (1.0): At least one registration matches topic, level, price, timing, and ticket-count requirements\ncheckpoints.push({\n  passed: qualifyingRegistrations.length > 0,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Apply to Mid-Level XR UX/Product Design Role Without CV Upload",
+      "description": "Checks if the user applied to a mid-level XR UX or product design role requiring about 3–5 years of experience, using only text fields (no CV upload).",
+      "localStorage_variables": [
+        "jobs",
+        "job_applications"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst jobs = JSON.parse(localStorage.getItem('jobs') || '[]');\nconst applications = JSON.parse(localStorage.getItem('job_applications') || '[]');\n\nconst jobsById = {};\njobs.forEach(j => { if (j && j.id) jobsById[j.id] = j; });\n\nconst qualifyingApplications = applications.filter(app => {\n  if (!app || !app.job_id) return false;\n  const job = jobsById[app.job_id];\n  if (!job || !job.is_active) return false;\n  // Mid-level XR role in UX/Product design departments\n  if (job.seniority_level !== 'mid_level') return false;\n  if (!job.is_xr_related) return false;\n  if (!(job.department === 'design' || job.department === 'ux_ui_design')) return false;\n  // Experience roughly 3–5 years\n  if (typeof job.experience_min_years !== 'number' || typeof job.experience_max_years !== 'number') return false;\n  if (job.experience_min_years < 3) return false;\n  if (job.experience_max_years > 5) return false;\n  // Title should reference UX Designer or Product Designer\n  const title = (job.title || '').toLowerCase();\n  if (!(title.includes('ux designer') || title.includes('product designer'))) return false;\n  // CV must NOT be uploaded\n  if (app.cv_uploaded) return false;\n  return true;\n});\n\n// CP1 (1.0): At least one application matches all role and no-upload requirements\ncheckpoints.push({\n  passed: qualifyingApplications.length > 0,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Agency Partner Inquiry for White-Label XR Production Over $60k in US and EU",
+      "description": "Checks if the user submitted an agency partner contact inquiry focused on white-label XR production, with typical budgets over $60,000 and regions covering US and EU markets.",
+      "localStorage_variables": [
+        "contact_inquiries"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst inquiries = JSON.parse(localStorage.getItem('contact_inquiries') || '[]');\n\nconst qualifyingInquiries = inquiries.filter(ci => {\n  if (!ci) return false;\n  // Inquiry type\n  if (ci.inquiry_type !== 'agency_partner') return false;\n  // Areas of interest includes white-label XR production\n  if (!Array.isArray(ci.areas_of_interest) || !ci.areas_of_interest.includes('white_label_xr_production')) return false;\n  // Budget at or above 60,000\n  if (typeof ci.budget_minimum !== 'number' || ci.budget_minimum < 60000) return false;\n  // Regions must cover US and EU (via allowed enums)\n  if (!Array.isArray(ci.regions)) return false;\n  const regions = ci.regions;\n  const hasUS = regions.includes('united_states') || regions.includes('north_america');\n  const hasEU = regions.includes('europe') || regions.includes('european_union');\n  if (!hasUS || !hasEU) return false;\n  return true;\n});\n\n// CP1 (1.0): At least one inquiry matches agency partner, white-label XR production, budget, and regional focus\ncheckpoints.push({\n  passed: qualifyingInquiries.length > 0,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Reading List With Museum/Exhibition and Retail Articles",
+      "description": "Checks if the user saved at least two museum/exhibition articles and one retail article to the same reading list/collection.",
+      "localStorage_variables": [
+        "articles",
+        "saved_collections",
+        "saved_collection_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst collectionItems = JSON.parse(localStorage.getItem('saved_collection_items') || '[]');\n\nconst articlesById = {};\narticles.forEach(a => { if (a && a.id) articlesById[a.id] = a; });\n\n// Group saved articles by collection and count topics\nconst groups = {};\ncollectionItems.forEach(it => {\n  if (!it || it.item_type !== 'article') return;\n  const art = articlesById[it.item_id];\n  if (!art) return;\n  if (!groups[it.collection_id]) {\n    groups[it.collection_id] = { museumCount: 0, retailCount: 0 };\n  }\n  if (art.topic === 'museums_exhibitions') groups[it.collection_id].museumCount += 1;\n  if (art.topic === 'retail') groups[it.collection_id].retailCount += 1;\n});\n\nlet hasQualifyingReadingList = false;\nObject.keys(groups).forEach(colId => {\n  const g = groups[colId];\n  if (g.museumCount >= 2 && g.retailCount >= 1) {\n    hasQualifyingReadingList = true;\n  }\n});\n\n// CP1 (1.0): At least one collection contains ≥2 museum/exhibition articles AND ≥1 retail article\ncheckpoints.push({\n  passed: hasQualifyingReadingList,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "articles",
+    "experience_modules",
+    "jobs",
+    "service_categories",
+    "case_studies",
+    "service_packages",
+    "events",
+    "event_registrations",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

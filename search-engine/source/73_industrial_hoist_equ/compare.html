@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<link rel="stylesheet" href="compare.css">
+
+<section class="comparison-page" data-component="comparison-page-controller" data-populate="comparison-page">
+    <noscript>
+        JavaScript is required to view and manage your product comparison.
+    </noscript>
+</section>
+
+<script src="business_logic.js"></script>
+<script>
+const comparisonState = {
+    highlightMode: 'none',
+    comparisonSet: null,
+    products: [],
+    cart: null,
+    cartItems: [],
+    quoteBasket: null,
+    quoteItems: [],
+    wishlist: null,
+    wishlistItems: []
+};
+
+function parseHighlightFromUrl() {
+    try {
+        const url = new URL(window.location.href);
+        const value = url.searchParams.get('highlight');
+        if (value === 'weight') return 'weight';
+        if (value === 'chain') return 'chain';
+    } catch (e) {
+        // Ignore URL parsing errors and fall back to default
+    }
+    return 'none';
+}
+
+function updateHighlightInUrl(mode) {
+    try {
+        const url = new URL(window.location.href);
+        if (mode === 'none') {
+            url.searchParams.delete('highlight');
+        } else if (mode === 'weight' || mode === 'chain') {
+            url.searchParams.set('highlight', mode);
+        }
+        const newUrl = url.pathname + (url.search ? url.search : '') + url.hash;
+        window.history.replaceState({}, '', newUrl);
+    } catch (e) {
+        // If URL API is not available, silently ignore
+    }
+}
+
+function createEl(tagName, className, attrs) {
+    const el = document.createElement(tagName);
+    if (className) {
+        el.className = className;
+    }
+    if (attrs) {
+        for (const key in attrs) {
+            if (Object.prototype.hasOwnProperty.call(attrs, key)) {
+                if (key === 'text') {
+                    el.textContent = attrs[key];
+                } else {
+                    el.setAttribute(key, attrs[key]);
+                }
+            }
+        }
+    }
+    return el;
+}
+
+function loadComparisonDataAndRender(container) {
+    if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK || typeof WebsiteSDK.getComparisonSetDetails !== 'function') {
+        container.innerHTML = '';
+        const message = createEl('p', 'comparison-error-message', { text: 'Comparison data is not available at the moment.' });
+        container.appendChild(message);
+        return;
+    }
+
+    try {
+        const response = WebsiteSDK.getComparisonSetDetails();
+        if (response && response.comparisonSet) {
+            comparisonState.comparisonSet = response.comparisonSet;
+            comparisonState.products = Array.isArray(response.products) ? response.products : [];
+        } else {
+            comparisonState.comparisonSet = null;
+            comparisonState.products = [];
+        }
+        renderComparisonPage(container);
+    } catch (e) {
+        container.innerHTML = '';
+        const message = createEl('p', 'comparison-error-message', { text: 'Unable to load your comparison right now. Please try again shortly.' });
+        container.appendChild(message);
+    }
+}
+
+function renderComparisonPage(container) {
+    container.innerHTML = '';
+
+    const hasSet = comparisonState.comparisonSet && Array.isArray(comparisonState.comparisonSet.productIds);
+    const hasProducts = Array.isArray(comparisonState.products) && comparisonState.products.length > 0;
+
+    if (!hasSet || !hasProducts || comparisonState.comparisonSet.productIds.length === 0) {
+        renderEmptyState(container);
+        return;
+    }
+
+    const toolbar = renderComparisonToolbar();
+    container.appendChild(toolbar);
+
+    const tableWrapper = renderComparisonTable();
+    container.appendChild(tableWrapper);
+
+    applyHighlighting(container);
+}
+
+function renderEmptyState(container) {
+    const emptyState = createEl('section', 'comparison-empty-state', { 'data-component': 'comparison-empty-state' });
+
+    const heading = createEl('h1', 'comparison-empty-heading', { text: 'No products in your comparison yet' });
+    const description = createEl('p', 'comparison-empty-description', {
+        text: 'Use the Equipment Hire categories above to select hoists, then choose the compare option to view them side by side here.'
+    });
+
+    emptyState.appendChild(heading);
+    emptyState.appendChild(description);
+
+    container.appendChild(emptyState);
+}
+
+function renderComparisonToolbar() {
+    const toolbar = createEl('section', 'comparison-toolbar', { 'data-component': 'comparison-toolbar' });
+    const inner = createEl('div', 'comparison-toolbar-inner');
+    const left = createEl('div', 'comparison-toolbar-left');
+    const right = createEl('div', 'comparison-toolbar-right');
+
+    const count = comparisonState.products.length;
+    const countText = count === 1 ? 'Comparing 1 hoist' : 'Comparing ' + count + ' hoists';
+    const countEl = createEl('p', 'comparison-count', { text: countText });
+
+    const highlightWrapper = createEl('div', 'comparison-highlight-control');
+    const label = createEl('label', 'comparison-highlight-label');
+    label.textContent = 'Highlight:';
+
+    const select = createEl('select', 'comparison-highlight-select', {
+        'name': 'highlightMode',
+        'data-action': 'changeHighlightMode'
+    });
+
+    const optNone = createEl('option', '', { value: 'none', text: 'No highlight' });
+    const optWeight = createEl('option', '', { value: 'weight', text: 'Lightest weight' });
+    const optChain = createEl('option', '', { value: 'chain', text: 'Longest chain' });
+
+    select.appendChild(optNone);
+    select.appendChild(optWeight);
+    select.appendChild(optChain);
+
+    if (comparisonState.highlightMode === 'weight' || comparisonState.highlightMode === 'chain') {
+        select.value = comparisonState.highlightMode;
+    } else {
+        select.value = 'none';
+    }
+
+    label.appendChild(select);
+    highlightWrapper.appendChild(label);
+
+    left.appendChild(countEl);
+    left.appendChild(highlightWrapper);
+
+    const clearButton = createEl('button', 'button button--secondary comparison-clear-button', {
+        type: 'button',
+        'data-action': 'clearComparison',
+        text: 'Clear all'
+    });
+
+    right.appendChild(clearButton);
+
+    inner.appendChild(left);
+    inner.appendChild(right);
+    toolbar.appendChild(inner);
+
+    return toolbar;
+}
+
+function renderComparisonTable() {
+    const wrapper = createEl('div', 'comparison-table-wrapper');
+    const table = createEl('table', 'comparison-table', { 'data-component': 'comparison-table' });
+
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+
+    const featureHeader = createEl('th', 'comparison-feature-heading', { scope: 'col', text: 'Specification' });
+    headerRow.appendChild(featureHeader);
+
+    comparisonState.products.forEach(function(entry) {
+        const product = entry.product || {};
+        const productId = product.id || '';
+        const productName = product.name || 'Unnamed product';
+
+        const th = createEl('th', 'comparison-product-heading', {
+            scope: 'col',
+            'data-product-id': productId
+        });
+
+        const headerInner = createEl('div', 'product-header');
+
+        const nameLink = createEl('a', 'product-name-link', {
+            href: 'javascript:void(0)',
+            'data-action': 'viewProductDetails',
+            'data-product-id': productId
+        });
+        nameLink.textContent = productName;
+
+        headerInner.appendChild(nameLink);
+
+        const actionsPanel = renderProductColumnActions(entry);
+        headerInner.appendChild(actionsPanel);
+
+        th.appendChild(headerInner);
+        headerRow.appendChild(th);
+    });
+
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+
+    const specRows = [
+        { key: 'capacityTonnes', label: 'Capacity (tonnes)' },
+        { key: 'standardChainLengthMeters', label: 'Standard chain length (m)' },
+        { key: 'liftHeightMeters', label: 'Lift height (m)' },
+        { key: 'weightKg', label: 'Weight (kg)' },
+        { key: 'environment', label: 'Environment' },
+        { key: 'ipRating', label: 'IP rating' },
+        { key: 'dailyRate', label: 'Daily hire rate (per day)' }
+    ];
+
+    specRows.forEach(function(spec) {
+        const row = document.createElement('tr');
+        row.setAttribute('data-spec-key', spec.key);
+
+        const specHeading = createEl('th', 'comparison-feature-label', {
+            scope: 'row',
+            text: spec.label
+        });
+        row.appendChild(specHeading);
+
+        comparisonState.products.forEach(function(entry) {
+            const product = entry.product || {};
+            const productId = product.id || '';
+            const value = getSpecValue(entry, spec.key);
+
+            const cell = createEl('td', 'comparison-value-cell', {
+                'data-spec-key': spec.key,
+                'data-product-id': productId
+            });
+
+            cell.textContent = formatSpecDisplay(spec.key, value);
+            row.appendChild(cell);
+        });
+
+        tbody.appendChild(row);
+    });
+
+    table.appendChild(tbody);
+    wrapper.appendChild(table);
+    return wrapper;
+}
+
+function getSpecValue(entry, key) {
+    const specs = entry.specsTableParsed || {};
+    if (Object.prototype.hasOwnProperty.call(specs, key) && specs[key] !== null && typeof specs[key] !== 'undefined') {
+        return specs[key];
+    }
+
+    const product = entry.product || {};
+
+    if (key === 'dailyRate' && typeof product.dailyRate === 'number') {
+        return product.dailyRate;
+    }
+    if (key === 'capacityTonnes' && typeof product.capacityTonnes === 'number') {
+        return product.capacityTonnes;
+    }
+    if (key === 'liftHeightMeters' && typeof product.liftHeightMeters === 'number') {
+        return product.liftHeightMeters;
+    }
+    if (key === 'standardChainLengthMeters' && typeof product.standardChainLengthMeters === 'number') {
+        return product.standardChainLengthMeters;
+    }
+    if (key === 'weightKg' && typeof product.weightKg === 'number') {
+        return product.weightKg;
+    }
+    if (key === 'environment' && typeof product.environment === 'string') {
+        return product.environment;
+    }
+    if (key === 'ipRating' && typeof product.ipRating === 'string') {
+        return product.ipRating;
+    }
+
+    return null;
+}
+
+function formatSpecDisplay(key, value) {
+    if (value === null || typeof value === 'undefined') {
+        return '–';
+    }
+
+    if (key === 'environment') {
+        if (value === 'indoor_outdoor') return 'Indoor & outdoor';
+        if (value === 'indoor') return 'Indoor';
+        if (value === 'outdoor') return 'Outdoor';
+        return value;
+    }
+
+    if (key === 'dailyRate') {
+        if (typeof value === 'number' && !isNaN(value)) {
+            return '£' + value.toFixed(2);
+        }
+        return value;
+    }
+
+    if (typeof value === 'number' && !isNaN(value)) {
+        return String(value);
+    }
+
+    return String(value);
+}
+
+function renderProductColumnActions(entry) {
+    const product = entry.product || {};
+    const productId = product.id || '';
+    const isInWishlist = !!entry.isInWishlist;
+
+    const panel = createEl('div', 'product-column-actions', {
+        'data-component': 'product-column-actions',
+        'data-product-id': productId
+    });
+
+    const cartForm = createEl('form', 'add-to-cart-inline-form', {
+        'data-component': 'add-to-cart-inline-form',
+        'data-action': 'addToCart',
+        'data-product-id': productId
+    });
+
+    const cartLegend = createEl('p', 'inline-form-label', { text: 'Add to cart' });
+
+    const cartQuantityWrapper = createEl('div', 'inline-form-row');
+    const qtyLabel = createEl('label', 'inline-form-field-label');
+    qtyLabel.textContent = 'Qty';
+    const qtyInput = createEl('input', 'inline-input inline-input--quantity', {
+        type: 'number',
+        name: 'quantity',
+        min: '1',
+        step: '1',
+        value: '1'
+    });
+    qtyLabel.appendChild(qtyInput);
+    cartQuantityWrapper.appendChild(qtyLabel);
+
+    const datesWrapper = createEl('div', 'inline-form-row inline-form-row--dates');
+
+    const startLabel = createEl('label', 'inline-form-field-label');
+    startLabel.textContent = 'Start';
+    const startInput = createEl('input', 'inline-input inline-input--date', {
+        type: 'date',
+        name: 'hireStartDate',
+        required: 'required'
+    });
+    startLabel.appendChild(startInput);
+
+    const endLabel = createEl('label', 'inline-form-field-label');
+    endLabel.textContent = 'End';
+    const endInput = createEl('input', 'inline-input inline-input--date', {
+        type: 'date',
+        name: 'hireEndDate',
+        required: 'required'
+    });
+    endLabel.appendChild(endInput);
+
+    datesWrapper.appendChild(startLabel);
+    datesWrapper.appendChild(endLabel);
+
+    const cartButtonWrapper = createEl('div', 'inline-form-row inline-form-row--submit');
+    const cartButton = createEl('button', 'button button--primary inline-form-submit', {
+        type: 'submit',
+        text: 'Add to cart'
+    });
+    cartButtonWrapper.appendChild(cartButton);
+
+    cartForm.appendChild(cartLegend);
+    cartForm.appendChild(cartQuantityWrapper);
+    cartForm.appendChild(datesWrapper);
+    cartForm.appendChild(cartButtonWrapper);
+
+    const quoteForm = createEl('form', 'add-to-quote-inline-form', {
+        'data-component': 'add-to-quote-inline-form',
+        'data-action': 'addToQuote',
+        'data-product-id': productId
+    });
+
+    const quoteLegend = createEl('p', 'inline-form-label', { text: 'Add to quote' });
+    const quoteRow = createEl('div', 'inline-form-row');
+
+    const quoteQtyLabel = createEl('label', 'inline-form-field-label');
+    quoteQtyLabel.textContent = 'Qty';
+    const quoteQtyInput = createEl('input', 'inline-input inline-input--quantity', {
+        type: 'number',
+        name: 'quantity',
+        min: '1',
+        step: '1',
+        value: '1'
+    });
+    quoteQtyLabel.appendChild(quoteQtyInput);
+
+    const quoteButton = createEl('button', 'button button--secondary inline-form-submit', {
+        type: 'submit',
+        text: 'Add to quote'
+    });
+
+    quoteRow.appendChild(quoteQtyLabel);
+    quoteRow.appendChild(quoteButton);
+
+    quoteForm.appendChild(quoteLegend);
+    quoteForm.appendChild(quoteRow);
+
+    const wishlistButton = createEl('button', 'wishlist-toggle-button', {
+        type: 'button',
+        'data-component': 'wishlist-toggle',
+        'data-action': 'toggleWishlist',
+        'data-product-id': productId,
+        'data-wishlist-state': isInWishlist ? 'saved' : 'not_saved'
+    });
+    wishlistButton.textContent = isInWishlist ? 'Saved to wishlist' : 'Save to wishlist';
+
+    const removeButton = createEl('button', 'remove-from-comparison-button', {
+        type: 'button',
+        'data-component': 'remove-from-comparison-button',
+        'data-action': 'removeFromComparison',
+        'data-product-id': productId,
+        text: 'Remove from comparison'
+    });
+
+    const feedback = createEl('div', 'product-inline-feedback');
+
+    panel.appendChild(cartForm);
+    panel.appendChild(quoteForm);
+    panel.appendChild(wishlistButton);
+    panel.appendChild(removeButton);
+    panel.appendChild(feedback);
+
+    return panel;
+}
+
+function applyHighlighting(container) {
+    const table = container.querySelector('.comparison-table');
+    if (!table) return;
+
+    const highlighted = table.querySelectorAll('.comparison-cell--highlight');
+    highlighted.forEach(function(cell) {
+        cell.classList.remove('comparison-cell--highlight');
+    });
+
+    if (comparisonState.highlightMode !== 'weight' && comparisonState.highlightMode !== 'chain') {
+        return;
+    }
+
+    if (comparisonState.highlightMode === 'weight') {
+        let minWeight = null;
+        comparisonState.products.forEach(function(entry) {
+            const specs = entry.specsTableParsed || {};
+            const weight = typeof specs.weightKg === 'number' ? specs.weightKg : null;
+            if (weight !== null && !isNaN(weight)) {
+                if (minWeight === null || weight < minWeight) {
+                    minWeight = weight;
+                }
+            }
+        });
+
+        if (minWeight === null) return;
+
+        comparisonState.products.forEach(function(entry) {
+            const specs = entry.specsTableParsed || {};
+            const weight = typeof specs.weightKg === 'number' ? specs.weightKg : null;
+            if (weight !== null && !isNaN(weight) && weight === minWeight) {
+                const product = entry.product || {};
+                const productId = product.id || '';
+                const selector = 'td[data-spec-key="weightKg"][data-product-id="' + productId + '"]';
+                const cell = table.querySelector(selector);
+                if (cell) {
+                    cell.classList.add('comparison-cell--highlight');
+                }
+            }
+        });
+    } else if (comparisonState.highlightMode === 'chain') {
+        let maxChain = null;
+        comparisonState.products.forEach(function(entry) {
+            const specs = entry.specsTableParsed || {};
+            const chain = typeof specs.standardChainLengthMeters === 'number' ? specs.standardChainLengthMeters : null;
+            if (chain !== null && !isNaN(chain)) {
+                if (maxChain === null || chain > maxChain) {
+                    maxChain = chain;
+                }
+            }
+        });
+
+        if (maxChain === null) return;
+
+        comparisonState.products.forEach(function(entry) {
+            const specs = entry.specsTableParsed || {};
+            const chain = typeof specs.standardChainLengthMeters === 'number' ? specs.standardChainLengthMeters : null;
+            if (chain !== null && !isNaN(chain) && chain === maxChain) {
+                const product = entry.product || {};
+                const productId = product.id || '';
+                const selector = 'td[data-spec-key="standardChainLengthMeters"][data-product-id="' + productId + '"]';
+                const cell = table.querySelector(selector);
+                if (cell) {
+                    cell.classList.add('comparison-cell--highlight');
+                }
+            }
+        });
+    }
+}
+
+function findFeedbackContainer(element) {
+    if (!element) return null;
+    const actionsContainer = element.closest('.product-column-actions');
+    if (!actionsContainer) return null;
+    let feedback = actionsContainer.querySelector('.product-inline-feedback');
+    if (!feedback) {
+        feedback = createEl('div', 'product-inline-feedback');
+        actionsContainer.appendChild(feedback);
+    }
+    return feedback;
+}
+
+function handleHighlightModeChange(selectEl, container) {
+    const value = selectEl.value || 'none';
+    if (value === 'weight' || value === 'chain') {
+        comparisonState.highlightMode = value;
+    } else {
+        comparisonState.highlightMode = 'none';
+    }
+    updateHighlightInUrl(comparisonState.highlightMode);
+    applyHighlighting(container);
+}
+
+function handleAddToCartForm(formEl) {
+    if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK || typeof WebsiteSDK.addProductToCart !== 'function') {
+        return;
+    }
+
+    const productId = formEl.getAttribute('data-product-id');
+    const qtyInput = formEl.querySelector('input[name="quantity"]');
+    const startInput = formEl.querySelector('input[name="hireStartDate"]');
+    const endInput = formEl.querySelector('input[name="hireEndDate"]');
+    const feedbackEl = findFeedbackContainer(formEl);
+
+    function showFeedback(text, isError, showCartButton) {
+        if (!feedbackEl) return;
+        feedbackEl.innerHTML = '';
+        const p = createEl('p', isError ? 'inline-feedback-message inline-feedback-message--error' : 'inline-feedback-message inline-feedback-message--success', { text: text });
+        feedbackEl.appendChild(p);
+        if (showCartButton) {
+            const btn = createEl('button', 'button button--secondary inline-feedback-button', {
+                type: 'button',
+                'data-action': 'viewCart',
+                text: 'View cart'
+            });
+            feedbackEl.appendChild(btn);
+        }
+    }
+
+    const quantity = qtyInput && qtyInput.value ? parseInt(qtyInput.value, 10) : NaN;
+    const startDate = startInput ? startInput.value : '';
+    const endDate = endInput ? endInput.value : '';
+
+    if (!productId) {
+        showFeedback('This item could not be identified.', true, false);
+        return;
+    }
+    if (!quantity || isNaN(quantity) || quantity <= 0) {
+        showFeedback('Please enter a valid quantity.', true, false);
+        return;
+    }
+    if (!startDate || !endDate) {
+        showFeedback('Please select both hire start and end dates.', true, false);
+        return;
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (start.toString() === 'Invalid Date' || end.toString() === 'Invalid Date') {
+        showFeedback('Please enter valid hire dates.', true, false);
+        return;
+    }
+    if (start > end) {
+        showFeedback('Hire end date must be on or after the start date.', true, false);
+        return;
+    }
+
+    try {
+        const result = WebsiteSDK.addProductToCart(productId, quantity, startDate, endDate);
+        if (result && result.cart) {
+            comparisonState.cart = result.cart;
+        }
+        if (result && Array.isArray(result.cartItems)) {
+            comparisonState.cartItems = result.cartItems;
+        }
+
+        if (result && result.success) {
+            const message = result.message || 'Item has been added to your cart.';
+            showFeedback(message, false, true);
+        } else {
+            const errorMessage = result && result.message ? result.message : 'The item could not be added to your cart.';
+            showFeedback(errorMessage, true, false);
+        }
+    } catch (e) {
+        showFeedback('An unexpected error occurred while adding this item to your cart.', true, false);
+    }
+}
+
+function handleAddToQuoteForm(formEl) {
+    if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK || typeof WebsiteSDK.addProductToQuote !== 'function') {
+        return;
+    }
+
+    const productId = formEl.getAttribute('data-product-id');
+    const qtyInput = formEl.querySelector('input[name="quantity"]');
+    const feedbackEl = findFeedbackContainer(formEl);
+
+    function showFeedback(text, isError) {
+        if (!feedbackEl) return;
+        feedbackEl.innerHTML = '';
+        const p = createEl('p', isError ? 'inline-feedback-message inline-feedback-message--error' : 'inline-feedback-message inline-feedback-message--success', { text: text });
+        feedbackEl.appendChild(p);
+    }
+
+    const quantity = qtyInput && qtyInput.value ? parseInt(qtyInput.value, 10) : NaN;
+
+    if (!productId) {
+        showFeedback('This item could not be identified.', true);
+        return;
+    }
+    if (!quantity || isNaN(quantity) || quantity <= 0) {
+        showFeedback('Please enter a valid quantity.', true);
+        return;
+    }
+
+    try {
+        const result = WebsiteSDK.addProductToQuote(productId, quantity);
+        if (result && result.quoteBasket) {
+            comparisonState.quoteBasket = result.quoteBasket;
+        }
+        if (result && Array.isArray(result.quoteItems)) {
+            comparisonState.quoteItems = result.quoteItems;
+        }
+        showFeedback('Item has been added to your quote basket.', false);
+    } catch (e) {
+        showFeedback('An unexpected error occurred while adding this item to your quote basket.', true);
+    }
+}
+
+function handleToggleWishlist(buttonEl) {
+    if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK) {
+        return;
+    }
+
+    const productId = buttonEl.getAttribute('data-product-id');
+    const currentState = buttonEl.getAttribute('data-wishlist-state') === 'saved';
+    const feedbackEl = findFeedbackContainer(buttonEl);
+
+    function showFeedback(text, isError, showWishlistButton) {
+        if (!feedbackEl) return;
+        feedbackEl.innerHTML = '';
+        const p = createEl('p', isError ? 'inline-feedback-message inline-feedback-message--error' : 'inline-feedback-message inline-feedback-message--success', { text: text });
+        feedbackEl.appendChild(p);
+        if (showWishlistButton) {
+            const btn = createEl('button', 'button button--secondary inline-feedback-button', {
+                type: 'button',
+                'data-action': 'viewWishlist',
+                text: 'View wishlist'
+            });
+            feedbackEl.appendChild(btn);
+        }
+    }
+
+    if (!productId) {
+        showFeedback('This item could not be identified.', true, false);
+        return;
+    }
+
+    if (!currentState) {
+        if (typeof WebsiteSDK.addProductToWishlist !== 'function') {
+            return;
+        }
+        try {
+            const result = WebsiteSDK.addProductToWishlist(productId);
+            if (result && result.wishlist) {
+                comparisonState.wishlist = result.wishlist;
+            }
+            if (result && Array.isArray(result.wishlistItems)) {
+                comparisonState.wishlistItems = result.wishlistItems;
+            }
+            buttonEl.setAttribute('data-wishlist-state', 'saved');
+            buttonEl.textContent = 'Saved to wishlist';
+
+            if (Array.isArray(comparisonState.products)) {
+                comparisonState.products.forEach(function(entry) {
+                    const product = entry.product || {};
+                    if (product.id === productId) {
+                        entry.isInWishlist = true;
+                    }
+                });
+            }
+
+            showFeedback('Item has been saved to your wishlist.', false, true);
+        } catch (e) {
+            showFeedback('Unable to save this item to your wishlist at the moment.', true, false);
+        }
+    } else {
+        if (typeof WebsiteSDK.removeProductFromWishlist !== 'function') {
+            return;
+        }
+        try {
+            const result = WebsiteSDK.removeProductFromWishlist(productId);
+            if (result && result.wishlist) {
+                comparisonState.wishlist = result.wishlist;
+            }
+            if (result && Array.isArray(result.wishlistItems)) {
+                comparisonState.wishlistItems = result.wishlistItems;
+            }
+            buttonEl.setAttribute('data-wishlist-state', 'not_saved');
+            buttonEl.textContent = 'Save to wishlist';
+
+            if (Array.isArray(comparisonState.products)) {
+                comparisonState.products.forEach(function(entry) {
+                    const product = entry.product || {};
+                    if (product.id === productId) {
+                        entry.isInWishlist = false;
+                    }
+                });
+            }
+
+            showFeedback('Item has been removed from your wishlist.', false, false);
+        } catch (e) {
+            showFeedback('Unable to update your wishlist at the moment.', true, false);
+        }
+    }
+}
+
+function handleRemoveFromComparison(buttonEl, container) {
+    if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK || typeof WebsiteSDK.removeProductFromComparison !== 'function') {
+        return;
+    }
+
+    const productId = buttonEl.getAttribute('data-product-id');
+    if (!productId) return;
+
+    try {
+        WebsiteSDK.removeProductFromComparison(productId);
+        loadComparisonDataAndRender(container);
+    } catch (e) {
+        const feedbackEl = findFeedbackContainer(buttonEl);
+        if (feedbackEl) {
+            feedbackEl.innerHTML = '';
+            const p = createEl('p', 'inline-feedback-message inline-feedback-message--error', { text: 'Unable to remove this item from the comparison right now.' });
+            feedbackEl.appendChild(p);
+        }
+    }
+}
+
+function handleClearComparison(container) {
+    if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK || typeof WebsiteSDK.clearComparisonSet !== 'function') {
+        return;
+    }
+
+    try {
+        WebsiteSDK.clearComparisonSet();
+        loadComparisonDataAndRender(container);
+    } catch (e) {
+        container.innerHTML = '';
+        const p = createEl('p', 'comparison-error-message', { text: 'Unable to clear comparison items at the moment.' });
+        container.appendChild(p);
+    }
+}
+
+function handleViewProductDetails(actionEl) {
+    const productId = actionEl.getAttribute('data-product-id');
+    if (!productId) return;
+    const targetUrl = 'product.html?id=' + encodeURIComponent(productId);
+    window.location.href = targetUrl;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const rootContainer = document.querySelector('[data-populate="comparison-page"]');
+    if (!rootContainer) {
+        return;
+    }
+
+    comparisonState.highlightMode = parseHighlightFromUrl();
+
+    loadComparisonDataAndRender(rootContainer);
+
+    rootContainer.addEventListener('change', function(event) {
+        const target = event.target;
+        if (!target) return;
+        const actionEl = target.closest('[data-action]');
+        if (!actionEl || !rootContainer.contains(actionEl)) return;
+        const action = actionEl.getAttribute('data-action');
+        if (action === 'changeHighlightMode') {
+            event.preventDefault();
+            handleHighlightModeChange(actionEl, rootContainer);
+        }
+    });
+
+    rootContainer.addEventListener('submit', function(event) {
+        const form = event.target;
+        if (!form) return;
+        const actionEl = form.closest('[data-action]');
+        if (!actionEl || !rootContainer.contains(actionEl)) return;
+        const action = actionEl.getAttribute('data-action');
+        if (action === 'addToCart') {
+            event.preventDefault();
+            handleAddToCartForm(actionEl);
+        } else if (action === 'addToQuote') {
+            event.preventDefault();
+            handleAddToQuoteForm(actionEl);
+        }
+    });
+
+    rootContainer.addEventListener('click', function(event) {
+        const target = event.target;
+        if (!target) return;
+        const actionEl = target.closest('[data-action]');
+        if (!actionEl || !rootContainer.contains(actionEl)) return;
+        const action = actionEl.getAttribute('data-action');
+
+        if (action === 'viewProductDetails') {
+            event.preventDefault();
+            handleViewProductDetails(actionEl);
+        } else if (action === 'clearComparison') {
+            event.preventDefault();
+            handleClearComparison(rootContainer);
+        } else if (action === 'removeFromComparison') {
+            event.preventDefault();
+            handleRemoveFromComparison(actionEl, rootContainer);
+        } else if (action === 'toggleWishlist') {
+            event.preventDefault();
+            handleToggleWishlist(actionEl);
+        } else if (action === 'viewCart') {
+            event.preventDefault();
+            window.location.href = 'cart.html';
+        } else if (action === 'viewWishlist') {
+            event.preventDefault();
+            window.location.href = 'wishlist.html';
+        }
+    });
+
+    window.addEventListener('popstate', function() {
+        const newMode = parseHighlightFromUrl();
+        if (newMode !== comparisonState.highlightMode) {
+            comparisonState.highlightMode = newMode;
+            applyHighlighting(rootContainer);
+        }
+    });
+});
+</script>

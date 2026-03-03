@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HYIP Programs Forum - Dashboard</title>
+    
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+    <div id="page">
+        <header class="site-header">
+            <div class="site-header__title-row">
+                <h1 class="site-title">Full version: <a href="index.html">Hyip'S</a></h1>
+            </div>
+
+            <nav class="site-header__nav-bar" aria-label="Main navigation">
+                <ul class="main-nav">
+                    <li class="main-nav__item"><a href="index.html">Home</a></li>
+                    <li class="main-nav__item"><a href="programs.html?view=all_programs">HYIP Listings</a></li>
+                    <li class="main-nav__item"><a href="programs.html?view=problematic_programs">Problematic Programs</a></li>
+                    <li class="main-nav__item"><a href="forum.html">Forum</a></li>
+                    <li class="main-nav__item"><a href="dashboard.html">Dashboard</a></li>
+                    <li class="main-nav__item"><a href="saved_programs.html">Saved Programs</a></li>
+                    <li class="main-nav__item"><a href="settings.html">Settings</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id="content" class="site-content" role="main">
+            <div class="content-box">
+                <div class="dashboard-page">
+                    <section data-component="dashboard-toolbar" class="dashboard-toolbar">
+                        <!-- Toolbar content rendered by JS -->
+                    </section>
+
+                    <section data-component="dashboard-search-form" class="dashboard-search">
+                        <form class="dashboard-search__form" data-action="dashboard-search-form">
+                            <label for="dashboard-search-input">Search:</label>
+                            <input type="text" id="dashboard-search-input" name="q" size="40">
+                            <label for="dashboard-search-type">in</label>
+                            <select id="dashboard-search-type" name="type_filter">
+                                <option value="all">Programs + Forum</option>
+                                <option value="programs">Programs only</option>
+                                <option value="forum">Forum only</option>
+                            </select>
+                            <button type="submit">Go</button>
+                        </form>
+                        <div class="dashboard-search__results" data-component="dashboard-search-results" aria-live="polite">
+                            <!-- Search results rendered by JS -->
+                        </div>
+                    </section>
+
+                    <section data-component="dashboard-risk-alert-list" class="dashboard-alerts">
+                        <!-- Risk alerts rendered by JS -->
+                    </section>
+
+                    <section class="dashboard-programs-region">
+                        <div data-component="dashboard-init-loader" data-populate="dashboardOverview" class="dashboard-loader">
+                            <!-- Dashboard loader -->
+                        </div>
+
+                        <section data-component="dashboard-program-list" class="dashboard-program-list">
+                            <!-- Program list rendered by JS -->
+                        </section>
+
+                        <section data-component="dashboard-empty-state" class="dashboard-empty-state" hidden>
+                            <!-- Empty state rendered by JS when needed -->
+                        </section>
+                    </section>
+
+                    <section data-component="dashboard-pagination-and-controls" class="dashboard-pagination">
+                        <!-- Pagination and sort controls rendered by JS -->
+                    </section>
+                </div>
+            </div>
+        </main>
+
+        <footer class="site-footer">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul class="footer-nav__list">
+                    <li class="footer-nav__item"><a href="about.html">About</a></li>
+                    <li class="footer-nav__item"><a href="help.html">Help / FAQ</a></li>
+                    <li class="footer-nav__item"><a href="contact.html">Contact</a></li>
+                    <li class="footer-nav__item"><a href="terms.html">Terms of Use</a></li>
+                    <li class="footer-nav__item"><a href="privacy.html">Privacy Policy</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">&copy; <span class="footer-year">2026</span> HYIP Programs Forum.</p>
+        </footer>
+    </div>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        function escapeHtml(value) {
+            if (value === null || value === undefined) return '';
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function formatShortDateTime(value) {
+            if (!value) return '';
+            var d = new Date(value);
+            if (isNaN(d.getTime())) return '';
+            try {
+                return d.toLocaleString();
+            } catch (e) {
+                return d.toISOString();
+            }
+        }
+
+        function formatAlertType(type) {
+            if (!type) return 'ALERT';
+            if (type === 'status_change') return 'STATUS CHANGE';
+            if (type === 'risk_level_change') return 'RISK LEVEL';
+            if (type === 'payout_issue') return 'PAYOUT ISSUE';
+            return String(type).toUpperCase();
+        }
+
+        function parseUrlStateFromParams(params) {
+            var tab = params.get('tab');
+            if (tab !== 'alerts') {
+                tab = 'programs';
+            }
+
+            var view = params.get('view');
+            var allowedViews = ['all', 'watchlist', 'bookmark', 'blacklist'];
+            if (!view || allowedViews.indexOf(view) === -1) {
+                view = 'all';
+            }
+
+            var alertsFilter = params.get('alerts_filter');
+            if (alertsFilter !== 'unread') {
+                alertsFilter = 'all';
+            }
+
+            var q = params.get('q') || '';
+            var typeFilter = params.get('type_filter') || 'all';
+
+            var pageStr = params.get('page');
+            var page = parseInt(pageStr, 10);
+            if (isNaN(page) || page < 1) {
+                page = 1;
+            }
+
+            var sort = params.get('sort') || 'default';
+
+            return {
+                tab: tab,
+                view: view,
+                alerts_filter: alertsFilter,
+                q: q,
+                type_filter: typeFilter,
+                page: page,
+                sort: sort
+            };
+        }
+
+        function parseUrlState() {
+            var params = new URLSearchParams(window.location.search);
+            return parseUrlStateFromParams(params);
+        }
+
+        var urlState = parseUrlState();
+
+        var toolbarEl = document.querySelector('[data-component="dashboard-toolbar"]');
+        var searchFormSection = document.querySelector('[data-component="dashboard-search-form"]');
+        var searchResultsEl = document.querySelector('[data-component="dashboard-search-results"]');
+        var alertsEl = document.querySelector('[data-component="dashboard-risk-alert-list"]');
+        var programListEl = document.querySelector('[data-component="dashboard-program-list"]');
+        var emptyStateEl = document.querySelector('[data-component="dashboard-empty-state"]');
+        var paginationEl = document.querySelector('[data-component="dashboard-pagination-and-controls"]');
+        var loaderEl = document.querySelector('[data-component="dashboard-init-loader"]');
+
+        var dashboardState = {
+            settingsSnapshot: null,
+            activeSavedPrograms: [],
+            recentRiskAlerts: [],
+            programById: {},
+            filteredPrograms: [],
+            filteredAlerts: [],
+            urlState: urlState,
+            currentPage: urlState.page || 1,
+            pageSize: 20,
+            totalPages: 1,
+            searchResults: null,
+            alertHighlightProgramId: null
+        };
+
+        function updateUrlState(partial) {
+            var params = new URLSearchParams(window.location.search);
+            Object.keys(partial).forEach(function(key) {
+                var value = partial[key];
+                if (value === undefined || value === null || value === '' || (key === 'page' && (value === 1 || value === '1'))) {
+                    params.delete(key);
+                } else {
+                    params.set(key, String(value));
+                }
+            });
+            var newQuery = params.toString();
+            var newUrl = window.location.pathname + (newQuery ? '?' + newQuery : '');
+            window.history.replaceState(null, '', newUrl);
+            dashboardState.urlState = parseUrlStateFromParams(params);
+        }
+
+        function computeDerivedState() {
+            var view = dashboardState.urlState.view || 'all';
+            var sort = dashboardState.urlState.sort || 'default';
+            var alertsFilter = dashboardState.urlState.alerts_filter || 'all';
+
+            var programs = dashboardState.activeSavedPrograms.slice();
+            if (view === 'watchlist' || view === 'bookmark' || view === 'blacklist') {
+                programs = programs.filter(function(entry) {
+                    return entry.saved_program && entry.saved_program.save_type === view;
+                });
+            }
+
+            if (sort === 'name') {
+                programs.sort(function(a, b) {
+                    var an = (a.program && a.program.name) ? a.program.name.toLowerCase() : '';
+                    var bn = (b.program && b.program.name) ? b.program.name.toLowerCase() : '';
+                    if (an < bn) return -1;
+                    if (an > bn) return 1;
+                    return 0;
+                });
+            } else if (sort === 'daily_roi') {
+                programs.sort(function(a, b) {
+                    var av = (a.program && typeof a.program.daily_roi_percent === 'number') ? a.program.daily_roi_percent : -Infinity;
+                    var bv = (b.program && typeof b.program.daily_roi_percent === 'number') ? b.program.daily_roi_percent : -Infinity;
+                    return bv - av;
+                });
+            } else if (sort === 'min_deposit') {
+                programs.sort(function(a, b) {
+                    var av = (a.program && typeof a.program.min_deposit_usd === 'number') ? a.program.min_deposit_usd : Infinity;
+                    var bv = (b.program && typeof b.program.min_deposit_usd === 'number') ? b.program.min_deposit_usd : Infinity;
+                    return av - bv;
+                });
+            } else if (sort === 'status') {
+                programs.sort(function(a, b) {
+                    var av = (a.program && a.program.status) ? a.program.status : '';
+                    var bv = (b.program && b.program.status) ? b.program.status : '';
+                    if (av < bv) return -1;
+                    if (av > bv) return 1;
+                    return 0;
+                });
+            }
+
+            dashboardState.filteredPrograms = programs;
+
+            var total = programs.length;
+            dashboardState.totalPages = total > 0 ? Math.ceil(total / dashboardState.pageSize) : 1;
+            if (!dashboardState.currentPage || dashboardState.currentPage < 1) {
+                dashboardState.currentPage = 1;
+            } else if (dashboardState.currentPage > dashboardState.totalPages) {
+                dashboardState.currentPage = dashboardState.totalPages;
+            }
+
+            var alerts = dashboardState.recentRiskAlerts.slice();
+            alerts = alerts.filter(function(alert) {
+                if (!alert) return false;
+                if (alertsFilter === 'unread') {
+                    if (alert.is_read === true) return false;
+                    if (alert._uiIsRead === true) return false;
+                }
+                return true;
+            });
+            dashboardState.filteredAlerts = alerts;
+        }
+
+        function renderToolbar() {
+            if (!toolbarEl) return;
+            var s = dashboardState.settingsSnapshot || {};
+            var tab = dashboardState.urlState.tab || 'programs';
+            var view = dashboardState.urlState.view || 'all';
+            var alertsFilter = dashboardState.urlState.alerts_filter || 'all';
+
+            var roiText = (typeof s.dashboard_min_daily_roi_percent === 'number') ? (s.dashboard_min_daily_roi_percent + '% daily min') : 'any ROI';
+            var statusText = (Array.isArray(s.dashboard_status_filter) && s.dashboard_status_filter.length)
+                ? s.dashboard_status_filter.join(', ')
+                : 'all statuses';
+            var closedText = (s.dashboard_show_closed_programs === false) ? 'hidden' : 'shown';
+            var summaryText = 'ROI: ' + roiText + '; Status: ' + statusText + '; Closed programs: ' + closedText;
+
+            toolbarEl.innerHTML = `
+<div class="dashboard-toolbar__row">
+  <div class="dashboard-toolbar__left">
+    <strong>Dashboard</strong>
+    <span class="dashboard-toolbar__summary"> - ${escapeHtml(summaryText)}</span>
+  </div>
+  <div class="dashboard-toolbar__right">
+    <span class="dashboard-toolbar__tabs">
+      ${tab === 'programs'
+        ? '<strong>Programs</strong>'
+        : '<a href="javascript:void(0)" data-action="tab-change" data-tab="programs">Programs</a>'}
+      |
+      ${tab === 'alerts'
+        ? '<strong>Alerts</strong>'
+        : '<a href="javascript:void(0)" data-action="tab-change" data-tab="alerts">Alerts</a>'}
+    </span>
+    <span class="dashboard-toolbar__view">
+      &nbsp;View:
+      <select name="view" data-action="view-filter-change">
+        <option value="all"${view === 'all' ? ' selected="selected"' : ''}>All</option>
+        <option value="watchlist"${view === 'watchlist' ? ' selected="selected"' : ''}>Watchlist</option>
+        <option value="bookmark"${view === 'bookmark' ? ' selected="selected"' : ''}>Bookmarks</option>
+        <option value="blacklist"${view === 'blacklist' ? ' selected="selected"' : ''}>Blacklist</option>
+      </select>
+    </span>
+    <span class="dashboard-toolbar__alerts-filter">
+      &nbsp;Alerts:
+      <select name="alerts_filter" data-action="alerts-filter-change">
+        <option value="all"${alertsFilter === 'all' ? ' selected="selected"' : ''}>All</option>
+        <option value="unread"${alertsFilter === 'unread' ? ' selected="selected"' : ''}>Unread only</option>
+      </select>
+    </span>
+    <span class="dashboard-toolbar__links">
+      &nbsp;
+      <a href="javascript:void(0)" data-action="customize-dashboard">Customize Dashboard</a>
+      |
+      <a href="javascript:void(0)" data-action="manage-saved-programs">Manage Saved Programs</a>
+    </span>
+  </div>
+</div>`;
+        }
+
+        function renderAlerts() {
+            if (!alertsEl) return;
+            var alerts = dashboardState.filteredAlerts;
+            var html = '';
+            html += '<div class="dashboard-alerts-box">';
+            html += '<strong>Recent Risk Alerts</strong>';
+            if (!alerts.length) {
+                html += '<div class="dashboard-alerts-empty"> No alerts for your saved programs.</div>';
+            } else {
+                html += '<ul class="dashboard-alerts-list">';
+                alerts.forEach(function(alert) {
+                    var program = dashboardState.programById[alert.program_id];
+                    var programName = program && program.name ? program.name : '';
+                    var alertTypeLabel = formatAlertType(alert.alert_type);
+                    var createdText = formatShortDateTime(alert.created_at);
+                    var isUnread = alert.is_read === false && alert._uiIsRead !== true;
+                    var highlightClass = (dashboardState.alertHighlightProgramId && alert.program_id === dashboardState.alertHighlightProgramId)
+                        ? ' dashboard-alerts-item--highlight'
+                        : '';
+                    html += '<li class="dashboard-alerts-item' + (isUnread ? ' dashboard-alerts-item--unread' : '') + highlightClass + '" data-alert-id="' + escapeHtml(alert.id) + '" data-program-id="' + escapeHtml(alert.program_id) + '" data-action="alert-click">';
+                    html += '<strong>' + escapeHtml(alertTypeLabel) + ':</strong> ';
+                    if (programName) {
+                        html += escapeHtml(programName) + ' - ';
+                    }
+                    html += escapeHtml(alert.title || '');
+                    if (createdText || isUnread) {
+                        html += ' <span class="dashboard-alerts-item__meta">(';
+                        if (createdText) html += escapeHtml(createdText);
+                        if (createdText && isUnread) html += ', ';
+                        if (isUnread) html += 'unread';
+                        html += ')</span>';
+                    }
+                    html += '</li>';
+                });
+                html += '</ul>';
+            }
+            html += '</div>';
+            alertsEl.innerHTML = html;
+        }
+
+        function renderPrograms() {
+            if (!programListEl) return;
+            var programs = dashboardState.filteredPrograms;
+            if (!programs.length) {
+                programListEl.innerHTML = '';
+                if (emptyStateEl) {
+                    emptyStateEl.hidden = false;
+                    emptyStateEl.innerHTML = `
+<div class="dashboard-empty-state__inner">
+  <strong>No programs found.</strong>
+  <span> Adjust your dashboard filters, or
+    <a href="javascript:void(0)" data-action="empty-go-settings">open dashboard settings</a>
+    or
+    <a href="javascript:void(0)" data-action="empty-go-saved-programs">manage saved programs</a>.
+  </span>
+</div>`;
+                }
+                return;
+            }
+
+            if (emptyStateEl) {
+                emptyStateEl.hidden = true;
+                emptyStateEl.innerHTML = '';
+            }
+
+            var startIndex = (dashboardState.currentPage - 1) * dashboardState.pageSize;
+            var endIndex = startIndex + dashboardState.pageSize;
+            var pageItems = programs.slice(startIndex, endIndex);
+
+            var html = '';
+            html += '<div class="dashboard-program-list__box">';
+            html += '<ol class="dashboard-program-list__items">';
+            pageItems.forEach(function(entry, indexOnPage) {
+                var program = entry.program || {};
+                var saved = entry.saved_program || {};
+                var dailyDisplay = entry.daily_roi_display || (typeof program.daily_roi_percent === 'number' ? (program.daily_roi_percent + '% daily') : '');
+                var minDisplay = entry.min_deposit_display || (typeof program.min_deposit_usd === 'number' ? ('$' + program.min_deposit_usd) : '');
+                var statusLabel = entry.status_label || program.status || 'unknown';
+                var hasAlerts = entry.has_new_alerts === true;
+                var ordinal = startIndex + indexOnPage + 1;
+                var saveType = saved.save_type || 'watchlist';
+                var savedAt = saved.created_at ? formatShortDateTime(saved.created_at) : '';
+                var alertsNote = hasAlerts ? '(new alerts)' : '';
+                var savedNote = savedAt ? 'saved ' + savedAt : '';
+                var rightNoteParts = [];
+                if (alertsNote) rightNoteParts.push(alertsNote);
+                if (savedNote) rightNoteParts.push(savedNote);
+                var rightNote = rightNoteParts.length ? '(' + rightNoteParts.join('; ') + ')' : '';
+                var slugOrId = program.slug || '';
+
+                html += '<li class="dashboard-program-card" data-program-id="' + escapeHtml(program.id || '') + '" id="program-card-' + escapeHtml(program.id || '') + '" data-action="program-card-click">';
+                html += '<span class="dashboard-program-card__index">' + ordinal + '.</span> ';
+                html += '<a href="javascript:void(0)" class="dashboard-program-card__name" data-action="open-program">' + escapeHtml(program.name || '') + '</a>';
+                if (slugOrId) {
+                    html += ' - <span class="dashboard-program-card__slug">' + escapeHtml(slugOrId) + '</span>';
+                }
+                html += ' &nbsp; <span class="dashboard-program-card__meta">ROI: ' + escapeHtml(dailyDisplay) + ', Min: ' + escapeHtml(minDisplay) + ', Status: ' + escapeHtml(statusLabel) + '</span>';
+                if (rightNote) {
+                    html += ' <span class="dashboard-program-card__note">' + escapeHtml(rightNote) + '</span>';
+                }
+                if (hasAlerts) {
+                    html += ' <a href="javascript:void(0)" class="dashboard-program-card__alert-indicator" data-action="program-alert-indicator">[alerts]</a>';
+                } else {
+                    html += ' <span class="dashboard-program-card__alert-indicator--none">[no alerts]</span>';
+                }
+                html += ' <span class="dashboard-program-card__controls">';
+                html += ' Saved as: <select data-action="change-save-type">';
+                ['watchlist', 'bookmark', 'blacklist'].forEach(function(type) {
+                    html += '<option value="' + type + '"' + (saveType === type ? ' selected="selected"' : '') + '>' + type.charAt(0).toUpperCase() + type.slice(1) + '</option>';
+                });
+                html += '</select>';
+                html += ' <button type="button" data-action="remove-saved-program">Remove</button>';
+                html += '</span>';
+                html += '</li>';
+            });
+            html += '</ol>';
+            html += '</div>';
+            programListEl.innerHTML = html;
+        }
+
+        function renderPagination() {
+            if (!paginationEl) return;
+            var totalPages = dashboardState.totalPages || 1;
+            var currentPage = dashboardState.currentPage || 1;
+            if (!dashboardState.filteredPrograms || dashboardState.filteredPrograms.length === 0) {
+                paginationEl.innerHTML = '';
+                return;
+            }
+
+            var html = '';
+            html += '<div class="dashboard-pagination__row">';
+            html += '<span class="dashboard-pagination__pages">Pages: ';
+            for (var p = 1; p <= totalPages; p++) {
+                if (p === currentPage) {
+                    html += '<strong>' + p + '</strong>';
+                } else {
+                    html += '<a href="javascript:void(0)" data-action="change-page" data-page="' + p + '">' + p + '</a>';
+                }
+                if (p < totalPages) html += ' ';
+            }
+            html += '</span>';
+            html += '<span class="dashboard-pagination__controls">';
+            if (currentPage > 1) {
+                html += '<a href="javascript:void(0)" data-action="change-page" data-page="' + (currentPage - 1) + '">Prev</a> ';
+            } else {
+                html += '<span class="dashboard-pagination__disabled">Prev</span> ';
+            }
+            if (currentPage < totalPages) {
+                html += '<a href="javascript:void(0)" data-action="change-page" data-page="' + (currentPage + 1) + '">Next</a>';
+            } else {
+                html += '<span class="dashboard-pagination__disabled">Next</span>';
+            }
+            html += ' &nbsp; Sort by: ';
+            var sort = dashboardState.urlState.sort || 'default';
+            html += '<select data-action="sort-change">';
+            html += '<option value="default"' + (sort === 'default' ? ' selected="selected"' : '') + '>Default</option>';
+            html += '<option value="name"' + (sort === 'name' ? ' selected="selected"' : '') + '>Name</option>';
+            html += '<option value="daily_roi"' + (sort === 'daily_roi' ? ' selected="selected"' : '') + '>Daily ROI</option>';
+            html += '<option value="min_deposit"' + (sort === 'min_deposit' ? ' selected="selected"' : '') + '>Min deposit</option>';
+            html += '<option value="status"' + (sort === 'status' ? ' selected="selected"' : '') + '>Status</option>';
+            html += '</select>';
+            html += '</span>';
+            html += '</div>';
+            paginationEl.innerHTML = html;
+
+            bindPaginationActions();
+        }
+
+        function bindToolbarActions() {
+            if (!toolbarEl) return;
+
+            var tabLinks = toolbarEl.querySelectorAll('[data-action="tab-change"]');
+            tabLinks.forEach(function(a) {
+                a.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    var newTab = a.getAttribute('data-tab') || 'programs';
+                    updateUrlState({ tab: newTab, page: 1 });
+                    dashboardState.currentPage = 1;
+                    refreshAfterStateChange();
+                    if (newTab === 'alerts' && alertsEl) {
+                        try {
+                            alertsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        } catch (err) {
+                            alertsEl.scrollIntoView();
+                        }
+                    }
+                });
+            });
+
+            var viewSelect = toolbarEl.querySelector('[data-action="view-filter-change"]');
+            if (viewSelect) {
+                viewSelect.addEventListener('change', function() {
+                    var newView = viewSelect.value || 'all';
+                    updateUrlState({ view: newView, page: 1 });
+                    dashboardState.currentPage = 1;
+                    refreshAfterStateChange();
+                });
+            }
+
+            var alertsFilterSelect = toolbarEl.querySelector('[data-action="alerts-filter-change"]');
+            if (alertsFilterSelect) {
+                alertsFilterSelect.addEventListener('change', function() {
+                    var newFilter = alertsFilterSelect.value || 'all';
+                    updateUrlState({ alerts_filter: newFilter });
+                    refreshAfterStateChange();
+                });
+            }
+
+            var customizeLink = toolbarEl.querySelector('[data-action="customize-dashboard"]');
+            if (customizeLink) {
+                customizeLink.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    window.location.href = 'settings.html?section=dashboard';
+                });
+            }
+
+            var manageLink = toolbarEl.querySelector('[data-action="manage-saved-programs"]');
+            if (manageLink) {
+                manageLink.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    window.location.href = 'saved_programs.html';
+                });
+            }
+        }
+
+        function bindProgramListActions() {
+            if (!programListEl) return;
+            var cards = programListEl.querySelectorAll('.dashboard-program-card');
+            cards.forEach(function(card) {
+                card.addEventListener('click', function(e) {
+                    var target = e.target;
+                    if (!target) return;
+                    var action = target.getAttribute('data-action');
+                    if (action && action !== 'program-card-click' && action !== 'open-program') {
+                        return;
+                    }
+                    var tag = target.tagName ? target.tagName.toLowerCase() : '';
+                    if (tag === 'select' || tag === 'option' || tag === 'button' || tag === 'input') {
+                        return;
+                    }
+                    var programId = card.getAttribute('data-program-id');
+                    if (programId) {
+                        window.location.href = 'program_detail.html?id=' + encodeURIComponent(programId);
+                    }
+                });
+
+                var nameLink = card.querySelector('[data-action="open-program"]');
+                if (nameLink) {
+                    nameLink.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        var programId = card.getAttribute('data-program-id');
+                        if (programId) {
+                            window.location.href = 'program_detail.html?id=' + encodeURIComponent(programId);
+                        }
+                    });
+                }
+
+                var alertLink = card.querySelector('[data-action="program-alert-indicator"]');
+                if (alertLink) {
+                    alertLink.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        var programId = card.getAttribute('data-program-id');
+                        if (!programId) return;
+                        dashboardState.alertHighlightProgramId = programId;
+                        updateUrlState({ tab: 'alerts' });
+                        refreshAfterStateChange();
+                        if (alertsEl) {
+                            try {
+                                alertsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            } catch (err) {
+                                alertsEl.scrollIntoView();
+                            }
+                        }
+                    });
+                }
+
+                var saveSelect = card.querySelector('[data-action="change-save-type"]');
+                if (saveSelect) {
+                    saveSelect.addEventListener('change', function(e) {
+                        e.stopPropagation();
+                        var programId = card.getAttribute('data-program-id');
+                        var newType = saveSelect.value;
+                        var entry = dashboardState.activeSavedPrograms.find(function(item) {
+                            return item.program && item.program.id === programId;
+                        });
+                        var notes = entry && entry.saved_program && entry.saved_program.notes ? entry.saved_program.notes : '';
+                        var result = null;
+                        try {
+                            result = WebsiteSDK.saveProgram(programId, newType, notes);
+                        } catch (err) {
+                            console.error(err);
+                            window.alert('Failed to update saved type.');
+                            if (entry && entry.saved_program && entry.saved_program.save_type) {
+                                saveSelect.value = entry.saved_program.save_type;
+                            }
+                            return;
+                        }
+                        if (!result || result.success !== true || !result.saved_program) {
+                            window.alert(result && result.message ? result.message : 'Failed to update saved type.');
+                            if (entry && entry.saved_program && entry.saved_program.save_type) {
+                                saveSelect.value = entry.saved_program.save_type;
+                            }
+                            return;
+                        }
+                        if (entry) {
+                            entry.saved_program = result.saved_program;
+                        }
+                        refreshAfterStateChange();
+                    });
+                }
+
+                var removeButton = card.querySelector('[data-action="remove-saved-program"]');
+                if (removeButton) {
+                    removeButton.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        var programId = card.getAttribute('data-program-id');
+                        if (!programId) return;
+                        var result = null;
+                        try {
+                            result = WebsiteSDK.removeSavedProgram(programId);
+                        } catch (err) {
+                            console.error(err);
+                            window.alert('Failed to remove program.');
+                            return;
+                        }
+                        if (!result || result.success !== true) {
+                            window.alert(result && result.message ? result.message : 'Failed to remove program.');
+                            return;
+                        }
+                        dashboardState.activeSavedPrograms = dashboardState.activeSavedPrograms.filter(function(item) {
+                            return !(item.program && item.program.id === programId);
+                        });
+                        refreshAfterStateChange();
+                    });
+                }
+            });
+        }
+
+        function bindAlertsActions() {
+            if (!alertsEl) return;
+            var items = alertsEl.querySelectorAll('[data-action="alert-click"]');
+            items.forEach(function(item) {
+                item.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    var alertId = item.getAttribute('data-alert-id');
+                    var programId = item.getAttribute('data-program-id');
+
+                    dashboardState.recentRiskAlerts.forEach(function(alert) {
+                        if (alert && alert.id === alertId) {
+                            alert._uiIsRead = true;
+                        }
+                    });
+
+                    var alertsFilter = dashboardState.urlState.alerts_filter || 'all';
+                    if (alertsFilter === 'unread') {
+                        refreshAfterStateChange();
+                    } else {
+                        item.classList.remove('dashboard-alerts-item--unread');
+                    }
+
+                    if (programListEl && programId) {
+                        var cards = programListEl.querySelectorAll('[data-program-id]');
+                        var targetCard = null;
+                        cards.forEach(function(card) {
+                            if (card.getAttribute('data-program-id') === programId) {
+                                targetCard = card;
+                            }
+                        });
+                        if (targetCard) {
+                            targetCard.classList.add('dashboard-program-card--highlight');
+                            try {
+                                targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            } catch (err) {
+                                targetCard.scrollIntoView();
+                            }
+                            setTimeout(function() {
+                                targetCard.classList.remove('dashboard-program-card--highlight');
+                            }, 2000);
+                            return;
+                        }
+                    }
+
+                    if (programId) {
+                        window.location.href = 'program_detail.html?id=' + encodeURIComponent(programId);
+                    }
+                });
+            });
+        }
+
+        function bindEmptyStateActions() {
+            if (!emptyStateEl || emptyStateEl.hidden) return;
+            var goSettings = emptyStateEl.querySelector('[data-action="empty-go-settings"]');
+            if (goSettings) {
+                goSettings.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    window.location.href = 'settings.html?section=dashboard';
+                });
+            }
+            var goSaved = emptyStateEl.querySelector('[data-action="empty-go-saved-programs"]');
+            if (goSaved) {
+                goSaved.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    window.location.href = 'saved_programs.html';
+                });
+            }
+        }
+
+        function bindPaginationActions() {
+            if (!paginationEl) return;
+            var pageLinks = paginationEl.querySelectorAll('[data-action="change-page"]');
+            pageLinks.forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    var pageStr = link.getAttribute('data-page');
+                    var page = parseInt(pageStr, 10) || 1;
+                    dashboardState.currentPage = page;
+                    updateUrlState({ page: page });
+                    refreshAfterStateChange(false);
+                });
+            });
+
+            var sortSelect = paginationEl.querySelector('[data-action="sort-change"]');
+            if (sortSelect) {
+                sortSelect.addEventListener('change', function() {
+                    var newSort = sortSelect.value || 'default';
+                    updateUrlState({ sort: newSort, page: 1 });
+                    dashboardState.currentPage = 1;
+                    refreshAfterStateChange();
+                });
+            }
+        }
+
+        function renderSearchResults() {
+            if (!searchResultsEl) return;
+            var res = dashboardState.searchResults;
+            if (!res) {
+                searchResultsEl.innerHTML = '';
+                return;
+            }
+            var programs = Array.isArray(res.program_results) ? res.program_results : [];
+            var threads = Array.isArray(res.forum_thread_results) ? res.forum_thread_results : [];
+
+            var html = '';
+            html += '<div class="dashboard-search__program-results">';
+            html += '<div class="dashboard-search__section-title">Programs (' + programs.length + ')</div>';
+            if (!programs.length) {
+                html += '<div class="dashboard-search__empty">No matching programs.</div>';
+            } else {
+                html += '<ol class="dashboard-search__program-list">';
+                programs.forEach(function(p) {
+                    html += '<li class="dashboard-search__program-item">';
+                    html += '<a href="program_detail.html?id=' + encodeURIComponent(p.id) + '">' + escapeHtml(p.name || '') + '</a>';
+                    if (typeof p.daily_roi_percent === 'number') {
+                        html += ' <span class="dashboard-search__program-meta">(' + escapeHtml(String(p.daily_roi_percent)) + '% daily)</span>';
+                    }
+                    html += '</li>';
+                });
+                html += '</ol>';
+            }
+            html += '</div>';
+
+            html += '<div class="dashboard-search__forum-results">';
+            html += '<div class="dashboard-search__section-title">Forum threads (' + threads.length + ')</div>';
+            if (!threads.length) {
+                html += '<div class="dashboard-search__empty">No matching threads.</div>';
+            } else {
+                html += '<ol class="dashboard-search__forum-list">';
+                threads.forEach(function(t) {
+                    html += '<li class="dashboard-search__forum-item">';
+                    html += '<a href="javascript:void(0)">';
+                    if (t.prefix && t.prefix !== 'none') {
+                        html += '[' + escapeHtml(t.prefix) + '] ';
+                    }
+                    html += escapeHtml(t.title || '') + '</a>';
+                    if (typeof t.reply_count === 'number') {
+                        html += ' <span class="dashboard-search__forum-meta">(' + escapeHtml(String(t.reply_count)) + ' replies)</span>';
+                    }
+                    html += '</li>';
+                });
+                html += '</ol>';
+            }
+            html += '</div>';
+
+            searchResultsEl.innerHTML = html;
+        }
+
+        function runDashboardSearch(query, typeFilter) {
+            if (!searchResultsEl) return;
+            searchResultsEl.textContent = 'Searching...';
+            try {
+                var result = WebsiteSDK.searchSite(query, typeFilter || 'all', 1, 10);
+                dashboardState.searchResults = result;
+                renderSearchResults();
+            } catch (err) {
+                console.error(err);
+                searchResultsEl.textContent = 'Search failed.';
+            }
+        }
+
+        function initSearchForm() {
+            if (!searchFormSection) return;
+            var form = searchFormSection.querySelector('[data-action="dashboard-search-form"]');
+            if (!form) return;
+            var input = form.querySelector('#dashboard-search-input');
+            var typeSelect = form.querySelector('#dashboard-search-type');
+
+            if (input && dashboardState.urlState.q) {
+                input.value = dashboardState.urlState.q;
+            }
+            if (typeSelect && dashboardState.urlState.type_filter) {
+                typeSelect.value = dashboardState.urlState.type_filter;
+            }
+
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (!input) return;
+                var query = input.value.trim();
+                var typeFilter = typeSelect ? typeSelect.value : 'all';
+                if (!query) {
+                    updateUrlState({ q: '', type_filter: '' });
+                    dashboardState.searchResults = null;
+                    if (searchResultsEl) searchResultsEl.innerHTML = '';
+                    return;
+                }
+                updateUrlState({ q: query, type_filter: typeFilter });
+                runDashboardSearch(query, typeFilter);
+            });
+        }
+
+        function refreshAfterStateChange() {
+            computeDerivedState();
+            renderToolbar();
+            renderAlerts();
+            renderPrograms();
+            renderPagination();
+            bindToolbarActions();
+            bindProgramListActions();
+            bindAlertsActions();
+            bindEmptyStateActions();
+        }
+
+        function initDashboardOverview(loaderContainer) {
+            if (!loaderContainer) return;
+            loaderContainer.textContent = 'Loading dashboard...';
+            try {
+                var overview = WebsiteSDK.getDashboardOverview();
+                dashboardState.settingsSnapshot = overview.settings_snapshot || null;
+                dashboardState.activeSavedPrograms = Array.isArray(overview.active_saved_programs) ? overview.active_saved_programs : [];
+                dashboardState.recentRiskAlerts = Array.isArray(overview.recent_risk_alerts) ? overview.recent_risk_alerts : [];
+                dashboardState.programById = {};
+                dashboardState.activeSavedPrograms.forEach(function(item) {
+                    if (item && item.program && item.program.id) {
+                        dashboardState.programById[item.program.id] = item.program;
+                    }
+                });
+                if (!dashboardState.currentPage || dashboardState.currentPage < 1) {
+                    dashboardState.currentPage = 1;
+                }
+                refreshAfterStateChange();
+                loaderContainer.textContent = '';
+            } catch (err) {
+                console.error(err);
+                loaderContainer.textContent = 'Failed to load dashboard data.';
+            }
+
+            var q = dashboardState.urlState.q;
+            if (q && q.trim() !== '') {
+                var typeFilter = dashboardState.urlState.type_filter || 'all';
+                runDashboardSearch(q, typeFilter);
+            }
+        }
+
+        function initPopulateElements() {
+            var populateElements = document.querySelectorAll('[data-populate]');
+            populateElements.forEach(function(element) {
+                var type = element.getAttribute('data-populate');
+                if (type === 'dashboardOverview') {
+                    initDashboardOverview(element);
+                }
+            });
+        }
+
+        initSearchForm();
+        initPopulateElements();
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Task 1 - 2-Day Adult & Child Pass with Mobile/E-Ticket Evaluator",
+      "description": "Checks that the user added the cheapest qualifying 2-day adult and child passes for the same days under $260 and chose mobile or e-ticket delivery.",
+      "localStorage_variables": [
+        "ticket_types",
+        "ticket_tiers",
+        "carts",
+        "cart_items",
+        "checkout_sessions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst ticketTypes = JSON.parse(localStorage.getItem('ticket_types') || '[]');\nconst ticketTiers = JSON.parse(localStorage.getItem('ticket_tiers') || '[]');\nconst carts = JSON.parse(localStorage.getItem('carts') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst sessions = JSON.parse(localStorage.getItem('checkout_sessions') || '[]');\n\nlet hasCheapestPair = false;\nlet deliveryOkAndBudget = false;\n\nconst cart = carts.find(c => c.status === 'open');\nif (cart) {\n  const items = cartItems.filter(ci => ci.cart_id === cart.id);\n\n  // Find cheapest available two-day adult tier\n  const adultTypes = ticketTypes.filter(tt => tt.pass_type === 'two_day' && tt.ticket_category === 'adult');\n  const adultTypeIds = adultTypes.map(tt => tt.id);\n  const adultTiersAll = ticketTiers.filter(t => adultTypeIds.includes(t.ticket_type_id) && t.is_available !== false);\n  let cheapestAdultTier = null;\n  if (adultTiersAll.length) {\n    cheapestAdultTier = adultTiersAll.reduce((min, t) => (t.price < min.price ? t : min), adultTiersAll[0]);\n  }\n\n  // Find cheapest available two-day child tier\n  const childTypes = ticketTypes.filter(tt => tt.pass_type === 'two_day' && tt.ticket_category === 'child');\n  const childTypeIds = childTypes.map(tt => tt.id);\n  const childTiersAll = ticketTiers.filter(t => childTypeIds.includes(t.ticket_type_id) && t.is_available !== false);\n  let cheapestChildTier = null;\n  if (childTiersAll.length) {\n    cheapestChildTier = childTiersAll.reduce((min, t) => (t.price < min.price ? t : min), childTiersAll[0]);\n  }\n\n  if (cheapestAdultTier && cheapestChildTier) {\n    const adultItem = items.find(ci => ci.ticket_tier_id === cheapestAdultTier.id && ci.quantity >= 1);\n    const childItem = items.find(ci => ci.ticket_tier_id === cheapestChildTier.id && ci.quantity >= 1);\n\n    if (adultItem && childItem) {\n      const adultType = adultTypes.find(tt => tt.id === cheapestAdultTier.ticket_type_id);\n      const childType = childTypes.find(tt => tt.id === cheapestChildTier.ticket_type_id);\n      const validA = adultType && Array.isArray(adultType.valid_days) ? adultType.valid_days.slice().sort().join(',') : '';\n      const validC = childType && Array.isArray(childType.valid_days) ? childType.valid_days.slice().sort().join(',') : '';\n      const sameDays = validA && validA === validC;\n      hasCheapestPair = sameDays;\n\n      if (hasCheapestPair) {\n        const withinBudget = typeof cart.total === 'number' && cart.total <= 260;\n        const session = sessions.find(s => s.cart_id === cart.id);\n        const deliveryOk = session && (session.delivery_method === 'mobile_ticket' || session.delivery_method === 'e_ticket');\n        deliveryOkAndBudget = withinBudget && deliveryOk;\n      }\n    }\n  }\n}\n\ncheckpoints.push({ passed: hasCheapestPair, weight: 0.6 });\ncheckpoints.push({ passed: deliveryOkAndBudget, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Task 2 - Sunday Music Schedule Evaluator",
+      "description": "Checks that the user added 3 qualifying Sunday music performances between 2 PM and 10 PM from three different stages to My Schedule.",
+      "localStorage_variables": [
+        "my_schedule_items",
+        "performances",
+        "artists",
+        "stages"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst scheduleItems = JSON.parse(localStorage.getItem('my_schedule_items') || '[]');\nconst performances = JSON.parse(localStorage.getItem('performances') || '[]');\n\nfunction dateTimeToMinutes(dt) {\n  if (!dt) return null;\n  const d = new Date(dt);\n  if (isNaN(d.getTime())) return null;\n  return d.getHours() * 60 + d.getMinutes();\n}\n\nconst minMinutes = 14 * 60;\nconst maxMinutes = 22 * 60;\n\nconst qualifying = scheduleItems\n  .map(ms => performances.find(p => p.id === ms.performance_id))\n  .filter(p => {\n    if (!p) return false;\n    if (p.day !== 'sunday') return false;\n    if (!p.is_music_performance) return false;\n    const m = dateTimeToMinutes(p.start_time);\n    if (m == null) return false;\n    return m >= minMinutes && m <= maxMinutes;\n  });\n\nconst uniqueStageIds = Array.from(new Set(qualifying.map(p => p.stage_id))).filter(Boolean);\n\ncheckpoints.push({ passed: qualifying.length >= 1, weight: 0.3 });\ncheckpoints.push({ passed: qualifying.length >= 2, weight: 0.3 });\ncheckpoints.push({ passed: qualifying.length >= 3 && uniqueStageIds.length >= 3, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Task 3 - Vegetarian Mains Tasting List Evaluator",
+      "description": "Checks that the user added 3 vegetarian main dishes under $15, rated 4.0+ from different cuisines, to the tasting/favorites list.",
+      "localStorage_variables": [
+        "tasting_list_items",
+        "dishes",
+        "vendors"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst tastingItems = JSON.parse(localStorage.getItem('tasting_list_items') || '[]');\nconst dishes = JSON.parse(localStorage.getItem('dishes') || '[]');\n\nconst qualifying = tastingItems\n  .map(t => dishes.find(d => d.id === t.dish_id))\n  .filter(d => {\n    if (!d) return false;\n    if (d.dish_type !== 'main') return false;\n    const isVeg = d.is_vegetarian || (Array.isArray(d.dietary_tags) && d.dietary_tags.includes('vegetarian'));\n    if (!isVeg) return false;\n    if (typeof d.price !== 'number' || d.price > 15.0) return false;\n    if (typeof d.average_rating !== 'number' || d.average_rating < 4.0) return false;\n    return true;\n  });\n\nconst cuisinesSet = new Set(qualifying.map(d => (d.cuisine || '').toLowerCase()).filter(Boolean));\nconst distinctCuisines = cuisinesSet.size;\n\ncheckpoints.push({ passed: qualifying.length >= 1, weight: 0.3 });\ncheckpoints.push({ passed: qualifying.length >= 2, weight: 0.3 });\ncheckpoints.push({ passed: qualifying.length >= 3 && distinctCuisines >= 3, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Task 4 - Free Intermediate Saturday Dance Workshop Registration Evaluator",
+      "description": "Checks that the user registered via the on-site form for a free intermediate-level Saturday dance workshop starting before 3 PM.",
+      "localStorage_variables": [
+        "workshop_registrations",
+        "activities",
+        "map_locations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst activities = JSON.parse(localStorage.getItem('activities') || '[]');\nconst regs = JSON.parse(localStorage.getItem('workshop_registrations') || '[]');\n\nfunction dateTimeToMinutes(dt) {\n  if (!dt) return null;\n  const d = new Date(dt);\n  if (isNaN(d.getTime())) return null;\n  return d.getHours() * 60 + d.getMinutes();\n}\n\nconst qualifyingActivities = activities.filter(a => {\n  if (!a) return false;\n  if (a.day !== 'saturday') return false;\n  if (a.activity_type !== 'dance_workshop') return false;\n  if (!a.is_free) return false;\n  if (a.level !== 'intermediate') return false;\n  const m = dateTimeToMinutes(a.start_time);\n  if (m == null) return false;\n  return m < 15 * 60;\n});\n\nconst qualifyingActivityIds = new Set(qualifyingActivities.map(a => a.id));\nconst qualifyingRegs = regs.filter(r => qualifyingActivityIds.has(r.activity_id));\n\nconst withContactInfo = qualifyingRegs.filter(r => {\n  const nameOk = typeof r.registrant_name === 'string' && r.registrant_name.trim().length > 0;\n  const emailOk = typeof r.registrant_email === 'string' && r.registrant_email.trim().length > 0;\n  return nameOk && emailOk;\n});\n\ncheckpoints.push({ passed: qualifyingRegs.length >= 1, weight: 0.6 });\ncheckpoints.push({ passed: withContactInfo.length >= 1, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Task 5 - 'Saturday Night' Lineup List Evaluator",
+      "description": "Checks that the user created a 'Saturday Night' artist list containing 2 headliners and 3 local artists who perform after 6 PM on Saturday.",
+      "localStorage_variables": [
+        "artist_favorites",
+        "artists",
+        "performances",
+        "artist_lists",
+        "artist_list_items",
+        "stages"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst artists = JSON.parse(localStorage.getItem('artists') || '[]');\nconst performances = JSON.parse(localStorage.getItem('performances') || '[]');\nconst lists = JSON.parse(localStorage.getItem('artist_lists') || '[]');\nconst listItems = JSON.parse(localStorage.getItem('artist_list_items') || '[]');\n\nfunction dateTimeToMinutes(dt) {\n  if (!dt) return null;\n  const d = new Date(dt);\n  if (isNaN(d.getTime())) return null;\n  return d.getHours() * 60 + d.getMinutes();\n}\n\nconst satNightArtistIdsSet = new Set(\n  performances\n    .filter(p => {\n      if (!p) return false;\n      if (p.day !== 'saturday') return false;\n      if (!p.is_music_performance) return false;\n      const m = dateTimeToMinutes(p.start_time);\n      if (m == null) return false;\n      return m >= 18 * 60;\n    })\n    .map(p => p.artist_id)\n);\n\nconst satList = lists.find(l => l && l.name === 'Saturday Night');\nlet headlinerCount = 0;\nlet localCount = 0;\n\nif (satList) {\n  const ids = Array.from(\n    new Set(\n      listItems\n        .filter(li => li.artist_list_id === satList.id)\n        .map(li => li.artist_id)\n    )\n  );\n\n  const qualifyingArtists = ids\n    .map(id => artists.find(a => a.id === id))\n    .filter(a => a && satNightArtistIdsSet.has(a.id));\n\n  headlinerCount = qualifyingArtists.filter(a => a.artist_type === 'headliner').length;\n  localCount = qualifyingArtists.filter(a => a.artist_type === 'local').length;\n}\n\ncheckpoints.push({ passed: !!satList && headlinerCount >= 1 && localCount >= 1, weight: 0.3 });\ncheckpoints.push({ passed: !!satList && headlinerCount >= 2, weight: 0.3 });\ncheckpoints.push({ passed: !!satList && headlinerCount >= 2 && localCount >= 3, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Task 6 - Youth Music Education Donation Evaluator",
+      "description": "Checks that the user made a single donation between $20 and $30 to a youth-focused music education fund using credit card and opted into the newsletter.",
+      "localStorage_variables": [
+        "donation_funds",
+        "donations",
+        "newsletter_subscriptions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst donations = JSON.parse(localStorage.getItem('donations') || '[]');\nconst funds = JSON.parse(localStorage.getItem('donation_funds') || '[]');\nconst subs = JSON.parse(localStorage.getItem('newsletter_subscriptions') || '[]');\n\nconst youthFundIds = funds\n  .filter(f => {\n    const text = ((f.name || '') + ' ' + (f.description || '')).toLowerCase();\n    return text.includes('youth') && text.includes('music');\n  })\n  .map(f => f.id);\n\nconst qualifyingDonations = donations.filter(d => {\n  if (!youthFundIds.includes(d.fund_id)) return false;\n  if (typeof d.amount !== 'number' || d.amount < 20 || d.amount > 30) return false;\n  if (d.payment_method !== 'credit_card') return false;\n  if (!d.newsletter_opt_in) return false;\n  return true;\n});\n\nconst donationWithSubscription = qualifyingDonations.some(d => {\n  const sub = subs.find(s => s.email === d.donor_email);\n  return sub && sub.subscribed && sub.source === 'donation';\n});\n\ncheckpoints.push({ passed: qualifyingDonations.length >= 1, weight: 0.5 });\ncheckpoints.push({ passed: donationWithSubscription, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Task 7 - Sunday Family Plan Activities Evaluator",
+      "description": "Checks that the user added 2 kids-focused, family-friendly Sunday afternoon activities (12–5 PM, 4.5+ stars) to the Family Plan.",
+      "localStorage_variables": [
+        "family_plan_items",
+        "activities",
+        "map_locations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst familyItems = JSON.parse(localStorage.getItem('family_plan_items') || '[]');\nconst activities = JSON.parse(localStorage.getItem('activities') || '[]');\n\nfunction dateTimeToMinutes(dt) {\n  if (!dt) return null;\n  const d = new Date(dt);\n  if (isNaN(d.getTime())) return null;\n  return d.getHours() * 60 + d.getMinutes();\n}\n\nconst minMinutes = 12 * 60;\nconst maxMinutes = 17 * 60;\n\nconst qualifying = familyItems\n  .map(fp => activities.find(a => a.id === fp.activity_id))\n  .filter(a => {\n    if (!a) return false;\n    if (a.day !== 'sunday') return false;\n    if (!a.is_kids_focused) return false;\n    if (!a.is_family_friendly) return false;\n    if (typeof a.average_rating !== 'number' || a.average_rating < 4.5) return false;\n    const m = dateTimeToMinutes(a.start_time);\n    if (m == null) return false;\n    return m >= minMinutes && m <= maxMinutes;\n  });\n\ncheckpoints.push({ passed: qualifying.length >= 1, weight: 0.5 });\ncheckpoints.push({ passed: qualifying.length >= 2, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Task 8 - Nearby Food Stalls Route Evaluator",
+      "description": "Checks that the user pinned three nearby food stalls (main, dessert, drink) within a short walk of the Main Stage and ordered them as mains first, dessert second, drinks third in the saved route.",
+      "localStorage_variables": [
+        "saved_map_locations",
+        "map_locations",
+        "vendors",
+        "stages"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst saved = JSON.parse(localStorage.getItem('saved_map_locations') || '[]');\nconst mapLocations = JSON.parse(localStorage.getItem('map_locations') || '[]');\nconst vendors = JSON.parse(localStorage.getItem('vendors') || '[]');\n\nconst pinnedFood = saved\n  .map(sml => {\n    const loc = mapLocations.find(m => m.id === sml.map_location_id);\n    if (!loc) return null;\n    const vendor = vendors.find(v => v.location_id === loc.id);\n    return { sml, loc, vendor };\n  })\n  .filter(x => {\n    if (!x || !x.loc || !x.vendor) return false;\n    if (x.loc.location_type !== 'food_vendor') return false;\n    const walking = typeof x.loc.walking_time_from_main_stage === 'number' ? x.loc.walking_time_from_main_stage : null;\n    if (walking == null || walking > 3) return false;\n    return ['main', 'dessert', 'drink'].includes(x.vendor.vendor_food_type);\n  });\n\nconst hasMain = pinnedFood.some(x => x.vendor.vendor_food_type === 'main');\nconst hasDessert = pinnedFood.some(x => x.vendor.vendor_food_type === 'dessert');\nconst hasDrink = pinnedFood.some(x => x.vendor.vendor_food_type === 'drink');\nconst hasAllThreeTypes = hasMain && hasDessert && hasDrink;\n\nlet orderOk = false;\nif (hasAllThreeTypes) {\n  const typeMinOrder = { main: Infinity, dessert: Infinity, drink: Infinity };\n  pinnedFood.forEach(x => {\n    const t = x.vendor.vendor_food_type;\n    if (typeof x.sml.route_order === 'number' && x.sml.route_order < typeMinOrder[t]) {\n      typeMinOrder[t] = x.sml.route_order;\n    }\n  });\n  orderOk =\n    typeMinOrder.main < typeMinOrder.dessert &&\n    typeMinOrder.dessert < typeMinOrder.drink &&\n    typeMinOrder.main < Infinity &&\n    typeMinOrder.dessert < Infinity &&\n    typeMinOrder.drink < Infinity;\n}\n\ncheckpoints.push({ passed: hasAllThreeTypes, weight: 0.5 });\ncheckpoints.push({ passed: hasAllThreeTypes && orderOk, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "artists",
+    "donation_funds",
+    "map_locations",
+    "ticket_types",
+    "activities",
+    "stages",
+    "ticket_tiers",
+    "vendors",
+    "dishes",
+    "performances",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

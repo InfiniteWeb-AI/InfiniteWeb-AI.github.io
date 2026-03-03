@@ -1,0 +1,112 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Family Dinner Friday Restaurant Saved Evaluator",
+      "description": "Checks whether the user saved at least one qualifying family-friendly restaurant meeting all criteria into a list named 'Family Dinner Friday'.",
+      "localStorage_variables": [
+        "saved_lists",
+        "saved_list_items",
+        "places",
+        "place_operating_hours",
+        "directory_categories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nfunction calcDistanceMilesFromZip(obj, search_zip) {\n  if (!obj || !obj.zip_code || !search_zip) return null;\n  if (obj.zip_code === search_zip) return 0;\n  const objPrefix = String(obj.zip_code).slice(0, 3);\n  const searchPrefix = String(search_zip).slice(0, 3);\n  if (objPrefix === searchPrefix) {\n    return 2;\n  }\n  return 9999;\n}\n\nfunction parseTimeToMinutes(timeStr) {\n  if (!timeStr) return null;\n  const parts = timeStr.split(':');\n  const h = parseInt(parts[0], 10);\n  const m = parts.length > 1 ? parseInt(parts[1], 10) : 0;\n  if (isNaN(h) || isNaN(m)) return null;\n  return h * 60 + m;\n}\n\nconst savedLists = JSON.parse(localStorage.getItem('saved_lists') || '[]');\nconst savedItems = JSON.parse(localStorage.getItem('saved_list_items') || '[]');\nconst places = JSON.parse(localStorage.getItem('places') || '[]');\nconst hours = JSON.parse(localStorage.getItem('place_operating_hours') || '[]');\n\nconst targetList = savedLists.find(l => (l.name || '').toLowerCase() === 'family dinner friday');\n\nlet qualifyingCount = 0;\nif (targetList) {\n  const listItems = savedItems.filter(it => it.listId === targetList.id && it.item_type === 'place');\n  listItems.forEach(it => {\n    const p = places.find(pl => pl.id === it.item_id);\n    if (!p) return;\n    if (p.category_id !== 'restaurants_food' || p.subcategory !== 'restaurant') return;\n    const dist = calcDistanceMilesFromZip(p, '12345');\n    if (dist == null || dist > 3) return;\n    if ((p.rating || 0) < 4.5) return;\n    if (p.average_price_per_person == null || p.average_price_per_person > 20) return;\n    if (!p.is_family_friendly) return;\n    const day = 'friday';\n    const placeHours = hours.filter(h => h.placeId === p.id && h.day_of_week === day && !h.is_closed);\n    if (!placeHours.length) return;\n    const targetMinutes = parseTimeToMinutes('19:00');\n    const openOk = placeHours.some(h => {\n      const o = parseTimeToMinutes(h.open_time);\n      const c = parseTimeToMinutes(h.close_time);\n      return o != null && c != null && o <= targetMinutes && c >= targetMinutes;\n    });\n    if (!openOk) return;\n    qualifyingCount += 1;\n  });\n}\n\ncheckpoints.push({ passed: !!(targetList && qualifyingCount >= 1), weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Cheapest 24/7 Plumber Emergency Contacts Evaluator",
+      "description": "Checks whether the user compared at least two qualifying 24/7 plumbers and added the cheapest qualifying one to the 'Emergency Contacts' list.",
+      "localStorage_variables": [
+        "task2_comparedPlumberIds",
+        "places",
+        "saved_lists",
+        "saved_list_items",
+        "directory_categories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nfunction calcDistanceMilesFromZip(obj, search_zip) {\n  if (!obj || !obj.zip_code || !search_zip) return null;\n  if (obj.zip_code === search_zip) return 0;\n  const objPrefix = String(obj.zip_code).slice(0, 3);\n  const searchPrefix = String(search_zip).slice(0, 3);\n  if (objPrefix === searchPrefix) {\n    return 2;\n  }\n  return 9999;\n}\n\nconst comparedIds = JSON.parse(localStorage.getItem('task2_comparedPlumberIds') || '[]');\nconst places = JSON.parse(localStorage.getItem('places') || '[]');\nconst savedLists = JSON.parse(localStorage.getItem('saved_lists') || '[]');\nconst savedItems = JSON.parse(localStorage.getItem('saved_list_items') || '[]');\n\nconst qualifyingPlumbers = places.filter(p => {\n  if (p.category_id !== 'home_services' || p.subcategory !== 'plumber') return false;\n  if (!p.is_24_7_emergency) return false;\n  if ((p.rating || 0) < 4.0) return false;\n  if (p.call_out_fee == null || p.call_out_fee > 100) return false;\n  const dist = calcDistanceMilesFromZip(p, '12345');\n  if (dist == null || dist > 10) return false;\n  return true;\n});\n\nconst comparedQualifying = Array.isArray(comparedIds)\n  ? qualifyingPlumbers.filter(p => comparedIds.includes(p.id))\n  : [];\n\ncheckpoints.push({\n  passed: comparedQualifying.length >= 2,\n  weight: 0.3\n});\n\nconst emergencyList = savedLists.find(l => (l.name || '').toLowerCase() === 'emergency contacts');\nlet qualifyingInList = [];\nif (emergencyList) {\n  const listItems = savedItems.filter(it => it.listId === emergencyList.id && it.item_type === 'place');\n  qualifyingInList = listItems\n    .map(it => places.find(p => p.id === it.item_id))\n    .filter(p => p && qualifyingPlumbers.some(q => q.id === p.id));\n}\n\ncheckpoints.push({\n  passed: !!(emergencyList && qualifyingInList.length >= 1),\n  weight: 0.3\n});\n\nlet cheapest = null;\nqualifyingPlumbers.forEach(p => {\n  if (p.call_out_fee == null) return;\n  if (!cheapest || p.call_out_fee < cheapest.call_out_fee) {\n    cheapest = p;\n  }\n});\n\nconst hasCheapestInList = !!(cheapest && qualifyingInList.some(p => p.id === cheapest.id));\n\ncheckpoints.push({\n  passed: hasCheapestInList,\n  weight: 0.4\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Weekend Plan Free Saturday Events Evaluator",
+      "description": "Checks whether the user saved two different free Saturday afternoon events within 5 miles into the 'Weekend Plan' list.",
+      "localStorage_variables": [
+        "saved_lists",
+        "saved_list_items",
+        "events",
+        "_metadata"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nfunction calcDistanceMilesFromZip(obj, search_zip) {\n  if (!obj || !obj.zip_code || !search_zip) return null;\n  if (obj.zip_code === search_zip) return 0;\n  const objPrefix = String(obj.zip_code).slice(0, 3);\n  const searchPrefix = String(search_zip).slice(0, 3);\n  if (objPrefix === searchPrefix) {\n    return 2;\n  }\n  return 9999;\n}\n\nfunction parseTimeToMinutes(timeStr) {\n  if (!timeStr) return null;\n  const parts = timeStr.split(':');\n  const h = parseInt(parts[0], 10);\n  const m = parts.length > 1 ? parseInt(parts[1], 10) : 0;\n  if (isNaN(h) || isNaN(m)) return null;\n  return h * 60 + m;\n}\n\nfunction getNextSaturdayDate(baselineDateStr) {\n  const d = new Date(baselineDateStr + 'T00:00:00');\n  if (isNaN(d.getTime())) return null;\n  const day = d.getUTCDay();\n  const target = 6; // Saturday\n  const delta = (target - day + 7) % 7;\n  const sat = new Date(d.getTime() + delta * 24 * 60 * 60 * 1000);\n  return sat.toISOString().slice(0, 10);\n}\n\nconst savedLists = JSON.parse(localStorage.getItem('saved_lists') || '[]');\nconst savedItems = JSON.parse(localStorage.getItem('saved_list_items') || '[]');\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst metadata = JSON.parse(localStorage.getItem('_metadata') || 'null');\nconst baselineDate = metadata && metadata.baselineDate ? metadata.baselineDate : '2026-03-03';\nconst saturdayDate = getNextSaturdayDate(baselineDate);\n\nconst weekendList = savedLists.find(l => (l.name || '').toLowerCase() === 'weekend plan');\n\nlet qualifyingSaved = [];\nif (weekendList && saturdayDate) {\n  const listItems = savedItems.filter(it => it.listId === weekendList.id && it.item_type === 'event');\n  listItems.forEach(it => {\n    const e = events.find(ev => ev.id === it.item_id);\n    if (!e) return;\n    if (e.event_type !== 'events') return;\n    if (!e.start_datetime) return;\n    const dStr = new Date(e.start_datetime).toISOString().slice(0, 10);\n    if (dStr !== saturdayDate) return;\n    const dist = calcDistanceMilesFromZip(e, '12345');\n    if (dist == null || dist > 5) return;\n    if (!(e.is_free || e.price === 0)) return;\n    const start = new Date(e.start_datetime);\n    const end = e.end_datetime ? new Date(e.end_datetime) : null;\n    if (isNaN(start.getTime())) return;\n    const sM = start.getHours() * 60 + start.getMinutes();\n    const eM = end && !isNaN(end.getTime()) ? end.getHours() * 60 + end.getMinutes() : sM;\n    const startFilter = parseTimeToMinutes('13:00');\n    const endFilter = parseTimeToMinutes('18:00');\n    if (eM < startFilter || sM > endFilter) return;\n    if (!qualifyingSaved.some(q => q.id === e.id)) {\n      qualifyingSaved.push(e);\n    }\n  });\n}\n\ncheckpoints.push({\n  passed: !!(weekendList && qualifyingSaved.length >= 1),\n  weight: 0.5\n});\n\ncheckpoints.push({\n  passed: !!(weekendList && qualifyingSaved.length >= 2),\n  weight: 0.5\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Environmental Volunteering Contacted Evaluator",
+      "description": "Checks whether the user sent at least one organizer message to an environmental volunteering event within the next month, within 15 miles, with at least 10 spots remaining.",
+      "localStorage_variables": [
+        "organizer_messages",
+        "events",
+        "_metadata"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nfunction calcDistanceMilesFromZip(obj, search_zip) {\n  if (!obj || !obj.zip_code || !search_zip) return null;\n  if (obj.zip_code === search_zip) return 0;\n  const objPrefix = String(obj.zip_code).slice(0, 3);\n  const searchPrefix = String(search_zip).slice(0, 3);\n  if (objPrefix === searchPrefix) {\n    return 2;\n  }\n  return 9999;\n}\n\nfunction addDays(dateStr, days) {\n  const d = new Date(dateStr + 'T00:00:00');\n  if (isNaN(d.getTime())) return null;\n  const d2 = new Date(d.getTime() + days * 24 * 60 * 60 * 1000);\n  return d2.toISOString().slice(0, 10);\n}\n\nconst messages = JSON.parse(localStorage.getItem('organizer_messages') || '[]');\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst metadata = JSON.parse(localStorage.getItem('_metadata') || 'null');\nconst baselineDate = metadata && metadata.baselineDate ? metadata.baselineDate : '2026-03-03';\nconst startDate = baselineDate;\nconst endDate = addDays(baselineDate, 31);\n\nlet qualifyingMessages = [];\n\nmessages.forEach(msg => {\n  const ev = events.find(e => e.id === msg.eventId);\n  if (!ev) return;\n  if (ev.event_type !== 'volunteering') return;\n  if (ev.cause !== 'environment') return;\n  if (!ev.start_datetime) return;\n  const dStr = new Date(ev.start_datetime).toISOString().slice(0, 10);\n  if (dStr < startDate || dStr > endDate) return;\n  const dist = calcDistanceMilesFromZip(ev, '12345');\n  if (dist == null || dist > 15) return;\n  if (ev.spots_remaining == null || ev.spots_remaining < 10) return;\n  qualifyingMessages.push(msg);\n});\n\ncheckpoints.push({\n  passed: qualifyingMessages.length >= 1,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Local Parks Playground and Dog-Friendly Evaluator",
+      "description": "Checks whether the user bookmarked at least one park with both a playground and dog-friendly area within 3 miles into the 'Local Parks' list.",
+      "localStorage_variables": [
+        "saved_lists",
+        "saved_list_items",
+        "places",
+        "directory_categories"
+      ],
+      "evaluation_logic": "const checkpts = [];\n\nfunction calcDistanceMilesFromZip(obj, search_zip) {\n  if (!obj || !obj.zip_code || !search_zip) return null;\n  if (obj.zip_code === search_zip) return 0;\n  const objPrefix = String(obj.zip_code).slice(0, 3);\n  const searchPrefix = String(search_zip).slice(0, 3);\n  if (objPrefix === searchPrefix) {\n    return 2;\n  }\n  return 9999;\n}\n\nconst savedLists = JSON.parse(localStorage.getItem('saved_lists') || '[]');\nconst savedItems = JSON.parse(localStorage.getItem('saved_list_items') || '[]');\nconst places = JSON.parse(localStorage.getItem('places') || '[]');\n\nconst parksList = savedLists.find(l => (l.name || '').toLowerCase() === 'local parks');\n\nlet qualifying = 0;\nif (parksList) {\n  const listItems = savedItems.filter(it => it.listId === parksList.id && it.item_type === 'place');\n  listItems.forEach(it => {\n    const p = places.find(pl => pl.id === it.item_id);\n    if (!p) return;\n    if (p.category_id !== 'parks_outdoors' || p.subcategory !== 'park') return;\n    if (!p.has_playground || !p.is_dog_friendly) return;\n    const dist = calcDistanceMilesFromZip(p, '12345');\n    if (dist == null || dist > 3) return;\n    qualifying += 1;\n  });\n}\n\ncheckpts.push({\n  passed: !!(parksList && qualifying >= 1),\n  weight: 1.0\n});\n\nreturn checkpts.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Beginner Yoga Group Join and RSVP Evaluator",
+      "description": "Checks whether the user joined a qualifying beginner-friendly weekday evening yoga group within 10 miles and RSVP'd 'going' to its next upcoming session.",
+      "localStorage_variables": [
+        "groups",
+        "group_memberships",
+        "events",
+        "event_rsvps",
+        "_metadata"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nfunction calcDistanceMilesFromZip(obj, search_zip) {\n  if (!obj || !obj.zip_code || !search_zip) return null;\n  if (obj.zip_code === search_zip) return 0;\n  const objPrefix = String(obj.zip_code).slice(0, 3);\n  const searchPrefix = String(search_zip).slice(0, 3);\n  if (objPrefix === searchPrefix) {\n    return 2;\n  }\n  return 9999;\n}\n\nconst groups = JSON.parse(localStorage.getItem('groups') || '[]');\nconst memberships = JSON.parse(localStorage.getItem('group_memberships') || '[]');\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst rsvps = JSON.parse(localStorage.getItem('event_rsvps') || '[]');\nconst metadata = JSON.parse(localStorage.getItem('_metadata') || 'null');\nconst baselineDate = metadata && metadata.baselineDate ? metadata.baselineDate : '2026-03-03';\nconst now = new Date(baselineDate + 'T00:00:00');\n\nconst qualifyingGroups = groups.filter(g => {\n  if ((g.focus || '').toLowerCase() !== 'yoga') return false;\n  const level = g.experience_level || 'all_levels';\n  if (!(level === 'beginner' || level === 'all_levels')) return false;\n  const pattern = g.meeting_pattern || null;\n  if (pattern && pattern !== 'weekday_evenings' && pattern !== 'variable') return false;\n  const dist = calcDistanceMilesFromZip(g, '12345');\n  if (dist == null || dist > 10) return false;\n  return true;\n});\n\nconst memberQualGroups = qualifyingGroups.filter(g =>\n  memberships.some(m => m.groupId === g.id && m.status === 'member')\n);\n\ncheckpoints.push({\n  passed: memberQualGroups.length >= 1,\n  weight: 0.5\n});\n\nlet hasRsvpNextSession = false;\nmemberQualGroups.forEach(g => {\n  const groupEvents = events\n    .filter(e =>\n      e.associated_group_id === g.id &&\n      e.event_type === 'group_session' &&\n      e.status === 'scheduled' &&\n      e.start_datetime &&\n      !isNaN(new Date(e.start_datetime).getTime()) &&\n      new Date(e.start_datetime) >= now\n    )\n    .sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));\n\n  if (!groupEvents.length) return;\n  const nextEvent = groupEvents[0];\n  const rsvp = rsvps.find(r => r.eventId === nextEvent.id);\n  if (rsvp && rsvp.status === 'going') {\n    hasRsvpNextSession = true;\n  }\n});\n\ncheckpoints.push({\n  passed: hasRsvpNextSession,\n  weight: 0.5\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Childcare Options Shortlist Evaluator",
+      "description": "Checks whether the user saved at least one qualifying childcare provider meeting all criteria into the 'Childcare Options' list.",
+      "localStorage_variables": [
+        "saved_lists",
+        "saved_list_items",
+        "places",
+        "directory_categories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nfunction calcDistanceMilesFromZip(obj, search_zip) {\n  if (!obj || !obj.zip_code || !search_zip) return null;\n  if (obj.zip_code === search_zip) return 0;\n  const objPrefix = String(obj.zip_code).slice(0, 3);\n  const searchPrefix = String(search_zip).slice(0, 3);\n  if (objPrefix === searchPrefix) {\n    return 2;\n  }\n  return 9999;\n}\n\nconst savedLists = JSON.parse(localStorage.getItem('saved_lists') || '[]');\nconst savedItems = JSON.parse(localStorage.getItem('saved_list_items') || '[]');\nconst places = JSON.parse(localStorage.getItem('places') || '[]');\n\nconst childcareList = savedLists.find(l => (l.name || '').toLowerCase() === 'childcare options');\n\nlet qualifying = 0;\nif (childcareList) {\n  const listItems = savedItems.filter(it => it.listId === childcareList.id && it.item_type === 'place');\n  listItems.forEach(it => {\n    const p = places.find(pl => pl.id === it.item_id);\n    if (!p) return;\n    if (p.category_id !== 'childcare' || p.subcategory !== 'childcare_provider') return;\n    const dist = calcDistanceMilesFromZip(p, '12345');\n    if (dist == null || dist > 8) return;\n    if ((p.rating || 0) < 4.0) return;\n    if (p.hourly_rate == null || p.hourly_rate > 15) return;\n    if (!p.supports_weekday_daytime) return;\n    qualifying += 1;\n  });\n}\n\ncheckpoints.push({\n  passed: !!(childcareList && qualifying >= 1),\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Home Services List Subcategories Evaluator",
+      "description": "Checks whether the user created or updated a 'Home Services' list containing at least one qualifying electrician, one gardener, and one cleaner, all within 10 miles and rated at least 4.0.",
+      "localStorage_variables": [
+        "saved_lists",
+        "saved_list_items",
+        "places",
+        "directory_categories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nfunction calcDistanceMilesFromZip(obj, search_zip) {\n  if (!obj || !obj.zip_code || !search_zip) return null;\n  if (obj.zip_code === search_zip) return 0;\n  const objPrefix = String(obj.zip_code).slice(0, 3);\n  const searchPrefix = String(search_zip).slice(0, 3);\n  if (objPrefix === searchPrefix) {\n    return 2;\n  }\n  return 9999;\n}\n\nconst savedLists = JSON.parse(localStorage.getItem('saved_lists') || '[]');\nconst savedItems = JSON.parse(localStorage.getItem('saved_list_items') || '[]');\nconst places = JSON.parse(localStorage.getItem('places') || '[]');\n\nconst homeList = savedLists.find(l => (l.name || '').toLowerCase() === 'home services');\n\nlet hasElectrician = false;\nlet hasGardener = false;\nlet hasCleaner = false;\n\nif (homeList) {\n  const listItems = savedItems.filter(it => it.listId === homeList.id && it.item_type === 'place');\n  listItems.forEach(it => {\n    const p = places.find(pl => pl.id === it.item_id);\n    if (!p) return;\n    if (p.category_id !== 'home_services') return;\n    const dist = calcDistanceMilesFromZip(p, '12345');\n    if (dist == null || dist > 10) return;\n    if ((p.rating || 0) < 4.0) return;\n    if (p.subcategory === 'electrician') hasElectrician = true;\n    if (p.subcategory === 'gardener') hasGardener = true;\n    if (p.subcategory === 'cleaner') hasCleaner = true;\n  });\n}\n\ncheckpoints.push({\n  passed: !!(homeList && hasElectrician),\n  weight: 0.34\n});\n\ncheckpoints.push({\n  passed: !!(homeList && hasGardener),\n  weight: 0.33\n});\n\ncheckpoints.push({\n  passed: !!(homeList && hasCleaner),\n  weight: 0.33\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "directory_categories",
+    "groups",
+    "places",
+    "place_operating_hours",
+    "events",
+    "event_rsvps",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

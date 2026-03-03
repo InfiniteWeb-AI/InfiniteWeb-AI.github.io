@@ -1,0 +1,109 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Cheapest Qualifying DAF Added to Quote List",
+      "description": "Checks that the user added a DAF unit handling ≥50 m³/h, priced ≤$80,000, and that it is the cheapest qualifying DAF in the catalog, to their current quote list.",
+      "localStorage_variables": [
+        "current_quote_list_id",
+        "quote_list_items",
+        "products",
+        "equipment_categories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst quoteListId = localStorage.getItem('current_quote_list_id');\nconst allQuoteItems = JSON.parse(localStorage.getItem('quote_list_items') || '[]');\nconst quoteItems = quoteListId ? allQuoteItems.filter(i => i.quote_list_id === quoteListId) : [];\n\n// All catalog DAF products that meet task criteria\nconst qualifyingDafs = products.filter(p =>\n  p && p.category_id === 'daf' && p.product_type === 'daf_unit' &&\n  p.status === 'active' && p.currency === 'usd' &&\n  typeof p.flow_capacity_min_m3h === 'number' && p.flow_capacity_min_m3h >= 50 &&\n  typeof p.price === 'number' && p.price <= 80000\n);\nqualifyingDafs.sort((a, b) => (a.price || 0) - (b.price || 0));\nconst cheapestQualifying = qualifyingDafs[0] || null;\n\n// Quote list items that are qualifying DAFs\nconst qualifyingInQuote = quoteItems.filter(item => {\n  const product = products.find(p => p.id === item.product_id);\n  return product &&\n    product.category_id === 'daf' &&\n    product.product_type === 'daf_unit' &&\n    product.status === 'active' && product.currency === 'usd' &&\n    typeof product.flow_capacity_min_m3h === 'number' && product.flow_capacity_min_m3h >= 50 &&\n    typeof product.price === 'number' && product.price <= 80000;\n});\n\n// CP1 (0.4): User added at least one DAF that meets all flow and price criteria\ncheckpoints.push({\n  passed: qualifyingInQuote.length > 0,\n  weight: 0.4\n});\n\n// CP2 (0.6): User added the cheapest qualifying DAF from the catalog to the quote list\nlet hasCheapest = false;\nif (cheapestQualifying) {\n  hasCheapest = quoteItems.some(i => i.product_id === cheapestQualifying.id);\n}\ncheckpoints.push({\n  passed: !!cheapestQualifying && hasCheapest,\n  weight: 0.6\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Cheapest Suitable Line for 30 m³/h with Budget Rule",
+      "description": "Checks that the user selected the cheapest suitable screening unit, dosing skid, and sludge dewatering unit for ~30 m³/h, and applied the rule to remove the single most expensive item only if their combined total exceeds $150,000.",
+      "localStorage_variables": [
+        "current_quote_list_id",
+        "quote_list_items",
+        "products",
+        "equipment_categories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst quoteListId = localStorage.getItem('current_quote_list_id');\nconst allQuoteItems = JSON.parse(localStorage.getItem('quote_list_items') || '[]');\nconst quoteItems = quoteListId ? allQuoteItems.filter(i => i.quote_list_id === quoteListId) : [];\n\nconst designFlow = 30;\nconst maxBudget = 150000;\n\n// Helper to pick cheapest suitable product arrays\nconst screeningCandidates = products.filter(p =>\n  p && p.category_id === 'screening' && p.product_type === 'screening_unit' &&\n  p.status === 'active' &&\n  typeof p.flow_capacity_min_m3h === 'number' && typeof p.flow_capacity_max_m3h === 'number' &&\n  p.flow_capacity_min_m3h <= designFlow && p.flow_capacity_max_m3h >= designFlow &&\n  typeof p.price === 'number'\n);\nscreeningCandidates.sort((a, b) => (a.price || 0) - (b.price || 0));\nconst chosenScreen = screeningCandidates[0] || null;\n\nconst dosingCandidates = products.filter(p =>\n  p && p.category_id === 'dosing_skids' && p.product_type === 'dosing_skid' &&\n  p.status === 'active' &&\n  typeof p.flow_capacity_min_m3h === 'number' && typeof p.flow_capacity_max_m3h === 'number' &&\n  p.flow_capacity_min_m3h <= designFlow && p.flow_capacity_max_m3h >= designFlow &&\n  typeof p.price === 'number'\n);\ndosingCandidates.sort((a, b) => (a.price || 0) - (b.price || 0));\nconst chosenDose = dosingCandidates[0] || null;\n\nconst dewateringCandidates = products.filter(p =>\n  p && p.category_id === 'dewatering' && p.product_type === 'sludge_dewatering_unit' &&\n  p.status === 'active' &&\n  typeof p.plant_flow_capacity_m3h === 'number' && p.plant_flow_capacity_m3h >= designFlow &&\n  typeof p.price === 'number'\n);\ndewateringCandidates.sort((a, b) => (a.price || 0) - (b.price || 0));\nconst chosenDewater = dewateringCandidates[0] || null;\n\nconst chosenProducts = [chosenScreen, chosenDose, chosenDewater].filter(Boolean);\nconst chosenIds = chosenProducts.map(p => p.id);\nconst chosenTotalPrice = chosenProducts.reduce((sum, p) => sum + (p.price || 0), 0);\n\nlet mostExpensive = null;\nif (chosenProducts.length > 0) {\n  mostExpensive = chosenProducts.slice().sort((a, b) => (b.price || 0) - (a.price || 0))[0];\n}\n\nlet expectedFinalIds = chosenIds.slice();\nif (chosenTotalPrice > maxBudget && mostExpensive) {\n  expectedFinalIds = chosenIds.filter(id => id !== mostExpensive.id);\n}\n\nconst quoteProductIds = quoteItems.map(i => i.product_id);\nconst hasAllExpected = expectedFinalIds.length > 0 && expectedFinalIds.every(id => quoteProductIds.includes(id));\n\n// CP1 (0.5): User's quote list contains the cheapest suitable item for each category, adjusted for the budget rule (expected final set)\ncheckpoints.push({\n  passed: hasAllExpected,\n  weight: 0.5\n});\n\n// CP2 (0.5): Budget adjustment rule applied correctly:\n// - If total <= budget: all three cheapest suitable items are present\n// - If total > budget: the single most expensive of the three is NOT present, but the cheaper ones are\nlet budgetRuleOk = false;\nif (chosenProducts.length === 0) {\n  budgetRuleOk = false;\n} else if (chosenTotalPrice <= maxBudget) {\n  // Should keep all chosen products\n  budgetRuleOk = chosenIds.length > 0 && chosenIds.every(id => quoteProductIds.includes(id));\n} else if (mostExpensive) {\n  const cheaperIds = chosenIds.filter(id => id !== mostExpensive.id);\n  const hasCheaper = cheaperIds.length > 0 && cheaperIds.every(id => quoteProductIds.includes(id));\n  const removedExpensive = !quoteProductIds.includes(mostExpensive.id);\n  budgetRuleOk = hasCheaper && removedExpensive;\n}\n\ncheckpoints.push({\n  passed: budgetRuleOk,\n  weight: 0.5\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Cheapest Qualifying MBR Maintenance Plan Added",
+      "description": "Checks that the user added a Germany MBR maintenance plan with ≤24h response and annual cost ≤€6,000 to their service inquiry, and that it is the cheapest qualifying plan.",
+      "localStorage_variables": [
+        "current_service_inquiry_id",
+        "service_inquiry_items",
+        "maintenance_plans"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst plans = JSON.parse(localStorage.getItem('maintenance_plans') || '[]');\nconst inquiryId = localStorage.getItem('current_service_inquiry_id');\nconst allItems = JSON.parse(localStorage.getItem('service_inquiry_items') || '[]');\nconst inquiryItems = inquiryId ? allItems.filter(i => i.service_inquiry_id === inquiryId) : [];\n\n// Qualifying maintenance plans per task criteria\nconst qualifyingPlans = plans.filter(p =>\n  p && p.service_type === 'maintenance_plans' &&\n  p.country === 'germany' &&\n  p.equipment_type === 'membrane_bioreactor_systems' &&\n  p.status === 'active' && p.currency === 'eur' &&\n  typeof p.response_time_hours === 'number' && p.response_time_hours <= 24 &&\n  typeof p.annual_cost === 'number' && p.annual_cost <= 6000\n);\nqualifyingPlans.sort((a, b) => (a.annual_cost || 0) - (b.annual_cost || 0));\nconst cheapestPlan = qualifyingPlans[0] || null;\n\n// Service inquiry items that correspond to qualifying plans\nconst qualifyingInInquiry = inquiryItems.filter(item => {\n  const plan = plans.find(p => p.id === item.maintenance_plan_id);\n  return plan &&\n    plan.service_type === 'maintenance_plans' &&\n    plan.country === 'germany' &&\n    plan.equipment_type === 'membrane_bioreactor_systems' &&\n    plan.status === 'active' && plan.currency === 'eur' &&\n    typeof plan.response_time_hours === 'number' && plan.response_time_hours <= 24 &&\n    typeof plan.annual_cost === 'number' && plan.annual_cost <= 6000;\n});\n\n// CP1 (0.4): User added at least one maintenance plan meeting all criteria to the service inquiry\ncheckpoints.push({\n  passed: qualifyingInInquiry.length > 0,\n  weight: 0.4\n});\n\n// CP2 (0.6): User added the cheapest qualifying plan from the catalog to the service inquiry\nlet hasCheapest = false;\nif (cheapestPlan) {\n  hasCheapest = inquiryItems.some(i => i.maintenance_plan_id === cheapestPlan.id);\n}\ncheckpoints.push({\n  passed: !!cheapestPlan && hasCheapest,\n  weight: 0.6\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Most Recent 2023 F&B Case Study ≥100 m³/d Saved",
+      "description": "Checks that the user saved a 2023 food & beverage case study with capacity ≥100 m³/day and that it is the most recently published qualifying case study.",
+      "localStorage_variables": [
+        "current_reading_list_id",
+        "reading_list_items",
+        "resource_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst resources = JSON.parse(localStorage.getItem('resource_items') || '[]');\nconst readingListId = localStorage.getItem('current_reading_list_id');\nconst allRlItems = JSON.parse(localStorage.getItem('reading_list_items') || '[]');\nconst rlItems = readingListId ? allRlItems.filter(i => i.reading_list_id === readingListId) : [];\n\n// Qualifying 2023 F&B case studies with capacity ≥100 m3/day\nconst qualifyingCases = resources.filter(r => {\n  if (!r || r.resource_type !== 'case_studies' || r.industry !== 'food_beverage') return false;\n  const year = typeof r.publication_year === 'number'\n    ? r.publication_year\n    : (r.publication_date ? new Date(r.publication_date).getFullYear() : null);\n  if (year !== 2023) return false;\n  return typeof r.plant_capacity_m3_per_day === 'number' && r.plant_capacity_m3_per_day >= 100;\n});\nqualifyingCases.sort((a, b) => (b.publication_date || '').localeCompare(a.publication_date || ''));\nconst mostRecent = qualifyingCases[0] || null;\n\n// Reading list items that correspond to qualifying case studies\nconst savedQualifying = rlItems.filter(item => qualifyingCases.some(r => r.id === item.resource_id));\n\n// CP1 (0.4): User saved at least one case study meeting all industry, year, and capacity criteria\ncheckpoints.push({\n  passed: savedQualifying.length > 0,\n  weight: 0.4\n});\n\n// CP2 (0.6): User saved the most recently published qualifying case study\nlet hasMostRecent = false;\nif (mostRecent) {\n  hasMostRecent = rlItems.some(i => i.resource_id === mostRecent.id);\n}\ncheckpoints.push({\n  passed: !!mostRecent && hasMostRecent,\n  weight: 0.6\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Equalization Tank Calculator Used and Correct Tank Added",
+      "description": "Checks that the user ran the equalization tank sizing calculator with the specified inputs (75 m³/h, peak factor 2.5, buffer 4 h) and added the cheapest tank in the recommended series with volume ≥750 m³ and closest to that volume to the quote list.",
+      "localStorage_variables": [
+        "equalization_tank_calculations",
+        "tank_series",
+        "products",
+        "current_quote_list_id",
+        "quote_list_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst calcs = JSON.parse(localStorage.getItem('equalization_tank_calculations') || '[]');\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst quoteListId = localStorage.getItem('current_quote_list_id');\nconst allQuoteItems = JSON.parse(localStorage.getItem('quote_list_items') || '[]');\nconst quoteItems = quoteListId ? allQuoteItems.filter(i => i.quote_list_id === quoteListId) : [];\n\n// Find a calculation run with the specified inputs\nconst correctCalc = calcs.find(c =>\n  c && c.flow_rate_value === 75 && c.flow_rate_unit === 'm3_per_h' &&\n  c.peak_factor === 2.5 && c.buffer_time_hours === 4\n) || null;\n\n// CP1 (0.4): User ran the equalization tank calculator with the exact required inputs\ncheckpoints.push({\n  passed: !!correctCalc,\n  weight: 0.4\n});\n\n// CP2 (0.6): From that calculation, user added the correct equalization tank (closest volume ≥750 m3 in the recommended series, cheapest at that volume) to the quote list\nlet tankSelectionOk = false;\nif (correctCalc) {\n  const targetMinVolume = 750;\n  const selectedSeriesId = correctCalc.selected_tank_series_id;\n  if (selectedSeriesId) {\n    const candidateTanks = products.filter(p =>\n      p && p.product_type === 'equalization_tank' &&\n      p.tank_series_id === selectedSeriesId &&\n      typeof p.tank_volume_m3 === 'number' && p.tank_volume_m3 >= targetMinVolume &&\n      typeof p.price === 'number' && p.status === 'active'\n    );\n    candidateTanks.sort((a, b) => {\n      const va = a.tank_volume_m3 || 0;\n      const vb = b.tank_volume_m3 || 0;\n      if (va !== vb) return va - vb; // closest volume ≥ target first\n      return (a.price || 0) - (b.price || 0); // then cheapest at that volume\n    });\n    const chosenTank = candidateTanks[0] || null;\n    if (chosenTank) {\n      tankSelectionOk = quoteItems.some(i => i.product_id === chosenTank.id);\n    }\n  }\n}\n\ncheckpoints.push({\n  passed: tankSelectionOk,\n  weight: 0.6\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Compare Two Cheapest pH Systems and Quote Lower NaOH One",
+      "description": "Checks that the user compared the two cheapest pH neutralization systems under $40,000 and submitted a quote request for the one with the lower NaOH consumption (kg/h).",
+      "localStorage_variables": [
+        "current_comparison_session_id",
+        "product_comparison_items",
+        "products",
+        "equipment_categories",
+        "quote_requests",
+        "quote_list_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst sessionId = localStorage.getItem('current_comparison_session_id');\nconst allCompItems = JSON.parse(localStorage.getItem('product_comparison_items') || '[]');\nconst compItems = sessionId ? allCompItems.filter(i => i.comparison_session_id === sessionId) : [];\nconst quoteRequests = JSON.parse(localStorage.getItem('quote_requests') || '[]');\nconst allQuoteItems = JSON.parse(localStorage.getItem('quote_list_items') || '[]');\n\n// Qualifying pH systems\nconst qualifyingPhSystems = products.filter(p =>\n  p && p.category_id === 'ph_neutralization_systems' &&\n  p.product_type === 'ph_neutralization_system' &&\n  p.status === 'active' && p.currency === 'usd' &&\n  typeof p.price === 'number' && p.price <= 40000\n);\nqualifyingPhSystems.sort((a, b) => (a.price || 0) - (b.price || 0));\nconst cheapestTwo = qualifyingPhSystems.slice(0, 2);\n\n// CP1 (0.4): Comparison session includes both of the two cheapest qualifying pH systems\nlet comparisonOk = false;\nif (cheapestTwo.length === 2 && compItems.length > 0) {\n  const compProductIds = compItems.map(i => i.product_id);\n  comparisonOk = cheapestTwo.every(p => compProductIds.includes(p.id));\n}\ncheckpoints.push({\n  passed: comparisonOk,\n  weight: 0.4\n});\n\n// CP2 (0.6): User submitted a quote request that includes the system with lower NaOH consumption among those two\nlet quoteOk = false;\nlet chosenLower = null;\nif (cheapestTwo.length === 2) {\n  const [p1, p2] = cheapestTwo;\n  const c1 = (typeof p1.naoh_consumption_kg_per_h === 'number') ? p1.naoh_consumption_kg_per_h : Infinity;\n  const c2 = (typeof p2.naoh_consumption_kg_per_h === 'number') ? p2.naoh_consumption_kg_per_h : Infinity;\n  if (c1 === c2) {\n    chosenLower = p1; // tie, any is acceptable\n  } else {\n    chosenLower = c1 < c2 ? p1 : p2;\n  }\n}\n\nif (chosenLower && quoteRequests.length > 0) {\n  for (const qr of quoteRequests) {\n    if (qr.status !== 'submitted') continue;\n    const itemsForList = allQuoteItems.filter(i => i.quote_list_id === qr.quote_list_id);\n    if (itemsForList.some(i => i.product_id === chosenLower.id)) {\n      quoteOk = true;\n      break;\n    }\n  }\n}\n\ncheckpoints.push({\n  passed: !!chosenLower && quoteOk,\n  weight: 0.6\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Distributor Search and Nearest Contact Viewed",
+      "description": "Checks that the user searched for industrial wastewater distributors near ZIP 75201 with radius ≤200 km and opened the contact details for the closest distributor returned by that search.",
+      "localStorage_variables": [
+        "distributor_searches",
+        "distributors",
+        "task7_lastDistributorDetails"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst searches = JSON.parse(localStorage.getItem('distributor_searches') || '[]');\nconst lastDetails = JSON.parse(localStorage.getItem('task7_lastDistributorDetails') || 'null');\n\n// Find the most recent search matching the task criteria\nconst matchingSearches = searches.filter(s =>\n  s && s.zip_postal_code === '75201' &&\n  s.market_segment === 'industrial_wastewater_treatment' &&\n  typeof s.radius_km === 'number' && s.radius_km <= 200\n);\nconst lastSearch = matchingSearches.length > 0 ? matchingSearches[matchingSearches.length - 1] : null;\n\n// CP1 (0.4): User performed a distributor search with ZIP 75201, market 'industrial_wastewater_treatment', and radius ≤200 km\ncheckpoints.push({\n  passed: !!lastSearch,\n  weight: 0.4\n});\n\n// CP2 (0.6): User viewed contact details for the closest distributor from that search\nlet viewedNearest = false;\nif (lastSearch && Array.isArray(lastSearch.result_distributor_ids) && lastSearch.result_distributor_ids.length > 0 && lastDetails) {\n  const nearestId = lastSearch.result_distributor_ids[0];\n  viewedNearest = lastDetails.distributor_id === nearestId;\n}\n\ncheckpoints.push({\n  passed: viewedNearest,\n  weight: 0.6\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Register for June PFAS Webinar in 10:00–12:00 Slot with Correct Details",
+      "description": "Checks that the user registered for a PFAS treatment webinar in June 2025 starting between 10:00 and 12:00 and used the specified attendee details.",
+      "localStorage_variables": [
+        "resource_items",
+        "webinar_registrations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst resources = JSON.parse(localStorage.getItem('resource_items') || '[]');\nconst registrations = JSON.parse(localStorage.getItem('webinar_registrations') || '[]');\n\n// Determine qualifying PFAS webinars in June 2025 in 10:00–12:00 window\nconst qualifyingWebinars = resources.filter(r => {\n  if (!r || r.resource_type !== 'webinars' || r.topic !== 'pfas_treatment' || !r.start_datetime) return false;\n  const d = new Date(r.start_datetime);\n  if (isNaN(d.getTime())) return false;\n  const month = d.getMonth() + 1;\n  const year = d.getFullYear();\n  const hh = String(d.getHours()).padStart(2, '0');\n  const mm = String(d.getMinutes()).padStart(2, '0');\n  const timeStr = hh + ':' + mm;\n  return year === 2025 && month === 6 && timeStr >= '10:00' && timeStr <= '12:00';\n});\nconst targetWebinar = qualifyingWebinars[0] || null;\n\n// Registrations for that webinar\nconst matchingRegs = targetWebinar\n  ? registrations.filter(reg => reg && reg.webinar_id === targetWebinar.id)\n  : [];\n\n// CP1 (0.4): User registered for a webinar that meets topic, month/year, and time window criteria\ncheckpoints.push({\n  passed: !!targetWebinar && matchingRegs.length > 0,\n  weight: 0.4\n});\n\n// CP2 (0.6): Among those registrations, at least one uses the specified attendee details\nlet detailsOk = false;\nif (targetWebinar && matchingRegs.length > 0) {\n  detailsOk = matchingRegs.some(reg => {\n    const nameOk = reg.full_name === 'Alex Rivera';\n    const emailOk = reg.email === 'alex.rivera@example.com';\n    const companyOk = reg.company === 'TexFab Coatings';\n    const countryVal = (reg.country || '').toString().toLowerCase();\n    const countryOk = countryVal === 'united_states' || countryVal === 'united states';\n    const roleVal = (reg.role || '').toString().toLowerCase();\n    const roleOk = roleVal === 'engineering_manager' || roleVal === 'engineering manager';\n    return nameOk && emailOk && companyOk && countryOk && roleOk;\n  });\n}\n\ncheckpoints.push({\n  passed: detailsOk,\n  weight: 0.6\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "distributors",
+    "equipment_categories",
+    "maintenance_plans",
+    "resource_items",
+    "tank_series",
+    "tools",
+    "products",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

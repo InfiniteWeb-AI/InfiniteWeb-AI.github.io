@@ -1,0 +1,99 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Residential Screw Piling Quote Request Evaluator",
+      "description": "Checks if the user submitted a service-based quote request for a residential screw piling service suitable for ≥8m foundations for a rear extension in postcode 3000.",
+      "localStorage_variables": [
+        "services",
+        "service_categories",
+        "quote_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst services = JSON.parse(localStorage.getItem('services') || '[]');\nconst quotes = JSON.parse(localStorage.getItem('quote_requests') || '[]');\n\n// Find piling services suitable for residential screw piling with depth >= 8m\nconst qualifyingServices = services.filter(s => {\n  if (!s || s.service_type !== 'piling') return false;\n  if (!Array.isArray(s.project_types) || !s.project_types.includes('residential')) return false;\n  if (s.pile_type !== 'screw_piles') return false;\n  if (typeof s.max_recommended_depth_m !== 'number' || s.max_recommended_depth_m < 8) return false;\n  return true;\n});\n\n// Service-based quotes that use one of the qualifying services, residential project type, postcode 3000\nconst qualifyingQuotes = quotes.filter(q => {\n  if (!q || q.source_type !== 'service') return false;\n  if (q.site_postcode !== '3000') return false;\n  if (q.project_type !== 'residential') return false;\n  const svc = qualifyingServices.find(s => s.id === q.related_service_id);\n  return !!svc;\n});\n\n// From those, look for descriptions that reference an extension (rear / house extension etc.)\nconst extensionQuotes = qualifyingQuotes.filter(q => {\n  const desc = (q.project_description || '').toLowerCase();\n  return desc.includes('extension');\n});\n\n// CP1 (0.6): At least one service quote for a qualifying residential screw piling service at postcode 3000\ncheckpoints.push({ passed: qualifyingQuotes.length > 0, weight: 0.6 });\n\n// CP2 (0.4): At least one such quote clearly references an extension in the description\ncheckpoints.push({ passed: extensionQuotes.length > 0, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Pile Estimator Warehouse Quote Evaluator",
+      "description": "Checks if the user calculated a pile estimate for a 30m x 20m warehouse on firm clay under $60,000 and submitted an industrial quote request for postcode 5000 based on that estimate.",
+      "localStorage_variables": [
+        "pile_estimates",
+        "quote_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst estimates = JSON.parse(localStorage.getItem('pile_estimates') || '[]');\nconst quotes = JSON.parse(localStorage.getItem('quote_requests') || '[]');\n\n// Pile estimates for 30m x 20m, firm clay, light industrial / warehouse, cost <= 60000\nconst qualifyingEstimates = estimates.filter(e => {\n  if (!e) return false;\n  if (e.building_length_m !== 30) return false;\n  if (e.building_width_m !== 20) return false;\n  if (e.soil_type !== 'firm_clay') return false;\n  if (e.building_use_type !== 'light_industrial_warehouse') return false;\n  if (typeof e.estimated_total_cost !== 'number' || e.estimated_total_cost > 60000) return false;\n  return true;\n});\n\n// Among those estimates, find ones that have a corresponding pile_estimator quote for industrial project in postcode 5000\nconst estimatesWithQuote = qualifyingEstimates.filter(e => {\n  return quotes.some(q => {\n    if (!q) return false;\n    if (q.source_type !== 'pile_estimator') return false;\n    if (q.related_pile_estimate_id !== e.id) return false;\n    if (q.site_postcode !== '5000') return false;\n    if (q.project_type !== 'industrial') return false;\n    return true;\n  });\n});\n\n// CP1 (0.4): User produced at least one qualifying pile estimate meeting the dimension/soil/cost requirements\ncheckpoints.push({ passed: qualifyingEstimates.length > 0, weight: 0.4 });\n\n// CP2 (0.6): User submitted at least one industrial quote request for postcode 5000 based on such an estimate\ncheckpoints.push({ passed: estimatesWithQuote.length > 0, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Cheapest Qualifying Piling Rig Hire Booking Evaluator",
+      "description": "Checks if the user hired for 3 days the lowest-priced piling rig with daily rate < $1,000 and rating ≥ 4 stars, and submitted a hire booking for postcode 4000.",
+      "localStorage_variables": [
+        "equipment",
+        "hire_bookings",
+        "hire_booking_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst equipment = JSON.parse(localStorage.getItem('equipment') || '[]');\nconst bookings = JSON.parse(localStorage.getItem('hire_bookings') || '[]');\nconst items = JSON.parse(localStorage.getItem('hire_booking_items') || '[]');\n\n// All piling rigs that meet rating and price constraints\nconst allQualifyingRigs = equipment.filter(eq => {\n  if (!eq || eq.category !== 'piling_rigs') return false;\n  if (eq.is_available === false) return false;\n  if (typeof eq.average_rating !== 'number' || eq.average_rating < 4) return false;\n  if (typeof eq.daily_rate !== 'number' || eq.daily_rate >= 1000) return false;\n  return true;\n});\n\nlet cheapestRigIds = [];\nif (allQualifyingRigs.length > 0) {\n  const minRate = Math.min(...allQualifyingRigs.map(r => r.daily_rate || 0));\n  cheapestRigIds = allQualifyingRigs.filter(r => r.daily_rate === minRate).map(r => r.id);\n}\n\n// Submitted bookings for postcode 4000\nconst submittedBookings = bookings.filter(b => b && b.status === 'submitted' && b.site_postcode === '4000');\n\n// Helper to get equipment object for an item\nfunction getEquipmentForItem(it) {\n  return equipment.find(e => e.id === it.equipment_id) || null;\n}\n\n// Bookings where user hired ANY qualifying piling rig (rating/price) for exactly 3 days\nconst bookingsWithQualifyingRig3Days = submittedBookings.filter(b => {\n  const relatedItems = items.filter(it => it.booking_id === b.id);\n  return relatedItems.some(it => {\n    const eq = getEquipmentForItem(it);\n    if (!eq) return false;\n    const isQualRig = eq.category === 'piling_rigs' && eq.is_available !== false &&\n      typeof eq.average_rating === 'number' && eq.average_rating >= 4 &&\n      typeof eq.daily_rate === 'number' && eq.daily_rate < 1000;\n    return isQualRig && it.hire_days === 3;\n  });\n});\n\n// Among those, bookings where the 3-day rig is one of the cheapest qualifying rigs\nconst bookingsWithCheapestRig3Days = bookingsWithQualifyingRig3Days.filter(b => {\n  const relatedItems = items.filter(it => it.booking_id === b.id);\n  return relatedItems.some(it => cheapestRigIds.includes(it.equipment_id) && it.hire_days === 3);\n});\n\n// CP1 (0.4): User submitted a booking for postcode 4000 that hires a qualifying piling rig (rating ≥4, rate <1000) for exactly 3 days\ncheckpoints.push({ passed: bookingsWithQualifyingRig3Days.length > 0, weight: 0.4 });\n\n// CP2 (0.6): That 3-day rig is the cheapest available among all qualifying piling rigs\ncheckpoints.push({ passed: bookingsWithCheapestRig3Days.length > 0, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Basement Excavation Melbourne Shortlist Evaluator",
+      "description": "Checks if the user added at least three Melbourne-area basement excavation projects completed between 2020 and 2023 to their shortlist.",
+      "localStorage_variables": [
+        "projects",
+        "project_shortlists",
+        "current_project_shortlist_id"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst projects = JSON.parse(localStorage.getItem('projects') || '[]');\nconst shortlists = JSON.parse(localStorage.getItem('project_shortlists') || '[]');\nconst shortlistId = localStorage.getItem('current_project_shortlist_id') || '';\n\nconst shortlist = shortlists.find(s => s.id === shortlistId) || null;\nlet shortlistedQualifying = [];\n\nif (shortlist && Array.isArray(shortlist.project_ids)) {\n  const qualifyingProjects = projects.filter(p => {\n    if (!p || p.project_type !== 'basement_excavation') return false;\n    if (typeof p.completion_year !== 'number') return false;\n    if (p.completion_year < 2020 || p.completion_year > 2023) return false;\n    const region = p.location_region;\n    if (region !== 'melbourne' && region !== 'vic_melbourne_region') return false;\n    return true;\n  });\n\n  shortlistedQualifying = qualifyingProjects.filter(p => shortlist.project_ids.includes(p.id));\n}\n\n// CP1-3: Number of qualifying projects in shortlist (each only counts if project meets all criteria)\n[1, 2, 3].forEach((n, idx) => {\n  const weight = idx === 2 ? 0.34 : 0.33; // 0.33 + 0.33 + 0.34 = 1.0\n  checkpoints.push({ passed: shortlistedQualifying.length >= n, weight });\n});\n\nreturn checkoints = checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);\n"
+    },
+    {
+      "task_id": "task_5",
+      "name": "ISO 45001 Safety Compliance Enquiry Evaluator",
+      "description": "Checks if the user submitted a safety compliance contact enquiry that references the active ISO 45001 OHS certification by its exact name and links it via related_certification_code.",
+      "localStorage_variables": [
+        "certifications",
+        "contact_enquiries"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst certs = JSON.parse(localStorage.getItem('certifications') || '[]');\nconst enquiries = JSON.parse(localStorage.getItem('contact_enquiries') || '[]');\n\nconst isoCert = certs.find(c => c && c.code === 'ISO 45001' && c.is_active !== false) || null;\n\nconst qualifyingEnquiries = enquiries.filter(e => {\n  if (!e) return false;\n  if (e.enquiry_type !== 'safety_compliance') return false;\n  if (!isoCert) return false;\n  if (e.related_certification_code !== isoCert.code) return false;\n  const msg = e.message || '';\n  // Must mention the certification by its exact name\n  return msg.indexOf(isoCert.name) !== -1;\n});\n\n// Single checkpoint (1.0): At least one safety_compliance enquiry that correctly references ISO 45001 by name and code\ncheckpoints.push({ passed: qualifyingEnquiries.length > 0, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "10-Lot Subdivision Callback Morning Window Evaluator",
+      "description": "Checks if the user submitted a callback request about a 10-lot subdivision earthworks project with a preferred contact window between 9:00 and 11:00 AM.",
+      "localStorage_variables": [
+        "resource_articles",
+        "callback_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst callbacks = JSON.parse(localStorage.getItem('callback_requests') || '[]');\n\nfunction describesTenLotSubdivision(desc) {\n  const d = (desc || '').toLowerCase();\n  const has10 = d.includes('10-lot') || d.includes('10 lot') || d.includes('ten-lot') || d.includes('ten lot');\n  const hasSubdivision = d.includes('subdivision');\n  return has10 && hasSubdivision;\n}\n\nfunction isWithinMorning(windowStr) {\n  if (!windowStr) return false;\n  const s = String(windowStr);\n  // Prefer parsing explicit times like 9:30, 10:00 etc.\n  const regex = /(\\d{1,2})\\s*:\\s*(\\d{2})/g;\n  let match;\n  const hours = [];\n  while ((match = regex.exec(s)) !== null) {\n    const h = parseInt(match[1], 10);\n    if (!isNaN(h)) hours.push(h);\n  }\n  if (hours.length > 0) {\n    const minH = Math.min(...hours);\n    const maxH = Math.max(...hours);\n    return minH >= 9 && maxH <= 11;\n  }\n  // Fallback: textual AM window mentioning 9, 10 or 11 and not PM\n  const lower = s.toLowerCase();\n  if (!lower.includes('am') || lower.includes('pm')) return false;\n  if (/(\\b9\\b|\\b10\\b|\\b11\\b)/.test(lower)) return true;\n  return false;\n}\n\nconst descCallbacks = callbacks.filter(c => c && describesTenLotSubdivision(c.project_description || ''));\nconst fullQualCallbacks = descCallbacks.filter(c => isWithinMorning(c.preferred_contact_time_window || ''));\n\n// CP1 (0.5): Callback request clearly describes a 10-lot subdivision project\ncheckpoints.push({ passed: descCallbacks.length > 0, weight: 0.5 });\n\n// CP2 (0.5): Among those, at least one has a preferred contact window constrained between 9:00 and 11:00 AM\ncheckpoints.push({ passed: fullQualCallbacks.length > 0, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Site Inspection Booking Nearest Branch Retaining Wall Evaluator",
+      "description": "Checks if the user booked a site inspection for retaining wall piling at the nearest branch to postcode 2000 on the 15th of next month.",
+      "localStorage_variables": [
+        "branches",
+        "site_inspection_bookings"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst branches = JSON.parse(localStorage.getItem('branches') || '[]');\nconst bookings = JSON.parse(localStorage.getItem('site_inspection_bookings') || '[]');\n\nconst sitePostcode = '2000';\nconst sitePostInt = parseInt(sitePostcode, 10);\nlet nearestBranchId = null;\n\nif (!isNaN(sitePostInt) && branches.length > 0) {\n  let best = null;\n  branches.forEach(b => {\n    if (!b || !b.postcode) return;\n    const bp = parseInt(b.postcode, 10);\n    if (isNaN(bp)) return;\n    const dist = Math.abs(sitePostInt - bp);\n    if (!best || dist < best.dist) {\n      best = { id: b.id, dist };\n    }\n  });\n  if (best) nearestBranchId = best.id;\n}\n\n// Compute target date = 15th of next month relative to current system time\nconst now = new Date();\nlet year = now.getFullYear();\nlet month = now.getMonth(); // 0-based\nlet targetMonth = month + 1;\nif (targetMonth > 11) {\n  targetMonth = 0;\n  year += 1;\n}\nconst targetDay = 15;\n\nconst bookingsForSite = bookings.filter(b => b && b.site_postcode === sitePostcode);\nconst bookingsWithNearestBranch = bookingsForSite.filter(b => nearestBranchId && b.branch_id === nearestBranchId);\nconst bookingsWithService = bookingsWithNearestBranch.filter(b => b.service_type === 'retaining_wall_piling');\nconst bookingsWithCorrectDate = bookingsWithService.filter(b => {\n  const d = new Date(b.inspection_date);\n  if (isNaN(d.getTime())) return false;\n  return d.getFullYear() === year && d.getMonth() === targetMonth && d.getDate() === targetDay;\n});\n\n// CP1 (0.5): At least one booking for postcode 2000 uses the nearest branch\ncheckpoints.push({ passed: bookingsWithNearestBranch.length > 0, weight: 0.5 });\n\n// CP2 (0.5): Among those, at least one is for retaining wall piling on the 15th of next month\ncheckpoints.push({ passed: bookingsWithCorrectDate.length > 0, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Custom Earthworks Package Quote Evaluator",
+      "description": "Checks if the user configured an earthworks package including excavation, haulage and compaction within 40 hours and $20,000, and requested a quote for postcode 4217 (infill development).",
+      "localStorage_variables": [
+        "earthworks_packages",
+        "earthworks_package_items",
+        "quote_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst packages = JSON.parse(localStorage.getItem('earthworks_packages') || '[]');\nconst packageItems = JSON.parse(localStorage.getItem('earthworks_package_items') || '[]');\nconst quotes = JSON.parse(localStorage.getItem('quote_requests') || '[]');\n\n// Packages that include excavation, haulage and compaction items, with total hours <= 40 and total cost <= 20000\nconst qualifyingPackages = packages.filter(pkg => {\n  if (!pkg) return false;\n  const items = packageItems.filter(it => it.package_id === pkg.id);\n  if (items.length === 0) return false;\n  const types = new Set(items.map(it => it.item_type));\n  const hasExcavation = types.has('excavation');\n  const hasHaulage = types.has('haulage_truck_hire');\n  const hasCompaction = types.has('compaction_roller_hire');\n  if (!hasExcavation || !hasHaulage || !hasCompaction) return false;\n  if (typeof pkg.total_machine_hours !== 'number' || pkg.total_machine_hours > 40) return false;\n  if (typeof pkg.estimated_total_cost !== 'number' || pkg.estimated_total_cost > 20000) return false;\n  return true;\n});\n\n// Among those packages, find ones with a linked earthworks_package quote for postcode 4217 mentioning infill\nconst packagesWithQuote = qualifyingPackages.filter(pkg => {\n  return quotes.some(q => {\n    if (!q) return false;\n    if (q.source_type !== 'earthworks_package') return false;\n    if (q.related_earthworks_package_id !== pkg.id) return false;\n    if (q.site_postcode !== '4217') return false;\n    const desc = (q.project_description || '').toLowerCase();\n    return desc.includes('infill');\n  });\n});\n\n// CP1 (0.4): User created at least one qualifying earthworks package configuration (3 services, <=40 hours, <=$20k)\ncheckpoints.push({ passed: qualifyingPackages.length > 0, weight: 0.4 });\n\n// CP2 (0.6): User submitted a quote request for postcode 4217 referencing such a package and describing an infill development\ncheckpoints.push({ passed: packagesWithQuote.length > 0, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "branches",
+    "certifications",
+    "projects",
+    "resource_articles",
+    "equipment",
+    "services",
+    "service_categories",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

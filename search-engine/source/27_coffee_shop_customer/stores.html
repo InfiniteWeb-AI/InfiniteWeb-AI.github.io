@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Le Cafe - Customer Portal</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='stores.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='header-inner'>
+      <a href='index.html' class='brand'>
+        <div class='brand-logo' aria-hidden='true'></div>
+        <span class='brand-name'>Le Cafe</span>
+      </a>
+      <nav class='main-nav' aria-label='Primary navigation'>
+        <ul>
+          <li><a href='index.html'>Home</a></li>
+          <li><a href='menu.html'>Order Pickup</a></li>
+          <li><a href='stores.html'>Stores</a></li>
+          <li><a href='rewards.html'>Rewards</a></li>
+          <li><a href='account_dashboard.html'>Account</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='page-content' role='main'>
+    <section class='stores-page-header-bar' data-component='header-account-controls' data-populate='account-header' aria-label='Stores page header'></section>
+
+    <div class='stores-page-container'>
+      <section class='stores-search-section' data-component='stores-search-form' aria-labelledby='storesSearchTitle'>
+        <div class='stores-search-inner'>
+          <h1 id='storesSearchTitle' class='stores-search-title'>Find a store</h1>
+          <p class='stores-search-subtitle'>Search by ZIP code or use your current location to find a nearby Le Cafe.</p>
+
+          <form id='storesSearchForm' class='stores-search-form' novalidate>
+            <div class='field-group'>
+              <label for='zipInput' class='field-label'>ZIP code</label>
+              <input
+                id='zipInput'
+                name='zip'
+                class='text-input'
+                type='text'
+                inputmode='numeric'
+                pattern='\d{3,10}'
+                maxlength='10'
+                autocomplete='postal-code'
+                required
+                data-role='zip-input'
+              >
+              <p class='field-hint'>Enter a 5-digit ZIP code.</p>
+            </div>
+            <button type='submit' class='btn btn-primary stores-search-button'>Search</button>
+          </form>
+
+          <button type='button' class='btn btn-link use-location-button' data-action='use-current-location'>
+            Use current location
+          </button>
+
+          <p class='input-error' data-role='zip-error' aria-live='polite'></p>
+        </div>
+      </section>
+
+      <section class='order-summary-section' data-component='order-summary-widget' data-populate='current-order-summary' aria-label='Current order summary'></section>
+
+      <section class='stores-results-section' data-component='stores-results-list' data-populate='stores-results' aria-live='polite' aria-label='Store search results'></section>
+
+      <section class='account-auth-section' data-component='account-auth-panel' data-populate='account-auth-panel' aria-label='Account sign in and sign up'></section>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner'>
+      <div class='footer-links'>
+        <div class='footer-column'>
+          <a href='about.html'>About</a>
+          <a href='contact.html'>Contact</a>
+          <a href='help.html'>Help &amp; FAQ</a>
+          <a href='stores.html'>Stores</a>
+        </div>
+        <div class='footer-column'>
+          <a href='account_orders.html'>Order History</a>
+          <a href='account_payments.html'>Payment Methods</a>
+          <a href='terms.html'>Terms of Use</a>
+          <a href='privacy.html'>Privacy Policy</a>
+        </div>
+      </div>
+      <div class='footer-meta'>
+        <span class='footer-copy'>&copy; 2026 Le Cafe. All rights reserved.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var pageState = {
+        account: null,
+        currentZip: '',
+        lastZipSearch: '',
+        searchMode: null, // 'zip' or 'coords'
+        stores: [],
+        orderSummary: null,
+        authMode: 'login',
+        authError: ''
+      };
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value).replace(/[&<>"']/g, function(ch) {
+          if (ch === '&') return '&amp;';
+          if (ch === '<') return '&lt;';
+          if (ch === '>') return '&gt;';
+          if (ch === '"') return '&quot;';
+          if (ch === '\'') return '&#39;';
+          return ch;
+        });
+      }
+
+      function formatCurrency(amount) {
+        if (typeof amount !== 'number' || isNaN(amount)) {
+          return '$0.00';
+        }
+        return '$' + amount.toFixed(2);
+      }
+
+      function formatDistance(miles) {
+        if (typeof miles !== 'number' || isNaN(miles)) {
+          return '';
+        }
+        return miles.toFixed(1) + ' mi';
+      }
+
+      function formatLoyaltyTier(tier) {
+        if (!tier || tier === 'none') {
+          return '';
+        }
+        var map = {
+          bronze: 'Bronze',
+          silver: 'Silver',
+          gold: 'Gold',
+          platinum: 'Platinum'
+        };
+        return map[tier] || '';
+      }
+
+      function updateZipParam(newZip) {
+        try {
+          var url = new URL(window.location.href);
+          if (newZip && newZip.trim()) {
+            url.searchParams.set('zip', newZip.trim());
+          } else {
+            url.searchParams.delete('zip');
+          }
+          window.history.replaceState({}, '', url.toString());
+        } catch (err) {
+          // If URL or history APIs are unavailable, silently ignore.
+        }
+      }
+
+      function renderHeaderAccountControls(container, account) {
+        var hasAccount = !!account;
+        if (!hasAccount) {
+          container.innerHTML = `
+            <div class='stores-header-inner'>
+              <div class='stores-header-left'>
+                <button type='button' class='btn btn-link stores-header-link' data-action='header-nav-stores'>
+                  Stores
+                </button>
+              </div>
+              <div class='stores-header-center'>
+                <span class='stores-header-title'>Find a store</span>
+              </div>
+              <div class='stores-header-right'>
+                <button type='button' class='btn btn-text' data-action='auth-open-login'>Log in</button>
+                <button type='button' class='btn btn-outline' data-action='auth-open-signup'>Create account</button>
+              </div>
+            </div>
+          `;
+        } else {
+          var accountName = account.fullName ? account.fullName.split(' ')[0] : '';
+          var tierLabel = formatLoyaltyTier(account.loyaltyTier);
+          container.innerHTML = `
+            <div class='stores-header-inner'>
+              <div class='stores-header-left'>
+                <button type='button' class='btn btn-link stores-header-link' data-action='header-nav-stores'>
+                  Stores
+                </button>
+              </div>
+              <div class='stores-header-center'>
+                <span class='stores-header-title'>Find a store</span>
+                ${tierLabel ? `<span class='stores-header-subtitle'>${escapeHtml(tierLabel)} member</span>` : ''}
+              </div>
+              <div class='stores-header-right'>
+                <div class='account-chip'>
+                  <span class='account-chip-name'>${escapeHtml(accountName)}</span>
+                  ${tierLabel ? `<span class='account-chip-tier'>${escapeHtml(tierLabel)}</span>` : ''}
+                </div>
+                <button type='button' class='btn btn-text' data-action='logout'>Log out</button>
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      function renderOrderSummary(container, summary) {
+        pageState.orderSummary = summary || null;
+        var hasActive = !!(summary && summary.hasActiveOrder && summary.pickupStore && summary.pickupStore.id);
+        container.dataset.hasActiveOrder = hasActive ? 'true' : 'false';
+        container.dataset.pickupStoreId = hasActive ? summary.pickupStore.id : '';
+
+        if (!summary || !summary.hasActiveOrder) {
+          container.innerHTML = `
+            <div class='card order-summary-card order-summary-card--empty'>
+              <div class='order-summary-header'>
+                <h2 class='order-summary-title'>Current order</h2>
+              </div>
+              <p class='order-summary-empty-text'>You do not have an active order.</p>
+            </div>
+          `;
+          return;
+        }
+
+        var itemLabel = summary.itemCount === 1 ? 'item' : 'items';
+        var pickupTime = summary.pickupDateTime
+          ? `<div class='order-summary-row'><span class='order-summary-label'>Pickup</span><span class='order-summary-value'>${escapeHtml(summary.pickupDateTime)}</span></div>`
+          : '';
+
+        container.innerHTML = `
+          <div class='card order-summary-card'>
+            <div class='order-summary-header'>
+              <h2 class='order-summary-title'>Current order</h2>
+              <span class='order-summary-status'>Active</span>
+            </div>
+            <div class='order-summary-body'>
+              <div class='order-summary-row'>
+                <span class='order-summary-label'>Store</span>
+                <span class='order-summary-value'>${escapeHtml((summary.pickupStore && summary.pickupStore.name) || '')}</span>
+              </div>
+              <div class='order-summary-row'>
+                <span class='order-summary-label'>Items</span>
+                <span class='order-summary-value'>${summary.itemCount} ${itemLabel}</span>
+              </div>
+              <div class='order-summary-row'>
+                <span class='order-summary-label'>Total</span>
+                <span class='order-summary-value'>${formatCurrency(summary.totalAmount)}</span>
+              </div>
+              ${pickupTime}
+            </div>
+            <div class='order-summary-footer'>
+              <button type='button' class='btn btn-secondary' data-action='open-order-summary'>View order</button>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderStoresResults(container, stores, options) {
+        var mode = (options && options.mode) || pageState.searchMode;
+        var results = stores || [];
+
+        if (!mode || !results.length) {
+          if (!mode) {
+            container.innerHTML = `
+              <div class='stores-results-empty'>
+                <p>Search by ZIP code or use your current location to see nearby stores.</p>
+              </div>
+            `;
+            return;
+          }
+
+          var message = 'No stores found.';
+          if (mode === 'zip' && pageState.currentZip) {
+            message = 'No stores found near ZIP ' + escapeHtml(pageState.currentZip) + '. Try a nearby ZIP code.';
+          } else if (mode === 'coords') {
+            message = 'No stores found near your current location.';
+          }
+
+          container.innerHTML = `
+            <div class='stores-results-empty'>
+              <p>${message}</p>
+            </div>
+          `;
+          return;
+        }
+
+        var cardsHtml = results.map(function(store) {
+          var isFavorite = !!(
+            store.isFavorite === true ||
+            (pageState.account && pageState.account.favoriteStore && pageState.account.favoriteStore.id === store.id)
+          );
+
+          var distancePart = typeof store.distanceMiles === 'number'
+            ? `<span class='store-card-distance'>${formatDistance(store.distanceMiles)}</span>`
+            : '';
+          var hoursPart = store.hoursSummary
+            ? `<span class='store-card-hours'>${escapeHtml(store.hoursSummary)}</span>`
+            : '';
+          var statusText = store.isOpenNow ? 'Open now' : 'Closed';
+          var statusClass = store.isOpenNow ? 'store-card-status--open' : 'store-card-status--closed';
+          var mobileText = store.canMobileOrder ? 'Mobile ordering available' : 'Mobile ordering not available';
+          var mobileClassModifier = store.canMobileOrder ? '' : ' store-card-mobile--unavailable';
+
+          var addressParts = [];
+          if (store.addressLine1) addressParts.push(store.addressLine1);
+          var cityStateZip = [store.city || '', store.state || '', store.zipCode || ''].join(' ').trim();
+          if (cityStateZip) addressParts.push(cityStateZip);
+          var address = addressParts.join(', ');
+
+          return `
+            <article class='card store-card' data-component='store-result-card' data-store-id='${escapeHtml(store.id)}'>
+              <header class='store-card-header'>
+                <div class='store-card-header-main'>
+                  <button type='button' class='store-card-name' data-action='store-view-details'>
+                    ${escapeHtml(store.name || '')}
+                  </button>
+                  ${isFavorite ? '<span class="store-card-badge">Favorite</span>' : ''}
+                </div>
+                <div class='store-card-meta'>
+                  ${distancePart}
+                  ${hoursPart}
+                  <span class='store-card-status ${statusClass}'>${statusText}</span>
+                </div>
+              </header>
+              <div class='store-card-body'>
+                <p class='store-card-address'>${escapeHtml(address)}</p>
+              </div>
+              <footer class='store-card-footer'>
+                <div class='store-card-actions'>
+                  <button type='button' class='btn btn-primary' data-action='store-order-pickup'${store.canMobileOrder ? '' : ' disabled aria-disabled="true"'}>
+                    Order pickup
+                  </button>
+                  <button type='button' class='btn btn-link' data-action='store-view-details'>
+                    View details
+                  </button>
+                </div>
+                <div class='store-card-mobile${mobileClassModifier}'>
+                  ${mobileText}
+                </div>
+              </footer>
+            </article>
+          `;
+        }).join('');
+
+        container.innerHTML = `
+          <div class='stores-results-list'>
+            ${cardsHtml}
+          </div>
+        `;
+      }
+
+      function renderAuthPanel(container, options) {
+        var mode = (options && options.mode) ? options.mode : (pageState.authMode || 'login');
+        var error = (options && typeof options.error === 'string') ? options.error : (pageState.authError || '');
+        pageState.authMode = mode;
+        pageState.authError = error;
+
+        var account = pageState.account;
+        if (account) {
+          var tierLabel = formatLoyaltyTier(account.loyaltyTier);
+          var favoriteName = account.favoriteStore && account.favoriteStore.name ? account.favoriteStore.name : '';
+          container.innerHTML = `
+            <div class='card auth-card auth-card--signed-in'>
+              <div class='auth-card-header'>
+                <h2 class='auth-card-title'>You\'re signed in</h2>
+              </div>
+              <div class='auth-card-body'>
+                <p class='auth-card-text'>
+                  Signed in as <strong>${escapeHtml(account.fullName || account.email || '')}</strong>
+                  ${tierLabel ? ' · ' + escapeHtml(tierLabel) + ' member' : ''}
+                </p>
+                ${favoriteName ? `<p class='auth-card-text'>Favorite store: ${escapeHtml(favoriteName)}</p>` : ''}
+              </div>
+              <div class='auth-card-footer'>
+                <button type='button' class='btn btn-text' data-action='logout'>Log out</button>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        var isLogin = mode === 'signup' ? false : true;
+        var title = isLogin ? 'Sign in to save your favorite stores' : 'Create an account';
+        var primaryCta = isLogin ? 'Sign in' : 'Create account';
+        var switchText = isLogin ? 'Don\'t have an account?' : 'Already have an account?';
+        var switchCta = isLogin ? 'Sign up' : 'Sign in';
+        var errorHtml = error ? `<p class='auth-error' aria-live='polite'>${escapeHtml(error)}</p>` : '';
+        var formActionAttr = isLogin ? 'auth-login' : 'auth-signup';
+
+        var formBodyLogin = `
+          <div class='field-group'>
+            <label for='authEmail' class='field-label'>Email</label>
+            <input id='authEmail' name='email' type='email' class='text-input' autocomplete='email' required>
+          </div>
+          <div class='field-group'>
+            <label for='authPassword' class='field-label'>Password</label>
+            <input id='authPassword' name='password' type='password' class='text-input' autocomplete='current-password' required>
+          </div>
+        `;
+
+        var formBodySignup = `
+          <div class='field-group'>
+            <label for='signupFullName' class='field-label'>Full name</label>
+            <input id='signupFullName' name='fullName' type='text' class='text-input' autocomplete='name' required>
+          </div>
+          <div class='field-group'>
+            <label for='signupEmail' class='field-label'>Email</label>
+            <input id='signupEmail' name='email' type='email' class='text-input' autocomplete='email' required>
+          </div>
+          <div class='field-group'>
+            <label for='signupPassword' class='field-label'>Password</label>
+            <input id='signupPassword' name='password' type='password' class='text-input' autocomplete='new-password' required>
+          </div>
+          <div class='field-group'>
+            <label for='signupConfirmPassword' class='field-label'>Confirm password</label>
+            <input id='signupConfirmPassword' name='confirmPassword' type='password' class='text-input' autocomplete='new-password' required>
+          </div>
+          <div class='field-group field-group--checkbox'>
+            <label class='checkbox-label'>
+              <input type='checkbox' name='acceptTerms' value='true' required>
+              <span>I agree to the Terms of Use and Privacy Policy.</span>
+            </label>
+          </div>
+        `;
+
+        container.innerHTML = `
+          <div class='card auth-card'>
+            <div class='auth-card-header'>
+              <h2 class='auth-card-title'>${title}</h2>
+              <button type='button' class='auth-card-close' aria-label='Hide account panel' data-action='auth-close'>×</button>
+            </div>
+            <form class='auth-card-form' data-action='${formActionAttr}' novalidate>
+              <div class='auth-card-body'>
+                ${isLogin ? formBodyLogin : formBodySignup}
+                ${errorHtml}
+              </div>
+              <div class='auth-card-footer'>
+                <button type='submit' class='btn btn-primary auth-primary-button'>${primaryCta}</button>
+                <p class='auth-switch-text'>
+                  ${switchText}
+                  <button type='button' class='btn btn-link auth-switch-link' data-action='auth-switch-mode'>${switchCta}</button>
+                </p>
+              </div>
+            </form>
+          </div>
+        `;
+      }
+
+      function handleAccountLoginSuccess(account) {
+        pageState.account = account;
+        pageState.authError = '';
+
+        var headerEl = document.querySelector('[data-populate="account-header"]');
+        if (headerEl) {
+          renderHeaderAccountControls(headerEl, pageState.account);
+        }
+
+        var authPanel = document.querySelector('[data-component="account-auth-panel"]');
+        if (authPanel) {
+          renderAuthPanel(authPanel, { mode: 'logged-in', error: '' });
+        }
+
+        if (pageState.currentZip && typeof WebsiteSDK !== 'undefined' && WebsiteSDK && typeof WebsiteSDK.searchStoresByZip === 'function') {
+          try {
+            var stores = WebsiteSDK.searchStoresByZip(pageState.currentZip);
+            pageState.searchMode = 'zip';
+            pageState.stores = stores || [];
+            var resultsContainer = document.querySelector('[data-populate="stores-results"]');
+            if (resultsContainer) {
+              renderStoresResults(resultsContainer, pageState.stores, { mode: 'zip' });
+            }
+          } catch (err) {
+            // Ignore errors refreshing results.
+          }
+        }
+      }
+
+      function handleAccountLogoutSuccess() {
+        pageState.account = null;
+        pageState.authError = '';
+
+        var headerEl = document.querySelector('[data-populate="account-header"]');
+        if (headerEl) {
+          renderHeaderAccountControls(headerEl, null);
+        }
+
+        var authPanel = document.querySelector('[data-component="account-auth-panel"]');
+        if (authPanel) {
+          pageState.authMode = 'login';
+          renderAuthPanel(authPanel, { mode: 'login', error: '' });
+        }
+
+        if (pageState.currentZip && typeof WebsiteSDK !== 'undefined' && WebsiteSDK && typeof WebsiteSDK.searchStoresByZip === 'function') {
+          try {
+            var stores = WebsiteSDK.searchStoresByZip(pageState.currentZip);
+            pageState.searchMode = 'zip';
+            pageState.stores = stores || [];
+            var resultsContainer = document.querySelector('[data-populate="stores-results"]');
+            if (resultsContainer) {
+              renderStoresResults(resultsContainer, pageState.stores, { mode: 'zip' });
+            }
+          } catch (err) {
+            // Ignore errors refreshing results.
+          }
+        }
+      }
+
+      function performZipSearch(zipValue, zipErrorEl, options) {
+        var opts = options || {};
+        if (!zipValue) {
+          if (zipErrorEl) {
+            zipErrorEl.textContent = 'Please enter a ZIP code.';
+          }
+          return;
+        }
+        if (!/^\d{3,10}$/.test(zipValue)) {
+          if (zipErrorEl) {
+            zipErrorEl.textContent = 'Enter a valid ZIP code.';
+          }
+          return;
+        }
+
+        if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK || typeof WebsiteSDK.searchStoresByZip !== 'function') {
+          if (zipErrorEl) {
+            zipErrorEl.textContent = 'Search service is not available.';
+          }
+          return;
+        }
+
+        try {
+          var stores = WebsiteSDK.searchStoresByZip(zipValue);
+          pageState.currentZip = zipValue;
+          pageState.lastZipSearch = zipValue;
+          pageState.searchMode = 'zip';
+          pageState.stores = stores || [];
+
+          var resultsContainer = document.querySelector('[data-populate="stores-results"]');
+          if (resultsContainer) {
+            renderStoresResults(resultsContainer, pageState.stores, { mode: 'zip' });
+          }
+          if (zipErrorEl) {
+            zipErrorEl.textContent = '';
+          }
+          if (opts.updateUrl) {
+            updateZipParam(zipValue);
+          }
+        } catch (err) {
+          if (zipErrorEl) {
+            zipErrorEl.textContent = 'Unable to search for stores. Please try again.';
+          }
+        }
+      }
+
+      function performCoordinateSearch(latitude, longitude, errorEl) {
+        if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK || typeof WebsiteSDK.searchStoresByCoordinates !== 'function') {
+          if (errorEl) {
+            errorEl.textContent = 'Location search is not available.';
+          }
+          return;
+        }
+        try {
+          var stores = WebsiteSDK.searchStoresByCoordinates(latitude, longitude);
+          pageState.searchMode = 'coords';
+          pageState.stores = stores || [];
+          var resultsContainer = document.querySelector('[data-populate="stores-results"]');
+          if (resultsContainer) {
+            renderStoresResults(resultsContainer, pageState.stores, { mode: 'coords' });
+          }
+          if (errorEl) {
+            errorEl.textContent = '';
+          }
+        } catch (err) {
+          if (errorEl) {
+            errorEl.textContent = 'Unable to search near your location. Please try again.';
+          }
+        }
+      }
+
+      // --- Page initialization (page-init-controller) ---
+
+      var urlParams = new URLSearchParams(window.location.search);
+      var initialZipParam = urlParams.get('zip') || '';
+
+      var searchFormSection = document.querySelector('[data-component="stores-search-form"]');
+      var zipInput = searchFormSection ? searchFormSection.querySelector('[data-role="zip-input"]') : null;
+      var zipErrorEl = searchFormSection ? searchFormSection.querySelector('[data-role="zip-error"]') : null;
+
+      if (zipInput && initialZipParam) {
+        zipInput.value = initialZipParam;
+        pageState.currentZip = initialZipParam.trim();
+        pageState.lastZipSearch = pageState.currentZip;
+      }
+
+      var populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function(element) {
+        var type = element.dataset.populate;
+        if (type === 'account-header') {
+          renderHeaderAccountControls(element, pageState.account);
+        } else if (type === 'current-order-summary') {
+          if (typeof WebsiteSDK !== 'undefined' && WebsiteSDK && typeof WebsiteSDK.getCurrentOrderSummary === 'function') {
+            try {
+              var summary = WebsiteSDK.getCurrentOrderSummary();
+              pageState.orderSummary = summary;
+              renderOrderSummary(element, summary);
+            } catch (err) {
+              renderOrderSummary(element, null);
+            }
+          } else {
+            renderOrderSummary(element, null);
+          }
+        } else if (type === 'stores-results') {
+          renderStoresResults(element, pageState.stores, { mode: pageState.searchMode });
+        } else if (type === 'account-auth-panel') {
+          renderAuthPanel(element, { mode: pageState.authMode, error: pageState.authError });
+        }
+      });
+
+      if (pageState.currentZip) {
+        performZipSearch(pageState.currentZip, zipErrorEl, { updateUrl: true });
+      }
+
+      if (zipInput) {
+        zipInput.addEventListener('input', function(e) {
+          pageState.currentZip = e.target.value.trim();
+          if (zipErrorEl) {
+            zipErrorEl.textContent = '';
+          }
+        });
+      }
+
+      var searchForm = document.getElementById('storesSearchForm');
+      if (searchForm) {
+        searchForm.addEventListener('submit', function(e) {
+          e.preventDefault();
+          var zipValue = zipInput ? zipInput.value.trim() : '';
+          performZipSearch(zipValue, zipErrorEl, { updateUrl: true });
+        });
+      }
+
+      // --- Global click handler for data-action elements ---
+
+      document.addEventListener('click', function(e) {
+        var actionEl = e.target.closest('[data-action]');
+        if (!actionEl) {
+          return;
+        }
+        var action = actionEl.dataset.action;
+        if (!action) {
+          return;
+        }
+        e.preventDefault();
+
+        if (action === 'use-current-location') {
+          if (!navigator.geolocation) {
+            if (zipErrorEl) {
+              zipErrorEl.textContent = 'Location is not supported in your browser. You can still search by ZIP code.';
+            }
+            return;
+          }
+          if (zipErrorEl) {
+            zipErrorEl.textContent = 'Locating…';
+          }
+          navigator.geolocation.getCurrentPosition(function(position) {
+            var latitude = position.coords.latitude;
+            var longitude = position.coords.longitude;
+            performCoordinateSearch(latitude, longitude, zipErrorEl);
+          }, function() {
+            if (zipErrorEl) {
+              zipErrorEl.textContent = 'We could not access your location. You can still search by ZIP code.';
+            }
+          });
+        } else if (action === 'header-nav-stores') {
+          var href = 'stores.html';
+          var zip = pageState.currentZip || pageState.lastZipSearch || '';
+          if (zip) {
+            href += '?zip=' + encodeURIComponent(zip);
+          }
+          window.location.href = href;
+        } else if (action === 'store-view-details') {
+          var card = actionEl.closest('[data-store-id]');
+          if (!card) return;
+          var storeId = card.dataset.storeId;
+          if (!storeId) return;
+          var url = 'store_detail.html?id=' + encodeURIComponent(storeId);
+          var zipForParam = pageState.currentZip || pageState.lastZipSearch || '';
+          if (pageState.searchMode === 'zip' && zipForParam) {
+            url += '&fromZip=' + encodeURIComponent(zipForParam);
+          }
+          window.location.href = url;
+        } else if (action === 'store-order-pickup') {
+          if (actionEl.disabled) {
+            return;
+          }
+          var cardEl = actionEl.closest('[data-store-id]');
+          if (!cardEl) return;
+          var sId = cardEl.dataset.storeId;
+          if (!sId) return;
+          var menuUrl = 'menu.html?pickupStoreId=' + encodeURIComponent(sId);
+          window.location.href = menuUrl;
+        } else if (action === 'open-order-summary') {
+          var widget = actionEl.closest('[data-component="order-summary-widget"]');
+          if (!widget) return;
+          if (widget.dataset.hasActiveOrder !== 'true') return;
+          var pickupStoreId = widget.dataset.pickupStoreId;
+          if (!pickupStoreId) return;
+          var orderUrl = 'menu.html?pickupStoreId=' + encodeURIComponent(pickupStoreId);
+          window.location.href = orderUrl;
+        } else if (action === 'auth-open-login') {
+          var authPanel = document.querySelector('[data-component="account-auth-panel"]');
+          if (authPanel) {
+            authPanel.style.display = '';
+            pageState.authMode = 'login';
+            pageState.authError = '';
+            renderAuthPanel(authPanel, { mode: 'login', error: '' });
+            authPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        } else if (action === 'auth-open-signup') {
+          var authPanelEl = document.querySelector('[data-component="account-auth-panel"]');
+          if (authPanelEl) {
+            authPanelEl.style.display = '';
+            pageState.authMode = 'signup';
+            pageState.authError = '';
+            renderAuthPanel(authPanelEl, { mode: 'signup', error: '' });
+            authPanelEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        } else if (action === 'auth-switch-mode') {
+          var panel = document.querySelector('[data-component="account-auth-panel"]');
+          if (!panel) return;
+          var newMode = pageState.authMode === 'signup' ? 'login' : 'signup';
+          pageState.authMode = newMode;
+          pageState.authError = '';
+          renderAuthPanel(panel, { mode: newMode, error: '' });
+        } else if (action === 'auth-close') {
+          var closePanel = actionEl.closest('[data-component="account-auth-panel"]');
+          if (closePanel) {
+            closePanel.style.display = 'none';
+          }
+        } else if (action === 'logout') {
+          if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK || typeof WebsiteSDK.logoutCurrentAccount !== 'function') {
+            pageState.authError = 'Logout service is not available.';
+            var panelEl = document.querySelector('[data-component="account-auth-panel"]');
+            if (panelEl) {
+              renderAuthPanel(panelEl, { mode: pageState.authMode, error: pageState.authError });
+            }
+            return;
+          }
+          try {
+            var resp = WebsiteSDK.logoutCurrentAccount();
+            if (resp && resp.success) {
+              handleAccountLogoutSuccess();
+            } else {
+              pageState.authError = (resp && resp.message) ? resp.message : 'We could not log you out. Please try again.';
+              var panelNode = document.querySelector('[data-component="account-auth-panel"]');
+              if (panelNode) {
+                renderAuthPanel(panelNode, { mode: pageState.authMode, error: pageState.authError });
+              }
+            }
+          } catch (err) {
+            pageState.authError = 'An unexpected error occurred while logging out.';
+            var panelErr = document.querySelector('[data-component="account-auth-panel"]');
+            if (panelErr) {
+              renderAuthPanel(panelErr, { mode: pageState.authMode, error: pageState.authError });
+            }
+          }
+        }
+      });
+
+      // --- Auth form submit handler ---
+
+      document.addEventListener('submit', function(e) {
+        var form = e.target;
+        var action = form.dataset.action;
+        if (!action) {
+          return;
+        }
+
+        if (action === 'auth-login') {
+          e.preventDefault();
+          var fd = new FormData(form);
+          var email = (fd.get('email') || '').toString().trim();
+          var password = (fd.get('password') || '').toString();
+
+          if (!email || !password) {
+            pageState.authError = 'Please enter your email and password.';
+            var panel = document.querySelector('[data-component="account-auth-panel"]');
+            if (panel) {
+              renderAuthPanel(panel, { mode: 'login', error: pageState.authError });
+            }
+            return;
+          }
+
+          if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK || typeof WebsiteSDK.loginWithEmailPassword !== 'function') {
+            pageState.authError = 'Login service is not available.';
+            var panelSvc = document.querySelector('[data-component="account-auth-panel"]');
+            if (panelSvc) {
+              renderAuthPanel(panelSvc, { mode: 'login', error: pageState.authError });
+            }
+            return;
+          }
+
+          try {
+            var response = WebsiteSDK.loginWithEmailPassword(email, password);
+            if (response && response.success && response.isLoggedIn && response.account) {
+              handleAccountLoginSuccess(response.account);
+            } else {
+              var message = (response && response.message) ? response.message : 'Unable to sign in. Check your email and password.';
+              pageState.authError = message;
+              var authPanel = document.querySelector('[data-component="account-auth-panel"]');
+              if (authPanel) {
+                renderAuthPanel(authPanel, { mode: 'login', error: pageState.authError });
+              }
+            }
+          } catch (err) {
+            pageState.authError = 'An unexpected error occurred while signing in. Please try again.';
+            var authPanelErr = document.querySelector('[data-component="account-auth-panel"]');
+            if (authPanelErr) {
+              renderAuthPanel(authPanelErr, { mode: 'login', error: pageState.authError });
+            }
+          }
+        } else if (action === 'auth-signup') {
+          e.preventDefault();
+          var signupData = new FormData(form);
+          var fullName = (signupData.get('fullName') || '').toString().trim();
+          var emailVal = (signupData.get('email') || '').toString().trim();
+          var passwordVal = (signupData.get('password') || '').toString();
+          var confirmPasswordVal = (signupData.get('confirmPassword') || '').toString();
+          var acceptTermsValue = signupData.get('acceptTerms');
+          var acceptTerms = acceptTermsValue === 'true' || acceptTermsValue === 'on';
+
+          if (!fullName || !emailVal || !passwordVal || !confirmPasswordVal) {
+            pageState.authError = 'Please complete all required fields.';
+          } else if (passwordVal !== confirmPasswordVal) {
+            pageState.authError = 'Passwords do not match.';
+          } else if (!acceptTerms) {
+            pageState.authError = 'You must agree to the terms to create an account.';
+          } else {
+            pageState.authError = '';
+          }
+
+          if (pageState.authError) {
+            var signupPanel = document.querySelector('[data-component="account-auth-panel"]');
+            if (signupPanel) {
+              renderAuthPanel(signupPanel, { mode: 'signup', error: pageState.authError });
+            }
+            return;
+          }
+
+          if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK || typeof WebsiteSDK.signupAccount !== 'function') {
+            pageState.authError = 'Signup service is not available.';
+            var signupPanelSvc = document.querySelector('[data-component="account-auth-panel"]');
+            if (signupPanelSvc) {
+              renderAuthPanel(signupPanelSvc, { mode: 'signup', error: pageState.authError });
+            }
+            return;
+          }
+
+          try {
+            var signupResp = WebsiteSDK.signupAccount(fullName, emailVal, passwordVal, confirmPasswordVal, acceptTerms);
+            if (signupResp && signupResp.success && signupResp.accountDashboard) {
+              handleAccountLoginSuccess(signupResp.accountDashboard);
+            } else {
+              var signupMsg = (signupResp && signupResp.message) ? signupResp.message : 'Unable to create account. Please try again.';
+              pageState.authError = signupMsg;
+              var signupPanelErr = document.querySelector('[data-component="account-auth-panel"]');
+              if (signupPanelErr) {
+                renderAuthPanel(signupPanelErr, { mode: 'signup', error: pageState.authError });
+              }
+            }
+          } catch (err) {
+            pageState.authError = 'An unexpected error occurred while creating your account. Please try again.';
+            var signupPanelEx = document.querySelector('[data-component="account-auth-panel"]');
+            if (signupPanelEx) {
+              renderAuthPanel(signupPanelEx, { mode: 'signup', error: pageState.authError });
+            }
+          }
+        }
+      });
+    });
+  </script>
+</body>
+</html>
