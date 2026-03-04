@@ -1,6 +1,7 @@
 // --- State ---
 let miniSearch = null;
 let siteIndex = {};
+let allPages = [];
 let allResults = [];
 let filteredResults = [];
 let currentQuery = '';
@@ -51,6 +52,7 @@ async function loadIndex() {
       },
     });
     miniSearch.addAll(data.pages);
+    allPages = data.pages;
 
     indexReady = true;
     homeStats.textContent = data.metadata.totalSites + ' websites \u00B7 ' + data.metadata.totalPages + ' pages indexed';
@@ -82,6 +84,11 @@ function executeSearch(query) {
   } catch (e) {
     console.error('Search error:', e);
     allResults = [];
+  }
+
+  // If no results, show all pages in random order
+  if (allResults.length === 0) {
+    allResults = allPages.slice().sort(function() { return Math.random() - 0.5; });
   }
 
   filteredResults = allResults.slice();
