@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Wi-Fi Settings | Fiber Optic Network Provider</title>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='framework.css'>
+  <link rel='stylesheet' href='wifi_settings.css'>
+  <script src='business_logic.js'></script>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='header-inner'>
+      <div class='header-top'>
+        <div class='header-logo'>
+          <a href='index.html' class='logo-wordmark' aria-label='Go to homepage'>
+            <span class='logo-main'>fiber</span><span class='logo-accent'>net</span>
+          </a>
+        </div>
+        <div class='header-utilities'>
+          <span class='support-label'>SUPPORT</span>
+          <span class='support-phone'>0800 771 1237</span>
+          <a href='help_center.html' class='btn btn-primary header-support-btn'>Access Support</a>
+        </div>
+      </div>
+      <nav class='primary-nav' aria-label='Primary navigation'>
+        <ul class='nav-list'>
+          <li class='nav-item'>
+            <a href='index.html' class='nav-link is-active' aria-current='page'>Home</a>
+          </li>
+          <li class='nav-item'>
+            <a href='plans_residential.html' class='nav-link'>Residential Internet</a>
+          </li>
+          <li class='nav-item'>
+            <a href='bundles.html' class='nav-link'>Bundles</a>
+          </li>
+          <li class='nav-item'>
+            <a href='business_internet.html?categoryId=fiber_internet' class='nav-link'>Business</a>
+          </li>
+          <li class='nav-item'>
+            <a href='shop.html?categoryId=equipment_wifi' class='nav-link'>Shop</a>
+          </li>
+          <li class='nav-item'>
+            <a href='help_center.html' class='nav-link'>Support</a>
+          </li>
+          <li class='nav-item'>
+            <a href='account_dashboard.html' class='nav-link'>My Account (Demo)</a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-content' role='main'>
+    <section id='wifiSettingsPage' class='wifi-settings-page-shell' data-populate='wifi-settings'></section>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner'>
+      <div class='footer-top'>
+        <div class='footer-brand'>
+          <div class='footer-logo'>
+            <span class='logo-main'>fiber</span><span class='logo-accent'>net</span>
+          </div>
+          <p class='footer-tagline'>
+            High-capacity fiber optic network powering residential and business connectivity.
+          </p>
+        </div>
+        <div class='footer-links-group'>
+          <h2 class='footer-heading'>Explore</h2>
+          <ul class='footer-links'>
+            <li><a href='about.html'>About</a></li>
+            <li><a href='help_center.html'>Help Center</a></li>
+            <li><a href='availability.html'>Check Availability</a></li>
+            <li><a href='outages.html'>Outages &amp; Service Status</a></li>
+            <li><a href='billing.html'>Billing &amp; Payments</a></li>
+            <li><a href='services.html'>My Services</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class='footer-bottom'>
+        <p class='footer-meta'>
+          &copy; 2024 FiberNet Communications. All rights reserved.
+        </p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const SECURITY_MODE_OPTIONS = [
+      { value: 'open', label: 'Open (no password)' },
+      { value: 'wpa2', label: 'WPA2' },
+      { value: 'wpa3', label: 'WPA3' },
+      { value: 'wpa2_wpa3_mixed', label: 'WPA2 / WPA3 mixed' }
+    ];
+
+    const wifiState = {
+      networks: [],
+      primaryNetworkId: null,
+      selectedNetworkId: null,
+      urlNetworkId: null,
+      formState: {
+        name: '',
+        password: '',
+        securityMode: '',
+        initialName: '',
+        initialPassword: '',
+        initialSecurityMode: '',
+        isDirty: false,
+        isValid: false,
+        isSaving: false,
+        showPassword: false,
+        errors: {
+          name: null,
+          password: null,
+          securityMode: null
+        }
+      },
+      statusMessage: null,
+      statusType: null, // 'success' | 'error' | 'info'
+      loadError: null
+    };
+
+    const urlParams = new URLSearchParams(window.location.search);
+    wifiState.urlNetworkId = urlParams.get('networkId');
+
+    const populateElements = document.querySelectorAll('[data-populate]');
+    populateElements.forEach(function(element) {
+      const dataType = element.dataset.populate;
+      if (dataType === 'wifi-settings') {
+        initWifiSettingsPage(element);
+      }
+    });
+
+    function escapeHtml(str) {
+      if (str == null) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function getSelectedNetwork() {
+      if (!wifiState.selectedNetworkId) return null;
+      for (let i = 0; i < wifiState.networks.length; i++) {
+        if (wifiState.networks[i].networkId === wifiState.selectedNetworkId) {
+          return wifiState.networks[i];
+        }
+      }
+      return null;
+    }
+
+    function determineSelectedNetworkId(networks, primaryNetworkId, urlNetworkId) {
+      if (urlNetworkId) {
+        const match = networks.find(function(n) { return n.networkId === urlNetworkId; });
+        if (match) return urlNetworkId;
+      }
+      if (primaryNetworkId) {
+        const primaryMatch = networks.find(function(n) { return n.networkId === primaryNetworkId; });
+        if (primaryMatch) return primaryNetworkId;
+      }
+      if (networks.length > 0) {
+        return networks[0].networkId;
+      }
+      return null;
+    }
+
+    function createFormStateForNetwork(network) {
+      const name = network ? network.name || '' : '';
+      const securityMode = network ? network.securityMode || 'wpa2' : 'wpa2';
+      return {
+        name: name,
+        password: '',
+        securityMode: securityMode,
+        initialName: name,
+        initialPassword: '',
+        initialSecurityMode: securityMode,
+        isDirty: false,
+        isValid: !!name,
+        isSaving: false,
+        showPassword: false,
+        errors: {
+          name: null,
+          password: null,
+          securityMode: null
+        }
+      };
+    }
+
+    function validateFormState() {
+      const fs = wifiState.formState;
+      const errors = { name: null, password: null, securityMode: null };
+      let isValid = true;
+
+      const trimmedName = fs.name.trim();
+      if (!trimmedName) {
+        errors.name = 'Network name (SSID) is required.';
+        isValid = false;
+      } else if (trimmedName.length > 32) {
+        errors.name = 'Network name must be 1-32 characters long.';
+        isValid = false;
+      }
+
+      const allowedValues = SECURITY_MODE_OPTIONS.map(function(opt) { return opt.value; });
+      if (!fs.securityMode || allowedValues.indexOf(fs.securityMode) === -1) {
+        errors.securityMode = 'Select a valid security mode.';
+        isValid = false;
+      }
+
+      if (fs.password && fs.password.length > 0 && fs.password.length < 8) {
+        errors.password = 'Password must be at least 8 characters.';
+        isValid = false;
+      }
+
+      const isDirty = (
+        fs.name !== fs.initialName ||
+        fs.securityMode !== fs.initialSecurityMode ||
+        (fs.password && fs.password.length > 0)
+      );
+
+      wifiState.formState.errors = errors;
+      wifiState.formState.isValid = isValid;
+      wifiState.formState.isDirty = isDirty;
+    }
+
+    function updateUrlNetworkId() {
+      const currentUrl = new URL(window.location.href);
+      if (wifiState.selectedNetworkId) {
+        currentUrl.searchParams.set('networkId', wifiState.selectedNetworkId);
+      } else {
+        currentUrl.searchParams.delete('networkId');
+      }
+      window.history.replaceState({}, '', currentUrl.toString());
+    }
+
+    function renderStatusBannerHtml() {
+      if (!wifiState.statusMessage && !wifiState.loadError) {
+        return '';
+      }
+      const type = wifiState.loadError ? 'error' : (wifiState.statusType || 'info');
+      const message = wifiState.loadError || wifiState.statusMessage || '';
+      const label = type === 'success' ? 'Settings saved' : (type === 'error' ? 'Wi-Fi settings error' : 'Wi-Fi status');
+      const bannerClass = 'status-banner status-banner--' + type;
+
+      return `
+        <div class="${bannerClass}" data-component="wifi-status-banner">
+          <div class="status-banner-inner">
+            <div class="status-banner-indicator" aria-hidden="true"></div>
+            <div class="status-banner-copy">
+              <p class="status-banner-title">${escapeHtml(label)}</p>
+              <p class="status-banner-message">${escapeHtml(message)}</p>
+            </div>
+            <button type="button" class="status-banner-dismiss" data-action="dismiss-banner" aria-label="Dismiss message">&times;</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderWifiSettings(container) {
+      const selectedNetwork = getSelectedNetwork();
+      const fs = wifiState.formState;
+      const hasNetwork = !!selectedNetwork;
+      const canEdit = !wifiState.loadError && hasNetwork;
+      const saveDisabled = !canEdit || !fs.isDirty || !fs.isValid || fs.isSaving;
+      const saveLabel = fs.isSaving ? 'Savinga0a0a0' : 'Save changes';
+
+      let networksListHtml = '';
+      if (wifiState.networks && wifiState.networks.length > 0) {
+        networksListHtml = wifiState.networks.map(function(net) {
+          const isActive = net.networkId === wifiState.selectedNetworkId;
+          const classes = 'network-pill' + (isActive ? ' network-pill--active' : '');
+          const primaryTag = net.isPrimary ? '<span class="network-pill-tag">Primary</span>' : '';
+          const bandLabel = net.bandLabel ? `<span class="network-pill-band">${escapeHtml(net.bandLabel)}</span>` : '';
+          return `
+            <li class="network-pill-item">
+              <button type="button" class="${classes}" data-action="select-network" data-network-id="${escapeHtml(net.networkId)}">
+                <span class="network-pill-name">${escapeHtml(net.name)}</span>
+                <span class="network-pill-meta">${bandLabel}${primaryTag}</span>
+              </button>
+            </li>
+          `;
+        }).join('');
+      } else {
+        networksListHtml = '<li class="network-pill-empty">No Wi-Fi networks are configured for this demo account.</li>';
+      }
+
+      const securityOptionsHtml = SECURITY_MODE_OPTIONS.map(function(opt) {
+        const selectedAttr = opt.value === fs.securityMode ? ' selected' : '';
+        return `<option value="${opt.value}"${selectedAttr}>${escapeHtml(opt.label)}</option>`;
+      }).join('');
+
+      const nameErrorHtml = fs.errors.name ? `<p class="form-error">${escapeHtml(fs.errors.name)}</p>` : '<p class="form-helper">1-32 characters; avoid personal information like your name or address.</p>';
+      const passwordErrorHtml = fs.errors.password ? `<p class="form-error">${escapeHtml(fs.errors.password)}</p>` : '';
+      const securityErrorHtml = fs.errors.securityMode ? `<p class="form-error">${escapeHtml(fs.errors.securityMode)}</p>` : '<p class="form-helper">Most devices work best with WPA2 or WPA3 security.</p>';
+
+      const maskedInfo = selectedNetwork && selectedNetwork.passwordMasked ? `Current password: <span class="masked-password">${escapeHtml(selectedNetwork.passwordMasked)}</span>. Enter a new password to change it; leave blank to keep the current one.` : 'Enter a strong password with at least 8 characters.';
+
+      const fieldsetDisabledAttr = canEdit ? '' : ' disabled';
+
+      const bannerHtml = renderStatusBannerHtml();
+
+      container.innerHTML = `
+        <section class="wifi-settings-section">
+          <div class="content-container content-container--narrow">
+            <nav class="breadcrumb" aria-label="Breadcrumb" data-component="wifi-settings-breadcrumb-navigation">
+              <ol class="breadcrumb-list">
+                <li class="breadcrumb-item"><a href="javascript:void(0)" data-action="back-to-account">My Account (Demo)</a></li>
+                <li class="breadcrumb-item" aria-current="page">Wi-Fi Settings</li>
+              </ol>
+            </nav>
+
+            <section class="page-controller-band wifi-settings-controller" data-component="wifi-settings-page-controller">
+              <div class="controller-text">
+                <p class="controller-eyebrow">Network settings</p>
+                <h1 class="controller-title">Wi-Fi Settings</h1>
+                <p class="controller-description">Manage Wi-Fi names, passwords, and security for your demo networks.</p>
+              </div>
+              <div class="controller-actions">
+                <button type="button" class="btn btn-secondary" data-action="back-to-account">Back to Account</button>
+                <button type="button" class="btn btn-primary" data-action="page-save" ${saveDisabled ? 'disabled' : ''}>${escapeHtml(saveLabel)}</button>
+              </div>
+            </section>
+
+            <section class="wifi-status-banner-wrapper">
+              ${bannerHtml}
+            </section>
+
+            <section class="card wifi-settings-card" data-component="wifi-settings-form">
+              <header class="card-header">
+                <div class="card-header-text">
+                  <h2 class="card-title">Wi-Fi networks</h2>
+                  <p class="card-subtitle">Select which Wi-Fi network you want to edit. Your primary network is selected by default.</p>
+                </div>
+                <div class="card-header-control" data-component="wifi-network-selector">
+                  <ul class="network-pill-list">
+                    ${networksListHtml}
+                  </ul>
+                </div>
+              </header>
+
+              <div class="card-body">
+                <form data-action="wifi-form" novalidate>
+                  <fieldset${fieldsetDisabledAttr}>
+                    <div class="form-group">
+                      <label for="ssidInput">Network name (SSID)</label>
+                      <input
+                        id="ssidInput"
+                        type="text"
+                        name="ssid"
+                        maxlength="32"
+                        autocomplete="off"
+                        value="${escapeHtml(fs.name)}"
+                        data-action="change-name"
+                      />
+                      ${nameErrorHtml}
+                    </div>
+
+                    <div class="form-group">
+                      <label for="securityModeSelect">Security mode</label>
+                      <select id="securityModeSelect" name="securityMode" data-action="change-security-mode">
+                        ${securityOptionsHtml}
+                      </select>
+                      ${securityErrorHtml}
+                    </div>
+
+                    <div class="form-group">
+                      <label for="passwordInput">Wi-Fi password</label>
+                      <div class="password-input-row" data-component="wifi-password-visibility-toggle">
+                        <input
+                          id="passwordInput"
+                          type="${fs.showPassword ? 'text' : 'password'}"
+                          name="password"
+                          autocomplete="new-password"
+                          value="${escapeHtml(fs.password)}"
+                          data-action="change-password"
+                        />
+                        <button
+                          type="button"
+                          class="password-toggle"
+                          data-action="toggle-password-visibility"
+                          aria-pressed="${fs.showPassword ? 'true' : 'false'}"
+                          aria-label="${fs.showPassword ? 'Hide password' : 'Show password'}"
+                        >${fs.showPassword ? 'Hide' : 'Show'}</button>
+                      </div>
+                      <p class="form-helper">${maskedInfo}</p>
+                      ${passwordErrorHtml}
+                    </div>
+
+                    <div class="form-actions">
+                      <button type="submit" class="btn btn-primary" data-action="save-settings" ${saveDisabled ? 'disabled' : ''}>${escapeHtml(saveLabel)}</button>
+                      ${fs.isDirty && canEdit ? '<p class="form-status-text">You have unsaved changes.</p>' : ''}
+                    </div>
+                  </fieldset>
+                </form>
+
+                ${!canEdit && !wifiState.loadError && !hasNetwork ? '<p class="card-empty-state">Wi-Fi settings are currently unavailable because no networks are configured for this demo account.</p>' : ''}
+                ${wifiState.loadError ? '<p class="card-empty-state">Wi-Fi settings could not be loaded. Please refresh the page or try again later.</p>' : ''}
+              </div>
+            </section>
+          </div>
+        </section>
+      `;
+    }
+
+    function bindActionHandlers(container) {
+      const actionElements = container.querySelectorAll('[data-action]');
+      actionElements.forEach(function(element) {
+        const action = element.dataset.action;
+        if (!action) return;
+
+        if (action === 'back-to-account') {
+          element.addEventListener('click', function(event) {
+            event.preventDefault();
+            handleBackToAccount();
+          });
+        } else if (action === 'page-save') {
+          element.addEventListener('click', function(event) {
+            event.preventDefault();
+            handleSaveSettings();
+          });
+        } else if (action === 'save-settings') {
+          // button inside form (submit handled on form element)
+          element.addEventListener('click', function(event) {
+            event.preventDefault();
+            handleSaveSettings();
+          });
+        } else if (action === 'wifi-form') {
+          // not used; we attach to form via querySelector instead
+        } else if (action === 'select-network') {
+          element.addEventListener('click', function() {
+            const id = element.getAttribute('data-network-id');
+            if (id) {
+              handleSelectNetwork(id);
+            }
+          });
+        } else if (action === 'change-name') {
+          element.addEventListener('input', function(event) {
+            handleChangeName(event.target.value || '');
+          });
+        } else if (action === 'change-password') {
+          element.addEventListener('input', function(event) {
+            handleChangePassword(event.target.value || '');
+          });
+        } else if (action === 'change-security-mode') {
+          element.addEventListener('change', function(event) {
+            handleChangeSecurityMode(event.target.value || '');
+          });
+        } else if (action === 'toggle-password-visibility') {
+          element.addEventListener('click', function(event) {
+            event.preventDefault();
+            handleTogglePasswordVisibility();
+          });
+        } else if (action === 'dismiss-banner') {
+          element.addEventListener('click', function(event) {
+            event.preventDefault();
+            handleDismissBanner();
+          });
+        }
+      });
+
+      const formElement = container.querySelector('form[data-action="wifi-form"]') || container.querySelector('form');
+      if (formElement) {
+        formElement.addEventListener('submit', function(event) {
+          event.preventDefault();
+          handleSaveSettings();
+        });
+      }
+    }
+
+    function refreshView(rootContainer) {
+      renderWifiSettings(rootContainer);
+      bindActionHandlers(rootContainer);
+    }
+
+    function handleBackToAccount() {
+      const fs = wifiState.formState;
+      if (fs && fs.isDirty && fs.isValid) {
+        const confirmLeave = window.confirm('You have unsaved Wi-Fi changes. Leave this page and discard them?');
+        if (!confirmLeave) {
+          return;
+        }
+      }
+      window.location.href = 'account_dashboard.html';
+    }
+
+    function handleSelectNetwork(networkId) {
+      if (wifiState.selectedNetworkId === networkId) {
+        return;
+      }
+      wifiState.selectedNetworkId = networkId;
+      const selected = getSelectedNetwork();
+      wifiState.formState = createFormStateForNetwork(selected);
+      wifiState.statusMessage = null;
+      wifiState.statusType = null;
+      updateUrlNetworkId();
+      const rootContainer = document.querySelector('[data-populate="wifi-settings"]');
+      if (rootContainer) {
+        refreshView(rootContainer);
+      }
+    }
+
+    function handleChangeName(newName) {
+      wifiState.formState.name = newName;
+      validateFormState();
+      const rootContainer = document.querySelector('[data-populate="wifi-settings"]');
+      if (rootContainer) {
+        refreshView(rootContainer);
+      }
+    }
+
+    function handleChangePassword(newPassword) {
+      wifiState.formState.password = newPassword;
+      validateFormState();
+      const rootContainer = document.querySelector('[data-populate="wifi-settings"]');
+      if (rootContainer) {
+        refreshView(rootContainer);
+      }
+    }
+
+    function handleChangeSecurityMode(newMode) {
+      wifiState.formState.securityMode = newMode;
+      validateFormState();
+      const rootContainer = document.querySelector('[data-populate="wifi-settings"]');
+      if (rootContainer) {
+        refreshView(rootContainer);
+      }
+    }
+
+    function handleTogglePasswordVisibility() {
+      wifiState.formState.showPassword = !wifiState.formState.showPassword;
+      const rootContainer = document.querySelector('[data-populate="wifi-settings"]');
+      if (rootContainer) {
+        refreshView(rootContainer);
+      }
+    }
+
+    function handleDismissBanner() {
+      wifiState.statusMessage = null;
+      wifiState.statusType = null;
+      wifiState.loadError = null;
+      const rootContainer = document.querySelector('[data-populate="wifi-settings"]');
+      if (rootContainer) {
+        refreshView(rootContainer);
+      }
+    }
+
+    function handleSaveSettings() {
+      const selectedNetwork = getSelectedNetwork();
+      if (!selectedNetwork) {
+        return;
+      }
+
+      validateFormState();
+      const fs = wifiState.formState;
+      if (!fs.isDirty || !fs.isValid || fs.isSaving) {
+        return;
+      }
+
+      fs.isSaving = true;
+      wifiState.statusMessage = null;
+      wifiState.statusType = null;
+
+      const rootContainer = document.querySelector('[data-populate="wifi-settings"]');
+      if (rootContainer) {
+        renderWifiSettings(rootContainer);
+        bindActionHandlers(rootContainer);
+      }
+
+      try {
+        const nameToSend = fs.name.trim();
+        const passwordToSend = fs.password || '';
+        const securityModeToSend = fs.securityMode;
+
+        const response = WebsiteSDK.updateWiFiNetworkSettings(
+          selectedNetwork.networkId,
+          nameToSend,
+          passwordToSend,
+          securityModeToSend
+        );
+
+        fs.isSaving = false;
+
+        if (response && response.success) {
+          const updated = response.updatedNetwork || {};
+          wifiState.networks = wifiState.networks.map(function(n) {
+            if (n.networkId === updated.networkId) {
+              return Object.assign({}, n, {
+                name: updated.name || n.name,
+                securityMode: updated.securityMode || n.securityMode,
+                lastUpdated: updated.lastUpdated || n.lastUpdated
+              });
+            }
+            return n;
+          });
+
+          const refreshed = getSelectedNetwork();
+          wifiState.formState = createFormStateForNetwork(refreshed);
+
+          wifiState.statusType = 'success';
+          wifiState.statusMessage = (response && response.message) || 'Wi-Fi settings saved successfully.';
+        } else {
+          wifiState.statusType = 'error';
+          wifiState.statusMessage = (response && response.message) || 'We could not save your Wi-Fi settings. Please try again.';
+        }
+      } catch (error) {
+        fs.isSaving = false;
+        wifiState.statusType = 'error';
+        wifiState.statusMessage = 'An unexpected error occurred while saving your Wi-Fi settings.';
+      }
+
+      const rootAfter = document.querySelector('[data-populate="wifi-settings"]');
+      if (rootAfter) {
+        refreshView(rootAfter);
+      }
+    }
+
+    function initWifiSettingsPage(container) {
+      try {
+        const result = WebsiteSDK.getWiFiSettings();
+        wifiState.networks = (result && result.networks) ? result.networks : [];
+        wifiState.primaryNetworkId = result && result.primaryNetworkId ? result.primaryNetworkId : null;
+        wifiState.selectedNetworkId = determineSelectedNetworkId(
+          wifiState.networks,
+          wifiState.primaryNetworkId,
+          wifiState.urlNetworkId
+        );
+        const selected = getSelectedNetwork();
+        wifiState.formState = createFormStateForNetwork(selected);
+        wifiState.loadError = null;
+      } catch (error) {
+        wifiState.networks = [];
+        wifiState.primaryNetworkId = null;
+        wifiState.selectedNetworkId = null;
+        wifiState.formState = createFormStateForNetwork(null);
+        wifiState.loadError = 'We could not load your Wi-Fi settings. Please refresh the page or try again later.';
+      }
+
+      renderWifiSettings(container);
+      bindActionHandlers(container);
+    }
+  });
+  </script>
+</body>
+</html>

@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8' />
+  <meta name='viewport' content='width=device-width, initial-scale=1' />
+  <title>Dicas Hoje - Brazilian sports news and tips blog</title>
+  <link rel='stylesheet' href='styles.css' />
+  <link rel='stylesheet' href='about.css' />
+  <script src='business_logic.js'></script>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='site-header-inner container'>
+      <div class='site-branding'>
+        <a href='index.html' class='site-title'>Dicas Hoje</a>
+      </div>
+      <nav class='site-nav' aria-label='Primary navigation'>
+        <ul>
+          <li><a href='index.html'>Início</a></li>
+          <li><a href='ao_vivo.html'>Ao vivo</a></li>
+          <li><a href='apostas.html'>Apostas</a></li>
+          <li><a href='treinos.html'>Treinos</a></li>
+          <li><a href='podcasts.html'>Podcasts</a></li>
+          <li><a href='calendario.html'>Calendário</a></li>
+          <li><a href='salvos.html'>Meu conteúdo</a></li>
+          <li><a href='minha_conta.html'>Minha conta</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-main container' role='main'>
+    <section class='about-page' aria-labelledby='about-page-title' data-component='about-page'>
+      <div class='about-page-inner'>
+        <!-- Loader state -->
+        <div class='about-loader' data-component='about-page-loader'>
+          <p class='about-loader-text'>Carregando conteúdo institucional...</p>
+        </div>
+
+        <!-- Error state -->
+        <div class='about-error' data-component='about-error-state' hidden>
+          <h1 class='about-error-title'>Não foi possível carregar esta página</h1>
+          <p class='about-error-message' data-populate='error-message'>Verifique sua conexão e tente novamente.</p>
+          <button type='button' class='about-error-retry' data-action='about-retry-load'>Tentar novamente</button>
+        </div>
+
+        <!-- Main content -->
+        <article class='about-article' data-component='about-content-renderer' hidden>
+          <header class='about-article-header'>
+            <h1 id='about-page-title' class='about-title' data-populate='static-page-title'></h1>
+            <p class='about-last-updated' data-component='about-last-updated-indicator'>
+              <span data-populate='static-page-last-updated-label'></span>
+            </p>
+          </header>
+
+          <nav class='about-toc' aria-label='Navegação por seções' data-component='about-section-toc' hidden>
+            <p class='about-toc-label'>Nesta página:</p>
+            <ul class='about-toc-list' data-populate='static-page-toc'></ul>
+          </nav>
+
+          <div class='about-body' data-populate='static-page-body'></div>
+
+          <div class='about-contact-cta' data-component='about-contact-link'>
+            <a href='javascript:void(0)' class='about-contact-link' data-action='about-go-contact'>Fale conosco</a>
+            <span class='about-contact-separator'>ou</span>
+            <a href='javascript:void(0)' class='about-contact-link' data-action='about-go-contact'>Entre em contato</a>
+          </div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='site-footer-inner container'>
+      <nav class='footer-nav' aria-label='Footer navigation'>
+        <ul>
+          <li><a href='about.html'>Sobre</a></li>
+          <li><a href='contato.html'>Contato</a></li>
+          <li><a href='politica_privacidade.html'>Política de Privacidade</a></li>
+          <li><a href='termos_uso.html'>Termos de Uso</a></li>
+          <li><a href='calendario.html'>Calendário de jogos</a></li>
+          <li><a href='apostas.html?view=dicas'>Dicas de apostas</a></li>
+          <li><a href='podcasts.html?categoryId=futebol_feminino'>Podcasts de futebol feminino</a></li>
+          <li><a href='treinos.html?sport=corrida&amp;distance=5km'>Treinos de corrida 5km</a></li>
+        </ul>
+      </nav>
+      <p class='footer-meta'>© <span class='footer-site-name'>Dicas Hoje</span> · Brazilian sports news and tips blog.</p>
+    </div>
+  </footer>
+
+  <script>
+  (function() {
+    'use strict';
+
+    document.addEventListener('DOMContentLoaded', function() {
+      var pageKey = 'about';
+      var loaderEl = document.querySelector("[data-component='about-page-loader']");
+      var errorEl = document.querySelector("[data-component='about-error-state']");
+      var articleEl = document.querySelector("[data-component='about-content-renderer']");
+      var tocNavEl = document.querySelector("[data-component='about-section-toc']");
+      var tocListEl = tocNavEl ? tocNavEl.querySelector("[data-populate='static-page-toc']") : null;
+      var bodyContainer = document.querySelector('.about-body');
+
+      var staticPageContent = null;
+      var headings = [];
+      var intersectionObserver = null;
+      var currentSectionId = null;
+      var isProgrammaticScroll = false;
+
+      function showLoader() {
+        if (loaderEl) loaderEl.hidden = false;
+        if (errorEl) errorEl.hidden = true;
+        if (articleEl) articleEl.hidden = true;
+      }
+
+      function showError(message) {
+        if (loaderEl) loaderEl.hidden = true;
+        if (articleEl) articleEl.hidden = true;
+        if (errorEl) {
+          var msgEl = errorEl.querySelector("[data-populate='error-message']");
+          if (msgEl && message) {
+            msgEl.textContent = message;
+          }
+          errorEl.hidden = false;
+        }
+      }
+
+      function showContent() {
+        if (loaderEl) loaderEl.hidden = true;
+        if (errorEl) errorEl.hidden = true;
+        if (articleEl) articleEl.hidden = false;
+      }
+
+      function getSectionParam() {
+        var params = new URLSearchParams(window.location.search);
+        var value = params.get('section');
+        return value || null;
+      }
+
+      function updateUrlSection(sectionId, method) {
+        var historyMethod = method === 'replace' ? 'replaceState' : 'pushState';
+        var url = new URL(window.location.href);
+        if (sectionId) {
+          url.searchParams.set('section', sectionId);
+        } else {
+          url.searchParams.delete('section');
+        }
+        window.history[historyMethod]({}, '', url.toString());
+      }
+
+      function generateSlugFromHeading(text, index) {
+        var base = (text || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '');
+        if (!base) {
+          base = 'secao';
+        }
+        if (typeof index === 'number') {
+          base += '_' + index;
+        }
+        return base;
+      }
+
+      function renderStaticPageTitle(container, content) {
+        var title = content && content.title ? content.title : 'Sobre';
+        container.textContent = title;
+      }
+
+      function renderStaticPageBody(container, content) {
+        var body = content && typeof content.body === 'string' ? content.body : '';
+        container.innerHTML = body;
+      }
+
+      function renderStaticPageLastUpdated(container, content) {
+        var raw = content && content.lastUpdatedAt ? content.lastUpdatedAt : null;
+        var label = '';
+        if (raw) {
+          var d = new Date(raw);
+          if (!isNaN(d.getTime())) {
+            var formatted = d.toLocaleDateString('pt-BR', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
+            });
+            label = 'Atualizado em ' + formatted;
+          }
+        }
+        container.textContent = label;
+      }
+
+      function buildTableOfContents(container, headingElements) {
+        container.innerHTML = '';
+        if (!headingElements || !headingElements.length) {
+          if (tocNavEl) tocNavEl.hidden = true;
+          return;
+        }
+        headingElements.forEach(function(heading) {
+          var id = heading.id;
+          if (!id) return;
+          var text = heading.textContent || id;
+          var li = document.createElement('li');
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'about-toc-item';
+          btn.textContent = text;
+          btn.setAttribute('data-action', 'about-select-section');
+          btn.setAttribute('data-section-id', id);
+          li.appendChild(btn);
+          container.appendChild(li);
+        });
+        if (tocNavEl) tocNavEl.hidden = false;
+      }
+
+      function setActiveSection(sectionId) {
+        currentSectionId = sectionId || null;
+        if (headings && headings.length) {
+          headings.forEach(function(h) {
+            if (h.id === sectionId) {
+              h.classList.add('about-section-active');
+            } else {
+              h.classList.remove('about-section-active');
+            }
+          });
+        }
+        if (tocListEl) {
+          var items = tocListEl.querySelectorAll('[data-section-id]');
+          items.forEach(function(item) {
+            if (item.getAttribute('data-section-id') === sectionId) {
+              item.classList.add('is-active');
+            } else {
+              item.classList.remove('is-active');
+            }
+          });
+        }
+      }
+
+      function scrollToSection(sectionId, behavior) {
+        if (!sectionId) return;
+        var target = document.getElementById(sectionId);
+        if (!target) return;
+        isProgrammaticScroll = true;
+        try {
+          target.scrollIntoView({ behavior: behavior || 'smooth', block: 'start' });
+        } catch (e) {
+          target.scrollIntoView(true);
+        }
+        window.setTimeout(function() {
+          isProgrammaticScroll = false;
+        }, 400);
+      }
+
+      function setupIntersectionObserver() {
+        if (!('IntersectionObserver' in window)) return;
+        if (!bodyContainer) return;
+        if (!headings || !headings.length) return;
+        if (intersectionObserver) {
+          intersectionObserver.disconnect();
+        }
+        intersectionObserver = new IntersectionObserver(function(entries) {
+          if (isProgrammaticScroll) return;
+          var bestEntry = null;
+          entries.forEach(function(entry) {
+            if (entry.isIntersecting) {
+              if (!bestEntry || entry.intersectionRatio > bestEntry.intersectionRatio) {
+                bestEntry = entry;
+              }
+            }
+          });
+          if (bestEntry && bestEntry.target && bestEntry.target.id) {
+            var id = bestEntry.target.id;
+            setActiveSection(id);
+            updateUrlSection(id, 'replace');
+          }
+        }, {
+          root: null,
+          rootMargin: '-40% 0px -55% 0px',
+          threshold: [0.2, 0.4, 0.6]
+        });
+        headings.forEach(function(h) {
+          intersectionObserver.observe(h);
+        });
+      }
+
+      function handleContentReady() {
+        if (!bodyContainer) return;
+        headings = Array.prototype.slice.call(bodyContainer.querySelectorAll('h2, h3'));
+        headings.forEach(function(heading, index) {
+          if (!heading.id) {
+            heading.id = generateSlugFromHeading(heading.textContent || '', index);
+          }
+        });
+        if (tocListEl) {
+          buildTableOfContents(tocListEl, headings);
+        }
+        setupIntersectionObserver();
+        var initialSection = getSectionParam();
+        if (initialSection) {
+          setActiveSection(initialSection);
+          scrollToSection(initialSection, 'auto');
+        }
+      }
+
+      function renderStaticPageContent(content) {
+        var populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function(element) {
+          var dataType = element.getAttribute('data-populate');
+          if (dataType === 'static-page-title') {
+            renderStaticPageTitle(element, content);
+          } else if (dataType === 'static-page-body') {
+            renderStaticPageBody(element, content);
+          } else if (dataType === 'static-page-last-updated-label') {
+            renderStaticPageLastUpdated(element, content);
+          } else if (dataType === 'static-page-toc') {
+            element.innerHTML = '';
+          }
+        });
+      }
+
+      function fetchStaticPageContent() {
+        showLoader();
+        try {
+          staticPageContent = WebsiteSDK.getStaticPageContent(pageKey) || {};
+          renderStaticPageContent(staticPageContent);
+          showContent();
+          handleContentReady();
+        } catch (e) {
+          console.error('Erro ao carregar conteúdo estático da página Sobre:', e);
+          showError('Não foi possível carregar o conteúdo institucional agora. Tente novamente.');
+        }
+      }
+
+      function handleSectionSelect(sectionId) {
+        if (!sectionId) return;
+        updateUrlSection(sectionId, 'push');
+        setActiveSection(sectionId);
+        scrollToSection(sectionId, 'smooth');
+      }
+
+      function handlePopState() {
+        var sectionId = getSectionParam();
+        if (sectionId) {
+          setActiveSection(sectionId);
+          scrollToSection(sectionId, 'auto');
+        } else {
+          setActiveSection(null);
+        }
+      }
+
+      function handleBodyAnchorClick(event) {
+        var link = event.target.closest('a');
+        if (!link) return;
+        var href = link.getAttribute('href');
+        if (!href) return;
+        if (href.charAt(0) === '#') {
+          event.preventDefault();
+          var sectionId = href.slice(1);
+          if (!sectionId) return;
+          updateUrlSection(sectionId, 'push');
+          setActiveSection(sectionId);
+          scrollToSection(sectionId, 'smooth');
+        }
+      }
+
+      function handleContactClick() {
+        window.location.href = 'contato.html';
+      }
+
+      function bindGlobalActions() {
+        document.addEventListener('click', function(event) {
+          var target = event.target.closest('[data-action]');
+          if (!target) return;
+          var action = target.getAttribute('data-action');
+          if (action === 'about-retry-load') {
+            event.preventDefault();
+            fetchStaticPageContent();
+          } else if (action === 'about-go-contact') {
+            event.preventDefault();
+            handleContactClick();
+          } else if (action === 'about-select-section') {
+            event.preventDefault();
+            var sectionId = target.getAttribute('data-section-id');
+            handleSectionSelect(sectionId);
+          }
+        });
+        if (bodyContainer) {
+          bodyContainer.addEventListener('click', handleBodyAnchorClick);
+        }
+        window.addEventListener('popstate', handlePopState);
+      }
+
+      // Initialize page
+      bindGlobalActions();
+      fetchStaticPageContent();
+    });
+  })();
+  </script>
+</body>
+</html>

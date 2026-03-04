@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Real Estate Trends &amp; Lifestyle</title>
+  <!-- Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet" />
+  <!-- Global Styles -->
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Page Styles -->
+  <link rel="stylesheet" href="about.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner container">
+      <nav class="primary-nav" aria-label="Main navigation">
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="neighborhood_guides.html">Neighborhood Guides</a></li>
+          <li><a href="lifestyle_decor.html">Lifestyle &amp; Decor</a></li>
+          <li><a href="events_open_houses.html">Events &amp; Open Houses</a></li>
+          <li><a href="home_upgrades.html">Home Upgrades</a></li>
+          <li><a href="investment_insights.html">Investment Insights</a></li>
+          <li><a href="mortgage_calculator.html">Tools: Affordability Calculator</a></li>
+          <li><a href="cost_of_living.html">Tools: Cost of Living</a></li>
+          <li><a href="my_saved.html?tab=watchlist">Watchlist</a></li>
+        </ul>
+      </nav>
+      <form class="header-search-form" data-component="header-search-form" role="search" autocomplete="off">
+        <label class="visually-hidden" for="globalSearchInput">Search articles</label>
+        <div class="header-search-control">
+          <input
+            id="globalSearchInput"
+            type="search"
+            name="q"
+            class="header-search-input"
+            placeholder="Search neighborhoods, decor, investments..."
+            autocomplete="off"
+          />
+          <button type="submit" class="header-search-submit" aria-label="Search">
+            <span class="header-search-icon" aria-hidden="true"></span>
+          </button>
+        </div>
+      </form>
+      <div
+        class="search-suggestions-dropdown"
+        data-component="search-suggestions-dropdown"
+        hidden
+        aria-label="Search suggestions"
+      ></div>
+    </div>
+  </header>
+
+  <main id="content" class="site-main container" role="main">
+    <section class="about-page" data-component="about-content-loader">
+      <header class="about-header">
+        <h1 class="about-title" data-populate="about-title"></h1>
+        <div class="about-meta" data-component="about-metadata-display"></div>
+      </header>
+
+      <div class="about-status">
+        <p class="about-loading" data-state="loading" aria-live="polite">Loading About information...</p>
+        <p class="about-error" data-state="error" aria-live="polite" hidden></p>
+      </div>
+
+      <article class="about-body" data-populate="about-body"></article>
+    </section>
+  </main>
+
+  <footer class="site-footer" role="contentinfo">
+    <div class="footer-inner container">
+      <nav class="footer-nav" aria-label="Footer navigation">
+        <ul>
+          <li><a href="about.html">About</a></li>
+          <li><a href="contact.html">Contact</a></li>
+          <li><a href="my_saved.html?tab=reading_list">Reading List</a></li>
+          <li><a href="privacy.html">Privacy Policy</a></li>
+          <li><a href="terms.html">Terms of Use</a></li>
+        </ul>
+      </nav>
+      <p class="footer-meta">&copy; 2024 Real Estate Trends &amp; Lifestyle Blog</p>
+    </div>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+      const initialSection = params.get('section');
+      const initialQuery = params.get('q') || '';
+
+      // Header search form and suggestions
+      const searchForm = document.querySelector('[data-component="header-search-form"]');
+      const searchInput = searchForm ? searchForm.querySelector('input[type="search"]') : null;
+      const suggestionsPanel = document.querySelector('[data-component="search-suggestions-dropdown"]');
+      let searchDebounceTimer = null;
+      let lastSuggestions = null;
+      let activeSuggestionIndex = -1;
+      let flatSuggestions = [];
+
+      if (searchInput) {
+        if (initialQuery) {
+          searchInput.value = initialQuery;
+          requestSuggestions(initialQuery);
+        }
+
+        searchInput.addEventListener('focus', onSearchFocus);
+        searchInput.addEventListener('input', onSearchInputChange);
+        searchInput.addEventListener('keydown', onSearchKeyDown);
+
+        searchInput.addEventListener('blur', () => {
+          // Delay so clicks on suggestions still register
+          setTimeout(() => {
+            hideSuggestions();
+          }, 150);
+        });
+      }
+
+      if (searchForm) {
+        searchForm.addEventListener('submit', onSearchFormSubmit);
+      }
+
+      if (suggestionsPanel) {
+        // Prevent early blur when clicking suggestions
+        suggestionsPanel.addEventListener('mousedown', (event) => {
+          event.preventDefault();
+        });
+        suggestionsPanel.addEventListener('click', onSuggestionClick);
+      }
+
+      function onSearchFocus() {
+        if (!searchInput) return;
+        const value = searchInput.value.trim();
+        if (value) {
+          requestSuggestions(value);
+        }
+      }
+
+      function onSearchInputChange() {
+        if (!searchInput) return;
+        const value = searchInput.value.trim();
+        if (!value) {
+          hideSuggestions();
+          return;
+        }
+        if (searchDebounceTimer) {
+          clearTimeout(searchDebounceTimer);
+        }
+        searchDebounceTimer = setTimeout(() => {
+          requestSuggestions(value);
+        }, 250);
+      }
+
+      function onSearchKeyDown(e) {
+        if (!suggestionsPanel || suggestionsPanel.hidden) return;
+        const key = e.key;
+        if (key === 'ArrowDown' || key === 'ArrowUp') {
+          e.preventDefault();
+          if (!flatSuggestions.length) return;
+          if (key === 'ArrowDown') {
+            activeSuggestionIndex = (activeSuggestionIndex + 1) % flatSuggestions.length;
+          } else {
+            activeSuggestionIndex = (activeSuggestionIndex - 1 + flatSuggestions.length) % flatSuggestions.length;
+          }
+          updateActiveSuggestion();
+        } else if (key === 'Enter') {
+          if (activeSuggestionIndex >= 0 && activeSuggestionIndex < flatSuggestions.length) {
+            e.preventDefault();
+            activateSuggestion(flatSuggestions[activeSuggestionIndex]);
+          }
+        } else if (key === 'Escape') {
+          hideSuggestions();
+        }
+      }
+
+      function onSearchFormSubmit(e) {
+        e.preventDefault();
+        if (!searchInput) return;
+        const value = searchInput.value.trim();
+        if (!value) return;
+        const encoded = encodeURIComponent(value);
+        window.location.href = `search.html?query=${encoded}`;
+      }
+
+      function requestSuggestions(query) {
+        let response = null;
+        try {
+          response = WebsiteSDK.getSearchSuggestions(query);
+        } catch (err) {
+          console.error('Error fetching search suggestions', err);
+          hideSuggestions();
+          return;
+        }
+        lastSuggestions = response;
+        if (!suggestionsPanel) return;
+        renderSuggestions(suggestionsPanel, response);
+      }
+
+      function renderSuggestions(container, data) {
+        const suggestedQueries = Array.isArray(data && data.suggested_queries) ? data.suggested_queries : [];
+        const topArticles = Array.isArray(data && data.top_matching_articles) ? data.top_matching_articles : [];
+
+        if (!suggestedQueries.length && !topArticles.length) {
+          hideSuggestions();
+          return;
+        }
+
+        container.innerHTML = '';
+        flatSuggestions = [];
+        activeSuggestionIndex = -1;
+
+        const fragment = document.createDocumentFragment();
+
+        if (suggestedQueries.length) {
+          const queriesSection = document.createElement('div');
+          queriesSection.className = 'search-suggestions-section search-suggestions-queries';
+
+          const heading = document.createElement('div');
+          heading.className = 'search-suggestions-heading';
+          heading.textContent = 'Suggestions';
+          queriesSection.appendChild(heading);
+
+          const list = document.createElement('ul');
+          list.className = 'search-suggestions-list';
+
+          suggestedQueries.forEach((item) => {
+            const li = document.createElement('li');
+            li.className = 'search-suggestion-item';
+            li.setAttribute('data-action', 'select-query-suggestion');
+            li.setAttribute('data-query-text', item && item.text ? item.text : '');
+            li.tabIndex = -1;
+            li.textContent = item && item.text ? item.text : '';
+            list.appendChild(li);
+            flatSuggestions.push({ type: 'query', value: item && item.text ? item.text : '', element: li });
+          });
+
+          queriesSection.appendChild(list);
+          fragment.appendChild(queriesSection);
+        }
+
+        if (topArticles.length) {
+          const articlesSection = document.createElement('div');
+          articlesSection.className = 'search-suggestions-section search-suggestions-articles';
+
+          const heading = document.createElement('div');
+          heading.className = 'search-suggestions-heading';
+          heading.textContent = 'Top matches';
+          articlesSection.appendChild(heading);
+
+          const list = document.createElement('ul');
+          list.className = 'search-suggestions-list search-suggestions-articles-list';
+
+          topArticles.forEach((article) => {
+            const li = document.createElement('li');
+            li.className = 'search-suggestion-item search-suggestion-article';
+            li.setAttribute('data-action', 'select-article-suggestion');
+            li.setAttribute('data-article-id', article && article.id ? article.id : '');
+            if (article && article.slug) {
+              li.setAttribute('data-article-slug', article.slug);
+            }
+            li.tabIndex = -1;
+
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'search-suggestion-article-title';
+            titleDiv.textContent = article && article.title ? article.title : 'Untitled article';
+
+            const metaDiv = document.createElement('div');
+            metaDiv.className = 'search-suggestion-article-meta';
+            const parts = [];
+            if (article && article.category) {
+              parts.push(formatCategoryLabel(article.category));
+            }
+            if (article && article.city) {
+              parts.push(article.city);
+            }
+            if (article && article.neighborhood) {
+              parts.push(article.neighborhood);
+            }
+            metaDiv.textContent = parts.join(' · ');
+
+            li.appendChild(titleDiv);
+            if (metaDiv.textContent) {
+              li.appendChild(metaDiv);
+            }
+
+            list.appendChild(li);
+            flatSuggestions.push({ type: 'article', value: article, element: li });
+          });
+
+          articlesSection.appendChild(list);
+          fragment.appendChild(articlesSection);
+        }
+
+        container.appendChild(fragment);
+        container.hidden = false;
+      }
+
+      function formatCategoryLabel(value) {
+        if (!value) return '';
+        return value
+          .split('_')
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(' ');
+      }
+
+      function hideSuggestions() {
+        if (suggestionsPanel) {
+          suggestionsPanel.hidden = true;
+          suggestionsPanel.innerHTML = '';
+        }
+        flatSuggestions = [];
+        activeSuggestionIndex = -1;
+      }
+
+      function updateActiveSuggestion() {
+        flatSuggestions.forEach((item, index) => {
+          if (index === activeSuggestionIndex) {
+            item.element.classList.add('is-active');
+            item.element.scrollIntoView({ block: 'nearest' });
+          } else {
+            item.element.classList.remove('is-active');
+          }
+        });
+      }
+
+      function activateSuggestion(item) {
+        if (!item) return;
+        if (item.type === 'query') {
+          const text = item.value || '';
+          if (searchInput) {
+            searchInput.value = text;
+          }
+          const encoded = encodeURIComponent(text);
+          window.location.href = `search.html?query=${encoded}`;
+        } else if (item.type === 'article') {
+          const article = item.value || {};
+          const id = article.id;
+          const slug = article.slug;
+          let urlStr = '';
+          if (slug) {
+            const encodedSlug = encodeURIComponent(slug);
+            urlStr = `article.html?slug=${encodedSlug}`;
+          } else if (id) {
+            const encodedId = encodeURIComponent(id);
+            urlStr = `article.html?id=${encodedId}`;
+          } else {
+            return;
+          }
+          window.location.href = urlStr;
+        }
+      }
+
+      function onSuggestionClick(event) {
+        const li = event.target.closest('.search-suggestion-item');
+        if (!li) return;
+        const action = li.getAttribute('data-action');
+        if (action === 'select-query-suggestion') {
+          const text = li.getAttribute('data-query-text') || '';
+          const encoded = encodeURIComponent(text);
+          window.location.href = `search.html?query=${encoded}`;
+        } else if (action === 'select-article-suggestion') {
+          const id = li.getAttribute('data-article-id');
+          const slug = li.getAttribute('data-article-slug');
+          let urlStr = '';
+          if (slug) {
+            const encodedSlug = encodeURIComponent(slug);
+            urlStr = `article.html?slug=${encodedSlug}`;
+          } else if (id) {
+            const encodedId = encodeURIComponent(id);
+            urlStr = `article.html?id=${encodedId}`;
+          } else {
+            return;
+          }
+          window.location.href = urlStr;
+        }
+      }
+
+      // About content loader
+      const aboutContainer = document.querySelector('[data-component="about-content-loader"]');
+      const aboutTitleEl = aboutContainer ? aboutContainer.querySelector('[data-populate="about-title"]') : null;
+      const aboutBodyEl = aboutContainer ? aboutContainer.querySelector('[data-populate="about-body"]') : null;
+      const aboutMetaEl = document.querySelector('[data-component="about-metadata-display"]');
+      const loadingEl = aboutContainer ? aboutContainer.querySelector('[data-state="loading"]') : null;
+      const errorEl = aboutContainer ? aboutContainer.querySelector('[data-state="error"]') : null;
+
+      let aboutContent = null;
+
+      if (aboutContainer && aboutTitleEl && aboutBodyEl) {
+        if (loadingEl) {
+          loadingEl.hidden = false;
+        }
+        if (errorEl) {
+          errorEl.hidden = true;
+        }
+
+        try {
+          const response = WebsiteSDK.getAboutContent();
+          aboutContent = response || {};
+
+          aboutTitleEl.textContent = aboutContent.title || 'About this site';
+          aboutBodyEl.innerHTML = aboutContent.body || '';
+
+          if (aboutMetaEl) {
+            renderAboutMetadata(aboutMetaEl, aboutContent.last_updated);
+          }
+
+          if (loadingEl) {
+            loadingEl.hidden = true;
+          }
+          if (errorEl) {
+            errorEl.hidden = true;
+          }
+        } catch (err) {
+          console.error('Error loading About content', err);
+          if (loadingEl) {
+            loadingEl.hidden = true;
+          }
+          if (errorEl) {
+            errorEl.hidden = false;
+            errorEl.textContent = "We're having trouble loading this page. Please try again in a moment.";
+          }
+        }
+      }
+
+      // Section router and in-content handlers
+      if (aboutBodyEl) {
+        setupSectionRouter(aboutBodyEl, initialSection);
+        setupContactLinkHandler(aboutBodyEl);
+        setupInternalAnchorHandler(aboutBodyEl);
+      }
+
+      window.addEventListener('popstate', () => {
+        const currentUrl = new URL(window.location.href);
+        const section = currentUrl.searchParams.get('section');
+        const q = currentUrl.searchParams.get('q') || '';
+
+        if (searchInput) {
+          searchInput.value = q;
+          if (q) {
+            requestSuggestions(q);
+          } else {
+            hideSuggestions();
+          }
+        }
+
+        if (aboutBodyEl) {
+          scrollToSectionInContainer(aboutBodyEl, section);
+        }
+      });
+
+      function renderAboutMetadata(container, lastUpdated) {
+        container.innerHTML = '';
+        if (!lastUpdated) return;
+        const date = new Date(lastUpdated);
+        const formatted = isNaN(date.getTime())
+          ? lastUpdated
+          : date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+        const span = document.createElement('span');
+        span.className = 'about-meta-updated';
+        span.textContent = `Last updated ${formatted}`;
+        container.appendChild(span);
+      }
+
+      function setupSectionRouter(bodyContainer, initialSectionId) {
+        if (initialSectionId) {
+          scrollToSectionInContainer(bodyContainer, initialSectionId);
+        }
+      }
+
+      function scrollToSectionInContainer(bodyContainer, sectionId) {
+        if (!sectionId) return;
+        let selector = `#${sectionId}`;
+        if (window.CSS && window.CSS.escape) {
+          selector = `#${window.CSS.escape(sectionId)}`;
+        } else {
+          selector = `#${sectionId.replace(/[^a-zA-Z0-9\-_:.]/g, '\\$&')}`;
+        }
+
+        let target = bodyContainer.querySelector(selector);
+        if (!target) {
+          target = bodyContainer.querySelector(`[data-section="${sectionId}"]`);
+        }
+        if (!target) return;
+
+        const headerEl = document.querySelector('.site-header');
+        const headerHeight = headerEl ? headerEl.offsetHeight : 0;
+        const rect = target.getBoundingClientRect();
+        const pageOffset = window.pageYOffset || document.documentElement.scrollTop || 0;
+        const top = rect.top + pageOffset - headerHeight - 16;
+        window.scrollTo({ top, behavior: 'smooth' });
+      }
+
+      function setupInternalAnchorHandler(bodyContainer) {
+        bodyContainer.addEventListener('click', (event) => {
+          const link = event.target.closest('a');
+          if (!link) return;
+          const href = link.getAttribute('href') || '';
+          if (!href || href === '#' || href.startsWith('javascript:')) return;
+
+          if (href.startsWith('#')) {
+            event.preventDefault();
+            const sectionId = href.slice(1);
+            const urlObj = new URL(window.location.href);
+            urlObj.searchParams.set('section', sectionId);
+            window.history.pushState({}, '', urlObj.toString());
+            scrollToSectionInContainer(bodyContainer, sectionId);
+          } else if (isSamePageSectionLink(href)) {
+            event.preventDefault();
+            const sectionId = extractSectionFromHref(href);
+            if (sectionId) {
+              const urlObj = new URL(window.location.href);
+              urlObj.searchParams.set('section', sectionId);
+              window.history.pushState({}, '', urlObj.toString());
+              scrollToSectionInContainer(bodyContainer, sectionId);
+            }
+          }
+        });
+      }
+
+      function isSamePageSectionLink(href) {
+        try {
+          const linkUrl = new URL(href, window.location.origin);
+          const currentUrl = new URL(window.location.href);
+          return linkUrl.pathname === currentUrl.pathname && linkUrl.searchParams.has('section');
+        } catch (e) {
+          return false;
+        }
+      }
+
+      function extractSectionFromHref(href) {
+        try {
+          const linkUrl = new URL(href, window.location.origin);
+          return linkUrl.searchParams.get('section');
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function setupContactLinkHandler(bodyContainer) {
+        bodyContainer.addEventListener('click', (event) => {
+          const link = event.target.closest('a');
+          if (!link) return;
+          let href = link.getAttribute('href') || '';
+          if (!href) return;
+
+          const lowerHref = href.toLowerCase();
+          if (!lowerHref.includes('contact.html')) return;
+
+          event.preventDefault();
+
+          try {
+            const urlObj = new URL(href, window.location.origin);
+            if (!urlObj.searchParams.has('from')) {
+              urlObj.searchParams.set('from', 'about');
+            }
+            const path = urlObj.pathname.replace(/^\//, '');
+            const query = urlObj.search ? urlObj.search : '';
+            window.location.href = `${path}${query}`;
+          } catch (e) {
+            if (href.indexOf('from=') === -1) {
+              if (href.indexOf('?') === -1) {
+                href += '?from=about';
+              } else {
+                href += '&from=about';
+              }
+            }
+            window.location.href = href;
+          }
+        });
+      }
+    });
+  </script>
+</body>
+</html>

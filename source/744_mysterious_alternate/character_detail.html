@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Character Profile - The Initiative</title>
+    
+    <link rel="stylesheet" href="character_detail.css">
+</head>
+<body>
+    <div class="page">
+        <header class="site-header">
+            <div class="site-identity">
+                <span class="site-title">The Initiative</span>
+            </div>
+            <nav class="site-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html" title="Homepage and primary entry into the ARG experience">Home</a></li>
+                    <li><a href="transmission_logs.html" title="Browse transmissions and unlock the Phase I teaser via Prelude logs">Transmission Logs</a></li>
+                    <li><a href="timeline.html" title="Chronological view of events with filters and severity controls">Timeline</a></li>
+                    <li><a href="timeline.html?view=watchlist" title="List of events the user has flagged for monitoring">Watchlist</a></li>
+                    <li><a href="characters.html" title="Directory of Initiative characters, including Project Orion profiles">Characters</a></li>
+                    <li><a href="anomaly_map.html" title="Interactive map and list of anomalous locations and case files">Anomaly Map</a></li>
+                    <li><a href="media_videos.html" title="Media gallery for teaser and briefing videos">Videos</a></li>
+                    <li><a href="incident_logs.html" title="Searchable archive of incident logs and low-threat reports">Incident Logs</a></li>
+                    <li><a href="signals.html" title="Live signal stream used as clues for theories">Signals</a></li>
+                    <li><a href="ciphers.html" title="Tools and cipher list for decoding and theory building">Ciphers</a></li>
+                    <li><a href="theory_board.html" title="Workspace for assembling clues into named theories">Theory Board</a></li>
+                    <li><a href="artifacts.html" title="Catalog of recovered artifacts and their risk levels">Artifacts</a></li>
+                    <li><a href="recruitment.html" title="Recruitment and assessment form for new operatives">Join the Initiative</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id="content" class="site-main" tabindex="-1">
+            <article class="character-profile" data-component="character-profile-loader">
+                <p id="character-loader" class="character-loader-message">Loading…</p>
+
+                <section id="character-error" data-component="profile-error-and-retry" hidden>
+                    <p id="character-error-message">An unknown error occurred.</p>
+                    <p>
+                        <a href="javascript:void(0)" data-action="retry-load">Retry</a>
+                        <span> or </span>
+                        <a href="javascript:void(0)" data-action="back-to-characters" data-component="back-to-characters-link">Back to Characters</a>
+                    </p>
+                </section>
+
+                <section id="character-main" hidden>
+                    <section class="character-summary" data-component="character-summary-header">
+                        <img data-populate="character-photo" class="character-photo" src="" alt="">
+                        <h1 data-populate="character-name"></h1>
+                        <p class="character-meta">
+                            <span data-populate="character-codename"></span>
+                            <span data-populate="character-role"></span>
+                        </p>
+                        <p class="character-primary-indicator" data-populate="character-primary-status"></p>
+                    </section>
+
+                    <section class="character-bio" data-component="character-bio-section">
+                        <div data-populate="character-bio"></div>
+                        <p class="primary-contact-feedback" data-component="primary-contact-feedback" aria-live="polite" hidden></p>
+                    </section>
+
+                    <section class="character-metrics" data-component="character-metrics-panel">
+                        <p data-populate="character-anomaly-index"></p>
+                    </section>
+
+                    <section class="character-projects" data-component="project-affiliations-list">
+                        <h2>Project affiliations</h2>
+                        <ul data-populate="character-projects"></ul>
+                    </section>
+
+                    <p class="back-to-characters">
+                        <a href="javascript:void(0)" data-action="back-to-characters" data-component="back-to-characters-link">Back to Characters</a>
+                    </p>
+                </section>
+            </article>
+        </main>
+
+        <footer class="site-footer">
+            <hr class="footer-rule">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="about.html" title="About the Initiative and the ARG universe">About</a></li>
+                    <li><a href="transmission_logs.html" title="Access the transmission archive">Transmission Logs</a></li>
+                    <li><a href="incident_logs.html" title="Access the incident log archives">Incident Logs</a></li>
+                    <li><a href="artifacts.html" title="Browse artifacts by origin and corruption risk">Artifacts Catalog</a></li>
+                    <li><a href="recruitment.html" title="Create your recruitment profile">Join the Initiative</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">The Initiative</p>
+        </footer>
+    </div>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var urlParams = new URLSearchParams(window.location.search);
+        var characterIdFromUrl = urlParams.get('id');
+        var currentCharacterId = characterIdFromUrl && characterIdFromUrl.trim() !== '' ? characterIdFromUrl : null;
+        var currentCharacter = null;
+        var isUpdatingPrimary = false;
+        var feedbackTimeoutId = null;
+
+        var loaderElement = document.getElementById('character-loader');
+        var errorSection = document.getElementById('character-error');
+        var mainSection = document.getElementById('character-main');
+        var errorMessageElement = document.getElementById('character-error-message');
+        var feedbackElement = document.querySelector('[data-component="primary-contact-feedback"]');
+
+        function showLoader() {
+            if (loaderElement) {
+                loaderElement.hidden = false;
+            }
+            if (errorSection) {
+                errorSection.hidden = true;
+            }
+            if (mainSection) {
+                mainSection.hidden = true;
+            }
+        }
+
+        function showError(message, allowRetry) {
+            if (loaderElement) {
+                loaderElement.hidden = true;
+            }
+            if (mainSection) {
+                mainSection.hidden = false;
+                mainSection.hidden = true;
+            }
+            if (errorSection) {
+                errorSection.hidden = false;
+            }
+            if (errorMessageElement) {
+                errorMessageElement.textContent = message;
+            }
+            var retryLink = document.querySelector('[data-action="retry-load"]');
+            if (retryLink) {
+                if (allowRetry) {
+                    retryLink.style.display = '';
+                } else {
+                    retryLink.style.display = 'none';
+                }
+            }
+            clearFeedback();
+        }
+
+        function showMain() {
+            if (loaderElement) {
+                loaderElement.hidden = true;
+            }
+            if (errorSection) {
+                errorSection.hidden = true;
+            }
+            if (mainSection) {
+                mainSection.hidden = false;
+            }
+        }
+
+        function clearFeedback() {
+            if (feedbackTimeoutId) {
+                window.clearTimeout(feedbackTimeoutId);
+                feedbackTimeoutId = null;
+            }
+            if (feedbackElement) {
+                feedbackElement.textContent = '';
+                feedbackElement.hidden = true;
+                if (feedbackElement.dataset) {
+                    feedbackElement.dataset.state = '';
+                }
+            }
+        }
+
+        function showFeedback(message, state) {
+            if (!feedbackElement) {
+                return;
+            }
+            feedbackElement.textContent = message;
+            feedbackElement.hidden = false;
+            if (feedbackElement.dataset) {
+                feedbackElement.dataset.state = state || '';
+            }
+            if (feedbackTimeoutId) {
+                window.clearTimeout(feedbackTimeoutId);
+            }
+            feedbackTimeoutId = window.setTimeout(function () {
+                clearFeedback();
+            }, 5000);
+        }
+
+        function renderCharacterName(container, character) {
+            if (!container) {
+                return;
+            }
+            var name = character && character.name ? character.name : '[redacted]';
+            container.textContent = name;
+        }
+
+        function renderCharacterCodename(container, character) {
+            if (!container) {
+                return;
+            }
+            if (character && character.codename) {
+                container.hidden = false;
+                container.textContent = '"' + character.codename + '"';
+            } else {
+                container.hidden = true;
+                container.textContent = '';
+            }
+        }
+
+        function renderCharacterRole(container, character) {
+            if (!container) {
+                return;
+            }
+            if (character && character.role) {
+                container.hidden = false;
+                var prefix = container.previousSibling && container.previousSibling.textContent ? ' ' : '';
+                container.textContent = prefix + '(' + character.role + ')';
+            } else {
+                container.hidden = true;
+                container.textContent = '';
+            }
+        }
+
+        function renderPrimaryIndicator(container, character) {
+            if (!container) {
+                return;
+            }
+            if (!character) {
+                container.textContent = '';
+                return;
+            }
+            if (character.is_primary_contact) {
+                container.textContent = 'Status: Primary contact (channel is currently routed through this profile).';
+            } else {
+                container.textContent = 'Status: Not set as primary contact.';
+            }
+        }
+
+        function renderCharacterPhoto(container, character) {
+            if (!container) {
+                return;
+            }
+            var safeId = '';
+            if (character && character.id) {
+                safeId = String(character.id).replace(/[^a-zA-Z0-9_-]/g, '');
+            }
+            var src = 'assets/characters/' + (safeId || 'unknown') + '.jpg';
+            container.setAttribute('src', src);
+            if (character && character.name) {
+                container.setAttribute('alt', 'Photograph of ' + character.name);
+            } else {
+                container.setAttribute('alt', 'Redacted photograph');
+            }
+        }
+
+        function renderCharacterBio(container, character) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+            if (!character || !character.bio) {
+                var fallback = document.createElement('p');
+                fallback.textContent = 'No narrative file is attached to this contact.';
+                container.appendChild(fallback);
+                return;
+            }
+            var raw = String(character.bio);
+            var parts = raw.split(/\n\s*\n/);
+            if (parts.length === 0) {
+                parts = [raw];
+            }
+            var lastIndex = parts.length - 1;
+            for (var i = 0; i < parts.length; i += 1) {
+                var text = parts[i].trim();
+                var p = document.createElement('p');
+                p.textContent = text;
+                if (i === lastIndex) {
+                    if (character.is_primary_contact) {
+                        var alreadySpan = document.createElement('span');
+                        alreadySpan.textContent = ' This contact is already marked as your primary.';
+                        p.appendChild(alreadySpan);
+                    } else {
+                        var space = document.createTextNode(' ');
+                        p.appendChild(space);
+                        var link = document.createElement('a');
+                        link.href = 'javascript:void(0)';
+                        link.textContent = 'set as primary contact';
+                        if (link.dataset) {
+                            link.dataset.action = 'set-primary-contact';
+                            link.dataset.component = 'primary-contact-control';
+                        }
+                        p.appendChild(link);
+                    }
+                }
+                container.appendChild(p);
+            }
+        }
+
+        function renderAnomalyIndex(container, character) {
+            if (!container) {
+                return;
+            }
+            if (!character || typeof character.anomaly_index !== 'number') {
+                container.textContent = 'Anomaly index: n/a';
+                return;
+            }
+            container.textContent = 'Anomaly index: ' + character.anomaly_index;
+        }
+
+        function renderProjects(container, character) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+            var projects = character && character.project_affiliations ? character.project_affiliations : [];
+            if (!projects || projects.length === 0) {
+                var li = document.createElement('li');
+                li.textContent = 'No project affiliations recorded.';
+                container.appendChild(li);
+                return;
+            }
+            for (var i = 0; i < projects.length; i += 1) {
+                var name = projects[i];
+                var item = document.createElement('li');
+                item.textContent = name;
+                container.appendChild(item);
+            }
+        }
+
+        function updateCharacterBindings(character) {
+            var populateElements = document.querySelectorAll('[data-populate]');
+            for (var i = 0; i < populateElements.length; i += 1) {
+                var element = populateElements[i];
+                var key = element.dataset ? element.dataset.populate : null;
+                if (!key) {
+                    continue;
+                }
+                if (key === 'character-name') {
+                    renderCharacterName(element, character);
+                } else if (key === 'character-codename') {
+                    renderCharacterCodename(element, character);
+                } else if (key === 'character-role') {
+                    renderCharacterRole(element, character);
+                } else if (key === 'character-primary-status') {
+                    renderPrimaryIndicator(element, character);
+                } else if (key === 'character-photo') {
+                    renderCharacterPhoto(element, character);
+                } else if (key === 'character-bio') {
+                    renderCharacterBio(element, character);
+                } else if (key === 'character-anomaly-index') {
+                    renderAnomalyIndex(element, character);
+                } else if (key === 'character-projects') {
+                    renderProjects(element, character);
+                }
+            }
+        }
+
+        function loadCharacter() {
+            if (!currentCharacterId) {
+                showError('No character specified. This dossier was not meant to be opened directly.', false);
+                return;
+            }
+            showLoader();
+            try {
+                var character = WebsiteSDK.getCharacterProfile(currentCharacterId);
+                currentCharacter = character;
+                showMain();
+                updateCharacterBindings(currentCharacter);
+                clearFeedback();
+            } catch (e) {
+                showError('Error loading profile. The file may be missing or corrupted.', true);
+            }
+        }
+
+        function handlePrimaryContactSuccess(response) {
+            if (!currentCharacter) {
+                return;
+            }
+            var updatedCharacters = response && response.updated_characters ? response.updated_characters : [];
+            var primaryContact = response && response.primary_contact ? response.primary_contact : null;
+            var i;
+            var updatedForCurrent = null;
+            for (i = 0; i < updatedCharacters.length; i += 1) {
+                if (updatedCharacters[i] && updatedCharacters[i].id === currentCharacter.id) {
+                    updatedForCurrent = updatedCharacters[i];
+                    break;
+                }
+            }
+            if (updatedForCurrent) {
+                currentCharacter = updatedForCurrent;
+            } else if (primaryContact && primaryContact.id === currentCharacter.id) {
+                currentCharacter = primaryContact;
+            } else if (currentCharacter) {
+                currentCharacter.is_primary_contact = false;
+            }
+            updateCharacterBindings(currentCharacter);
+            if (currentCharacter.is_primary_contact) {
+                var name = currentCharacter.name || 'this contact';
+                showFeedback('Primary contact updated. Further transmissions will prefer ' + name + '.', 'success');
+            } else {
+                showFeedback('Primary contact updated.', 'success');
+            }
+        }
+
+        document.addEventListener('click', function (event) {
+            var target = event.target;
+            if (!target) {
+                return;
+            }
+            var actionElement = target.closest('[data-action]');
+            if (!actionElement) {
+                return;
+            }
+            var action = actionElement.dataset ? actionElement.dataset.action : null;
+            if (!action) {
+                return;
+            }
+            if (action === 'set-primary-contact') {
+                event.preventDefault();
+                if (!currentCharacter || !currentCharacterId || isUpdatingPrimary) {
+                    return;
+                }
+                isUpdatingPrimary = true;
+                if (actionElement.setAttribute) {
+                    actionElement.setAttribute('aria-disabled', 'true');
+                }
+                actionElement.textContent = 'setting85';
+                try {
+                    var response = WebsiteSDK.setPrimaryContactCharacter(currentCharacterId);
+                    handlePrimaryContactSuccess(response);
+                } catch (e) {
+                    if (currentCharacter) {
+                        updateCharacterBindings(currentCharacter);
+                    }
+                    showFeedback('Unable to update primary contact. Try again in a moment.', 'error');
+                }
+                isUpdatingPrimary = false;
+            } else if (action === 'retry-load') {
+                event.preventDefault();
+                loadCharacter();
+            } else if (action === 'back-to-characters') {
+                event.preventDefault();
+                window.location.href = 'characters.html';
+            }
+        });
+
+        loadCharacter();
+    });
+    </script>
+</body>
+</html>

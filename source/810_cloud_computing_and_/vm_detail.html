@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>VM Instance Details | iKala Cloud</title>
+  <meta name='description' content='View details for a specific virtual machine instance and configure its backup policy, including schedule, timezone, retention, and activation status.'>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=Source+Code+Pro:wght@400;500&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='vm_detail.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='header-inner container'>
+      <a href='index.html' class='logo' aria-label='Cloud platform home'>
+        <span class='logo-primary'>iKala</span>
+        <span class='logo-secondary'>Cloud</span>
+      </a>
+      <nav class='main-nav' aria-label='Main navigation'>
+        <ul class='nav-list'>
+          <li class='nav-item'><a href='index.html' class='nav-link'>Home</a></li>
+          <li class='nav-item'><a href='vms.html' class='nav-link'>Virtual Machines</a></li>
+          <li class='nav-item'><a href='autoscaling_groups.html' class='nav-link'>Auto-Scaling Groups</a></li>
+          <li class='nav-item'><a href='managed_databases.html' class='nav-link'>Managed Databases</a></li>
+          <li class='nav-item'><a href='dashboards.html' class='nav-link'>Dashboards</a></li>
+          <li class='nav-item'><a href='alerts.html' class='nav-link'>Alerts</a></li>
+          <li class='nav-item'><a href='logs.html' class='nav-link'>Logs</a></li>
+          <li class='nav-item'><a href='incident_rules.html' class='nav-link'>Incident Rules</a></li>
+          <li class='nav-item'><a href='pricing_calculator.html' class='nav-link'>Pricing Calculator</a></li>
+          <li class='nav-item'><a href='docs.html' class='nav-link'>Docs</a></li>
+        </ul>
+      </nav>
+      <a href='contact.html' class='btn btn-primary nav-cta'>Contact</a>
+    </div>
+  </header>
+
+  <main id='content' class='site-main'>
+    <div class='container content-inner'>
+      <div class='vm-context-loader' data-component='vm-instance-context-loader' aria-live='polite'></div>
+
+      <section class='vm-alert-wrapper' data-component='vm-instance-id-missing-alert'></section>
+
+      <header class='vm-detail-header' data-component='vm-instance-header' data-populate='VMInstance'></header>
+
+      <section class='panel vm-runtime-status-panel' data-component='vm-runtime-status-panel' data-populate='VMInstance'></section>
+
+      <section class='panel vm-plan-summary-panel' data-component='vm-plan-summary-panel' data-populate='VMPlan'></section>
+
+      <section class='panel vm-backup-summary-panel' data-component='vm-backup-policy-summary' data-populate='BackupPolicy'></section>
+
+      <section class='panel vm-backup-form-panel' data-component='vm-backup-policy-form' data-populate='BackupPolicy'></section>
+
+      <div class='backup-policy-learn-more' data-component='backup-policy-learn-more-link'></div>
+
+      <section class='vm-backup-messages-panel' data-component='vm-backup-messages' aria-live='polite'></section>
+
+      <section class='panel vm-notes-panel' data-component='vm-notes-view' data-populate='VMInstance'></section>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='container footer-inner'>
+      <div class='footer-links'>
+        <a href='about.html' class='footer-link'>About</a>
+        <a href='contact.html' class='footer-link'>Contact</a>
+        <a href='favorites.html' class='footer-link'>Favorites</a>
+        <a href='docs.html' class='footer-link'>Documentation</a>
+        <a href='managed_databases.html' class='footer-link'>Managed Databases</a>
+        <a href='vms.html' class='footer-link'>Virtual Machines</a>
+        <a href='pricing_calculator.html' class='footer-link'>Pricing Calculator</a>
+      </div>
+      <div class='footer-meta'>
+        <span class='footer-copy'>&copy; <span class='footer-year'>2024</span> iKala Cloud. All rights reserved.</span>
+      </div>
+    </div>
+  </footer>
+
+  <div class='vm-loading-overlay' data-component='vm-instance-loading-overlay' aria-hidden='true' hidden></div>
+
+  <script src='business_logic.js'></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    'use strict';
+
+    var state = {
+      vmInstanceId: null,
+      instance: null,
+      planSummary: null,
+      operatingSystemName: '',
+      backup: {
+        hasPolicy: false,
+        policy: null
+      },
+      serverPolicySnapshot: null,
+      form: {
+        frequency: '',
+        timeOfDay: '',
+        timezone: '',
+        retentionDays: '',
+        isActive: true
+      },
+      formDirty: false,
+      instanceError: null,
+      backupError: null,
+      submitError: null,
+      submitSuccessMessage: null,
+      isInitialLoading: false,
+      isInstanceLoading: false,
+      isBackupLoading: false,
+      isSubmitting: false
+    };
+
+    function escapeHtml(value) {
+      if (value === null || value === undefined) {
+        return '';
+      }
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function formatDate(value) {
+      if (!value) {
+        return '';
+      }
+      var date = new Date(value);
+      if (isNaN(date.getTime())) {
+        return escapeHtml(value);
+      }
+      return date.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    function formatMoney(amount) {
+      if (amount === null || amount === undefined || isNaN(Number(amount))) {
+        return '';
+      }
+      return '$' + Number(amount).toFixed(2);
+    }
+
+    function capitalize(word) {
+      if (!word) {
+        return '';
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    }
+
+    function parseVmInstanceIdFromUrl() {
+      var params = new URLSearchParams(window.location.search);
+      var id = params.get('vmInstanceId');
+      if (!id) {
+        return null;
+      }
+      var trimmed = id.trim();
+      return trimmed === '' ? null : trimmed;
+    }
+
+    function resetStateForVm(vmInstanceId) {
+      state.vmInstanceId = vmInstanceId;
+      state.instance = null;
+      state.planSummary = null;
+      state.operatingSystemName = '';
+      state.backup.hasPolicy = false;
+      state.backup.policy = null;
+      state.serverPolicySnapshot = null;
+      state.form.frequency = '';
+      state.form.timeOfDay = '';
+      state.form.timezone = '';
+      state.form.retentionDays = '';
+      state.form.isActive = true;
+      state.formDirty = false;
+      state.instanceError = null;
+      state.backupError = null;
+      state.submitError = null;
+      state.submitSuccessMessage = null;
+      state.isInitialLoading = false;
+      state.isInstanceLoading = false;
+      state.isBackupLoading = false;
+      state.isSubmitting = false;
+    }
+
+    function syncFormWithPolicy() {
+      var hasPolicy = state.backup && state.backup.hasPolicy && state.backup.policy;
+      if (hasPolicy) {
+        var p = state.backup.policy;
+        state.form.frequency = p.frequency || 'daily';
+        state.form.timeOfDay = p.timeOfDay || '';
+        state.form.timezone = p.timezone || '';
+        if (p.retentionDays !== null && p.retentionDays !== undefined) {
+          state.form.retentionDays = String(p.retentionDays);
+        } else {
+          state.form.retentionDays = '';
+        }
+        state.form.isActive = typeof p.isActive === 'boolean' ? p.isActive : true;
+      } else {
+        state.form.frequency = '';
+        state.form.timeOfDay = '';
+        state.form.timezone = '';
+        state.form.retentionDays = '';
+        state.form.isActive = true;
+      }
+      state.serverPolicySnapshot = {
+        frequency: state.form.frequency,
+        timeOfDay: state.form.timeOfDay,
+        timezone: state.form.timezone,
+        retentionDays: state.form.retentionDays,
+        isActive: state.form.isActive
+      };
+      state.formDirty = false;
+    }
+
+    function updateDirtyFlag() {
+      var snap = state.serverPolicySnapshot;
+      if (!snap) {
+        state.formDirty = !!(
+          state.form.frequency ||
+          state.form.timeOfDay ||
+          state.form.timezone ||
+          state.form.retentionDays
+        );
+        return;
+      }
+      state.formDirty =
+        snap.frequency !== state.form.frequency ||
+        snap.timeOfDay !== state.form.timeOfDay ||
+        snap.timezone !== state.form.timezone ||
+        snap.retentionDays !== state.form.retentionDays ||
+        snap.isActive !== state.form.isActive;
+    }
+
+    function renderContextLoader(container) {
+      var isLoading = state.isInitialLoading || state.isInstanceLoading || state.isBackupLoading || state.isSubmitting;
+      if (!isLoading || !state.vmInstanceId) {
+        container.innerHTML = '';
+        return;
+      }
+      container.innerHTML = '<div class=' +
+        '\'vm-context-loader-bar\'' +
+        ' role=\'status\' aria-label=\'Loading VM details\'></div>';
+    }
+
+    function renderMissingAlert(container) {
+      var message = '';
+      if (!state.vmInstanceId) {
+        message = 'A valid VM instance must be selected using the vmInstanceId URL parameter.';
+      } else if (!state.instance && state.instanceError) {
+        message = state.instanceError;
+      }
+      if (!message) {
+        container.innerHTML = '';
+        return;
+      }
+      container.innerHTML = '' +
+        '<div class=\'alert alert-error\' role=\'alert\'>' +
+          '<h2 class=\'alert-title\'>Unable to load VM instance</h2>' +
+          '<p class=\'alert-body\'>' + escapeHtml(message) + '</p>' +
+          '<p class=\'alert-body\'><a href=\'vms.html\' class=\'link-inline\'>Back to Virtual Machines</a></p>' +
+        '</div>';
+    }
+
+    function renderInstanceHeader(container) {
+      if (!state.vmInstanceId || !state.instance || state.instanceError) {
+        container.innerHTML = '';
+        return;
+      }
+      var inst = state.instance;
+      var statusKey = inst.status || 'unknown';
+      var statusLabel = inst.status ? capitalize(inst.status.replace(/_/g, ' ')) : 'Unknown';
+      var regionLabel = inst.regionLabel || inst.region || '';
+      var createdAt = formatDate(inst.createdAt);
+      var osName = state.operatingSystemName || '';
+      container.innerHTML = '' +
+        '<div class=\'vm-header-inner\'>' +
+          '<h1 class=\'vm-title\'>' + escapeHtml(inst.name || '') + '</h1>' +
+          '<div class=\'vm-meta-row\'>' +
+            '<span class=\'vm-id\'>Instance ID: ' + escapeHtml(inst.id || '') + '</span>' +
+            (regionLabel ? '<span class=\'vm-meta-separator\'>&bull;</span><span class=\'vm-region\'>Region: ' + escapeHtml(regionLabel) + '</span>' : '') +
+            (osName ? '<span class=\'vm-meta-separator\'>&bull;</span><span class=\'vm-os\'>OS: ' + escapeHtml(osName) + '</span>' : '') +
+          '</div>' +
+          '<div class=\'vm-meta-row\'>' +
+            (createdAt ? '<span class=\'vm-created\'>Created: ' + escapeHtml(createdAt) + '</span>' : '') +
+            (statusLabel ? '<span class=\'vm-meta-separator\'>&bull;</span><span class=\'vm-status-label status-' + escapeHtml(statusKey) + '\'>Status: ' + escapeHtml(statusLabel) + '</span>' : '') +
+          '</div>' +
+        '</div>';
+    }
+
+    function renderRuntimeStatus(container) {
+      if (!state.vmInstanceId || !state.instance || state.instanceError) {
+        container.innerHTML = '';
+        return;
+      }
+      var inst = state.instance;
+      var statusKey = inst.status || 'unknown';
+      var statusLabel = inst.status ? capitalize(inst.status.replace(/_/g, ' ')) : 'Unknown';
+      var backupEnabled = inst.backupEnabled === true;
+      var ip = inst.ipAddress || '';
+      container.innerHTML = '' +
+        '<div class=\'panel-inner\'>' +
+          '<div class=\'panel-header\'>' +
+            '<h2 class=\'panel-title\'>Runtime status</h2>' +
+            '<button type=\'button\' class=\'btn btn-ghost btn-sm\' data-action=\'refresh-runtime\'>Refresh</button>' +
+          '</div>' +
+          '<div class=\'panel-body\'>' +
+            '<dl class=\'key-value-list\'>' +
+              '<div class=\'kv-row\'><dt>Status</dt><dd><span class=\'status-pill status-' + escapeHtml(statusKey) + '\'>' + escapeHtml(statusLabel) + '</span></dd></div>' +
+              (ip ? '<div class=\'kv-row\'><dt>IP address</dt><dd>' + escapeHtml(ip) + '</dd></div>' : '') +
+              '<div class=\'kv-row\'><dt>vCPUs</dt><dd>' + escapeHtml(inst.vcpuCount !== null && inst.vcpuCount !== undefined ? inst.vcpuCount : '') + '</dd></div>' +
+              '<div class=\'kv-row\'><dt>Memory</dt><dd>' + escapeHtml(inst.memoryGb !== null && inst.memoryGb !== undefined ? inst.memoryGb + ' GB' : '') + '</dd></div>' +
+              '<div class=\'kv-row\'><dt>Backups</dt><dd><span class=\'backup-status backup-' + (backupEnabled ? 'enabled' : 'disabled') + '\'>' + (backupEnabled ? 'Enabled' : 'Disabled') + '</span></dd></div>' +
+            '</dl>' +
+          '</div>' +
+        '</div>';
+    }
+
+    function renderPlanSummary(container) {
+      if (!state.vmInstanceId || !state.instance || state.instanceError || !state.planSummary) {
+        container.innerHTML = '';
+        return;
+      }
+      var plan = state.planSummary;
+      var name = plan.name || '';
+      var category = plan.categoryLabel || '';
+      var price = plan.priceMonthlyUsd !== null && plan.priceMonthlyUsd !== undefined ? formatMoney(plan.priceMonthlyUsd) : '';
+      container.innerHTML = '' +
+        '<div class=\'panel-inner\'>' +
+          '<div class=\'panel-header\'>' +
+            '<h2 class=\'panel-title\'>Plan summary</h2>' +
+          '</div>' +
+          '<div class=\'panel-body\'>' +
+            '<dl class=\'key-value-list\'>' +
+              (name ? '<div class=\'kv-row\'><dt>Plan</dt><dd>' + escapeHtml(name) + '</dd></div>' : '') +
+              (category ? '<div class=\'kv-row\'><dt>Category</dt><dd>' + escapeHtml(category) + '</dd></div>' : '') +
+              (price ? '<div class=\'kv-row\'><dt>Price (monthly)</dt><dd>' + escapeHtml(price) + '</dd></div>' : '') +
+            '</dl>' +
+          '</div>' +
+        '</div>';
+    }
+
+    function renderBackupSummary(container) {
+      if (!state.vmInstanceId || !state.instance || state.instanceError) {
+        container.innerHTML = '';
+        return;
+      }
+      var html = '';
+      html += '<div class=\'panel-inner\'>';
+      html +=   '<div class=\'panel-header\'>';
+      html +=     '<h2 class=\'panel-title\'>Backup policy</h2>';
+      html +=     '<div class=\'panel-header-actions\'>';
+      html +=       '<button type=\'button\' class=\'btn btn-ghost btn-sm\' data-action=\'refresh-backup\'>Refresh</button>';
+      html +=     '</div>';
+      html +=   '</div>';
+      html +=   '<div class=\'panel-body\'>';
+
+      if (state.backupError) {
+        html += '<p class=\'text-error\'>' + escapeHtml(state.backupError) + '</p>';
+      } else if (!state.backup.hasPolicy || !state.backup.policy) {
+        html += '<p>No backup policy is currently attached to this VM instance.</p>';
+        html += '<p class=\'text-muted\'>Configure a backup schedule to protect this VM\'s data.</p>';
+        html += '<button type=\'button\' class=\'btn btn-secondary\' data-action=\'backup-focus-form\'>Configure backup policy</button>';
+      } else {
+        var p = state.backup.policy;
+        var freqLabel = p.frequency ? capitalize(p.frequency) : '';
+        var timeOfDay = p.timeOfDay || '';
+        var timezone = p.timezone || '';
+        var retention = p.retentionDays !== null && p.retentionDays !== undefined ? p.retentionDays : '';
+        var isActive = p.isActive === undefined ? true : !!p.isActive;
+        html += '<dl class=\'key-value-list\'>';
+        if (p.name) {
+          html += '<div class=\'kv-row\'><dt>Policy</dt><dd>' + escapeHtml(p.name) + '</dd></div>';
+        }
+        if (freqLabel) {
+          html += '<div class=\'kv-row\'><dt>Frequency</dt><dd>' + escapeHtml(freqLabel) + '</dd></div>';
+        }
+        if (timeOfDay) {
+          html += '<div class=\'kv-row\'><dt>Time of day</dt><dd>' + escapeHtml(timeOfDay) + '</dd></div>';
+        }
+        html += '<div class=\'kv-row\'><dt>Timezone</dt><dd>' + (timezone ? escapeHtml(timezone) : 'Not set') + '</dd></div>';
+        if (retention !== '') {
+          html += '<div class=\'kv-row\'><dt>Retention</dt><dd>' + escapeHtml(retention) + ' days</dd></div>';
+        }
+        html += '<div class=\'kv-row\'><dt>Status</dt><dd><span class=\'status-pill status-' + (isActive ? 'active' : 'inactive') + '\'>' + (isActive ? 'Active' : 'Inactive') + '</span></dd></div>';
+        html += '</dl>';
+        html += '<button type=\'button\' class=\'btn btn-secondary\' data-action=\'backup-focus-form\'>Edit backup policy</button>';
+      }
+
+      html +=   '</div>';
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    function renderBackupForm(container) {
+      if (!state.vmInstanceId || !state.instance || state.instanceError) {
+        container.innerHTML = '';
+        return;
+      }
+      var freq = state.form.frequency || '';
+      var timeOfDay = state.form.timeOfDay || '';
+      var timezone = state.form.timezone || '';
+      var retentionDays = state.form.retentionDays || '';
+      var isActive = state.form.isActive === undefined ? true : !!state.form.isActive;
+      var disabledAttr = state.isSubmitting ? ' disabled' : '';
+      var resetDisabled = state.formDirty ? '' : ' disabled';
+      var dirtyLabel = state.formDirty ? 'Unsaved changes' : 'All changes saved';
+      var dirtyClass = state.formDirty ? 'form-dirty-indicator' : 'form-dirty-indicator form-dirty-indicator--clean';
+
+      var html = '';
+      html += '<form class=\'form vm-backup-form\' data-form=\'vm-backup-policy\' novalidate>';
+      html +=   '<div class=\'panel-header\'>';
+      html +=     '<h2 class=\'panel-title\'>Configure backup policy</h2>';
+      html +=     '<span class=\'' + dirtyClass + '\'>' + escapeHtml(dirtyLabel) + '</span>';
+      html +=   '</div>';
+      html +=   '<div class=\'panel-body\'>';
+
+      html +=     '<div class=\'form-row\'>';
+      html +=       '<div class=\'form-group\'>';
+      html +=         '<label for=\'backup-frequency-input\'>Frequency<span class=\'field-required\'>*</span></label>';
+      html +=         '<select id=\'backup-frequency-input\' name=\'frequency\' class=\'form-control\' data-field=\'frequency\'>';
+      html +=           '<option value=\'' + (freq === '' ? '' : '') + '\'>Select frequency</option>';
+      html +=           '<option value=\'daily\'' + (freq === 'daily' ? ' selected' : '') + '>Daily</option>';
+      html +=           '<option value=\'weekly\'' + (freq === 'weekly' ? ' selected' : '') + '>Weekly</option>';
+      html +=           '<option value=\'monthly\'' + (freq === 'monthly' ? ' selected' : '') + '>Monthly</option>';
+      html +=         '</select>';
+      html +=         '<p class=\'field-help\'>Choose how often backups should run.</p>';
+      html +=       '</div>';
+
+      html +=       '<div class=\'form-group\'>';
+      html +=         '<label for=\'backup-time-input\'>Time of day<span class=\'field-required\'>*</span></label>';
+      html +=         '<input id=\'backup-time-input\' name=\'timeOfDay\' type=\'text\' class=\'form-control\' placeholder=\'HH:MM (24-hour)\' data-field=\'timeOfDay\' value=\'' + escapeHtml(timeOfDay) + '\' />';
+      html +=         '<p class=\'field-help\'>Backups will start at this time in the selected timezone.</p>';
+      html +=       '</div>';
+      html +=     '</div>';
+
+      html +=     '<div class=\'form-row\'>';
+      html +=       '<div class=\'form-group\'>';
+      html +=         '<label for=\'backup-timezone-input\'>Timezone</label>';
+      html +=         '<input id=\'backup-timezone-input\' name=\'timezone\' type=\'text\' class=\'form-control\' placeholder=\'e.g. America/New_York\' data-field=\'timezone\' value=\'' + escapeHtml(timezone) + '\' />';
+      html +=         '<p class=\'field-help\'>IANA timezone identifier. If not set, the platform default will be used.</p>';
+      html +=       '</div>';
+
+      html +=       '<div class=\'form-group\'>';
+      html +=         '<label for=\'backup-retention-input\'>Retention (days)<span class=\'field-required\'>*</span></label>';
+      html +=         '<input id=\'backup-retention-input\' name=\'retentionDays\' type=\'number\' min=\'1\' class=\'form-control\' data-field=\'retentionDays\' value=\'' + escapeHtml(retentionDays) + '\' />';
+      html +=         '<p class=\'field-help\'>Number of days to retain backup snapshots before automatic deletion.</p>';
+      html +=       '</div>';
+      html +=     '</div>';
+
+      html +=     '<div class=\'form-row\'>';
+      html +=       '<div class=\'form-group form-group-inline\'>';
+      html +=         '<label class=\'checkbox-label\'>';
+      html +=           '<input type=\'checkbox\' class=\'form-checkbox\' data-field=\'isActive\'' + (isActive ? ' checked' : '') + ' />';
+      html +=           '<span>Activate backups for this VM</span>';
+      html +=         '</label>';
+      html +=         '<p class=\'field-help\'>Disable to pause backups without losing the configured schedule.</p>';
+      html +=       '</div>';
+      html +=     '</div>';
+
+      html +=   '</div>';
+
+      html +=   '<div class=\'form-actions\'>';
+      html +=     '<button type=\'button\' class=\'btn btn-secondary\' data-action=\'backup-reset\'' + resetDisabled + '>Reset changes</button>';
+      html +=     '<button type=\'button\' class=\'btn btn-primary\' data-action=\'backup-submit\'' + disabledAttr + '>' + (state.isSubmitting ? 'Saving…' : 'Save backup policy') + '</button>';
+      html +=   '</div>';
+
+      html += '</form>';
+
+      container.innerHTML = html;
+    }
+
+    function renderLearnMore(container) {
+      container.innerHTML = '' +
+        '<button type=\'button\' class=\'link-button\' data-action=\'backup-learn-more\'>Learn more about VM backup policies</button>';
+    }
+
+    function renderBackupMessages(container) {
+      var html = '';
+      if (state.submitError) {
+        html += '<div class=\'alert alert-error\' role=\'alert\'>';
+        html +=   '<p>' + escapeHtml(state.submitError) + '</p>';
+        html += '</div>';
+      } else if (state.submitSuccessMessage) {
+        html += '<div class=\'alert alert-success\' role=\'status\'>';
+        html +=   '<p>' + escapeHtml(state.submitSuccessMessage) + '</p>';
+        html += '</div>';
+      } else if (state.backupError && state.instance && !state.instanceError) {
+        html += '<div class=\'alert alert-error\' role=\'alert\'>';
+        html +=   '<p>' + escapeHtml(state.backupError) + '</p>';
+        html += '</div>';
+      }
+      container.innerHTML = html;
+    }
+
+    function renderNotes(container) {
+      if (!state.vmInstanceId || !state.instance || state.instanceError) {
+        container.innerHTML = '';
+        return;
+      }
+      var notes = state.instance.notes;
+      var html = '';
+      html += '<div class=\'panel-inner\'>';
+      html +=   '<h2 class=\'panel-title\'>Notes</h2>';
+      if (notes) {
+        html += '<p class=\'vm-notes-body\'>' + escapeHtml(notes) + '</p>';
+      } else {
+        html += '<p class=\'vm-notes-body vm-notes-empty\'>No notes have been added for this VM instance.</p>';
+      }
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    function renderLoadingOverlay(container) {
+      var shouldShow = !!state.vmInstanceId && (state.isInitialLoading || state.isInstanceLoading || state.isBackupLoading || state.isSubmitting);
+      if (!shouldShow) {
+        container.setAttribute('aria-hidden', 'true');
+        container.setAttribute('hidden', 'hidden');
+        container.innerHTML = '';
+        return;
+      }
+      container.removeAttribute('hidden');
+      container.setAttribute('aria-hidden', 'false');
+      container.innerHTML = '' +
+        '<div class=\'vm-loading-overlay-backdrop\'>' +
+          '<div class=\'vm-loading-spinner\' role=\'status\' aria-label=\'Loading\'></div>' +
+        '</div>';
+    }
+
+    function renderAll() {
+      var components = document.querySelectorAll('[data-component]');
+      components.forEach(function(container) {
+        var name = container.dataset.component;
+        if (name === 'vm-instance-context-loader') {
+          renderContextLoader(container);
+        } else if (name === 'vm-instance-id-missing-alert') {
+          renderMissingAlert(container);
+        } else if (name === 'vm-instance-header') {
+          renderInstanceHeader(container);
+        } else if (name === 'vm-runtime-status-panel') {
+          renderRuntimeStatus(container);
+        } else if (name === 'vm-plan-summary-panel') {
+          renderPlanSummary(container);
+        } else if (name === 'vm-backup-policy-summary') {
+          renderBackupSummary(container);
+        } else if (name === 'vm-backup-policy-form') {
+          renderBackupForm(container);
+        } else if (name === 'backup-policy-learn-more-link') {
+          renderLearnMore(container);
+        } else if (name === 'vm-backup-messages') {
+          renderBackupMessages(container);
+        } else if (name === 'vm-notes-view') {
+          renderNotes(container);
+        } else if (name === 'vm-instance-loading-overlay') {
+          renderLoadingOverlay(container);
+        }
+      });
+    }
+
+    function setFieldErrorStates(errorFields) {
+      var fieldNames = ['frequency', 'timeOfDay', 'timezone', 'retentionDays'];
+      fieldNames.forEach(function(name) {
+        var selector = '[data-field=' + name + ']';
+        var input = document.querySelector(selector);
+        if (!input) {
+          return;
+        }
+        if (errorFields.indexOf(name) !== -1) {
+          input.classList.add('has-error');
+        } else {
+          input.classList.remove('has-error');
+        }
+      });
+    }
+
+    function handleBackupSubmit() {
+      if (!state.vmInstanceId || !state.instance || state.instanceError) {
+        return;
+      }
+      state.submitError = null;
+      state.submitSuccessMessage = null;
+
+      var freq = state.form.frequency;
+      var timeOfDay = state.form.timeOfDay;
+      var timezone = state.form.timezone;
+      var retentionStr = state.form.retentionDays;
+      var isActive = state.form.isActive === undefined ? true : !!state.form.isActive;
+      var errors = [];
+
+      if (!freq || ['daily', 'weekly', 'monthly'].indexOf(freq) === -1) {
+        errors.push('frequency');
+      }
+
+      var timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+      if (!timeOfDay || !timeRegex.test(timeOfDay)) {
+        errors.push('timeOfDay');
+      }
+
+      var retention = Number(retentionStr);
+      if (!retentionStr || !isFinite(retention) || retention <= 0 || Math.floor(retention) !== retention) {
+        errors.push('retentionDays');
+      }
+
+      if (errors.length > 0) {
+        state.submitError = 'Please correct the highlighted fields before saving the backup policy.';
+        setFieldErrorStates(errors);
+        renderAll();
+        return;
+      }
+
+      state.isSubmitting = true;
+      setFieldErrorStates([]);
+      renderAll();
+
+      try {
+        var result = WebsiteSDK.upsertVMBackupPolicyForInstance(
+          state.vmInstanceId,
+          freq,
+          timeOfDay,
+          timezone || '',
+          retention,
+          isActive
+        );
+        if (result && result.success) {
+          state.submitSuccessMessage = result.message || 'Backup policy saved.';
+          state.submitError = null;
+          loadInstanceAndBackup({ resetFormFromPolicy: true });
+          state.formDirty = false;
+        } else {
+          state.submitError = result && result.message ? result.message : 'Unable to save backup policy.';
+        }
+      } catch (error) {
+        state.submitError = 'An unexpected error occurred while saving the backup policy.';
+      }
+
+      state.isSubmitting = false;
+      renderAll();
+    }
+
+    function handleBackupReset() {
+      if (!state.serverPolicySnapshot) {
+        syncFormWithPolicy();
+      } else {
+        state.form.frequency = state.serverPolicySnapshot.frequency;
+        state.form.timeOfDay = state.serverPolicySnapshot.timeOfDay;
+        state.form.timezone = state.serverPolicySnapshot.timezone;
+        state.form.retentionDays = state.serverPolicySnapshot.retentionDays;
+        state.form.isActive = state.serverPolicySnapshot.isActive;
+      }
+      state.formDirty = false;
+      state.submitError = null;
+      state.submitSuccessMessage = null;
+      setFieldErrorStates([]);
+      renderAll();
+    }
+
+    function confirmDiscardIfDirty() {
+      if (!state.formDirty) {
+        return true;
+      }
+      return window.confirm('You have unsaved backup policy changes. Refreshing will discard these changes and reload the last saved values. Continue?');
+    }
+
+    function loadInstanceAndBackup(options) {
+      var opts = options || {};
+      if (!state.vmInstanceId) {
+        return;
+      }
+      state.isInstanceLoading = true;
+      state.isBackupLoading = true;
+      if (opts.markInitial) {
+        state.isInitialLoading = true;
+      }
+      renderAll();
+
+      try {
+        var instanceResult = WebsiteSDK.getVMInstanceDetails(state.vmInstanceId);
+        if (instanceResult && instanceResult.instance) {
+          state.instance = instanceResult.instance;
+          state.planSummary = instanceResult.planSummary || null;
+          state.operatingSystemName = instanceResult.operatingSystemName || '';
+          state.instanceError = null;
+        } else {
+          state.instance = null;
+          state.planSummary = null;
+          state.operatingSystemName = '';
+          state.instanceError = 'The requested VM instance could not be found.';
+        }
+      } catch (error) {
+        state.instance = null;
+        state.planSummary = null;
+        state.operatingSystemName = '';
+        state.instanceError = 'An error occurred while loading VM instance details.';
+      } finally {
+        state.isInstanceLoading = false;
+      }
+
+      if (state.instance) {
+        try {
+          var backupResult = WebsiteSDK.getVMBackupPolicyForInstance(state.vmInstanceId);
+          if (backupResult && typeof backupResult.hasPolicy === 'boolean') {
+            state.backup.hasPolicy = !!backupResult.hasPolicy;
+            state.backup.policy = backupResult.policy || null;
+          } else {
+            state.backup.hasPolicy = false;
+            state.backup.policy = null;
+          }
+          state.backupError = null;
+        } catch (error2) {
+          state.backup.hasPolicy = false;
+          state.backup.policy = null;
+          state.backupError = 'An error occurred while loading the backup policy.';
+        } finally {
+          state.isBackupLoading = false;
+        }
+      } else {
+        state.backup.hasPolicy = false;
+        state.backup.policy = null;
+        state.isBackupLoading = false;
+      }
+
+      if (opts.resetFormFromPolicy) {
+        syncFormWithPolicy();
+      } else {
+        updateDirtyFlag();
+      }
+
+      state.isInitialLoading = false;
+      renderAll();
+    }
+
+    function handleUrlDrivenLoad() {
+      var id = parseVmInstanceIdFromUrl();
+      resetStateForVm(id);
+      if (!id) {
+        state.instanceError = 'A valid VM instance must be selected using the vmInstanceId URL parameter.';
+        renderAll();
+        return;
+      }
+      loadInstanceAndBackup({ resetFormFromPolicy: true, markInitial: true });
+    }
+
+    document.addEventListener('click', function(event) {
+      var target = event.target.closest('[data-action]');
+      if (!target) {
+        return;
+      }
+      var action = target.dataset.action;
+      if (action === 'refresh-runtime' || action === 'refresh-backup') {
+        event.preventDefault();
+        if (!state.vmInstanceId) {
+          return;
+        }
+        if (!confirmDiscardIfDirty()) {
+          return;
+        }
+        loadInstanceAndBackup({ resetFormFromPolicy: true });
+      } else if (action === 'backup-focus-form') {
+        event.preventDefault();
+        var formSection = document.querySelector('[data-component=vm-backup-policy-form]');
+        if (formSection && typeof formSection.scrollIntoView === 'function') {
+          formSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      } else if (action === 'backup-submit') {
+        event.preventDefault();
+        handleBackupSubmit();
+      } else if (action === 'backup-reset') {
+        event.preventDefault();
+        handleBackupReset();
+      } else if (action === 'backup-learn-more') {
+        event.preventDefault();
+        window.location.href = 'docs.html?slug=vm-backups';
+      }
+    });
+
+    function handleFieldChange(event) {
+      var target = event.target;
+      if (!target || !target.dataset) {
+        return;
+      }
+      var field = target.dataset.field;
+      if (!field) {
+        return;
+      }
+      if (!state.vmInstanceId || !state.instance || state.instanceError) {
+        return;
+      }
+      var value;
+      if (target.type === 'checkbox') {
+        value = !!target.checked;
+      } else {
+        value = target.value;
+      }
+      if (field === 'frequency') {
+        state.form.frequency = value;
+      } else if (field === 'timeOfDay') {
+        state.form.timeOfDay = value;
+      } else if (field === 'timezone') {
+        state.form.timezone = value;
+      } else if (field === 'retentionDays') {
+        state.form.retentionDays = value;
+      } else if (field === 'isActive') {
+        state.form.isActive = value;
+      }
+      state.submitError = null;
+      state.submitSuccessMessage = null;
+      updateDirtyFlag();
+      var indicator = document.querySelector('.form-dirty-indicator');
+      if (indicator) {
+        if (state.formDirty) {
+          indicator.textContent = 'Unsaved changes';
+          indicator.classList.remove('form-dirty-indicator--clean');
+        } else {
+          indicator.textContent = 'All changes saved';
+          indicator.classList.add('form-dirty-indicator--clean');
+        }
+      }
+    }
+
+    document.addEventListener('input', handleFieldChange);
+    document.addEventListener('change', handleFieldChange);
+
+    window.addEventListener('beforeunload', function(event) {
+      if (!state.formDirty) {
+        return;
+      }
+      event.preventDefault();
+      event.returnValue = '';
+    });
+
+    window.addEventListener('popstate', function() {
+      var id = parseVmInstanceIdFromUrl();
+      if (id === state.vmInstanceId) {
+        return;
+      }
+      resetStateForVm(id);
+      if (!id) {
+        state.instanceError = 'A valid VM instance must be selected using the vmInstanceId URL parameter.';
+        renderAll();
+        return;
+      }
+      loadInstanceAndBackup({ resetFormFromPolicy: true, markInitial: true });
+    });
+
+    handleUrlDrivenLoad();
+  });
+  </script>
+</body>
+</html>

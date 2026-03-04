@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Photo Detail - Vintage Automobile Photo Gallery</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='photo.css'>
+</head>
+<body>
+  <header class='site-header' role='banner'>
+    <h1 class='site-title'>Vintage Automobile Photo Gallery</h1>
+    <nav class='site-nav' aria-label='Main navigation'>
+      <p class='nav-links'>
+        <a href='index.html' title='Return to the homepage'>Home</a> |
+        <a href='gallery.html' title='Browse and search all vintage automobile photos'>Browse Gallery</a> |
+        <a href='prints.html' title='Shop postcards, posters, and other print products'>Prints &amp; Products</a> |
+        <a href='collections.html' title='View and manage saved photo collections'>My Collections</a> |
+        <a href='slideshows.html' title='Create and edit photo slideshows'>Slideshows</a> |
+        <a href='favorites.html' title='View all photos you have favorited'>Favorites</a> |
+        <a href='cart.html' title='View items in your cart and choose shipping options'>Cart</a> |
+        <a href='settings.html' title='Adjust display and viewing preferences'>Settings</a>
+      </p>
+    </nav>
+    <hr class='section-divider'>
+  </header>
+
+  <main id='content' class='site-content' role='main'>
+    <div class='photo-detail-page'>
+      <div class='photo-detail-header-row'>
+        <span data-component='back-to-results-link' data-populate='back-link'></span>
+        <span data-component='cart-shortcut-indicator' data-populate='cart-shortcut'></span>
+      </div>
+      <hr class='section-divider'>
+
+      <div data-component='photo-detail-loader'>
+        <p data-populate='loader-message'>Loading photo...</p>
+      </div>
+
+      <div data-component='photo-main-viewer' data-populate='photo-main-viewer'></div>
+
+      <div data-component='photo-metadata-panel' data-populate='photo-metadata'></div>
+
+      <div data-component='favorite-toggle-button' data-populate='favorite-toggle'></div>
+
+      <div data-component='product-options-selector' data-populate='product-options'></div>
+
+      <div data-component='add-to-cart-form' data-populate='add-to-cart-form'></div>
+
+      <p data-component='prints-view-all-link'>
+        <a href='javascript:void(0)' data-action='view-all-print-options'>View all print options</a>
+      </p>
+
+      <div data-component='collection-add-form' data-populate='collection-add-form'></div>
+
+      <div data-component='slideshow-add-form' data-populate='slideshow-add-form'></div>
+
+      <hr class='section-divider'>
+
+      <div data-component='related-photos-strip' data-populate='related-photos'></div>
+    </div>
+  </main>
+
+  <footer class='site-footer' role='contentinfo'>
+    <hr class='section-divider'>
+    <p class='footer-links'>
+      <a href='about.html' title='Learn more about this vintage automobile photo gallery'>About</a> |
+      <a href='help.html' title='Get help with using the site and its features'>Help / FAQ</a> |
+      <a href='contact.html' title='Contact the site owner or support'>Contact</a>
+    </p>
+    <p class='footer-meta'>&copy; <span class='footer-year'>2026</span> Vintage Automobile Photo Gallery</p>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var urlParams = new URLSearchParams(window.location.search);
+      var initialPhotoId = urlParams.get('id');
+      var initialRef = urlParams.get('ref') || '';
+
+      var state = {
+        photoId: initialPhotoId,
+        ref: initialRef,
+        detail: null,
+        availableProducts: [],
+        selectedProductId: null,
+        productTypeFilter: 'all',
+        licenseTypeFilter: 'all',
+        quantity: 1,
+        cartItemCount: 0,
+        cartSubtotal: 0,
+        isFavorited: false,
+        favoriteMessage: '',
+        cartMessage: '',
+        collectionMessage: '',
+        collectionError: '',
+        slideshowMessage: '',
+        slideshowError: ''
+      };
+
+      var loaderContainer = document.querySelector('[data-component="photo-detail-loader"]');
+      var photoViewerContainer = document.querySelector('[data-component="photo-main-viewer"]');
+      var metadataContainer = document.querySelector('[data-component="photo-metadata-panel"]');
+      var favoriteContainer = document.querySelector('[data-component="favorite-toggle-button"]');
+      var productOptionsContainer = document.querySelector('[data-component="product-options-selector"]');
+      var addToCartContainer = document.querySelector('[data-component="add-to-cart-form"]');
+      var cartShortcutContainer = document.querySelector('[data-component="cart-shortcut-indicator"]');
+      var backLinkContainer = document.querySelector('[data-component="back-to-results-link"]');
+      var collectionFormContainer = document.querySelector('[data-component="collection-add-form"]');
+      var slideshowFormContainer = document.querySelector('[data-component="slideshow-add-form"]');
+      var relatedPhotosContainer = document.querySelector('[data-component="related-photos-strip"]');
+
+      function escapeHtml(text) {
+        if (text === null || text === undefined) {
+          return '';
+        }
+        return String(text)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function escapeHtmlAttr(text) {
+        return escapeHtml(text);
+      }
+
+      function formatCurrency(amount) {
+        var num = Number(amount);
+        if (!isFinite(num)) {
+          return '$0.00';
+        }
+        return '$' + num.toFixed(2);
+      }
+
+      function humanizeProductType(value) {
+        if (!value) {
+          return '';
+        }
+        if (value === 'standard_print') {
+          return 'Standard print';
+        }
+        if (value === 'postcard') {
+          return 'Postcard';
+        }
+        if (value === 'poster') {
+          return 'Poster';
+        }
+        if (value === 'digital_download') {
+          return 'Digital download';
+        }
+        return value;
+      }
+
+      function humanizeLicenseType(value) {
+        if (!value) {
+          return '';
+        }
+        if (value === 'personal') {
+          return 'Personal';
+        }
+        if (value === 'commercial') {
+          return 'Commercial';
+        }
+        if (value === 'extended') {
+          return 'Extended';
+        }
+        if (value === 'editorial') {
+          return 'Editorial';
+        }
+        return value;
+      }
+
+      function humanizeColorCategory(value) {
+        if (!value) {
+          return '';
+        }
+        if (value === 'black_white') {
+          return 'Black &amp; White';
+        }
+        var lower = String(value).toLowerCase();
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+      }
+
+      function humanizeOrientation(value) {
+        if (!value) {
+          return '';
+        }
+        if (value === 'landscape') {
+          return 'Landscape';
+        }
+        if (value === 'portrait') {
+          return 'Portrait';
+        }
+        if (value === 'square') {
+          return 'Square';
+        }
+        if (value === 'panorama') {
+          return 'Panorama';
+        }
+        return value;
+      }
+
+      function renderLoader(message) {
+        if (!loaderContainer) {
+          return;
+        }
+        loaderContainer.innerHTML = '<p>' + escapeHtml(message) + '</p>';
+      }
+
+      function showLoader() {
+        renderLoader('Loading photo...');
+      }
+
+      function hideLoader() {
+        if (!loaderContainer) {
+          return;
+        }
+        loaderContainer.innerHTML = '';
+      }
+
+      function renderBackLink() {
+        if (!backLinkContainer) {
+          return;
+        }
+        var label;
+        if (state.ref === 'prints') {
+          label = 'Back to prints listing';
+        } else if (state.ref === 'gallery') {
+          label = 'Back to gallery results';
+        } else {
+          label = 'Back to results';
+        }
+        var html = '<a href="javascript:void(0)" data-action="back-to-results">' + escapeHtml(label) + '</a>';
+        backLinkContainer.innerHTML = html;
+      }
+
+      function renderCartShortcut() {
+        if (!cartShortcutContainer) {
+          return;
+        }
+        var html;
+        if (state.cartItemCount && state.cartItemCount > 0) {
+          var text = 'Cart (' + state.cartItemCount + ') - ' + formatCurrency(state.cartSubtotal);
+          html = '<span>' + escapeHtml(text) + '</span> ' +
+            '<a href="javascript:void(0)" data-action="go-to-cart">View Cart</a>';
+        } else {
+          html = '<span>Cart (0)</span>';
+        }
+        cartShortcutContainer.innerHTML = html;
+      }
+
+      function renderPhotoMainViewer() {
+        if (!photoViewerContainer || !state.detail || !state.detail.photo) {
+          return;
+        }
+        var photo = state.detail.photo;
+        var title = photo.title ? photo.title : 'Vintage automobile photo';
+        var html = '';
+        html += '<div class="photo-main-viewer-inner">';
+        html += '<p class="photo-main-image-wrapper">';
+        html += '<img src="' + escapeHtmlAttr(photo.image_url) + '" alt="' + escapeHtmlAttr(title) + '" class="photo-main-image">';
+        html += '</p>';
+        html += '</div>';
+        photoViewerContainer.innerHTML = html;
+      }
+
+      function renderPhotoMetadata() {
+        if (!metadataContainer || !state.detail || !state.detail.photo) {
+          return;
+        }
+        var photo = state.detail.photo;
+        var html = '';
+        html += '<section class="photo-metadata">';
+        html += '<p><strong>' + escapeHtml(photo.title || 'Untitled vintage automobile') + '</strong></p>';
+        if (photo.description) {
+          html += '<p>' + escapeHtml(photo.description) + '</p>';
+        }
+        if (photo.year || photo.decade_label) {
+          html += '<p>Year: ' + escapeHtml(photo.year !== undefined && photo.year !== null ? String(photo.year) : '') +
+            (photo.decade_label ? ' (' + escapeHtml(photo.decade_label) + ')' : '') + '</p>';
+        }
+        var makeModelParts = [];
+        if (photo.make) {
+          makeModelParts.push(photo.make);
+        }
+        if (photo.model) {
+          makeModelParts.push(photo.model);
+        }
+        if (photo.body_style) {
+          makeModelParts.push('(' + photo.body_style + ')');
+        }
+        if (makeModelParts.length > 0) {
+          html += '<p>Make &amp; model: ' + escapeHtml(makeModelParts.join(' ')) + '</p>';
+        }
+        if (photo.country_of_origin) {
+          html += '<p>Country of origin: ' + escapeHtml(photo.country_of_origin) + '</p>';
+        }
+        if (photo.location_name) {
+          html += '<p>Location: ' + escapeHtml(photo.location_name) + '</p>';
+        }
+        var colorOrientationParts = [];
+        if (photo.color_category) {
+          colorOrientationParts.push('Color: ' + humanizeColorCategory(photo.color_category));
+        }
+        if (photo.orientation) {
+          colorOrientationParts.push('Orientation: ' + humanizeOrientation(photo.orientation));
+        }
+        if (colorOrientationParts.length > 0) {
+          html += '<p>' + escapeHtml(colorOrientationParts.join('; ')) + '</p>';
+        }
+        if (photo.width_px && photo.height_px) {
+          var resolutionText = String(photo.width_px) + ' x ' + String(photo.height_px) + ' px';
+          html += '<p>Resolution: ' + escapeHtml(resolutionText) + '</p>';
+        }
+        html += '</section>';
+        metadataContainer.innerHTML = html;
+      }
+
+      function renderFavoriteToggle() {
+        if (!favoriteContainer || !state.photoId) {
+          if (favoriteContainer) {
+            favoriteContainer.innerHTML = '';
+          }
+          return;
+        }
+        var label = state.isFavorited ? 'Remove from favorites' : 'Add to favorites';
+        var statusText = state.isFavorited ? 'This photo is in your favorites.' : 'This photo is not yet in your favorites.';
+        var html = '';
+        html += '<p><button type="button" data-action="favorite-toggle">' + escapeHtml(label) + '</button></p>';
+        html += '<p>' + escapeHtml(statusText) + '</p>';
+        if (state.favoriteMessage) {
+          html += '<p class="form-message">' + escapeHtml(state.favoriteMessage) + '</p>';
+        }
+        favoriteContainer.innerHTML = html;
+      }
+
+      function renderProductOptions() {
+        if (!productOptionsContainer) {
+          return;
+        }
+        var products = state.availableProducts || [];
+        var html = '';
+        html += '<section class="product-options-section">';
+        html += '<h2>Print &amp; digital options</h2>';
+        if (!state.photoId) {
+          html += '<p>Select a photo to see available products.</p>';
+          html += '</section>';
+          productOptionsContainer.innerHTML = html;
+          return;
+        }
+        if (!products.length) {
+          html += '<p>No products are currently available for this photo.</p>';
+          html += '</section>';
+          productOptionsContainer.innerHTML = html;
+          state.selectedProductId = null;
+          return;
+        }
+        var typeSet = {};
+        var licenseSet = {};
+        var i;
+        for (i = 0; i < products.length; i++) {
+          var p = products[i];
+          if (p && p.product_type) {
+            typeSet[p.product_type] = true;
+          }
+          if (p && p.license_type) {
+            licenseSet[p.license_type] = true;
+          }
+        }
+        var types = Object.keys(typeSet);
+        var licenses = Object.keys(licenseSet);
+
+        var typeOptionsHtml = '<option value="all">All product types</option>';
+        for (i = 0; i < types.length; i++) {
+          var t = types[i];
+          var selectedType = state.productTypeFilter === t ? ' selected' : '';
+          typeOptionsHtml += '<option value="' + escapeHtmlAttr(t) + '"' + selectedType + '>' + escapeHtml(humanizeProductType(t)) + '</option>';
+        }
+
+        var licenseOptionsHtml = '<option value="all">All license types</option>';
+        for (i = 0; i < licenses.length; i++) {
+          var l = licenses[i];
+          var selectedLicense = state.licenseTypeFilter === l ? ' selected' : '';
+          licenseOptionsHtml += '<option value="' + escapeHtmlAttr(l) + '"' + selectedLicense + '>' + escapeHtml(humanizeLicenseType(l)) + '</option>';
+        }
+
+        var filteredProducts = [];
+        for (i = 0; i < products.length; i++) {
+          var prod = products[i];
+          var typeMatch = state.productTypeFilter === 'all' || prod.product_type === state.productTypeFilter;
+          var licenseMatch = state.licenseTypeFilter === 'all' || prod.license_type === state.licenseTypeFilter;
+          if (typeMatch && licenseMatch) {
+            filteredProducts.push(prod);
+          }
+        }
+        if (!filteredProducts.length) {
+          filteredProducts = products.slice(0);
+        }
+
+        if (!state.selectedProductId) {
+          var defaultProduct = null;
+          for (i = 0; i < filteredProducts.length; i++) {
+            if (filteredProducts[i].is_default) {
+              defaultProduct = filteredProducts[i];
+              break;
+            }
+          }
+          if (!defaultProduct) {
+            defaultProduct = filteredProducts[0];
+          }
+          state.selectedProductId = defaultProduct ? defaultProduct.id : null;
+        } else {
+          var foundInFiltered = false;
+          for (i = 0; i < filteredProducts.length; i++) {
+            if (filteredProducts[i].id === state.selectedProductId) {
+              foundInFiltered = true;
+              break;
+            }
+          }
+          if (!foundInFiltered) {
+            var newDefault = null;
+            for (i = 0; i < filteredProducts.length; i++) {
+              if (filteredProducts[i].is_default) {
+                newDefault = filteredProducts[i];
+                break;
+              }
+            }
+            if (!newDefault) {
+              newDefault = filteredProducts[0];
+            }
+            state.selectedProductId = newDefault ? newDefault.id : null;
+          }
+        }
+
+        var variantOptionsHtml = '';
+        for (i = 0; i < filteredProducts.length; i++) {
+          var vp = filteredProducts[i];
+          var selectedAttr = state.selectedProductId === vp.id ? ' selected' : '';
+          var descParts = [];
+          descParts.push(humanizeProductType(vp.product_type));
+          if (vp.size_label) {
+            descParts.push(vp.size_label);
+          }
+          if (vp.license_type) {
+            descParts.push(humanizeLicenseType(vp.license_type) + ' license');
+          }
+          var priceText = formatCurrency(vp.price) + (vp.currency ? ' ' + vp.currency : '');
+          var label = descParts.join(' - ');
+          if (label) {
+            label += ' - ' + priceText;
+          } else {
+            label = priceText;
+          }
+          variantOptionsHtml += '<option value="' + escapeHtmlAttr(vp.id) + '"' + selectedAttr + '>' + escapeHtml(label) + '</option>';
+        }
+
+        html += '<p><label for="productTypeSelect">Product type:</label><br>' +
+          '<select id="productTypeSelect" name="productType" data-action="product-type-change">' + typeOptionsHtml + '</select></p>';
+
+        if (licenses.length > 0) {
+          html += '<p><label for="licenseTypeSelect">License type:</label><br>' +
+            '<select id="licenseTypeSelect" name="licenseType" data-action="license-type-change">' + licenseOptionsHtml + '</select></p>';
+        }
+
+        html += '<p><label for="productVariantSelect">Available options:</label><br>' +
+          '<select id="productVariantSelect" name="productVariant" data-action="product-variant-change">' + variantOptionsHtml + '</select></p>';
+
+        html += '</section>';
+        productOptionsContainer.innerHTML = html;
+      }
+
+      function renderAddToCartForm() {
+        if (!addToCartContainer) {
+          return;
+        }
+        var html = '';
+        html += '<section class="add-to-cart-section">';
+        html += '<h2>Add to cart</h2>';
+        if (!state.photoId) {
+          html += '<p>Select a photo to add products to your cart.</p>';
+        } else if (!state.selectedProductId) {
+          html += '<p>No purchasable options are currently available.</p>';
+        } else {
+          var selectedProduct = null;
+          var i;
+          for (i = 0; i < state.availableProducts.length; i++) {
+            if (state.availableProducts[i].id === state.selectedProductId) {
+              selectedProduct = state.availableProducts[i];
+              break;
+            }
+          }
+          if (selectedProduct) {
+            var descParts = [];
+            descParts.push(humanizeProductType(selectedProduct.product_type));
+            if (selectedProduct.size_label) {
+              descParts.push(selectedProduct.size_label);
+            }
+            if (selectedProduct.license_type) {
+              descParts.push(humanizeLicenseType(selectedProduct.license_type) + ' license');
+            }
+            var priceText = formatCurrency(selectedProduct.price) + (selectedProduct.currency ? ' ' + selectedProduct.currency : '');
+            var descText = descParts.join(' - ');
+            if (descText) {
+              descText += ' - ' + priceText;
+            } else {
+              descText = priceText;
+            }
+            html += '<p>Selected: ' + escapeHtml(descText) + '</p>';
+          }
+          html += '<p><label for="quantityInput">Quantity:</label> ' +
+            '<input type="number" id="quantityInput" name="quantity" min="1" value="' + String(state.quantity) + '" data-action="quantity-change"> ' +
+            '<button type="button" data-action="add-to-cart">Add to cart</button></p>';
+        }
+        if (state.cartMessage) {
+          html += '<p class="form-message">' + escapeHtml(state.cartMessage) + '</p>';
+        }
+        if (state.cartItemCount && state.cartItemCount > 0) {
+          html += '<p><a href="javascript:void(0)" data-action="go-to-cart">View Cart</a></p>';
+        }
+        html += '</section>';
+        addToCartContainer.innerHTML = html;
+      }
+
+      function getCollectionsFromStorage() {
+        var raw = localStorage.getItem('collections') || '[]';
+        try {
+          var parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            return parsed;
+          }
+          return [];
+        } catch (e) {
+          return [];
+        }
+      }
+
+      function getSlideshowsFromStorage() {
+        var raw = localStorage.getItem('slideshows') || '[]';
+        try {
+          var parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            return parsed;
+          }
+          return [];
+        } catch (e) {
+          return [];
+        }
+      }
+
+      function renderCollectionAddForm() {
+        if (!collectionFormContainer) {
+          return;
+        }
+        var html = '';
+        html += '<section class="collection-add-section">';
+        html += '<h2>Add to collection</h2>';
+        if (!state.photoId) {
+          html += '<p>Select a photo to add it to a collection.</p>';
+        } else {
+          var collections = getCollectionsFromStorage();
+          if (!collections.length) {
+            html += '<p>No collections found. You can create collections from the My Collections page.</p>';
+          } else {
+            html += '<p><label for="collectionSelect">Choose collection:</label> ';
+            html += '<select id="collectionSelect" name="collectionId">';
+            html += '<option value="">Select a collection</option>';
+            var i;
+            for (i = 0; i < collections.length; i++) {
+              var c = collections[i];
+              if (!c || !c.id) {
+                continue;
+              }
+              var name = c.name ? c.name : c.id;
+              html += '<option value="' + escapeHtmlAttr(c.id) + '">' + escapeHtml(name) + '</option>';
+            }
+            html += '</select> ';
+            html += '<button type="button" data-action="add-to-collection">Add</button></p>';
+          }
+        }
+        if (state.collectionMessage) {
+          html += '<p class="form-message">' + escapeHtml(state.collectionMessage) + '</p>';
+        }
+        if (state.collectionError) {
+          html += '<p class="form-error">' + escapeHtml(state.collectionError) + '</p>';
+        }
+        html += '</section>';
+        collectionFormContainer.innerHTML = html;
+      }
+
+      function renderSlideshowAddForm() {
+        if (!slideshowFormContainer) {
+          return;
+        }
+        var html = '';
+        html += '<section class="slideshow-add-section">';
+        html += '<h2>Add to slideshow</h2>';
+        if (!state.photoId) {
+          html += '<p>Select a photo to add it to a slideshow.</p>';
+        } else {
+          var slideshows = getSlideshowsFromStorage();
+          if (!slideshows.length) {
+            html += '<p>No slideshows found. You can create slideshows from the Slideshows page.</p>';
+          } else {
+            html += '<p><label for="slideshowSelect">Choose slideshow:</label> ';
+            html += '<select id="slideshowSelect" name="slideshowId">';
+            html += '<option value="">Select a slideshow</option>';
+            var i;
+            for (i = 0; i < slideshows.length; i++) {
+              var s = slideshows[i];
+              if (!s || !s.id) {
+                continue;
+              }
+              var name = s.name ? s.name : s.id;
+              html += '<option value="' + escapeHtmlAttr(s.id) + '">' + escapeHtml(name) + '</option>';
+            }
+            html += '</select> ';
+            html += '<button type="button" data-action="add-to-slideshow">Add</button></p>';
+          }
+        }
+        if (state.slideshowMessage) {
+          html += '<p class="form-message">' + escapeHtml(state.slideshowMessage) + '</p>';
+        }
+        if (state.slideshowError) {
+          html += '<p class="form-error">' + escapeHtml(state.slideshowError) + '</p>';
+        }
+        html += '</section>';
+        slideshowFormContainer.innerHTML = html;
+      }
+
+      function renderRelatedPhotos() {
+        if (!relatedPhotosContainer) {
+          return;
+        }
+        if (!state.detail || !state.detail.related_photos || !state.detail.related_photos.length) {
+          relatedPhotosContainer.innerHTML = '';
+          return;
+        }
+        var related = state.detail.related_photos;
+        var html = '';
+        html += '<section class="related-photos-section">';
+        html += '<h2>Related photos</h2>';
+        html += '<div class="related-photos-row">';
+        var i;
+        for (i = 0; i < related.length; i++) {
+          var rp = related[i];
+          if (!rp || !rp.id) {
+            continue;
+          }
+          var title = rp.title ? rp.title : 'Related vintage automobile';
+          html += '<a href="javascript:void(0)" data-action="related-photo" data-photo-id="' + escapeHtmlAttr(rp.id) + '">';
+          html += '<img src="' + escapeHtmlAttr(rp.thumbnail_url) + '" alt="' + escapeHtmlAttr(title) + '" class="related-photo-thumb">';
+          html += '</a> ';
+        }
+        html += '</div>';
+        html += '</section>';
+        relatedPhotosContainer.innerHTML = html;
+      }
+
+      function renderAll() {
+        renderBackLink();
+        renderCartShortcut();
+        renderPhotoMainViewer();
+        renderPhotoMetadata();
+        renderFavoriteToggle();
+        renderProductOptions();
+        renderAddToCartForm();
+        renderCollectionAddForm();
+        renderSlideshowAddForm();
+        renderRelatedPhotos();
+      }
+
+      function loadPhotoDetail() {
+        if (!state.photoId) {
+          return;
+        }
+        try {
+          showLoader();
+          var detail = WebsiteSDK.getPhotoDetail(state.photoId);
+          state.detail = detail;
+          state.isFavorited = !!detail.is_favorited;
+          var products = Array.isArray(detail.products) ? detail.products : [];
+          var available = [];
+          var i;
+          for (i = 0; i < products.length; i++) {
+            var p = products[i];
+            if (p && p.available) {
+              available.push(p);
+            }
+          }
+          state.availableProducts = available;
+          state.favoriteMessage = '';
+          state.cartMessage = '';
+          state.collectionMessage = '';
+          state.collectionError = '';
+          state.slideshowMessage = '';
+          state.slideshowError = '';
+          if (available.length > 0 && !state.selectedProductId) {
+            var defaultProduct = null;
+            for (i = 0; i < available.length; i++) {
+              if (available[i].is_default) {
+                defaultProduct = available[i];
+                break;
+              }
+            }
+            if (!defaultProduct) {
+              defaultProduct = available[0];
+            }
+            state.selectedProductId = defaultProduct ? defaultProduct.id : null;
+          }
+          hideLoader();
+          renderAll();
+        } catch (e) {
+          console.error(e);
+          renderLoader('Unable to load photo details. Please try again later.');
+        }
+      }
+
+      function handleBackToResults() {
+        if (window.history && window.history.length > 1) {
+          window.history.back();
+          return;
+        }
+        if (state.ref === 'prints') {
+          window.location.href = 'prints.html';
+        } else {
+          window.location.href = 'gallery.html';
+        }
+      }
+
+      function handleFavoriteToggle() {
+        if (!state.photoId) {
+          return;
+        }
+        try {
+          if (state.isFavorited) {
+            var removeResult = WebsiteSDK.removeFavorite(state.photoId);
+            if (removeResult && removeResult.success && removeResult.removed) {
+              state.isFavorited = false;
+            }
+            state.favoriteMessage = removeResult && removeResult.message ? removeResult.message : 'Favorite removed.';
+          } else {
+            var addResult = WebsiteSDK.addFavorite(state.photoId);
+            if (addResult && addResult.success) {
+              state.isFavorited = true;
+            }
+            state.favoriteMessage = addResult && addResult.message ? addResult.message : 'Added to favorites.';
+          }
+        } catch (e) {
+          console.error(e);
+          state.favoriteMessage = 'Unable to update favorite status. Please try again.';
+        }
+        renderFavoriteToggle();
+      }
+
+      function handleAddToCart() {
+        if (!state.selectedProductId) {
+          state.cartMessage = 'Please select a product option.';
+          renderAddToCartForm();
+          return;
+        }
+        var quantity = state.quantity;
+        if (addToCartContainer) {
+          var qtyInput = addToCartContainer.querySelector('input[name="quantity"]');
+          if (qtyInput) {
+            var parsed = parseInt(qtyInput.value, 10);
+            if (!parsed || parsed < 1) {
+              parsed = 1;
+            }
+            quantity = parsed;
+          }
+        }
+        state.quantity = quantity;
+        try {
+          var result = WebsiteSDK.addToCart(state.selectedProductId, quantity);
+          if (result && result.success) {
+            if (result.cart_item_count !== undefined && result.cart_item_count !== null) {
+              state.cartItemCount = result.cart_item_count;
+            }
+            if (result.cart_subtotal !== undefined && result.cart_subtotal !== null) {
+              state.cartSubtotal = result.cart_subtotal;
+            }
+            state.cartMessage = result.message ? result.message : 'Added to cart.';
+          } else {
+            state.cartMessage = result && result.message ? result.message : 'Could not add to cart.';
+          }
+        } catch (e) {
+          console.error(e);
+          state.cartMessage = 'Could not add to cart. Please try again.';
+        }
+        renderCartShortcut();
+        renderAddToCartForm();
+      }
+
+      function handleAddToCollection(actionElement) {
+        if (!state.photoId) {
+          return;
+        }
+        var container = actionElement.closest('[data-component="collection-add-form"]');
+        var select = container ? container.querySelector('select[name="collectionId"]') : null;
+        var collectionId = select ? select.value : '';
+        if (!collectionId) {
+          state.collectionError = 'Please select a collection.';
+          state.collectionMessage = '';
+          renderCollectionAddForm();
+          return;
+        }
+        try {
+          var result = WebsiteSDK.addPhotosToCollection(collectionId, [state.photoId]);
+          var collectionName = result && result.collection && result.collection.name ? result.collection.name : '';
+          if (collectionName) {
+            state.collectionMessage = 'Added to collection "' + collectionName + '".';
+          } else {
+            state.collectionMessage = 'Photo added to collection.';
+          }
+          state.collectionError = '';
+        } catch (e) {
+          console.error(e);
+          state.collectionError = 'Could not add to collection. Please try again.';
+          state.collectionMessage = '';
+        }
+        renderCollectionAddForm();
+      }
+
+      function handleAddToSlideshow(actionElement) {
+        if (!state.photoId) {
+          return;
+        }
+        var container = actionElement.closest('[data-component="slideshow-add-form"]');
+        var select = container ? container.querySelector('select[name="slideshowId"]') : null;
+        var slideshowId = select ? select.value : '';
+        if (!slideshowId) {
+          state.slideshowError = 'Please select a slideshow.';
+          state.slideshowMessage = '';
+          renderSlideshowAddForm();
+          return;
+        }
+        try {
+          var result = WebsiteSDK.addPhotosToSlideshow(slideshowId, [state.photoId]);
+          var slideshowName = result && result.slideshow && result.slideshow.name ? result.slideshow.name : '';
+          if (slideshowName) {
+            state.slideshowMessage = 'Added to slideshow "' + slideshowName + '".';
+          } else {
+            state.slideshowMessage = 'Photo added to slideshow.';
+          }
+          state.slideshowError = '';
+        } catch (e) {
+          console.error(e);
+          state.slideshowError = 'Could not add to slideshow. Please try again.';
+          state.slideshowMessage = '';
+        }
+        renderSlideshowAddForm();
+      }
+
+      function goToPhoto(photoId) {
+        if (!photoId) {
+          return;
+        }
+        var url = 'photo.html?id=' + encodeURIComponent(photoId);
+        if (state.ref) {
+          url += '&ref=' + encodeURIComponent(state.ref);
+        }
+        window.location.href = url;
+      }
+
+      function handleRelatedPhotoClick(actionElement) {
+        var photoId = actionElement.getAttribute('data-photo-id');
+        goToPhoto(photoId);
+      }
+
+      renderBackLink();
+      renderCartShortcut();
+      renderCollectionAddForm();
+      renderSlideshowAddForm();
+
+      if (!state.photoId) {
+        renderLoader('No photo selected. Use the gallery to choose a vintage automobile photograph.');
+      } else {
+        loadPhotoDetail();
+      }
+
+      document.addEventListener('click', function (event) {
+        var actionElement = event.target.closest('[data-action]');
+        if (!actionElement) {
+          return;
+        }
+        var action = actionElement.getAttribute('data-action');
+        if (!action) {
+          return;
+        }
+        if (action === 'back-to-results') {
+          event.preventDefault();
+          handleBackToResults();
+        } else if (action === 'go-to-cart') {
+          event.preventDefault();
+          window.location.href = 'cart.html';
+        } else if (action === 'favorite-toggle') {
+          event.preventDefault();
+          handleFavoriteToggle();
+        } else if (action === 'add-to-cart') {
+          event.preventDefault();
+          handleAddToCart();
+        } else if (action === 'view-all-print-options') {
+          event.preventDefault();
+          window.location.href = 'prints.html';
+        } else if (action === 'add-to-collection') {
+          event.preventDefault();
+          handleAddToCollection(actionElement);
+        } else if (action === 'add-to-slideshow') {
+          event.preventDefault();
+          handleAddToSlideshow(actionElement);
+        } else if (action === 'related-photo') {
+          event.preventDefault();
+          handleRelatedPhotoClick(actionElement);
+        }
+      });
+
+      document.addEventListener('change', function (event) {
+        var target = event.target;
+        if (!target) {
+          return;
+        }
+        var action = target.getAttribute('data-action');
+        if (!action) {
+          return;
+        }
+        if (action === 'product-type-change') {
+          state.productTypeFilter = target.value || 'all';
+          renderProductOptions();
+          renderAddToCartForm();
+        } else if (action === 'license-type-change') {
+          state.licenseTypeFilter = target.value || 'all';
+          renderProductOptions();
+          renderAddToCartForm();
+        } else if (action === 'product-variant-change') {
+          state.selectedProductId = target.value || null;
+          renderAddToCartForm();
+        } else if (action === 'quantity-change') {
+          var parsed = parseInt(target.value, 10);
+          if (!parsed || parsed < 1) {
+            parsed = 1;
+            target.value = '1';
+          }
+          state.quantity = parsed;
+        }
+      });
+    });
+  </script>
+</body>
+</html>

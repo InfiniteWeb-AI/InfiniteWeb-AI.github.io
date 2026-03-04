@@ -1,0 +1,493 @@
+<!doctype html>
+<link rel="stylesheet" href="terms.css">
+<script src="business_logic.js"></script>
+
+<div class="terms-page" data-component="terms-page-controller">
+  <!-- Error state -->
+  <section class="terms-error-state" data-component="terms-error-state" hidden>
+    <div class="terms-error-card">
+      <h1 class="terms-error-title">We couldn't load the Terms of Use</h1>
+      <p class="terms-error-message" data-role="error-message">
+        We were unable to load the Terms of Use. Please check your connection and try again.
+      </p>
+      <button type="button" class="btn btn-primary terms-error-retry" data-action="retry-load-terms">
+        Retry loading
+      </button>
+    </div>
+  </section>
+
+  <!-- Main terms layout -->
+  <div class="terms-layout" data-component="terms-layout">
+    <!-- Metadata bar -->
+    <section class="terms-metadata-bar" data-component="terms-metadata-bar">
+      <p class="terms-breadcrumb">
+        <a href="index.html">Home</a>
+        <span class="breadcrumb-separator">/</span>
+        <span>Legal</span>
+        <span class="breadcrumb-separator">/</span>
+        <span>Terms of Use</span>
+      </p>
+      <h1 class="terms-title">Terms of Use</h1>
+      <div class="terms-meta-row">
+        <div class="terms-meta-left">
+          <span class="meta-item">
+            <span class="meta-label">Last updated</span>
+            <time class="meta-value" data-populate="terms-last-updated">&mdash;</time>
+          </span>
+        </div>
+        <div class="terms-meta-actions">
+          <div class="terms-view-toggle" data-component="terms-view-toggle" role="radiogroup" aria-label="Display mode">
+            <button type="button" class="view-toggle-btn is-active" data-action="set-view-html" data-view="html" aria-pressed="true">
+              HTML view
+            </button>
+            <button type="button" class="view-toggle-btn" data-action="set-view-plain" data-view="plain" aria-pressed="false">
+              Plain text
+            </button>
+          </div>
+          <button type="button" class="btn btn-primary terms-print-btn" data-component="terms-print-control" data-action="print-terms">
+            Print
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Table of contents -->
+    <section class="terms-toc" data-component="terms-section-toc" aria-label="Terms of Use sections">
+      <h2 class="terms-toc-title">On this page</h2>
+      <ul class="terms-toc-list" data-populate="terms-toc"></ul>
+    </section>
+
+    <!-- Terms content viewer -->
+    <section class="terms-content-viewer" data-component="terms-content-viewer">
+      <p class="terms-loading" data-state="loading">Loading Terms of Use</p>
+      <div class="terms-content" data-populate="terms-content-html"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function() {
+  document.addEventListener('DOMContentLoaded', function() {
+    const pageController = document.querySelector('[data-component="terms-page-controller"]');
+    if (!pageController || typeof WebsiteSDK === 'undefined') {
+      return;
+    }
+
+    const layoutContainer = pageController.querySelector('[data-component="terms-layout"]');
+    const errorContainer = pageController.querySelector('[data-component="terms-error-state"]');
+    const lastUpdatedEl = pageController.querySelector('[data-populate="terms-last-updated"]');
+    const tocContainer = pageController.querySelector('[data-populate="terms-toc"]');
+    const contentContainer = pageController.querySelector('[data-populate="terms-content-html"]');
+    const loadingEl = pageController.querySelector('.terms-loading');
+    const viewToggleContainer = pageController.querySelector('[data-component="terms-view-toggle"]');
+
+    let termsData = null;
+    let viewMode = 'html';
+    let currentSectionId = null;
+    let hasAutoPrinted = false;
+
+    function getCurrentUrlParams() {
+      return new URLSearchParams(window.location.search);
+    }
+
+    function parseViewParam(params) {
+      const v = (params.get('view') || '').toLowerCase();
+      return v === 'plain' ? 'plain' : 'html';
+    }
+
+    function parseSectionParam(params) {
+      const s = params.get('section');
+      return s ? s : null;
+    }
+
+    function parsePrintParam(params) {
+      const p = params.get('print');
+      if (!p) return false;
+      const val = p.toLowerCase();
+      return val === '1' || val === 'true' || val === 'yes' || val === 'y';
+    }
+
+    function htmlToPlainText(html) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      let result = '';
+      const blockTags = new Set([
+        'p','div','section','article','ul','ol','li','h1','h2','h3','h4','h5','h6',
+        'table','tr','td','th','thead','tbody','footer','header','nav','address','blockquote','pre'
+      ]);
+
+      function traverse(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          result += node.nodeValue;
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          const tag = node.tagName.toLowerCase();
+          if (blockTags.has(tag) && result && !result.endsWith('\n')) {
+            result += '\n';
+          }
+          Array.from(node.childNodes).forEach(traverse);
+          if (tag === 'br') {
+            result += '\n';
+          } else if (blockTags.has(tag)) {
+            if (!result.endsWith('\n')) {
+              result += '\n';
+            }
+          }
+        }
+      }
+
+      Array.from(tmp.childNodes).forEach(traverse);
+      return result.replace(/\n{3,}/g, '\n\n').trim();
+    }
+
+    function renderLastUpdated(container, lastUpdated) {
+      if (!container) return;
+      container.textContent = lastUpdated || '
+
+
+
+';
+    }
+
+    function renderTermsContent(container, contentHtml, mode) {
+      if (!container) return;
+      if (!contentHtml) {
+        container.textContent = 'No Terms of Use content is currently available.';
+        container.classList.remove('terms-content--html');
+        container.classList.add('terms-content--plain');
+        return;
+      }
+
+      if (mode === 'plain') {
+        const text = htmlToPlainText(contentHtml);
+        container.textContent = text;
+        container.classList.add('terms-content--plain');
+        container.classList.remove('terms-content--html');
+      } else {
+        container.innerHTML = contentHtml;
+        container.classList.add('terms-content--html');
+        container.classList.remove('terms-content--plain');
+      }
+    }
+
+    function renderToc(container, contentHtml) {
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (!contentHtml) {
+        return;
+      }
+
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(contentHtml, 'text/html');
+      const headings = doc.body ? doc.body.querySelectorAll('h1,h2,h3,h4,h5,h6') : [];
+
+      if (!headings.length) {
+        const tocSection = container.closest('.terms-toc');
+        if (tocSection) tocSection.setAttribute('hidden', 'hidden');
+        return;
+      }
+
+      const tocSection = container.closest('.terms-toc');
+      if (tocSection) tocSection.removeAttribute('hidden');
+
+      const usedIds = new Set();
+
+      headings.forEach(function(h) {
+        const text = (h.textContent || '').trim();
+        if (!text) return;
+
+        let id = h.id;
+        if (!id) {
+          let slug = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'section';
+          const base = slug;
+          let i = 2;
+          while (usedIds.has(slug)) {
+            slug = base + '-' + i;
+            i += 1;
+          }
+          id = slug;
+        }
+        usedIds.add(id);
+
+        const level = parseInt(h.tagName.substring(1), 10) || 2;
+        const li = document.createElement('li');
+        li.className = 'terms-toc-item level-' + level;
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'terms-toc-link';
+        btn.dataset.action = 'toc-jump';
+        btn.dataset.sectionId = id;
+        btn.textContent = text;
+
+        li.appendChild(btn);
+        container.appendChild(li);
+      });
+    }
+
+    function applyViewToggleState(mode) {
+      if (!viewToggleContainer) return;
+      const buttons = viewToggleContainer.querySelectorAll('[data-view]');
+      buttons.forEach(function(btn) {
+        const btnView = btn.getAttribute('data-view');
+        const isActive = btnView === mode;
+        btn.classList.toggle('is-active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+    }
+
+    function ensureHeadingIdsInContent() {
+      if (!contentContainer) return;
+      const headings = contentContainer.querySelectorAll('h1,h2,h3,h4,h5,h6');
+      const used = new Set();
+
+      headings.forEach(function(h) {
+        if (h.id) {
+          used.add(h.id);
+          return;
+        }
+        const text = (h.textContent || '').trim() || 'section';
+        let slug = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'section';
+        const base = slug;
+        let i = 2;
+        while (used.has(slug)) {
+          slug = base + '-' + i;
+          i += 1;
+        }
+        h.id = slug;
+        used.add(slug);
+      });
+    }
+
+    function clearSectionHighlight() {
+      if (!contentContainer) return;
+      const highlighted = contentContainer.querySelectorAll('.terms-section-highlight');
+      highlighted.forEach(function(el) {
+        el.classList.remove('terms-section-highlight');
+      });
+    }
+
+    function updateTocActiveItem(sectionId) {
+      if (!tocContainer) return;
+      const items = tocContainer.querySelectorAll('[data-section-id]');
+      items.forEach(function(item) {
+        const active = sectionId && item.getAttribute('data-section-id') === sectionId;
+        item.classList.toggle('is-active', !!active);
+      });
+    }
+
+    function applySectionSelection(sectionId, options) {
+      currentSectionId = sectionId || null;
+      updateTocActiveItem(currentSectionId);
+
+      if (viewMode !== 'html') {
+        return;
+      }
+
+      clearSectionHighlight();
+
+      if (!currentSectionId) return;
+
+      const target = document.getElementById(currentSectionId);
+      if (target) {
+        target.classList.add('terms-section-highlight');
+        const suppressScroll = options && options.suppressScroll;
+        if (!suppressScroll) {
+          try {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+          } catch (e) {
+            target.scrollIntoView(true);
+          }
+        }
+      }
+    }
+
+    function setViewMode(mode, options) {
+      const newMode = mode === 'plain' ? 'plain' : 'html';
+      const force = options && options.force;
+      if (viewMode === newMode && !force) {
+        return;
+      }
+
+      viewMode = newMode;
+      applyViewToggleState(viewMode);
+
+      if (termsData && contentContainer) {
+        renderTermsContent(contentContainer, termsData.content_html, viewMode);
+        if (viewMode === 'html') {
+          ensureHeadingIdsInContent();
+          if (currentSectionId) {
+            applySectionSelection(currentSectionId, { suppressScroll: options && options.suppressScroll });
+          }
+        }
+      }
+
+      if (options && options.updateUrl) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('view', viewMode);
+        window.history.pushState({}, '', url);
+      }
+    }
+
+    function handleAutoPrintIfNeeded(shouldAutoPrint) {
+      if (!shouldAutoPrint || hasAutoPrinted) return;
+      try {
+        window.print();
+        hasAutoPrinted = true;
+      } catch (e) {
+        // Ignore print errors
+      }
+    }
+
+    function showError(message) {
+      if (layoutContainer) {
+        layoutContainer.setAttribute('hidden', 'hidden');
+      }
+      if (errorContainer) {
+        errorContainer.removeAttribute('hidden');
+        const msgEl = errorContainer.querySelector('[data-role="error-message"]');
+        if (msgEl && message) {
+          msgEl.textContent = message;
+        }
+      }
+    }
+
+    function hideError() {
+      if (errorContainer) {
+        errorContainer.setAttribute('hidden', 'hidden');
+      }
+      if (layoutContainer) {
+        layoutContainer.removeAttribute('hidden');
+      }
+    }
+
+    function loadTerms() {
+      hideError();
+      if (loadingEl) {
+        loadingEl.hidden = false;
+      }
+
+      try {
+        const result = WebsiteSDK.getTermsOfUseContent();
+        termsData = result || {};
+
+        renderLastUpdated(lastUpdatedEl, termsData.last_updated);
+        renderToc(tocContainer, termsData.content_html);
+        renderTermsContent(contentContainer, termsData.content_html, viewMode);
+
+        if (viewMode === 'html') {
+          ensureHeadingIdsInContent();
+        }
+
+        if (currentSectionId) {
+          applySectionSelection(currentSectionId, { suppressScroll: false });
+        }
+
+        if (loadingEl) {
+          loadingEl.hidden = true;
+        }
+
+        const params = getCurrentUrlParams();
+        const shouldAutoPrint = parsePrintParam(params);
+        handleAutoPrintIfNeeded(shouldAutoPrint);
+      } catch (error) {
+        if (loadingEl) {
+          loadingEl.hidden = true;
+        }
+        termsData = null;
+        showError('We were unable to load the Terms of Use. Please check your connection and try again.');
+      }
+    }
+
+    function handleUrlChangeFromHistory() {
+      const params = getCurrentUrlParams();
+      const v = parseViewParam(params);
+      const section = parseSectionParam(params);
+      const shouldAutoPrint = parsePrintParam(params);
+
+      if (v !== viewMode) {
+        setViewMode(v, { updateUrl: false, suppressScroll: true });
+      }
+
+      if (section !== currentSectionId) {
+        applySectionSelection(section || null, { suppressScroll: false });
+      }
+
+      handleAutoPrintIfNeeded(shouldAutoPrint);
+    }
+
+    function bindActions() {
+      pageController.addEventListener('click', function(event) {
+        const target = event.target;
+        if (!target || !target.dataset) return;
+        const action = target.dataset.action;
+        if (!action) return;
+
+        switch (action) {
+          case 'retry-load-terms':
+            event.preventDefault();
+            loadTerms();
+            break;
+
+          case 'set-view-html':
+            event.preventDefault();
+            setViewMode('html', { updateUrl: true, suppressScroll: true });
+            break;
+
+          case 'set-view-plain':
+            event.preventDefault();
+            setViewMode('plain', { updateUrl: true, suppressScroll: true });
+            break;
+
+          case 'print-terms':
+            event.preventDefault();
+            (function() {
+              const params = getCurrentUrlParams();
+              const currentlyTruthy = parsePrintParam(params);
+              const url = new URL(window.location.href);
+              if (currentlyTruthy) {
+                url.searchParams.delete('print');
+              } else {
+                url.searchParams.set('print', '1');
+              }
+              window.history.pushState({}, '', url);
+              try {
+                window.print();
+              } catch (e) {
+                // ignore
+              }
+            })();
+            break;
+
+          case 'toc-jump':
+            event.preventDefault();
+            (function() {
+              const sectionId = target.dataset.sectionId;
+              if (!sectionId) return;
+              const url = new URL(window.location.href);
+              url.searchParams.set('section', sectionId);
+              window.history.pushState({}, '', url);
+              applySectionSelection(sectionId, { suppressScroll: false });
+            })();
+            break;
+        }
+      });
+    }
+
+    // Initialise state from URL
+    (function initFromUrl() {
+      const params = getCurrentUrlParams();
+      viewMode = parseViewParam(params);
+      currentSectionId = parseSectionParam(params);
+      applyViewToggleState(viewMode);
+    })();
+
+    bindActions();
+    loadTerms();
+
+    window.addEventListener('popstate', function() {
+      handleUrlChangeFromHistory();
+    });
+  });
+})();
+</script>

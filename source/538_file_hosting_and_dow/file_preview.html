@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Preview</title>
+    
+    <link rel="stylesheet" href="file_preview.css">
+</head>
+<body>
+    <header class="site-header">
+        <nav class="main-nav" aria-label="Main navigation">
+            <ul class="main-nav__list">
+                <li class="main-nav__item"><a href="index.html">Dashboard</a></li>
+                <li class="main-nav__item"><a href="explore.html">Explore</a></li>
+                <li class="main-nav__item"><a href="collections.html">Collections</a></li>
+                <li class="main-nav__item"><a href="download_queue.html">Download Queue</a></li>
+                <li class="main-nav__item"><a href="settings.html">Settings</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" class="site-content" role="main">
+        <h1>File preview</h1>
+
+        <nav data-component="file-breadcrumb-navigation" aria-label="Breadcrumb">
+            <a href="index.html">My Files</a>
+            <span data-populate="breadcrumb-folder-wrapper"> &gt; <a href="javascript:void(0)" data-action="navigate-folder">Containing folder</a></span>
+            <span> &gt; <span data-populate="breadcrumb-file-name"></span></span>
+        </nav>
+
+        <div data-component="error-and-permission-state" aria-live="polite"></div>
+
+        <section data-component="file-metadata-panel" aria-label="File details">
+            <h2>File details</h2>
+            <p><strong>Name:</strong> <span data-populate="file-name"></span></p>
+            <p><strong>Description:</strong> <span data-populate="file-description"></span></p>
+            <p><strong>Type:</strong> <span data-populate="file-type"></span></p>
+            <p><strong>Size:</strong> <span data-populate="file-size"></span></p>
+            <p><strong>Created:</strong> <span data-populate="file-created-at"></span></p>
+            <p><strong>Modified:</strong> <span data-populate="file-modified-at"></span></p>
+            <p><strong>Location:</strong> <span data-populate="file-location"></span></p>
+        </section>
+
+        <div data-component="page-section-tabs">
+            <span>Sections:
+                <a href="javascript:void(0)" data-action="switch-section" data-section="preview">Preview</a>
+                |
+                <a href="javascript:void(0)" data-action="switch-section" data-section="versions">Versions</a>
+                |
+                <a href="javascript:void(0)" data-action="switch-section" data-section="sharing">Sharing</a>
+            </span>
+        </div>
+
+        <section data-component="file-viewer-section" data-section="preview">
+            <h2>Preview</h2>
+            <div data-component="file-viewer">
+                <div data-populate="file-preview"></div>
+            </div>
+            <div data-component="download-primary-control">
+                <button type="button" data-action="open-download-dialog">Download...</button>
+            </div>
+            <p data-populate="download-status-message"></p>
+            <button type="button" data-action="view-download-queue" style="display:none;">View in download queue</button>
+        </section>
+
+        <section data-component="version-history-section" data-section="versions" hidden>
+            <h2>Version history</h2>
+            <div data-populate="version-history-list"></div>
+            <p data-populate="version-history-status"></p>
+        </section>
+
+        <section data-component="share-link-section" data-section="sharing" hidden>
+            <h2>Sharing</h2>
+            <div data-populate="share-link-form"></div>
+            <div data-populate="share-link-status"></div>
+        </section>
+
+        <dialog id="downloadOptionsDialog" data-component="download-options-dialog">
+            <form method="dialog">
+                <h2>Download options</h2>
+                <p data-populate="download-dialog-file-name"></p>
+                <div data-populate="download-options-list"></div>
+                <p data-populate="download-dialog-message"></p>
+                <menu>
+                    <button type="submit" value="cancel" data-action="cancel-download-dialog">Cancel</button>
+                    <button type="button" data-action="confirm-download">Start download</button>
+                </menu>
+            </form>
+        </dialog>
+    </main>
+
+    <footer class="site-footer">
+        <p class="site-footer__copy">
+            &copy; 2010&ndash;2026 Example File Hosting Service
+        </p>
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul class="footer-nav__list">
+                <li class="footer-nav__item"><a href="about.html">About</a></li>
+                <li class="footer-nav__item"><a href="help.html">Help &amp; Support</a></li>
+                <li class="footer-nav__item"><a href="terms.html">Terms of Service</a></li>
+                <li class="footer-nav__item"><a href="privacy.html">Privacy Policy</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    let pageState = {
+        fileId: '',
+        file: null,
+        currentVersion: null,
+        previewType: 'other',
+        canDownload: false,
+        canShare: false,
+        canViewVersionHistory: false,
+        activeSection: 'preview',
+        errorMessage: '',
+        permissionMessages: [],
+        versions: [],
+        versionHistoryLoaded: false,
+        versionHistoryError: '',
+        versionHistoryStatus: '',
+        shareLinkSettings: null,
+        shareSettingsLoaded: false,
+        shareSettingsError: '',
+        shareStatusMessage: '',
+        downloadOptions: null,
+        selectedQualityId: null,
+        downloadDialogMessage: '',
+        downloadStatusMessage: '',
+        lastQueueItem: null
+    };
+
+    let pageComponents = {};
+
+    document.addEventListener('DOMContentLoaded', function () {
+        pageComponents.errorContainer = document.querySelector('[data-component="error-and-permission-state"]');
+        pageComponents.metadataPanel = document.querySelector('[data-component="file-metadata-panel"]');
+        pageComponents.tabs = document.querySelector('[data-component="page-section-tabs"]');
+        pageComponents.previewSection = document.querySelector('section[data-section="preview"]');
+        pageComponents.versionsSection = document.querySelector('section[data-section="versions"]');
+        pageComponents.sharingSection = document.querySelector('section[data-section="sharing"]');
+        pageComponents.downloadButton = document.querySelector('[data-action="open-download-dialog"]');
+        pageComponents.downloadQueueButton = document.querySelector('[data-action="view-download-queue"]');
+        pageComponents.downloadDialog = document.getElementById('downloadOptionsDialog');
+
+        initFilePreviewPage();
+    });
+
+    function initFilePreviewPage() {
+        const url = new URL(window.location.href);
+        const params = url.searchParams;
+        const fileId = params.get('fileId') || '';
+        pageState.fileId = fileId;
+
+        const allowedSections = ['preview', 'versions', 'sharing'];
+        const sectionParam = params.get('section');
+        pageState.activeSection = allowedSections.indexOf(sectionParam) !== -1 ? sectionParam : 'preview';
+
+        if (!fileId) {
+            if (pageComponents.errorContainer) {
+                pageState.errorMessage = 'A fileId parameter is required to preview a file.';
+                renderPermissionState(pageComponents.errorContainer);
+            }
+            hideMainContent();
+            bindActions();
+            return;
+        }
+
+        try {
+            const previewData = WebsiteSDK.getFilePreview(fileId);
+            if (!previewData || !previewData.file) {
+                pageState.errorMessage = 'File preview could not be loaded.';
+                if (pageComponents.errorContainer) {
+                    renderPermissionState(pageComponents.errorContainer);
+                }
+                hideMainContent();
+                bindActions();
+                return;
+            }
+            pageState.file = previewData.file;
+            pageState.currentVersion = previewData.currentVersion || null;
+            pageState.previewType = previewData.previewType || 'other';
+            pageState.canDownload = !!previewData.canDownload;
+            pageState.canShare = !!previewData.canShare;
+            pageState.canViewVersionHistory = !!previewData.canViewVersionHistory;
+        } catch (e) {
+            pageState.errorMessage = 'An error occurred while loading the file preview.';
+            if (pageComponents.errorContainer) {
+                renderPermissionState(pageComponents.errorContainer);
+            }
+            hideMainContent();
+            bindActions();
+            return;
+        }
+
+        updatePermissionMessages();
+        ensureActiveSectionIsAllowed();
+        renderAll();
+        bindActions();
+    }
+
+    function hideMainContent() {
+        if (pageComponents.metadataPanel) {
+            pageComponents.metadataPanel.style.display = 'none';
+        }
+        if (pageComponents.tabs) {
+            pageComponents.tabs.style.display = 'none';
+        }
+        if (pageComponents.previewSection) {
+            pageComponents.previewSection.style.display = 'none';
+        }
+        if (pageComponents.versionsSection) {
+            pageComponents.versionsSection.style.display = 'none';
+        }
+        if (pageComponents.sharingSection) {
+            pageComponents.sharingSection.style.display = 'none';
+        }
+    }
+
+    function updatePermissionMessages() {
+        const messages = [];
+        if (pageState.file && !pageState.canDownload) {
+            messages.push('Downloading is not permitted for this file.');
+        }
+        if (pageState.file && !pageState.canShare) {
+            messages.push('Sharing settings are not available for this file.');
+        }
+        if (pageState.file && !pageState.canViewVersionHistory) {
+            messages.push('Version history is not available for this file.');
+        }
+        pageState.permissionMessages = messages;
+    }
+
+    function ensureActiveSectionIsAllowed() {
+        if (pageState.activeSection === 'versions' && !pageState.canViewVersionHistory) {
+            pageState.activeSection = 'preview';
+        }
+        if (pageState.activeSection === 'sharing' && !pageState.canShare) {
+            pageState.activeSection = 'preview';
+        }
+        updateUrlSectionParam(pageState.activeSection);
+    }
+
+    function updateUrlSectionParam(section) {
+        try {
+            const url = new URL(window.location.href);
+            url.searchParams.set('section', section);
+            window.history.replaceState(null, '', url.toString());
+        } catch (e) {
+            // ignore URL update errors
+        }
+    }
+
+    function renderAll() {
+        const populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function (element) {
+            const key = element.dataset.populate;
+            switch (key) {
+                case 'breadcrumb-folder-wrapper':
+                    renderBreadcrumbFolderWrapper(element);
+                    break;
+                case 'breadcrumb-file-name':
+                    renderBreadcrumbFileName(element);
+                    break;
+                case 'file-name':
+                    renderFileName(element);
+                    break;
+                case 'file-description':
+                    renderFileDescription(element);
+                    break;
+                case 'file-type':
+                    renderFileType(element);
+                    break;
+                case 'file-size':
+                    renderFileSize(element);
+                    break;
+                case 'file-created-at':
+                    renderFileCreatedAt(element);
+                    break;
+                case 'file-modified-at':
+                    renderFileModifiedAt(element);
+                    break;
+                case 'file-location':
+                    renderFileLocation(element);
+                    break;
+                case 'file-preview':
+                    renderFilePreview(element);
+                    break;
+                case 'download-status-message':
+                    renderDownloadStatusMessage(element);
+                    break;
+                case 'download-dialog-file-name':
+                    renderDownloadDialogFileName(element);
+                    break;
+                case 'download-options-list':
+                    renderDownloadOptionsList(element);
+                    break;
+                case 'download-dialog-message':
+                    renderDownloadDialogMessage(element);
+                    break;
+                case 'version-history-list':
+                    renderVersionHistoryList(element);
+                    break;
+                case 'version-history-status':
+                    renderVersionHistoryStatus(element);
+                    break;
+                case 'share-link-form':
+                    renderShareLinkForm(element);
+                    break;
+                case 'share-link-status':
+                    renderShareLinkStatus(element);
+                    break;
+                default:
+                    break;
+            }
+        });
+
+        if (pageComponents.errorContainer) {
+            renderPermissionState(pageComponents.errorContainer);
+        }
+        renderSectionsVisibility();
+        updateDownloadButtonState();
+        updateTabsState();
+    }
+
+    function renderPermissionState(container) {
+        container.innerHTML = '';
+        const fragments = [];
+        if (pageState.errorMessage) {
+            fragments.push('<p>' + escapeHtml(pageState.errorMessage) + '</p>');
+        }
+        if (pageState.permissionMessages && pageState.permissionMessages.length > 0) {
+            pageState.permissionMessages.forEach(function (msg) {
+                fragments.push('<p>' + escapeHtml(msg) + '</p>');
+            });
+        }
+        container.innerHTML = fragments.join('');
+    }
+
+    function renderBreadcrumbFolderWrapper(container) {
+        if (pageState.file && pageState.file.folderId) {
+            container.style.display = 'inline';
+        } else {
+            container.style.display = 'none';
+        }
+    }
+
+    function renderBreadcrumbFileName(container) {
+        if (pageState.file && pageState.file.name) {
+            container.textContent = pageState.file.name;
+        } else {
+            container.textContent = '';
+        }
+    }
+
+    function renderFileName(container) {
+        container.textContent = pageState.file && pageState.file.name ? pageState.file.name : '';
+    }
+
+    function renderFileDescription(container) {
+        container.textContent = pageState.file && pageState.file.description ? pageState.file.description : '';
+    }
+
+    function renderFileType(container) {
+        if (!pageState.file || !pageState.file.fileType) {
+            container.textContent = '';
+            return;
+        }
+        const typeMap = {
+            pdf: 'PDF',
+            video: 'Video',
+            audio: 'Audio',
+            mp3: 'MP3',
+            image: 'Image',
+            other: 'Other'
+        };
+        const fileType = pageState.file.fileType;
+        container.textContent = typeMap[fileType] || fileType;
+    }
+
+    function renderFileSize(container) {
+        if (!pageState.file || typeof pageState.file.sizeBytes !== 'number') {
+            container.textContent = '';
+            return;
+        }
+        container.textContent = formatBytes(pageState.file.sizeBytes) + ' (' + pageState.file.sizeBytes + ' bytes)';
+    }
+
+    function renderFileCreatedAt(container) {
+        if (!pageState.file || !pageState.file.createdAt) {
+            container.textContent = '';
+            return;
+        }
+        const d = new Date(pageState.file.createdAt);
+        container.textContent = isNaN(d.getTime()) ? '' : d.toLocaleString();
+    }
+
+    function renderFileModifiedAt(container) {
+        if (!pageState.file || !pageState.file.modifiedAt) {
+            container.textContent = '';
+            return;
+        }
+        const d = new Date(pageState.file.modifiedAt);
+        container.textContent = isNaN(d.getTime()) ? '' : d.toLocaleString();
+    }
+
+    function renderFileLocation(container) {
+        if (!pageState.file || !pageState.file.location) {
+            container.textContent = '';
+            return;
+        }
+        const map = {
+            my_files: 'My Files',
+            shared_with_me: 'Shared with me',
+            explore_catalog: 'Explore catalog',
+            trash: 'Trash'
+        };
+        const loc = pageState.file.location;
+        container.textContent = map[loc] || loc;
+    }
+
+    function renderFilePreview(container) {
+        container.innerHTML = '';
+        if (!pageState.file) {
+            return;
+        }
+        const type = pageState.previewType || 'other';
+        const info = document.createElement('p');
+        info.textContent = 'Preview type: ' + type;
+        container.appendChild(info);
+
+        if (type === 'image') {
+            const img = document.createElement('img');
+            img.alt = pageState.file.name || 'Image preview';
+            container.appendChild(img);
+        } else if (type === 'video') {
+            const video = document.createElement('video');
+            video.controls = true;
+            container.appendChild(video);
+            const note = document.createElement('p');
+            note.textContent = 'Video preview is not available in this demo.';
+            container.appendChild(note);
+        } else if (type === 'audio') {
+            const audio = document.createElement('audio');
+            audio.controls = true;
+            container.appendChild(audio);
+            const note = document.createElement('p');
+            note.textContent = 'Audio preview is not available in this demo.';
+            container.appendChild(note);
+        } else if (type === 'document') {
+            const frame = document.createElement('iframe');
+            frame.title = 'Document preview';
+            frame.setAttribute('width', '600');
+            frame.setAttribute('height', '400');
+            container.appendChild(frame);
+            const note = document.createElement('p');
+            note.textContent = 'Document preview is not available in this demo.';
+            container.appendChild(note);
+        } else {
+            const note = document.createElement('p');
+            note.textContent = 'No specific preview is available for this file type.';
+            container.appendChild(note);
+        }
+    }
+
+    function renderDownloadStatusMessage(container) {
+        container.textContent = pageState.downloadStatusMessage || '';
+    }
+
+    function renderDownloadDialogFileName(container) {
+        if (!pageState.file) {
+            container.textContent = '';
+            return;
+        }
+        container.textContent = 'File: ' + pageState.file.name;
+    }
+
+    function renderDownloadOptionsList(container) {
+        container.innerHTML = '';
+        if (!pageState.downloadOptions) {
+            const p = document.createElement('p');
+            p.textContent = 'Download options will appear here when you open the dialog.';
+            container.appendChild(p);
+            return;
+        }
+        const options = pageState.downloadOptions.availableQualities || [];
+        if (!options.length) {
+            const p = document.createElement('p');
+            p.textContent = 'No download qualities are available.';
+            container.appendChild(p);
+            return;
+        }
+        const formBlock = document.createElement('div');
+        options.forEach(function (opt) {
+            const wrapper = document.createElement('p');
+            const label = document.createElement('label');
+            const input = document.createElement('input');
+            input.type = 'radio';
+            input.name = 'downloadQuality';
+            input.value = opt.id;
+            if (pageState.selectedQualityId && pageState.selectedQualityId === opt.id) {
+                input.checked = true;
+            }
+            label.appendChild(input);
+            label.appendChild(document.createTextNode(' ' + opt.label));
+            if (opt.description) {
+                label.appendChild(document.createTextNode(' - ' + opt.description));
+            }
+            if (pageState.downloadOptions.defaultQuality && pageState.downloadOptions.defaultQuality === opt.id) {
+                label.appendChild(document.createTextNode(' (default)'));
+            }
+            if (pageState.downloadOptions.recommendedQuality && pageState.downloadOptions.recommendedQuality === opt.id) {
+                label.appendChild(document.createTextNode(' (recommended)'));
+            }
+            wrapper.appendChild(label);
+            formBlock.appendChild(wrapper);
+        });
+        container.appendChild(formBlock);
+    }
+
+    function renderDownloadDialogMessage(container) {
+        container.textContent = pageState.downloadDialogMessage || '';
+    }
+
+    function renderVersionHistoryList(container) {
+        container.innerHTML = '';
+        if (!pageState.canViewVersionHistory) {
+            const p = document.createElement('p');
+            p.textContent = 'Version history is not available for this file.';
+            container.appendChild(p);
+            return;
+        }
+        if (!pageState.versionHistoryLoaded) {
+            const p = document.createElement('p');
+            p.textContent = 'Version history will load when you open this section.';
+            container.appendChild(p);
+            return;
+        }
+        if (!pageState.versions || !pageState.versions.length) {
+            const p = document.createElement('p');
+            p.textContent = 'No versions found for this file.';
+            container.appendChild(p);
+            return;
+        }
+        const ul = document.createElement('ul');
+        pageState.versions.forEach(function (v) {
+            const li = document.createElement('li');
+            const parts = [];
+            if (v.versionLabel) {
+                parts.push(v.versionLabel);
+            }
+            if (v.createdAt) {
+                const d = new Date(v.createdAt);
+                if (!isNaN(d.getTime())) {
+                    parts.push(d.toLocaleString());
+                }
+            }
+            if (typeof v.sizeBytes === 'number') {
+                parts.push(formatBytes(v.sizeBytes) + ' (' + v.sizeBytes + ' bytes)');
+            }
+            if (v.changeSummary) {
+                parts.push(v.changeSummary);
+            }
+            if (v.isCurrent) {
+                parts.push('[current]');
+            }
+            li.appendChild(document.createTextNode(parts.join(' | ')));
+            li.appendChild(document.createTextNode(' '));
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = 'Restore';
+            btn.setAttribute('data-action', 'restore-version');
+            btn.setAttribute('data-version-id', v.id);
+            li.appendChild(btn);
+            ul.appendChild(li);
+        });
+        container.appendChild(ul);
+    }
+
+    function renderVersionHistoryStatus(container) {
+        const msg = pageState.versionHistoryError || pageState.versionHistoryStatus || '';
+        container.textContent = msg;
+    }
+
+    function renderShareLinkForm(container) {
+        container.innerHTML = '';
+        if (!pageState.canShare) {
+            const p = document.createElement('p');
+            p.textContent = 'Sharing is not available for this file.';
+            container.appendChild(p);
+            return;
+        }
+        if (!pageState.shareSettingsLoaded) {
+            const p = document.createElement('p');
+            p.textContent = 'Share settings will load when you open this section.';
+            container.appendChild(p);
+            return;
+        }
+        const settings = pageState.shareLinkSettings;
+        const exists = settings && settings.exists;
+        const link = exists ? settings.shareLink : null;
+        const accessLevel = link && link.accessLevel ? link.accessLevel : 'anyone_with_link';
+        const permission = link && link.permission ? link.permission : 'view_only';
+        const expirationEnabled = link && typeof link.expirationEnabled === 'boolean' ? link.expirationEnabled : false;
+        const passwordProtected = link && typeof link.passwordProtected === 'boolean' ? link.passwordProtected : false;
+        const defaultCollaboratorRole = link && link.defaultCollaboratorRole ? link.defaultCollaboratorRole : 'viewer';
+        const editorsCanUpload = link && typeof link.editorsCanUpload === 'boolean' ? link.editorsCanUpload : false;
+        const editorsCanModify = link && typeof link.editorsCanModify === 'boolean' ? link.editorsCanModify : false;
+        const shareUrl = link && link.fullUrl ? link.fullUrl : '';
+
+        const formHtml = `
+<form data-action="share-form-submit">
+  <p>
+    <label>Share URL:
+      <input type="text" name="shareUrl" value="${escapeHtml(shareUrl)}" readonly>
+    </label>
+  </p>
+  <p>
+    <strong>Access level:</strong><br>
+    <label><input type="radio" name="accessLevel" value="anyone_with_link" ${accessLevel === 'anyone_with_link' ? 'checked' : ''}> Anyone with the link</label><br>
+    <label><input type="radio" name="accessLevel" value="restricted" ${accessLevel === 'restricted' ? 'checked' : ''}> Restricted</label>
+  </p>
+  <p>
+    <strong>Permission:</strong><br>
+    <label><input type="radio" name="permission" value="view_only" ${permission === 'view_only' ? 'checked' : ''}> View only</label><br>
+    <label><input type="radio" name="permission" value="can_edit" ${permission === 'can_edit' ? 'checked' : ''}> Can edit</label>
+  </p>
+  <p>
+    <label><input type="checkbox" name="expirationEnabled" ${expirationEnabled ? 'checked' : ''}> Enable expiration</label>
+    <br>
+    <label>Expires in days: <input type="number" name="expiresInDays" min="1" value=""></label>
+  </p>
+  <p>
+    <label><input type="checkbox" name="passwordProtected" ${passwordProtected ? 'checked' : ''}> Password protect link</label>
+    <br>
+    <label>Password: <input type="password" name="password" value=""></label>
+  </p>
+  <p>
+    <label>Default collaborator role:
+      <select name="defaultCollaboratorRole">
+        <option value="viewer" ${defaultCollaboratorRole === 'viewer' ? 'selected' : ''}>Viewer</option>
+        <option value="editor" ${defaultCollaboratorRole === 'editor' ? 'selected' : ''}>Editor</option>
+      </select>
+    </label>
+  </p>
+  <p>
+    <label><input type="checkbox" name="editorsCanUpload" ${editorsCanUpload ? 'checked' : ''}> Editors can upload</label><br>
+    <label><input type="checkbox" name="editorsCanModify" ${editorsCanModify ? 'checked' : ''}> Editors can modify existing files</label>
+  </p>
+  <p>
+    <input type="submit" value="Save sharing settings">
+  </p>
+</form>
+`;
+        container.innerHTML = formHtml;
+    }
+
+    function renderShareLinkStatus(container) {
+        const msg = pageState.shareSettingsError || pageState.shareStatusMessage || '';
+        container.textContent = msg;
+    }
+
+    function renderSectionsVisibility() {
+        if (pageComponents.previewSection) {
+            pageComponents.previewSection.hidden = pageState.activeSection !== 'preview';
+        }
+        if (pageComponents.versionsSection) {
+            const canShowVersions = pageState.canViewVersionHistory;
+            pageComponents.versionsSection.hidden = !(pageState.activeSection === 'versions' && canShowVersions);
+        }
+        if (pageComponents.sharingSection) {
+            const canShowShare = pageState.canShare;
+            pageComponents.sharingSection.hidden = !(pageState.activeSection === 'sharing' && canShowShare);
+        }
+    }
+
+    function updateDownloadButtonState() {
+        if (!pageComponents.downloadButton) {
+            return;
+        }
+        if (!pageState.canDownload) {
+            pageComponents.downloadButton.disabled = true;
+            pageComponents.downloadButton.textContent = 'Download (not allowed)';
+        } else {
+            pageComponents.downloadButton.disabled = false;
+            pageComponents.downloadButton.textContent = 'Download...';
+        }
+        if (pageComponents.downloadQueueButton) {
+            pageComponents.downloadQueueButton.style.display = pageState.lastQueueItem ? 'inline-block' : 'none';
+        }
+    }
+
+    function updateTabsState() {
+        if (!pageComponents.tabs) {
+            return;
+        }
+        const tabLinks = pageComponents.tabs.querySelectorAll('[data-action="switch-section"]');
+        tabLinks.forEach(function (link) {
+            const section = link.getAttribute('data-section');
+            if (section === 'versions' && !pageState.canViewVersionHistory) {
+                link.style.display = 'none';
+                return;
+            }
+            if (section === 'sharing' && !pageState.canShare) {
+                link.style.display = 'none';
+                return;
+            }
+            link.style.display = '';
+            if (section === pageState.activeSection) {
+                link.style.fontWeight = 'bold';
+            } else {
+                link.style.fontWeight = 'normal';
+            }
+        });
+    }
+
+    function bindActions() {
+        const actionElements = document.querySelectorAll('[data-action]');
+        actionElements.forEach(function (element) {
+            if (element.dataset.bound === 'true') {
+                return;
+            }
+            const action = element.dataset.action;
+            if (!action) {
+                return;
+            }
+            if (element.tagName === 'FORM' && action === 'share-form-submit') {
+                element.addEventListener('submit', onShareFormSubmit);
+            } else {
+                element.addEventListener('click', function (event) {
+                    handleActionClick(event, action, element);
+                });
+            }
+            element.dataset.bound = 'true';
+        });
+    }
+
+    function handleActionClick(event, action, element) {
+        if (action === 'navigate-folder') {
+            event.preventDefault();
+            onNavigateFolder();
+        } else if (action === 'switch-section') {
+            event.preventDefault();
+            const section = element.getAttribute('data-section');
+            onSwitchSection(section);
+        } else if (action === 'open-download-dialog') {
+            event.preventDefault();
+            onOpenDownloadDialog();
+        } else if (action === 'cancel-download-dialog') {
+            event.preventDefault();
+            onCancelDownloadDialog();
+        } else if (action === 'confirm-download') {
+            event.preventDefault();
+            onConfirmDownload();
+        } else if (action === 'view-download-queue') {
+            event.preventDefault();
+            onViewDownloadQueue();
+        } else if (action === 'restore-version') {
+            event.preventDefault();
+            const versionId = element.getAttribute('data-version-id');
+            onRestoreVersion(versionId);
+        }
+    }
+
+    function onNavigateFolder() {
+        if (!pageState.file || !pageState.file.folderId) {
+            return;
+        }
+        const folderId = pageState.file.folderId;
+        const url = 'index.html?section=my_files&folderId=' + encodeURIComponent(folderId);
+        window.location.href = url;
+    }
+
+    function onSwitchSection(section) {
+        if (!section) {
+            return;
+        }
+        if (section === 'versions' && !pageState.canViewVersionHistory) {
+            return;
+        }
+        if (section === 'sharing' && !pageState.canShare) {
+            return;
+        }
+        pageState.activeSection = section;
+        updateUrlSectionParam(section);
+        if (section === 'versions' && pageState.canViewVersionHistory) {
+            loadVersionHistoryIfNeeded();
+        }
+        if (section === 'sharing' && pageState.canShare) {
+            loadShareSettingsIfNeeded();
+        }
+        renderAll();
+        bindActions();
+    }
+
+    function onOpenDownloadDialog() {
+        if (!pageState.fileId || !pageState.canDownload || !pageComponents.downloadDialog) {
+            return;
+        }
+        try {
+            const options = WebsiteSDK.getDownloadOptionsForFile(pageState.fileId);
+            pageState.downloadOptions = options || null;
+            if (options && options.availableQualities && options.availableQualities.length) {
+                pageState.selectedQualityId = options.defaultQuality || options.recommendedQuality || options.availableQualities[0].id;
+            } else {
+                pageState.selectedQualityId = null;
+            }
+            pageState.downloadDialogMessage = '';
+        } catch (e) {
+            pageState.downloadOptions = null;
+            pageState.selectedQualityId = null;
+            pageState.downloadDialogMessage = 'Unable to load download options.';
+        }
+        renderAll();
+        if (typeof pageComponents.downloadDialog.showModal === 'function') {
+            pageComponents.downloadDialog.showModal();
+        } else {
+            pageComponents.downloadDialog.setAttribute('open', 'open');
+        }
+        bindActions();
+    }
+
+    function onCancelDownloadDialog() {
+        if (!pageComponents.downloadDialog) {
+            return;
+        }
+        if (typeof pageComponents.downloadDialog.close === 'function') {
+            pageComponents.downloadDialog.close();
+        } else {
+            pageComponents.downloadDialog.removeAttribute('open');
+        }
+    }
+
+    function onConfirmDownload() {
+        if (!pageState.fileId || !pageState.canDownload) {
+            return;
+        }
+        let selectedQuality = pageState.selectedQualityId;
+        try {
+            const radios = document.querySelectorAll('input[name="downloadQuality"]');
+            Array.prototype.forEach.call(radios, function (r) {
+                if (r.checked) {
+                    selectedQuality = r.value;
+                }
+            });
+        } catch (e) {
+            // ignore; fall back to state
+        }
+        if (!selectedQuality) {
+            pageState.downloadDialogMessage = 'Please select a download quality.';
+            renderAll();
+            return;
+        }
+        let result;
+        try {
+            const sourceLocation = pageState.file && pageState.file.location ? pageState.file.location : undefined;
+            result = WebsiteSDK.enqueueFileDownload(pageState.fileId, selectedQuality, undefined, sourceLocation);
+        } catch (e) {
+            pageState.downloadDialogMessage = 'An error occurred while starting the download.';
+            renderAll();
+            return;
+        }
+        if (!result || !result.success) {
+            const msg = result && result.message ? result.message : 'Failed to enqueue download.';
+            pageState.downloadDialogMessage = msg;
+            renderAll();
+            return;
+        }
+        pageState.lastQueueItem = result.queueItem || null;
+        pageState.downloadStatusMessage = result.message || 'Download has been added to the queue.';
+        pageState.downloadDialogMessage = '';
+        if (pageComponents.downloadDialog) {
+            if (typeof pageComponents.downloadDialog.close === 'function') {
+                pageComponents.downloadDialog.close();
+            } else {
+                pageComponents.downloadDialog.removeAttribute('open');
+            }
+        }
+        renderAll();
+        bindActions();
+    }
+
+    function onViewDownloadQueue() {
+        const url = 'download_queue.html?statusFilter=active';
+        window.location.href = url;
+    }
+
+    function loadVersionHistoryIfNeeded() {
+        if (pageState.versionHistoryLoaded || !pageState.fileId) {
+            return;
+        }
+        try {
+            const result = WebsiteSDK.getFileVersionHistory(pageState.fileId);
+            pageState.versions = result && result.versions ? result.versions : [];
+            pageState.versionHistoryLoaded = true;
+            pageState.versionHistoryError = '';
+            pageState.versionHistoryStatus = '';
+        } catch (e) {
+            pageState.versionHistoryLoaded = true;
+            pageState.versions = [];
+            pageState.versionHistoryError = 'Unable to load version history.';
+        }
+    }
+
+    function onRestoreVersion(versionId) {
+        if (!versionId) {
+            return;
+        }
+        let result;
+        try {
+            result = WebsiteSDK.restoreFileVersion(versionId);
+        } catch (e) {
+            pageState.versionHistoryStatus = '';
+            pageState.versionHistoryError = 'An error occurred while restoring the version.';
+            renderAll();
+            bindActions();
+            return;
+        }
+        if (!result || !result.success) {
+            const msg = result && result.message ? result.message : 'Failed to restore the selected version.';
+            pageState.versionHistoryStatus = '';
+            pageState.versionHistoryError = msg;
+            renderAll();
+            bindActions();
+            return;
+        }
+        try {
+            const previewData = WebsiteSDK.getFilePreview(pageState.fileId);
+            pageState.file = previewData.file;
+            pageState.currentVersion = previewData.currentVersion || null;
+            pageState.previewType = previewData.previewType || 'other';
+            pageState.canDownload = !!previewData.canDownload;
+            pageState.canShare = !!previewData.canShare;
+            pageState.canViewVersionHistory = !!previewData.canViewVersionHistory;
+            updatePermissionMessages();
+        } catch (e) {
+            // keep existing state if refresh fails
+        }
+        try {
+            const history = WebsiteSDK.getFileVersionHistory(pageState.fileId);
+            pageState.versions = history && history.versions ? history.versions : [];
+            pageState.versionHistoryLoaded = true;
+        } catch (e) {
+            // ignore; keep old list
+        }
+        pageState.versionHistoryError = '';
+        pageState.versionHistoryStatus = result.message || 'Version restored successfully.';
+        renderAll();
+        bindActions();
+    }
+
+    function loadShareSettingsIfNeeded() {
+        if (pageState.shareSettingsLoaded || !pageState.fileId) {
+            return;
+        }
+        try {
+            const result = WebsiteSDK.getShareLinkSettings('file', pageState.fileId);
+            pageState.shareLinkSettings = result || null;
+            pageState.shareSettingsLoaded = true;
+            pageState.shareSettingsError = '';
+        } catch (e) {
+            pageState.shareSettingsLoaded = true;
+            pageState.shareLinkSettings = null;
+            pageState.shareSettingsError = 'Unable to load share settings.';
+        }
+    }
+
+    function onShareFormSubmit(event) {
+        event.preventDefault();
+        if (!pageState.fileId || !pageState.canShare) {
+            return;
+        }
+        const form = event.target;
+        const accessLevel = form.elements['accessLevel'].value;
+        const permission = form.elements['permission'].value;
+        const expirationEnabled = !!form.elements['expirationEnabled'].checked;
+        const expiresInDaysRaw = form.elements['expiresInDays'].value;
+        const passwordProtected = !!form.elements['passwordProtected'].checked;
+        const password = form.elements['password'].value || undefined;
+        const defaultCollaboratorRole = form.elements['defaultCollaboratorRole'].value || undefined;
+        const editorsCanUpload = !!form.elements['editorsCanUpload'].checked;
+        const editorsCanModify = !!form.elements['editorsCanModify'].checked;
+
+        let expiresInDays;
+        if (expirationEnabled && expiresInDaysRaw) {
+            const parsed = parseInt(expiresInDaysRaw, 10);
+            if (!isNaN(parsed) && parsed > 0) {
+                expiresInDays = parsed;
+            }
+        }
+
+        let result;
+        try {
+            result = WebsiteSDK.upsertShareLink(
+                'file',
+                pageState.fileId,
+                accessLevel,
+                permission,
+                expirationEnabled,
+                expiresInDays,
+                passwordProtected,
+                password,
+                defaultCollaboratorRole,
+                editorsCanUpload,
+                editorsCanModify
+            );
+        } catch (e) {
+            pageState.shareStatusMessage = '';
+            pageState.shareSettingsError = 'An error occurred while updating share settings.';
+            renderAll();
+            bindActions();
+            return;
+        }
+        if (!result || !result.success) {
+            const msg = result && result.message ? result.message : 'Failed to update share settings.';
+            pageState.shareStatusMessage = '';
+            pageState.shareSettingsError = msg;
+            renderAll();
+            bindActions();
+            return;
+        }
+        pageState.shareLinkSettings = { exists: true, shareLink: result.shareLink };
+        pageState.shareSettingsError = '';
+        pageState.shareStatusMessage = result.message || 'Share settings updated.';
+        renderAll();
+        bindActions();
+    }
+
+    function formatBytes(bytes) {
+        if (!isFinite(bytes) || bytes < 0) {
+            return '';
+        }
+        if (bytes === 0) {
+            return '0 B';
+        }
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let i = 0;
+        let value = bytes;
+        while (value >= 1024 && i < units.length - 1) {
+            value = value / 1024;
+            i++;
+        }
+        return value.toFixed(1).replace(/\.0$/, '') + ' ' + units[i];
+    }
+
+    function escapeHtml(str) {
+        if (str === null || str === undefined) {
+            return '';
+        }
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+    </script>
+</body>
+</html>

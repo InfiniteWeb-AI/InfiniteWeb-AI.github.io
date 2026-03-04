@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <title>Abha Card – Digital Health Card</title>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+
+    <!-- Typography -->
+    <link rel='preconnect' href='https://fonts.googleapis.com'>
+    <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+    <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap' rel='stylesheet'>
+
+    <!-- Site stylesheet -->
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='help_faqs.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <div class='header-inner'>
+            <a href='index.html' class='brand' aria-label='Abha Card home'>
+                Abha Card
+            </a>
+            <nav class='primary-nav' aria-label='Primary navigation'>
+                <ul>
+                    <li><a href='index.html'>Home</a></li>
+                    <li><a href='eligibility.html'>Check eligibility</a></li>
+                    <li><a href='plans_pricing.html'>Plans &amp; pricing</a></li>
+                    <li><a href='cost_estimator.html'>Cost estimator</a></li>
+                    <li><a href='provider_search.html'>Find a provider</a></li>
+                    <li><a href='coverage_overview.html'>Coverage</a></li>
+                    <li><a href='usage_scenarios.html'>How to use your card</a></li>
+                    <li><a href='resources.html'>Resources</a></li>
+                    <li><a href='help_faqs.html'>Help &amp; FAQs</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <div class='page-background'>
+        <main id='content' class='content-shell' role='main'>
+            <section class='help-faqs-page' data-component='help-faqs-page-container'>
+                <div class='help-faqs-card card'>
+                    <header class='help-faqs-header'>
+                        <h1>Help &amp; FAQs</h1>
+                        <p class='help-faqs-intro'>Search for answers about using your digital health card, coverage, billing, and device issues.</p>
+                    </header>
+
+                    <section class='faq-search-section' aria-label='Search help topics'>
+                        <form class='faq-search-form' data-component='faq-search-form' data-action='faq-search-form' role='search'>
+                            <label for='faqSearchInput' class='visually-hidden'>Search FAQs</label>
+                            <div class='faq-search-fields'>
+                                <input
+                                    type='search'
+                                    id='faqSearchInput'
+                                    name='query'
+                                    class='faq-search-input'
+                                    placeholder='Search help topics (for example, billing, coverage, lost phone)'
+                                    autocomplete='off'
+                                    data-component='faq-search-input'
+                                >
+                                <button type='submit' class='btn btn-primary'>Search</button>
+                                <button type='button' class='btn btn-ghost' data-action='faq-search-clear'>Clear</button>
+                            </div>
+                        </form>
+                        <p class='faq-results-state' data-component='faq-results-state-indicator'></p>
+                    </section>
+
+                    <section class='faq-results-section' aria-label='FAQ results'>
+                        <div class='faq-results-panel' data-component='faq-results-panel' data-populate='faq-results'>
+                            <!-- FAQ search results will be rendered here by JavaScript. -->
+                        </div>
+                    </section>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <footer class='site-footer'>
+        <div class='footer-inner'>
+            <nav class='footer-nav' aria-label='Footer navigation'>
+                <ul>
+                    <li><a href='accessibility.html'>Accessibility</a></li>
+                    <li><a href='help_faqs.html'>Help &amp; FAQs</a></li>
+                    <li><a href='coverage_overview.html'>Coverage overview</a></li>
+                    <li><a href='resources.html'>Resources</a></li>
+                    <li><a href='provider_search.html'>Find a provider</a></li>
+                </ul>
+            </nav>
+            <p class='footer-meta'>&copy; 2024 Abha Card. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var state = {
+            searchQuery: '',
+            faqResults: [],
+            isSearching: false,
+            searchError: null,
+            expandedFaqIds: [],
+            faqDetailsCache: {},
+            faqItemStatus: {}
+        };
+
+        var ui = {
+            searchForm: document.querySelector('[data-component=faq-search-form]'),
+            searchInput: document.querySelector('[data-component=faq-search-input]'),
+            stateIndicator: document.querySelector('[data-component=faq-results-state-indicator]'),
+            resultsPanel: document.querySelector('[data-component=faq-results-panel]')
+        };
+
+        // Handle data-populate elements (for this page, population is driven by search interactions)
+        var populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function(element) {
+            var dataType = element.getAttribute('data-populate');
+            // For Help & FAQs, initial population is controlled by URL query and user search,
+            // so there is no automatic data fetch based solely on data-populate.
+        });
+
+        function updateUrlQuery(term, options) {
+            var useReplace = options && options.replace === true;
+            var url = new URL(window.location.href);
+            if (term && term.trim() !== '') {
+                url.searchParams.set('query', term.trim());
+            } else {
+                url.searchParams.delete('query');
+            }
+            var method = useReplace ? 'replaceState' : 'pushState';
+            window.history[method]({}, '', url.toString());
+        }
+
+        function renderResultsState(container, stateObj) {
+            if (!container || !stateObj) {
+                return;
+            }
+            container.textContent = '';
+
+            if (!stateObj.searchQuery && !stateObj.isSearching && !stateObj.searchError && stateObj.faqResults.length === 0) {
+                container.textContent = 'Type a keyword above to search Help & FAQs.';
+                return;
+            }
+
+            if (stateObj.isSearching) {
+                container.textContent = 'Searching help topics…';
+                return;
+            }
+
+            if (stateObj.searchError) {
+                var span = document.createElement('span');
+                span.textContent = stateObj.searchError;
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'link-button faq-retry-search';
+                btn.setAttribute('data-action', 'faq-retry-search');
+                btn.textContent = 'Retry search';
+                container.appendChild(span);
+                container.appendChild(document.createTextNode(' '));
+                container.appendChild(btn);
+                return;
+            }
+
+            var count = stateObj.faqResults.length;
+
+            if (!stateObj.searchQuery) {
+                if (count === 0) {
+                    container.textContent = '';
+                }
+                return;
+            }
+
+            if (count === 0) {
+                container.textContent = 'No results found. Try a different keyword or check your spelling.';
+                return;
+            }
+
+            var label = count === 1 ? 'result' : 'results';
+            container.textContent = 'Showing ' + count + ' ' + label + ' for ' + stateObj.searchQuery + '.';
+        }
+
+        function renderFaqResults(container, stateObj) {
+            if (!container || !stateObj) {
+                return;
+            }
+
+            container.innerHTML = '';
+
+            if (stateObj.isSearching) {
+                var loadingDiv = document.createElement('div');
+                loadingDiv.className = 'faq-results-loading';
+                loadingDiv.textContent = 'Loading help topics…';
+                container.appendChild(loadingDiv);
+                return;
+            }
+
+            if (!stateObj.searchQuery && stateObj.faqResults.length === 0) {
+                // Neutral state: results panel stays empty; guidance is shown in the state indicator.
+                return;
+            }
+
+            if (stateObj.searchError || stateObj.faqResults.length === 0) {
+                // Error and empty-result messages are handled by the state indicator.
+                return;
+            }
+
+            stateObj.faqResults.forEach(function(faq) {
+                if (!faq || !faq.id) {
+                    return;
+                }
+
+                var isExpanded = stateObj.expandedFaqIds.indexOf(faq.id) !== -1;
+
+                var item = document.createElement('article');
+                item.className = 'faq-item';
+                item.setAttribute('data-component', 'faq-accordion-item');
+                item.setAttribute('data-faq-id', faq.id);
+
+                var headerButton = document.createElement('button');
+                headerButton.type = 'button';
+                headerButton.className = 'faq-item-header';
+                headerButton.setAttribute('data-action', 'faq-toggle');
+                headerButton.setAttribute('data-faq-id', faq.id);
+                headerButton.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+                var answerId = 'faq-answer-' + faq.id;
+                headerButton.setAttribute('aria-controls', answerId);
+
+                var titleSpan = document.createElement('span');
+                titleSpan.className = 'faq-question';
+                titleSpan.textContent = faq.question || '';
+
+                var iconSpan = document.createElement('span');
+                iconSpan.className = 'faq-toggle-icon';
+                iconSpan.setAttribute('aria-hidden', 'true');
+                iconSpan.textContent = isExpanded ? '−' : '+';
+
+                headerButton.appendChild(titleSpan);
+                headerButton.appendChild(iconSpan);
+
+                var body = document.createElement('div');
+                body.id = answerId;
+                body.className = 'faq-item-body';
+                if (!isExpanded) {
+                    body.hidden = true;
+                }
+
+                if (isExpanded) {
+                    var status = stateObj.faqItemStatus[faq.id];
+                    if (status && status.isLoading) {
+                        var pLoading = document.createElement('p');
+                        pLoading.className = 'faq-answer-loading';
+                        pLoading.textContent = 'Loading answer…';
+                        body.appendChild(pLoading);
+                    } else if (status && status.error) {
+                        var pError = document.createElement('p');
+                        pError.className = 'faq-answer-error';
+                        pError.textContent = status.error;
+                        var retryBtn = document.createElement('button');
+                        retryBtn.type = 'button';
+                        retryBtn.className = 'link-button faq-retry-answer';
+                        retryBtn.setAttribute('data-action', 'faq-retry-item');
+                        retryBtn.setAttribute('data-faq-id', faq.id);
+                        retryBtn.textContent = 'Retry loading answer';
+                        body.appendChild(pError);
+                        body.appendChild(retryBtn);
+                    } else {
+                        var fullFaq = stateObj.faqDetailsCache[faq.id] || faq;
+                        if (fullFaq && fullFaq.answer_html) {
+                            var answerDiv = document.createElement('div');
+                            answerDiv.className = 'faq-answer-content';
+                            answerDiv.innerHTML = fullFaq.answer_html;
+                            body.appendChild(answerDiv);
+                        } else {
+                            var pMissing = document.createElement('p');
+                            pMissing.textContent = 'Answer not available.';
+                            body.appendChild(pMissing);
+                        }
+                    }
+                }
+
+                item.appendChild(headerButton);
+                item.appendChild(body);
+                container.appendChild(item);
+            });
+        }
+
+        function executeSearch(term, stateObj, uiObj, options) {
+            var shouldUpdateUrl = !options || options.updateUrl !== false;
+            var trimmed = (term || '').trim();
+
+            if (!trimmed) {
+                stateObj.searchQuery = '';
+                stateObj.faqResults = [];
+                stateObj.expandedFaqIds = [];
+                stateObj.faqDetailsCache = {};
+                stateObj.faqItemStatus = {};
+                stateObj.isSearching = false;
+                stateObj.searchError = null;
+                if (shouldUpdateUrl) {
+                    updateUrlQuery('', { replace: false });
+                }
+                renderResultsState(uiObj.stateIndicator, stateObj);
+                renderFaqResults(uiObj.resultsPanel, stateObj);
+                return;
+            }
+
+            stateObj.searchQuery = trimmed;
+            if (shouldUpdateUrl) {
+                updateUrlQuery(trimmed, { replace: false });
+            }
+
+            stateObj.isSearching = true;
+            stateObj.searchError = null;
+            stateObj.faqResults = [];
+            stateObj.expandedFaqIds = [];
+            stateObj.faqDetailsCache = {};
+            stateObj.faqItemStatus = {};
+
+            renderResultsState(uiObj.stateIndicator, stateObj);
+            renderFaqResults(uiObj.resultsPanel, stateObj);
+
+            try {
+                var results = WebsiteSDK.searchFaqs(trimmed);
+                stateObj.faqResults = Array.isArray(results) ? results : [];
+                stateObj.isSearching = false;
+                renderResultsState(uiObj.stateIndicator, stateObj);
+                renderFaqResults(uiObj.resultsPanel, stateObj);
+            } catch (error) {
+                stateObj.isSearching = false;
+                stateObj.searchError = 'We could not load help topics. Please try again.';
+                stateObj.faqResults = [];
+                renderResultsState(uiObj.stateIndicator, stateObj);
+                renderFaqResults(uiObj.resultsPanel, stateObj);
+            }
+        }
+
+        function handleFaqToggle(faqId, stateObj, uiObj) {
+            if (!faqId) {
+                return;
+            }
+
+            var index = stateObj.expandedFaqIds.indexOf(faqId);
+            if (index !== -1) {
+                stateObj.expandedFaqIds.splice(index, 1);
+                renderFaqResults(uiObj.resultsPanel, stateObj);
+                return;
+            }
+
+            stateObj.expandedFaqIds.push(faqId);
+
+            if (!stateObj.faqDetailsCache[faqId]) {
+                stateObj.faqItemStatus[faqId] = { isLoading: true, error: null };
+                renderFaqResults(uiObj.resultsPanel, stateObj);
+                try {
+                    var details = WebsiteSDK.getFaqDetails(faqId);
+                    if (details) {
+                        stateObj.faqDetailsCache[faqId] = details;
+                        stateObj.faqItemStatus[faqId] = { isLoading: false, error: null };
+                    } else {
+                        stateObj.faqItemStatus[faqId] = { isLoading: false, error: 'We could not load this answer. Please try again.' };
+                    }
+                } catch (error) {
+                    stateObj.faqItemStatus[faqId] = { isLoading: false, error: 'We could not load this answer. Please try again.' };
+                }
+            }
+
+            renderFaqResults(uiObj.resultsPanel, stateObj);
+        }
+
+        function retryFaqDetails(faqId, stateObj, uiObj) {
+            if (!faqId) {
+                return;
+            }
+            stateObj.faqItemStatus[faqId] = { isLoading: true, error: null };
+            renderFaqResults(uiObj.resultsPanel, stateObj);
+            try {
+                var details = WebsiteSDK.getFaqDetails(faqId);
+                if (details) {
+                    stateObj.faqDetailsCache[faqId] = details;
+                    stateObj.faqItemStatus[faqId] = { isLoading: false, error: null };
+                } else {
+                    stateObj.faqItemStatus[faqId] = { isLoading: false, error: 'We could not load this answer. Please try again.' };
+                }
+            } catch (error) {
+                stateObj.faqItemStatus[faqId] = { isLoading: false, error: 'We could not load this answer. Please try again.' };
+            }
+            renderFaqResults(uiObj.resultsPanel, stateObj);
+        }
+
+        function handleRetrySearch(stateObj, uiObj) {
+            if (!stateObj.searchQuery) {
+                return;
+            }
+            executeSearch(stateObj.searchQuery, stateObj, uiObj, { updateUrl: false });
+        }
+
+        function handleSearchSubmit(event, stateObj, uiObj) {
+            event.preventDefault();
+            if (!uiObj || !uiObj.searchInput) {
+                return;
+            }
+            var term = (uiObj.searchInput.value || '').trim();
+            executeSearch(term, stateObj, uiObj, { updateUrl: true });
+        }
+
+        function handleSearchClear(stateObj, uiObj) {
+            if (!uiObj || !uiObj.searchInput) {
+                return;
+            }
+            uiObj.searchInput.value = '';
+            executeSearch('', stateObj, uiObj, { updateUrl: true });
+        }
+
+        // Wire up search form submit
+        if (ui.searchForm) {
+            ui.searchForm.addEventListener('submit', function(event) {
+                handleSearchSubmit(event, state, ui);
+            });
+        }
+
+        // Wire up clear button
+        var clearButton = document.querySelector('[data-action=faq-search-clear]');
+        if (clearButton) {
+            clearButton.addEventListener('click', function() {
+                handleSearchClear(state, ui);
+            });
+        }
+
+        // Wire up state-indicator retry click
+        if (ui.stateIndicator) {
+            ui.stateIndicator.addEventListener('click', function(event) {
+                var retryEl = event.target.closest('[data-action=faq-retry-search]');
+                if (retryEl) {
+                    event.preventDefault();
+                    handleRetrySearch(state, ui);
+                }
+            });
+        }
+
+        // Wire up FAQ panel interactions (accordion toggle, answer retry, special links)
+        if (ui.resultsPanel) {
+            ui.resultsPanel.addEventListener('click', function(event) {
+                // Handle links inside FAQ answers, including temporary card request navigation
+                var answerLink = event.target.closest('.faq-answer-content a');
+                if (answerLink) {
+                    var href = answerLink.getAttribute('href') || '';
+                    var baseHref = href.split('#')[0].split('?')[0];
+                    if (baseHref === 'temporary_card_request.html' && href.indexOf('reason=') === -1) {
+                        event.preventDefault();
+                        window.location.href = 'temporary_card_request.html?reason=lost_phone';
+                        return;
+                    }
+                    // For all other links, allow the browser to follow the href normally.
+                }
+
+                var actionEl = event.target.closest('[data-action]');
+                if (!actionEl) {
+                    return;
+                }
+                var action = actionEl.getAttribute('data-action');
+                if (action === 'faq-toggle') {
+                    var faqId = actionEl.getAttribute('data-faq-id');
+                    if (faqId) {
+                        handleFaqToggle(faqId, state, ui);
+                    }
+                } else if (action === 'faq-retry-item') {
+                    var retryFaqId = actionEl.getAttribute('data-faq-id');
+                    if (retryFaqId) {
+                        retryFaqDetails(retryFaqId, state, ui);
+                    }
+                }
+            });
+        }
+
+        // Handle browser back/forward navigation for query parameter
+        window.addEventListener('popstate', function() {
+            var params = new URLSearchParams(window.location.search);
+            var query = (params.get('query') || '').trim();
+            if (query === state.searchQuery) {
+                return;
+            }
+
+            state.searchQuery = query;
+            state.faqResults = [];
+            state.expandedFaqIds = [];
+            state.faqDetailsCache = {};
+            state.faqItemStatus = {};
+            state.searchError = null;
+
+            if (ui.searchInput) {
+                ui.searchInput.value = query;
+            }
+
+            if (!query) {
+                state.isSearching = false;
+                renderResultsState(ui.stateIndicator, state);
+                renderFaqResults(ui.resultsPanel, state);
+                return;
+            }
+
+            executeSearch(query, state, ui, { updateUrl: false });
+        });
+
+        // Initial load: read query param and optionally run a search
+        var urlParams = new URLSearchParams(window.location.search);
+        var initialQuery = (urlParams.get('query') || '').trim();
+        state.searchQuery = initialQuery;
+        if (ui.searchInput) {
+            ui.searchInput.value = initialQuery;
+        }
+
+        renderResultsState(ui.stateIndicator, state);
+        renderFaqResults(ui.resultsPanel, state);
+
+        if (initialQuery) {
+            executeSearch(initialQuery, state, ui, { updateUrl: false });
+        }
+    });
+    </script>
+</body>
+</html>

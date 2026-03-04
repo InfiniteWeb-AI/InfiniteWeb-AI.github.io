@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Clue Detail</title>
+    
+    <link rel="stylesheet" href="clue_detail.css">
+</head>
+<body>
+    <div class="page">
+        <header class="site-header">
+            <div class="site-identity">
+                <span class="site-title">The Initiative</span>
+            </div>
+            <nav class="site-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html" title="Homepage and primary entry into the ARG experience">Home</a></li>
+                    <li><a href="transmission_logs.html" title="Browse transmissions and unlock the Phase I teaser via Prelude logs">Transmission Logs</a></li>
+                    <li><a href="timeline.html" title="Chronological view of events with filters and severity controls">Timeline</a></li>
+                    <li><a href="timeline.html?view=watchlist" title="List of events the user has flagged for monitoring">Watchlist</a></li>
+                    <li><a href="characters.html" title="Directory of Initiative characters, including Project Orion profiles">Characters</a></li>
+                    <li><a href="anomaly_map.html" title="Interactive map and list of anomalous locations and case files">Anomaly Map</a></li>
+                    <li><a href="media_videos.html" title="Media gallery for teaser and briefing videos">Videos</a></li>
+                    <li><a href="incident_logs.html" title="Searchable archive of incident logs and low-threat reports">Incident Logs</a></li>
+                    <li><a href="signals.html" title="Live signal stream used as clues for theories">Signals</a></li>
+                    <li><a href="ciphers.html" title="Tools and cipher list for decoding and theory building">Ciphers</a></li>
+                    <li><a href="theory_board.html" title="Workspace for assembling clues into named theories">Theory Board</a></li>
+                    <li><a href="artifacts.html" title="Catalog of recovered artifacts and their risk levels">Artifacts</a></li>
+                    <li><a href="recruitment.html" title="Recruitment and assessment form for new operatives">Join the Initiative</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id="content" class="site-main" tabindex="-1">
+            <div data-component="clue-detail-loader" class="clue-detail-loader">
+                <p data-component="clue-loading-indicator">Loading clue</p>
+
+                <section data-component="clue-error-state" class="clue-error" aria-live="polite" style="display:none;">
+                    <p data-populate="error-message">The requested clue could not be loaded.</p>
+                    <p>Return to
+                        <a href="javascript:void(0)" data-action="navigate-signals">Signals</a>
+                        or
+                        <a href="javascript:void(0)" data-action="navigate-ciphers">Ciphers</a>.
+                    </p>
+                    <p><a href="javascript:void(0)" data-action="retry-load">Try loading this clue again</a></p>
+                </section>
+
+                <div data-component="clue-detail-content" class="clue-detail-content" style="display:none; max-width:30vw;">
+                    <section data-component="clue-page-header" data-populate="clue-header"></section>
+
+                    <section data-component="clue-metadata-panel" data-populate="clue-metadata"></section>
+
+                    <div class="clue-actions" style="margin-top:16px;">
+                        <button type="button" data-component="add-to-theory-board-button" data-action="add-to-theory-board" disabled>
+                            Add to Theory Board
+                        </button>
+                        <span data-component="add-to-theory-feedback" aria-live="polite" role="status" style="margin-left:8px;"></span>
+                    </div>
+
+                    <p data-component="clue-origin-navigation" data-populate="origin-navigation" style="margin-top:24px;">
+                        <a href="javascript:void(0)" data-action="origin-back-link">Back</a>
+                    </p>
+                </div>
+            </div>
+        </main>
+
+        <footer class="site-footer">
+            <hr class="footer-rule">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="about.html" title="About the Initiative and the ARG universe">About</a></li>
+                    <li><a href="transmission_logs.html" title="Access the transmission archive">Transmission Logs</a></li>
+                    <li><a href="incident_logs.html" title="Access the incident log archives">Incident Logs</a></li>
+                    <li><a href="artifacts.html" title="Browse artifacts by origin and corruption risk">Artifacts Catalog</a></li>
+                    <li><a href="recruitment.html" title="Create your recruitment profile">Join the Initiative</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">The Initiative</p>
+        </footer>
+    </div>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const clueTypeParam = urlParams.get('clue_type');
+        const clueIdParam = urlParams.get('clueId');
+
+        const loader = document.querySelector('[data-component="clue-detail-loader"]');
+        if (!loader) {
+            return;
+        }
+
+        const loadingIndicator = loader.querySelector('[data-component="clue-loading-indicator"]');
+        const errorPanel = loader.querySelector('[data-component="clue-error-state"]');
+        const contentPanel = loader.querySelector('[data-component="clue-detail-content"]');
+        const addButton = loader.querySelector('[data-component="add-to-theory-board-button"]');
+        const feedback = loader.querySelector('[data-component="add-to-theory-feedback"]');
+
+        let currentClueType = null;
+        let currentClueId = null;
+        let currentDetail = null;
+        let isAdding = false;
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function setVisible(el, visible) {
+            if (!el) return;
+            el.style.display = visible ? '' : 'none';
+        }
+
+        function setLoading(isLoading) {
+            if (isLoading) {
+                setVisible(loadingIndicator, true);
+                setVisible(errorPanel, false);
+                setVisible(contentPanel, false);
+                if (addButton) {
+                    addButton.disabled = true;
+                }
+            } else {
+                setVisible(loadingIndicator, false);
+            }
+        }
+
+        function renderError(message) {
+            setVisible(errorPanel, true);
+            setVisible(contentPanel, false);
+            setVisible(loadingIndicator, false);
+            if (addButton) {
+                addButton.disabled = true;
+                addButton.style.display = 'none';
+            }
+            if (feedback) {
+                feedback.textContent = '';
+            }
+            const msgEl = errorPanel.querySelector('[data-populate="error-message"]');
+            if (msgEl) {
+                msgEl.textContent = message || 'The requested clue could not be loaded.';
+            }
+        }
+
+        function renderHeader(container, detail, clueType) {
+            if (!container) return;
+            const typeLabel = clueType === 'signal' ? 'Signal' : 'Cipher';
+            const title = clueType === 'signal'
+                ? (detail.signal && detail.signal.title) || ''
+                : (detail.cipher && detail.cipher.name) || '';
+            const createdAtRaw = clueType === 'signal'
+                ? (detail.signal && detail.signal.created_at)
+                : (detail.cipher && detail.cipher.created_at);
+            let createdText = '';
+            if (createdAtRaw) {
+                try {
+                    const date = new Date(createdAtRaw);
+                    if (!isNaN(date.getTime())) {
+                        createdText = date.toLocaleString();
+                    }
+                } catch (e) {
+                    createdText = '';
+                }
+            }
+            container.innerHTML = `
+      <h1>${escapeHtml(title)}</h1>
+      <p>${escapeHtml(typeLabel)} clue${createdText ? ' · observed ' + escapeHtml(createdText) : ''}</p>
+    `;
+        }
+
+        function renderMetadata(container, detail, clueType) {
+            if (!container) return;
+            if (clueType === 'signal') {
+                const signal = detail.signal || {};
+                const tags = Array.isArray(signal.tags) ? signal.tags : [];
+                const signalType = signal.signal_type ? String(signal.signal_type) : '';
+                const createdAt = signal.created_at ? new Date(signal.created_at) : null;
+                const createdText = createdAt && !isNaN(createdAt.getTime())
+                    ? createdAt.toLocaleString()
+                    : '';
+                container.innerHTML = `
+        <p>${escapeHtml(signal.description || '')}</p>
+        ${createdText ? `<p>Logged: ${escapeHtml(createdText)}</p>` : ''}
+        ${signalType ? `<p>Channel: ${escapeHtml(signalType)}</p>` : ''}
+        ${tags.length ? `<p>Tags: ${escapeHtml(tags.join(', '))}</p>` : ''}
+      `;
+            } else {
+                const cipher = detail.cipher || {};
+                const createdAt = cipher.created_at ? new Date(cipher.created_at) : null;
+                const createdText = createdAt && !isNaN(createdAt.getTime())
+                    ? createdAt.toLocaleString()
+                    : '';
+                const difficulty = cipher.difficulty ? String(cipher.difficulty) : '';
+                container.innerHTML = `
+        <p>${escapeHtml(cipher.description || '')}</p>
+        ${difficulty ? `<p><strong>Difficulty:</strong> ${escapeHtml(difficulty)}</p>` : ''}
+        ${createdText ? `<p>Introduced: ${escapeHtml(createdText)}</p>` : ''}
+      `;
+            }
+        }
+
+        function renderOriginNavigation(container, clueType) {
+            if (!container) return;
+            const link = container.querySelector('[data-action="origin-back-link"]');
+            if (!link) return;
+            if (clueType === 'signal') {
+                link.textContent = 'Back to Signals';
+            } else if (clueType === 'cipher') {
+                link.textContent = 'Back to Ciphers';
+            } else {
+                link.textContent = 'Back to list';
+            }
+        }
+
+        function initialiseContent(detail, clueType, clueId) {
+            currentDetail = detail;
+            currentClueType = clueType;
+            currentClueId = clueId;
+            setVisible(contentPanel, true);
+            setVisible(errorPanel, false);
+
+            if (addButton) {
+                addButton.disabled = false;
+                addButton.style.display = '';
+                addButton.textContent = 'Add to Theory Board';
+            }
+            if (feedback) {
+                feedback.textContent = '';
+            }
+
+            const populateElements = loader.querySelectorAll('[data-populate]');
+            populateElements.forEach(element => {
+                const dataType = element.dataset.populate;
+                if (!dataType) return;
+                switch (dataType) {
+                    case 'clue-header':
+                        renderHeader(element, detail, clueType);
+                        break;
+                    case 'clue-metadata':
+                        renderMetadata(element, detail, clueType);
+                        break;
+                    case 'origin-navigation':
+                        renderOriginNavigation(element, clueType);
+                        break;
+                    case 'error-message':
+                        // handled separately in renderError
+                        break;
+                    default:
+                        break;
+                }
+            });
+        }
+
+        function validateParams(rawType, rawId) {
+            const type = rawType === 'signal' || rawType === 'cipher' ? rawType : null;
+            const id = rawId && String(rawId).trim() ? String(rawId).trim() : null;
+            if (!type || !id) {
+                return { valid: false, reason: 'Missing or invalid clue reference in the URL.' };
+            }
+            return { valid: true, clueType: type, clueId: id };
+        }
+
+        function loadClue() {
+            const validation = validateParams(clueTypeParam, clueIdParam);
+            if (!validation.valid) {
+                setLoading(false);
+                renderError(validation.reason);
+                return;
+            }
+            setLoading(true);
+            try {
+                const result = WebsiteSDK.getClueDetail(validation.clueType, validation.clueId);
+                if (!result || result.clue_type !== validation.clueType) {
+                    throw new Error('Clue not found.');
+                }
+                if (validation.clueType === 'signal' && !result.signal) {
+                    throw new Error('Signal not found.');
+                }
+                if (validation.clueType === 'cipher' && !result.cipher) {
+                    throw new Error('Cipher not found.');
+                }
+                setLoading(false);
+                initialiseContent(result, validation.clueType, validation.clueId);
+            } catch (err) {
+                setLoading(false);
+                const message = (err && err.message) ? err.message : 'The requested clue could not be loaded.';
+                renderError(message);
+            }
+        }
+
+        function handleAddClick(event) {
+            event.preventDefault();
+            if (!currentClueType || !currentClueId) {
+                return;
+            }
+            if (isAdding) {
+                return;
+            }
+            isAdding = true;
+            if (addButton) {
+                addButton.disabled = true;
+                addButton.textContent = 'Adding1a';
+            }
+            if (feedback) {
+                feedback.textContent = '';
+            }
+            try {
+                const boardClue = WebsiteSDK.addClueToTheoryBoard(currentClueType, currentClueId);
+                if (feedback) {
+                    feedback.textContent = 'Added to Theory Board.';
+                }
+                if (addButton) {
+                    addButton.disabled = true;
+                    addButton.textContent = 'Added to Theory Board';
+                }
+                // boardClue is available if additional handling is needed later
+                void boardClue;
+            } catch (err) {
+                if (feedback) {
+                    const msg = (err && err.message) ? err.message : 'Unable to add this clue. You can try again.';
+                    feedback.textContent = msg;
+                }
+                if (addButton) {
+                    addButton.disabled = false;
+                    addButton.textContent = 'Add to Theory Board';
+                }
+            } finally {
+                isAdding = false;
+            }
+        }
+
+        function handleActionClick(event) {
+            const target = event.target.closest('[data-action]');
+            if (!target) return;
+            const action = target.dataset.action;
+            if (!action) return;
+
+            switch (action) {
+                case 'add-to-theory-board':
+                    handleAddClick(event);
+                    break;
+                case 'origin-back-link':
+                    event.preventDefault();
+                    if (currentClueType === 'signal') {
+                        window.location.href = 'signals.html';
+                    } else if (currentClueType === 'cipher') {
+                        window.location.href = 'ciphers.html';
+                    } else {
+                        window.location.href = 'signals.html';
+                    }
+                    break;
+                case 'navigate-signals':
+                    event.preventDefault();
+                    window.location.href = 'signals.html';
+                    break;
+                case 'navigate-ciphers':
+                    event.preventDefault();
+                    window.location.href = 'ciphers.html';
+                    break;
+                case 'retry-load':
+                    event.preventDefault();
+                    window.location.reload();
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        loader.addEventListener('click', handleActionClick);
+
+        loadClue();
+    });
+    </script>
+</body>
+</html>

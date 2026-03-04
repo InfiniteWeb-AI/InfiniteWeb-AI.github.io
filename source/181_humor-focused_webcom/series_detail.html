@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='series_detail.css'>
+<script src='business_logic.js'></script>
+
+<div class='series-detail-page' data-component='series-detail-page-controller'>
+  <div class='series-page-inner'>
+    <div class='series-page-message' data-populate='page-message' role='status' aria-live='polite'></div>
+
+    <section class='series-header-bubble' data-component='series-overview-header' aria-label='Series overview'>
+      <div class='series-header-inner'>
+        <div class='series-cover' data-populate='series-cover'></div>
+        <div class='series-header-text'>
+          <h1 class='series-title' data-populate='series-title'></h1>
+          <p class='series-description' data-populate='series-description'></p>
+          <dl class='series-stats'>
+            <div class='series-stat'>
+              <dt>Episodes</dt>
+              <dd data-populate='series-episodes-count'>0</dd>
+            </div>
+            <div class='series-stat'>
+              <dt>Average rating</dt>
+              <dd><span data-populate='series-average-rating'>0.0</span> / 5</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    <section class='series-main-band'>
+      <div class='series-main-column'>
+        <header class='episode-list-header'>
+          <h2 class='episode-list-title'>Episodes</h2>
+          <form class='episode-list-controls' onsubmit='return false;'>
+            <label class='episode-sort-control'>
+              Sort:
+              <select name='sort' data-action='change-sort'>
+                <option value='episode_asc'>Episode: Oldest first</option>
+                <option value='episode_desc'>Episode: Newest first</option>
+              </select>
+            </label>
+            <label class='episode-filter-control'>
+              Show:
+              <select name='filter' data-action='change-filter'>
+                <option value='all'>All episodes</option>
+                <option value='unread'>Unread only</option>
+              </select>
+            </label>
+          </form>
+        </header>
+
+        <ol class='episode-list' data-component='episode-list' data-populate='episodes-list'>
+          <!-- Episodes will be rendered here -->
+        </ol>
+        <p class='episode-list-empty' data-populate='episodes-empty-state' hidden>
+          No episodes match this view yet. Try changing the filters.
+        </p>
+      </div>
+
+      <aside class='series-utility-column'>
+        <div class='subscribe-panel' data-component='subscribe-button'>
+          <p class='subscribe-status' data-populate='subscription-status-text'></p>
+          <button type='button' class='subscribe-button' data-action='subscribe-to-series' disabled>Subscribe</button>
+          <p class='subscribe-hint'>New strips will quietly stack up in your Library.</p>
+        </div>
+      </aside>
+    </section>
+  </div>
+
+  <div class='playlist-modal-backdrop' data-component='playlist-selector-modal' hidden>
+    <div class='playlist-modal-dialog' role='dialog' aria-modal='true' aria-labelledby='playlist-modal-title'>
+      <header class='playlist-modal-header'>
+        <h2 id='playlist-modal-title'>Add to reading list</h2>
+        <p class='playlist-episode-label' data-populate='playlist-episode-label'></p>
+      </header>
+      <div class='playlist-modal-body'>
+        <form class='playlist-existing-form' data-component='playlist-existing-form' data-action='add-to-existing-playlist'>
+          <fieldset>
+            <legend>Use an existing reading list</legend>
+            <label>
+              Reading list:
+              <select name='playlistId' required data-populate='playlist-options'>
+                <option value=''>Loading reading lists...</option>
+              </select>
+            </label>
+            <button type='submit'>Add to list</button>
+          </fieldset>
+        </form>
+
+        <hr>
+
+        <form class='playlist-create-form' data-component='playlist-create-form' data-action='create-playlist-and-add'>
+          <fieldset>
+            <legend>Create a new reading list</legend>
+            <label>
+              List name:
+              <input type='text' name='playlistName' required>
+            </label>
+            <label>
+              Description (optional):
+              <textarea name='playlistDescription' rows='3'></textarea>
+            </label>
+            <button type='submit'>Create list &amp; add episode</button>
+          </fieldset>
+        </form>
+      </div>
+      <footer class='playlist-modal-footer'>
+        <button type='button' data-action='close-playlist-modal'>Cancel</button>
+      </footer>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof WebsiteSDK === 'undefined') {
+    console.error('WebsiteSDK is not available. business_logic.js may be missing.');
+  }
+
+  var populateMap = {};
+  document.querySelectorAll('[data-populate]').forEach(function(el) {
+    var key = el.dataset.populate;
+    if (!key) return;
+    if (!populateMap[key]) {
+      populateMap[key] = [];
+    }
+    populateMap[key].push(el);
+  });
+
+  var headerSection = document.querySelector('[data-component=\'series-overview-header\']');
+  var mainBand = document.querySelector('.series-main-band');
+  var modalBackdrop = document.querySelector('[data-component=\'playlist-selector-modal\']');
+  var sortSelect = document.querySelector('[data-action=\'change-sort\']');
+  var filterSelect = document.querySelector('[data-action=\'change-filter\']');
+  var subscribeButton = document.querySelector('[data-action=\'subscribe-to-series\']');
+
+  var existingForm = document.querySelector('[data-component=\'playlist-existing-form\']');
+  var createForm = document.querySelector('[data-component=\'playlist-create-form\']');
+
+  var state = {
+    seriesId: null,
+    series: null,
+    episodes: [],
+    subscription: null,
+    readState: {},
+    addEpisodeId: null,
+    sort: 'episode_asc',
+    filter: 'all',
+    playlists: []
+  };
+
+  var urlStateSync = {
+    readFromLocation: function() {
+      var params = new URLSearchParams(window.location.search);
+      return {
+        seriesId: params.get('id'),
+        addEpisodeId: params.get('addEpisodeId'),
+        sort: params.get('sort') || 'episode_asc',
+        filter: params.get('filter') || 'all'
+      };
+    },
+    applyToUrl: function(changes, options) {
+      var params = new URLSearchParams(window.location.search);
+      if (Object.prototype.hasOwnProperty.call(changes, 'seriesId')) {
+        if (changes.seriesId) {
+          params.set('id', changes.seriesId);
+        } else {
+          params.delete('id');
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(changes, 'sort')) {
+        if (changes.sort && changes.sort !== 'episode_asc') {
+          params.set('sort', changes.sort);
+        } else {
+          params.delete('sort');
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(changes, 'filter')) {
+        if (changes.filter && changes.filter !== 'all') {
+          params.set('filter', changes.filter);
+        } else {
+          params.delete('filter');
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(changes, 'addEpisodeId')) {
+        if (changes.addEpisodeId) {
+          params.set('addEpisodeId', changes.addEpisodeId);
+        } else {
+          params.delete('addEpisodeId');
+        }
+      }
+      var qs = params.toString();
+      var newUrl = window.location.pathname + (qs ? '?' + qs : '');
+      var method = options && options.replace ? 'replaceState' : 'pushState';
+      window.history[method]({}, '', newUrl);
+      var parsed = urlStateSync.readFromLocation();
+      state.addEpisodeId = parsed.addEpisodeId;
+      state.sort = parsed.sort;
+      state.filter = parsed.filter;
+    }
+  };
+
+  function showElement(el) {
+    if (!el) return;
+    el.style.display = '';
+  }
+
+  function hideElement(el) {
+    if (!el) return;
+    el.style.display = 'none';
+  }
+
+  function renderPageMessage(messageText) {
+    var targets = populateMap['page-message'] || [];
+    targets.forEach(function(container) {
+      container.textContent = messageText || '';
+    });
+  }
+
+  function renderNoSeriesSelected() {
+    renderPageMessage('We could not tell which series to show. Try opening a series from the homepage or your Library.');
+    hideElement(headerSection);
+    hideElement(mainBand);
+    closePlaylistModal(true);
+  }
+
+  function loadSeries() {
+    if (!state.seriesId) {
+      renderNoSeriesSelected();
+      return;
+    }
+    try {
+      var detail = WebsiteSDK.getSeriesDetail(state.seriesId);
+      state.series = detail && detail.series ? detail.series : null;
+      state.episodes = detail && detail.episodes ? detail.episodes.slice() : [];
+      state.subscription = detail && detail.subscription ? detail.subscription : null;
+      state.readState = {};
+      if (!state.series) {
+        renderPageMessage('That series seems to have slipped on a banana peel and vanished.');
+        hideElement(headerSection);
+        hideElement(mainBand);
+        return;
+      }
+      renderPageMessage('');
+      showElement(headerSection);
+      showElement(mainBand);
+      renderSeriesHeader();
+      renderSubscriptionPanel();
+      renderEpisodeList();
+      if (state.addEpisodeId) {
+        openPlaylistModal();
+      } else {
+        closePlaylistModal(true);
+      }
+    } catch (error) {
+      console.error('Error loading series detail', error);
+      renderPageMessage('We could not load this series right now. Please try again in a bit.');
+      hideElement(headerSection);
+      hideElement(mainBand);
+    }
+  }
+
+  function renderSeriesHeader() {
+    var titleTargets = populateMap['series-title'] || [];
+    titleTargets.forEach(function(container) {
+      container.textContent = state.series ? state.series.title : '';
+    });
+
+    var descTargets = populateMap['series-description'] || [];
+    descTargets.forEach(function(container) {
+      container.textContent = state.series && state.series.description ? state.series.description : '';
+    });
+
+    var episodesCountTargets = populateMap['series-episodes-count'] || [];
+    episodesCountTargets.forEach(function(container) {
+      container.textContent = state.series ? String(state.series.episodesCount) : '0';
+    });
+
+    var avgRatingTargets = populateMap['series-average-rating'] || [];
+    avgRatingTargets.forEach(function(container) {
+      if (state.series && typeof state.series.averageRating === 'number') {
+        var val = state.series.averageRating;
+        container.textContent = val.toFixed ? val.toFixed(1) : String(val);
+      } else {
+        container.textContent = '0.0';
+      }
+    });
+
+    var coverTargets = populateMap['series-cover'] || [];
+    coverTargets.forEach(function(container) {
+      container.innerHTML = '';
+      if (state.series && state.series.coverImageUrl) {
+        var img = document.createElement('img');
+        img.src = state.series.coverImageUrl;
+        img.alt = state.series.title + ' cover image';
+        container.appendChild(img);
+      }
+    });
+  }
+
+  function isSeriesEligibleForSubscription(series) {
+    if (!series) return false;
+    var minEpisodes = 3;
+    var minRating = 3;
+    if (typeof series.episodesCount === 'number' && series.episodesCount < minEpisodes) {
+      return false;
+    }
+    if (typeof series.averageRating === 'number' && series.averageRating < minRating) {
+      return false;
+    }
+    return true;
+  }
+
+  function renderSubscriptionPanel() {
+    if (!subscribeButton) return;
+    if (!state.series) {
+      subscribeButton.disabled = true;
+      subscribeButton.textContent = 'Subscribe';
+      return;
+    }
+
+    var eligible = isSeriesEligibleForSubscription(state.series);
+    var statusTargets = populateMap['subscription-status-text'] || [];
+
+    if (state.subscription) {
+      statusTargets.forEach(function(container) {
+        container.textContent = 'You are subscribed to this series.';
+      });
+      subscribeButton.disabled = true;
+      subscribeButton.textContent = 'Subscribed';
+    } else if (!eligible) {
+      statusTargets.forEach(function(container) {
+        container.textContent = 'Subscriptions unlock after a few well-rated episodes.';
+      });
+      subscribeButton.disabled = true;
+      subscribeButton.textContent = 'Subscribe';
+    } else {
+      statusTargets.forEach(function(container) {
+        container.textContent = 'Subscribe to keep up with new episodes.';
+      });
+      subscribeButton.disabled = false;
+      subscribeButton.textContent = 'Subscribe';
+    }
+  }
+
+  function getEpisodeReadState(episodeId) {
+    if (Object.prototype.hasOwnProperty.call(state.readState, episodeId)) {
+      return !!state.readState[episodeId];
+    }
+    return false;
+  }
+
+  function applySortAndFilter(episodes) {
+    var sorted = episodes.slice();
+
+    if (state.sort === 'episode_desc') {
+      sorted.sort(function(a, b) {
+        return (b.episodeNumber || 0) - (a.episodeNumber || 0);
+      });
+    } else {
+      sorted.sort(function(a, b) {
+        return (a.episodeNumber || 0) - (b.episodeNumber || 0);
+      });
+    }
+
+    var filtered = sorted.filter(function(ep) {
+      if (state.filter === 'unread') {
+        return !getEpisodeReadState(ep.id);
+      }
+      return true;
+    });
+
+    return filtered;
+  }
+
+  function renderEpisodeList() {
+    if (sortSelect) {
+      sortSelect.value = state.sort;
+    }
+    if (filterSelect) {
+      filterSelect.value = state.filter;
+    }
+
+    var listTargets = populateMap['episodes-list'] || [];
+    var emptyTargets = populateMap['episodes-empty-state'] || [];
+
+    var preparedEpisodes = applySortAndFilter(state.episodes || []);
+
+    listTargets.forEach(function(container) {
+      container.innerHTML = '';
+      preparedEpisodes.forEach(function(ep) {
+        var li = document.createElement('li');
+        li.className = 'episode-list-item';
+        li.dataset.component = 'episode-list-item';
+        li.dataset.episodeId = ep.id;
+
+        var isRead = getEpisodeReadState(ep.id);
+        if (isRead) {
+          li.classList.add('episode-is-read');
+        }
+
+        var mainRow = document.createElement('div');
+        mainRow.className = 'episode-main';
+
+        var titleButton = document.createElement('button');
+        titleButton.type = 'button';
+        titleButton.className = 'episode-title-button';
+        titleButton.dataset.action = 'open-episode';
+        titleButton.dataset.episodeId = ep.id;
+        var numberPart = ep.episodeNumber != null ? '#' + ep.episodeNumber + ' ' : '# ';
+        var titleText = numberPart + ep.title;
+        titleButton.textContent = titleText.trim();
+
+        var meta = document.createElement('div');
+        meta.className = 'episode-meta';
+
+        if (ep.releaseDate) {
+          var dateSpan = document.createElement('span');
+          dateSpan.className = 'episode-meta-item episode-release-date';
+          var date = new Date(ep.releaseDate);
+          if (!isNaN(date.getTime())) {
+            dateSpan.textContent = date.toLocaleDateString();
+          }
+          meta.appendChild(dateSpan);
+        }
+
+        if (typeof ep.panelCount === 'number') {
+          var panelSpan = document.createElement('span');
+          panelSpan.className = 'episode-meta-item episode-panel-count';
+          panelSpan.textContent = ep.panelCount + ' panels';
+          meta.appendChild(panelSpan);
+        }
+
+        if (typeof ep.isColor === 'boolean') {
+          var colorSpan = document.createElement('span');
+          colorSpan.className = 'episode-meta-item episode-color-flag';
+          colorSpan.textContent = ep.isColor ? 'Color' : 'B&amp;W';
+          meta.appendChild(colorSpan);
+        }
+
+        var desc = document.createElement('p');
+        desc.className = 'episode-description';
+        desc.textContent = ep.description || '';
+
+        mainRow.appendChild(titleButton);
+        if (meta.childNodes.length > 0) {
+          mainRow.appendChild(meta);
+        }
+        if (ep.description) {
+          mainRow.appendChild(desc);
+        }
+
+        var actions = document.createElement('div');
+        actions.className = 'episode-actions';
+
+        var readLabel = document.createElement('label');
+        readLabel.className = 'episode-read-toggle';
+        var readCheckbox = document.createElement('input');
+        readCheckbox.type = 'checkbox';
+        readCheckbox.dataset.action = 'toggle-episode-read';
+        readCheckbox.dataset.episodeId = ep.id;
+        readCheckbox.checked = isRead;
+        var readStatus = document.createElement('span');
+        readStatus.className = 'episode-read-status';
+        readStatus.textContent = isRead ? 'Read' : 'Unread';
+        readLabel.appendChild(readCheckbox);
+        readLabel.appendChild(readStatus);
+
+        var addButton = document.createElement('button');
+        addButton.type = 'button';
+        addButton.className = 'episode-add-to-list-button';
+        addButton.dataset.action = 'add-episode-to-reading-list';
+        addButton.dataset.episodeId = ep.id;
+        addButton.textContent = 'Add to reading list';
+
+        actions.appendChild(readLabel);
+        actions.appendChild(addButton);
+
+        li.appendChild(mainRow);
+        li.appendChild(actions);
+
+        container.appendChild(li);
+      });
+    });
+
+    if (preparedEpisodes.length === 0) {
+      emptyTargets.forEach(function(container) {
+        container.hidden = false;
+      });
+    } else {
+      emptyTargets.forEach(function(container) {
+        container.hidden = true;
+      });
+    }
+  }
+
+  function getEpisodeById(episodeId) {
+    var list = state.episodes || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === episodeId) {
+        return list[i];
+      }
+    }
+    return null;
+  }
+
+  function openPlaylistModal() {
+    if (!modalBackdrop) return;
+    if (!state.addEpisodeId) return;
+    modalBackdrop.hidden = false;
+
+    var titleTargets = populateMap['playlist-episode-label'] || [];
+    var ep = getEpisodeById(state.addEpisodeId);
+    var labelText = 'Choose where to save this episode.';
+    if (ep) {
+      labelText = 'Add \'' + ep.title + '\' to a reading list.';
+    }
+    titleTargets.forEach(function(container) {
+      container.textContent = labelText;
+    });
+
+    try {
+      var result = WebsiteSDK.listPlaylists('episode_reading_list');
+      state.playlists = result && result.playlists ? result.playlists.slice() : [];
+    } catch (error) {
+      console.error('Error listing playlists', error);
+      state.playlists = [];
+    }
+
+    var optionTargets = populateMap['playlist-options'] || [];
+    optionTargets.forEach(function(container) {
+      container.innerHTML = '';
+      var defaultOption = document.createElement('option');
+      if (!state.playlists || state.playlists.length === 0) {
+        defaultOption.value = '';
+        defaultOption.textContent = 'No reading lists yet';
+      } else {
+        defaultOption.value = '';
+        defaultOption.textContent = 'Select a reading list';
+      }
+      container.appendChild(defaultOption);
+      (state.playlists || []).forEach(function(pl) {
+        var opt = document.createElement('option');
+        opt.value = pl.id;
+        opt.textContent = pl.name;
+        container.appendChild(opt);
+      });
+    });
+  }
+
+  function closePlaylistModal(updateUrl) {
+    if (modalBackdrop) {
+      modalBackdrop.hidden = true;
+    }
+    if (updateUrl) {
+      state.addEpisodeId = null;
+      urlStateSync.applyToUrl({ addEpisodeId: null }, { replace: true });
+    }
+  }
+
+  document.addEventListener('click', function(event) {
+    var actionEl = event.target.closest('[data-action]');
+    if (!actionEl) return;
+    var action = actionEl.dataset.action;
+
+    if (action === 'subscribe-to-series') {
+      if (!state.series || state.subscription) return;
+      if (!isSeriesEligibleForSubscription(state.series)) return;
+      try {
+        var subscription = WebsiteSDK.subscribeToSeries(state.series.id);
+        state.subscription = subscription;
+        renderSubscriptionPanel();
+      } catch (error) {
+        console.error('Error subscribing to series', error);
+        renderPageMessage('We could not update your subscription right now.');
+      }
+    } else if (action === 'open-episode') {
+      var episodeId = actionEl.dataset.episodeId;
+      if (!episodeId) return;
+      window.location.href = 'episode.html?id=' + encodeURIComponent(episodeId);
+    } else if (action === 'add-episode-to-reading-list') {
+      var epId = actionEl.dataset.episodeId;
+      if (!epId || !state.seriesId) return;
+      state.addEpisodeId = epId;
+      urlStateSync.applyToUrl({ addEpisodeId: epId });
+      openPlaylistModal();
+    } else if (action === 'close-playlist-modal') {
+      closePlaylistModal(true);
+    }
+  });
+
+  document.addEventListener('change', function(event) {
+    var actionEl = event.target.closest('[data-action]');
+    if (!actionEl) return;
+    var action = actionEl.dataset.action;
+
+    if (action === 'change-sort') {
+      var newSort = actionEl.value || 'episode_asc';
+      if (newSort === state.sort) return;
+      state.sort = newSort;
+      urlStateSync.applyToUrl({ sort: newSort });
+      renderEpisodeList();
+    } else if (action === 'change-filter') {
+      var newFilter = actionEl.value || 'all';
+      if (newFilter === state.filter) return;
+      state.filter = newFilter;
+      urlStateSync.applyToUrl({ filter: newFilter });
+      renderEpisodeList();
+    } else if (action === 'toggle-episode-read') {
+      var episodeId = actionEl.dataset.episodeId;
+      if (!episodeId) return;
+      var desiredState = !!actionEl.checked;
+      try {
+        var progress = WebsiteSDK.setEpisodeReadState(episodeId, desiredState);
+        var isRead = progress && progress.isRead ? true : false;
+        state.readState[episodeId] = isRead;
+        renderEpisodeList();
+      } catch (error) {
+        console.error('Error setting episode read state', error);
+        actionEl.checked = !desiredState;
+      }
+    }
+  });
+
+  if (existingForm) {
+    existingForm.addEventListener('submit', function(event) {
+      event.preventDefault();
+      if (!state.addEpisodeId) return;
+      var selectEl = existingForm.querySelector('select[name=\'playlistId\']');
+      if (!selectEl) return;
+      var playlistId = selectEl.value;
+      if (!playlistId) {
+        return;
+      }
+      try {
+        WebsiteSDK.addEpisodeToPlaylist(state.addEpisodeId, playlistId);
+        closePlaylistModal(true);
+      } catch (error) {
+        console.error('Error adding episode to playlist', error);
+      }
+    });
+  }
+
+  if (createForm) {
+    createForm.addEventListener('submit', function(event) {
+      event.preventDefault();
+      if (!state.addEpisodeId) return;
+      var nameInput = createForm.querySelector('input[name=\'playlistName\']');
+      var descInput = createForm.querySelector('textarea[name=\'playlistDescription\']');
+      if (!nameInput) return;
+      var name = nameInput.value.trim();
+      var description = descInput ? descInput.value.trim() : '';
+      if (!name) {
+        return;
+      }
+      try {
+        var playlist = WebsiteSDK.createPlaylist(name, 'episode_reading_list', description);
+        if (playlist && playlist.id) {
+          WebsiteSDK.addEpisodeToPlaylist(state.addEpisodeId, playlist.id);
+        }
+        closePlaylistModal(true);
+      } catch (error) {
+        console.error('Error creating playlist and adding episode', error);
+      }
+    });
+  }
+
+  window.addEventListener('popstate', function() {
+    var parsed = urlStateSync.readFromLocation();
+    var previousSeriesId = state.seriesId;
+    state.seriesId = parsed.seriesId;
+    state.sort = parsed.sort;
+    state.filter = parsed.filter;
+    state.addEpisodeId = parsed.addEpisodeId;
+    if (!state.seriesId) {
+      state.series = null;
+      state.episodes = [];
+      state.subscription = null;
+      state.readState = {};
+      renderNoSeriesSelected();
+      return;
+    }
+    if (state.seriesId !== previousSeriesId) {
+      loadSeries();
+    } else {
+      renderSeriesHeader();
+      renderSubscriptionPanel();
+      renderEpisodeList();
+      if (state.addEpisodeId) {
+        openPlaylistModal();
+      } else {
+        closePlaylistModal(true);
+      }
+    }
+  });
+
+  var initial = urlStateSync.readFromLocation();
+  state.seriesId = initial.seriesId;
+  state.sort = initial.sort;
+  state.filter = initial.filter;
+  state.addEpisodeId = initial.addEpisodeId;
+
+  if (!state.seriesId) {
+    renderNoSeriesSelected();
+  } else {
+    loadSeries();
+  }
+});
+</script>

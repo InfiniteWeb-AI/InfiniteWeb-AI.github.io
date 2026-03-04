@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Basketball League</title>
+  
+  <link rel="stylesheet" href="faq.css">
+</head>
+<body>
+  <header id="site-header">
+    <nav class="main-nav" aria-label="Main navigation">
+      <a href="index.html">Home</a>
+      <a href="adult_leagues.html">Adult Leagues</a>
+      <a href="youth_leagues.html">Youth Leagues</a>
+      <a href="schedule.html">Schedule</a>
+      <a href="playoffs.html">Playoffs</a>
+      <a href="locations.html">Locations</a>
+      <a href="sponsors.html">Sponsors</a>
+      <a href="volunteer.html">Volunteer</a>
+      <a href="contact.html">Contact</a>
+    </nav>
+
+    <h1 id="site-title">Local Basketball League</h1>
+
+    <div class="header-banner" aria-hidden="true"></div>
+  </header>
+
+  <main id="content" role="main">
+    <section data-component="faq-page-controller">
+      <div class="faq-page-header-row">
+        <h2 id="faq-page-title">Frequently Asked Questions</h2>
+        <a href="contact.html" class="faq-page-header-link">Contact</a>
+      </div>
+      <p class="faq-page-intro">Browse common questions about our local basketball league. Filter by topic or search by keyword, then expand a question to read the answer.</p>
+
+      <div id="faq-category-filter-bar" data-component="faq-category-filter-bar" data-populate="faqCategories"></div>
+
+      <form id="faq-search-form" data-component="faq-search-form">
+        <span>Search FAQs:</span>
+        <input type="text" id="faq-search-input" name="q" autocomplete="off" data-action="search-input">
+        <input type="submit" value="Search" data-action="search-submit">
+        <button type="button" data-action="search-clear">Clear</button>
+      </form>
+
+      <div id="faq-status" data-component="faq-status-indicator" data-populate="faqStatus"></div>
+
+      <div id="faq-list" data-component="faq-list" data-populate="faqList" aria-live="polite"></div>
+
+      <div id="faq-contextual-navigation" data-component="faq-contextual-navigation">
+        <p>Still need help?</p>
+        <p>
+          <a href="contact.html">Contact the league</a><br>
+          <a href="adult_leagues.html">Adult leagues</a><br>
+          <a href="youth_leagues.html">Youth leagues</a><br>
+          <a href="schedule.html">Game schedules</a><br>
+          <a href="sponsors.html">Sponsors &amp; advertising</a><br>
+          <a href="volunteer.html">Volunteer opportunities</a>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer id="site-footer">
+    <hr>
+    <nav class="footer-nav" aria-label="Footer navigation">
+      <a href="about.html">About</a>
+      <a href="faq.html">FAQ</a>
+      <a href="adult_leagues.html">Adult Leagues</a>
+      <a href="youth_leagues.html">Youth Leagues</a>
+      <a href="schedule.html">Schedule &amp; Standings</a>
+      <a href="playoffs.html">Playoffs &amp; Championships</a>
+      <a href="locations.html">Locations &amp; Facilities</a>
+      <a href="sponsors.html">Sponsors &amp; Advertising</a>
+      <a href="volunteer.html">Volunteer &amp; Get Involved</a>
+      <a href="contact.html">Contact Us</a>
+    </nav>
+    <p class="footer-copy">&copy; Local Basketball League.</p>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      // --- State ---
+      var state = {
+        rawFaqs: [],
+        filteredFaqs: [],
+        selectedCategory: null, // string or null for All topics
+        searchQuery: '',
+        expandedIds: {}, // map of faq_id -> true
+        isLoading: false,
+        error: null
+      };
+
+      // --- Component references ---
+      var filterBarEl = document.querySelector('[data-component="faq-category-filter-bar"]');
+      var searchFormEl = document.querySelector('[data-component="faq-search-form"]');
+      var searchInputEl = document.getElementById('faq-search-input');
+      var statusEl = document.querySelector('[data-component="faq-status-indicator"]');
+      var listEl = document.querySelector('[data-component="faq-list"]');
+
+      // --- URL helpers ---
+      function readCategoryFromUrl() {
+        var params = new URLSearchParams(window.location.search);
+        var cat = params.get('category');
+        if (cat && cat.trim() !== '') {
+          return cat.trim();
+        }
+        return null;
+      }
+
+      function updateCategoryInUrl(category) {
+        var url = new URL(window.location.href);
+        if (category) {
+          url.searchParams.set('category', category);
+        } else {
+          url.searchParams.delete('category');
+        }
+        window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : ''));
+      }
+
+      // --- Rendering helpers ---
+      function renderStatus(container) {
+        if (!container) return;
+        container.innerHTML = '';
+
+        if (state.isLoading) {
+          container.textContent = 'Loading FAQs...';
+          return;
+        }
+
+        if (state.error) {
+          var errorText = document.createElement('span');
+          errorText.textContent = state.error;
+          container.appendChild(errorText);
+
+          var space = document.createTextNode(' ');
+          container.appendChild(space);
+
+          var retryBtn = document.createElement('button');
+          retryBtn.type = 'button';
+          retryBtn.textContent = 'Retry';
+          retryBtn.setAttribute('data-action', 'retry-load');
+          container.appendChild(retryBtn);
+          return;
+        }
+
+        var total = state.filteredFaqs.length;
+        var catLabel = state.selectedCategory ? state.selectedCategory : 'All topics';
+        var line = 'Showing ' + total + ' question' + (total === 1 ? '' : 's');
+        if (state.searchQuery && state.searchQuery.trim() !== '') {
+          line += " for '" + state.searchQuery.trim() + "'";
+        }
+        line += ' in ' + catLabel + '.';
+        container.textContent = line;
+
+        if (!state.isLoading && !state.error && state.rawFaqs.length === 0) {
+          var note = document.createElement('div');
+          note.textContent = 'No FAQs are available for this topic yet. Try choosing All topics or check back later.';
+          container.appendChild(note);
+        } else if (!state.isLoading && !state.error && state.rawFaqs.length > 0 && state.filteredFaqs.length === 0 && state.searchQuery.trim() !== '') {
+          var noteSearch = document.createElement('div');
+          noteSearch.textContent = 'No questions match your search. Try clearing the search box.';
+          container.appendChild(noteSearch);
+        }
+      }
+
+      function renderCategoryFilter(container) {
+        if (!container) return;
+        container.innerHTML = '';
+
+        var label = document.createTextNode('Filter by topic: ');
+        container.appendChild(label);
+
+        function appendCategoryLink(text, categoryValue, isFirstAfterLabel) {
+          if (!isFirstAfterLabel) {
+            container.appendChild(document.createTextNode(' '));
+          }
+          var link = document.createElement('a');
+          link.href = 'javascript:void(0)';
+          link.setAttribute('data-action', 'filter-category');
+          link.setAttribute('data-category', categoryValue ? categoryValue : '');
+
+          var isSelected = (!categoryValue && !state.selectedCategory) || (categoryValue && categoryValue === state.selectedCategory);
+          if (isSelected) {
+            var strong = document.createElement('strong');
+            strong.textContent = text;
+            link.appendChild(strong);
+          } else {
+            link.textContent = text;
+          }
+          container.appendChild(link);
+        }
+
+        appendCategoryLink('All topics', null, true);
+
+        var categorySet = {};
+        state.rawFaqs.forEach(function (entry) {
+          if (entry && Array.isArray(entry.categories)) {
+            entry.categories.forEach(function (cat) {
+              if (typeof cat === 'string' && cat.trim() !== '') {
+                categorySet[cat] = true;
+              }
+            });
+          }
+        });
+
+        var cats = Object.keys(categorySet).sort();
+        cats.forEach(function (cat) {
+          container.appendChild(document.createTextNode(' | '));
+          appendCategoryLink(cat, cat, false);
+        });
+      }
+
+      function buildContextualLink(entry) {
+        if (!entry || !entry.related_page_key) return null;
+        var key = entry.related_page_key;
+        var categories = Array.isArray(entry.categories) ? entry.categories : [];
+        var href = null;
+        var text = null;
+        var extraAction = null;
+
+        if (key === 'adult_leagues') {
+          href = 'adult_leagues.html';
+          text = 'See adult league details';
+          extraAction = 'related-link-adult-leagues';
+        } else if (key === 'youth_leagues') {
+          href = 'youth_leagues.html';
+          text = 'See youth league details';
+          extraAction = 'related-link-youth-leagues';
+        } else if (key === 'sponsors') {
+          href = 'sponsors.html';
+          text = 'Learn about sponsorships';
+          extraAction = 'related-link-sponsors';
+        } else if (key === 'volunteer') {
+          href = 'volunteer.html';
+          text = 'See volunteer opportunities';
+          extraAction = 'related-link-volunteer';
+        } else if (key === 'schedule') {
+          href = 'schedule.html';
+          text = 'View game schedules';
+          extraAction = 'related-link-schedule';
+        } else if (key === 'contact') {
+          if (categories.indexOf('adult_leagues') !== -1) {
+            href = 'contact.html?reason=join_team';
+            text = 'Still need help joining a team? Contact us';
+            extraAction = 'contact-join-team';
+          } else if (categories.indexOf('youth') !== -1) {
+            href = 'contact.html?reason=youth_league_info';
+            text = 'Ask a question about youth fees';
+            extraAction = 'contact-youth-league-info';
+          } else {
+            href = 'contact.html';
+            text = 'Contact the league';
+            extraAction = 'contact-general';
+          }
+        }
+
+        if (!href || !text) return null;
+
+        var p = document.createElement('p');
+        var a = document.createElement('a');
+        a.href = href;
+        if (extraAction) {
+          a.setAttribute('data-action', extraAction);
+        }
+        a.textContent = text;
+        p.appendChild(a);
+        return p;
+      }
+
+      function renderFaqList(container) {
+        if (!container) return;
+        container.innerHTML = '';
+
+        if (state.isLoading) {
+          var loadingP = document.createElement('p');
+          loadingP.textContent = 'Loading FAQs...';
+          container.appendChild(loadingP);
+          return;
+        }
+
+        if (state.error) {
+          var errP = document.createElement('p');
+          errP.textContent = 'FAQs could not be loaded.';
+          container.appendChild(errP);
+
+          var retryBtn = document.createElement('button');
+          retryBtn.type = 'button';
+          retryBtn.textContent = 'Retry';
+          retryBtn.setAttribute('data-action', 'retry-load');
+          container.appendChild(retryBtn);
+          return;
+        }
+
+        if (!state.rawFaqs.length) {
+          var emptyApi = document.createElement('p');
+          if (state.selectedCategory) {
+            emptyApi.textContent = 'No FAQs are available for this topic. Try clearing the topic filter.';
+          } else {
+            emptyApi.textContent = 'No FAQs are available yet.';
+          }
+          container.appendChild(emptyApi);
+
+          if (state.selectedCategory) {
+            var clearLink = document.createElement('a');
+            clearLink.href = 'javascript:void(0)';
+            clearLink.textContent = 'Show all topics';
+            clearLink.setAttribute('data-action', 'clear-filters');
+            container.appendChild(clearLink);
+          }
+          return;
+        }
+
+        if (!state.filteredFaqs.length && state.searchQuery.trim() !== '') {
+          var emptySearch = document.createElement('p');
+          emptySearch.textContent = 'No questions match your search. Try clearing the search box.';
+          container.appendChild(emptySearch);
+
+          var clearBtn = document.createElement('button');
+          clearBtn.type = 'button';
+          clearBtn.textContent = 'Clear search';
+          clearBtn.setAttribute('data-action', 'search-clear');
+          container.appendChild(clearBtn);
+          return;
+        }
+
+        state.filteredFaqs.forEach(function (entry) {
+          var item = document.createElement('div');
+          item.className = 'faq-item';
+          if (entry.faq_id) {
+            item.setAttribute('data-faq-id', entry.faq_id);
+          }
+
+          var questionRow = document.createElement('div');
+          var questionLink = document.createElement('a');
+          questionLink.href = 'javascript:void(0)';
+          questionLink.textContent = entry.question || '';
+          questionLink.setAttribute('data-action', 'toggle-faq');
+          if (entry.faq_id) {
+            questionLink.setAttribute('data-faq-id', entry.faq_id);
+          }
+          questionLink.setAttribute('aria-expanded', state.expandedIds[entry.faq_id] ? 'true' : 'false');
+          questionRow.appendChild(questionLink);
+          item.appendChild(questionRow);
+
+          var answerRow = document.createElement('div');
+          answerRow.className = 'faq-answer';
+          answerRow.setAttribute('data-role', 'faq-answer');
+          if (!state.expandedIds[entry.faq_id]) {
+            answerRow.style.display = 'none';
+          }
+
+          if (entry.answer) {
+            var answerP = document.createElement('p');
+            answerP.textContent = entry.answer;
+            answerRow.appendChild(answerP);
+          }
+
+          var ctxLink = buildContextualLink(entry);
+          if (ctxLink) {
+            answerRow.appendChild(ctxLink);
+          }
+
+          item.appendChild(answerRow);
+
+          container.appendChild(item);
+        });
+      }
+
+      // --- Data loading ---
+      function applyFilters() {
+        var query = state.searchQuery ? state.searchQuery.trim().toLowerCase() : '';
+        var result = state.rawFaqs.slice();
+
+        if (query) {
+          result = result.filter(function (entry) {
+            var q = (entry.question || '').toLowerCase();
+            var a = (entry.answer || '').toLowerCase();
+            return q.indexOf(query) !== -1 || a.indexOf(query) !== -1;
+          });
+        }
+
+        state.filteredFaqs = result;
+        state.isLoading = false;
+        renderStatus(statusEl);
+        renderCategoryFilter(filterBarEl);
+        renderFaqList(listEl);
+      }
+
+      function loadFaqs() {
+        state.isLoading = true;
+        state.error = null;
+        renderStatus(statusEl);
+        renderFaqList(listEl);
+
+        try {
+          var faqs;
+          if (state.selectedCategory) {
+            faqs = WebsiteSDK.getFaqEntries(state.selectedCategory);
+          } else {
+            faqs = WebsiteSDK.getFaqEntries();
+          }
+
+          if (!Array.isArray(faqs)) {
+            throw new Error('Invalid FAQ response');
+          }
+
+          state.rawFaqs = faqs;
+          applyFilters();
+        } catch (e) {
+          state.rawFaqs = [];
+          state.filteredFaqs = [];
+          state.isLoading = false;
+          state.error = 'Unable to load FAQs. Please try again.';
+          renderStatus(statusEl);
+          renderFaqList(listEl);
+        }
+      }
+
+      // --- Event handlers ---
+      if (searchFormEl) {
+        searchFormEl.addEventListener('submit', function (event) {
+          event.preventDefault();
+          state.searchQuery = searchInputEl ? searchInputEl.value : '';
+          applyFilters();
+        });
+      }
+
+      if (searchInputEl) {
+        searchInputEl.addEventListener('input', function (event) {
+          state.searchQuery = event.target.value || '';
+          applyFilters();
+        });
+      }
+
+      document.addEventListener('click', function (event) {
+        var actionEl = event.target.closest('[data-action]');
+        if (!actionEl) return;
+        var action = actionEl.getAttribute('data-action');
+
+        if (action === 'filter-category') {
+          event.preventDefault();
+          var category = actionEl.getAttribute('data-category');
+          if (category === '') {
+            category = null;
+          }
+          if (state.selectedCategory === category) {
+            return;
+          }
+          state.selectedCategory = category;
+          updateCategoryInUrl(category);
+          loadFaqs();
+        } else if (action === 'clear-filters') {
+          event.preventDefault();
+          state.selectedCategory = null;
+          updateCategoryInUrl(null);
+          loadFaqs();
+        } else if (action === 'toggle-faq') {
+          event.preventDefault();
+          var faqId = actionEl.getAttribute('data-faq-id');
+          if (!faqId) return;
+          var expanded = !!state.expandedIds[faqId];
+          if (expanded) {
+            delete state.expandedIds[faqId];
+          } else {
+            state.expandedIds[faqId] = true;
+          }
+          actionEl.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+          var item = actionEl.closest('[data-faq-id]');
+          if (item) {
+            var answer = item.querySelector('[data-role="faq-answer"]');
+            if (answer) {
+              answer.style.display = expanded ? 'none' : 'block';
+            }
+          }
+        } else if (action === 'retry-load') {
+          event.preventDefault();
+          state.error = null;
+          loadFaqs();
+        } else if (action === 'search-clear') {
+          event.preventDefault();
+          if (searchInputEl) {
+            searchInputEl.value = '';
+          }
+          state.searchQuery = '';
+          applyFilters();
+        } else if (action === 'contact-join-team' || action === 'contact-youth-league-info' || action === 'contact-general' || action.indexOf('related-link-') === 0) {
+          // Let the browser follow the link normally for navigation.
+        }
+      });
+
+      window.addEventListener('popstate', function () {
+        var urlCategory = readCategoryFromUrl();
+        if (urlCategory !== state.selectedCategory) {
+          state.selectedCategory = urlCategory;
+          loadFaqs();
+        }
+      });
+
+      // --- Initialize from URL & load data ---
+      state.selectedCategory = readCategoryFromUrl();
+      var populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function (el) {
+        var type = el.getAttribute('data-populate');
+        if (type === 'faqCategories') {
+          renderCategoryFilter(el);
+        } else if (type === 'faqStatus') {
+          renderStatus(el);
+        } else if (type === 'faqList') {
+          renderFaqList(el);
+        }
+      });
+
+      loadFaqs();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Abha Card – Digital Health Card</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+
+    <!-- Site stylesheet -->
+    
+    <!-- Page-specific stylesheet -->
+    <link rel="stylesheet" href="provider_search.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a href="index.html" class="brand" aria-label="Abha Card home">
+                Abha Card
+            </a>
+            <nav class="primary-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html">Home</a></li>
+                    <li><a href="eligibility.html">Check eligibility</a></li>
+                    <li><a href="plans_pricing.html">Plans &amp; pricing</a></li>
+                    <li><a href="cost_estimator.html">Cost estimator</a></li>
+                    <li><a href="provider_search.html">Find a provider</a></li>
+                    <li><a href="coverage_overview.html">Coverage</a></li>
+                    <li><a href="usage_scenarios.html">How to use your card</a></li>
+                    <li><a href="resources.html">Resources</a></li>
+                    <li><a href="help_faqs.html">Help &amp; FAQs</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <div class="page-background">
+        <main id="content" class="content-shell" role="main">
+            <section class="page-card provider-search-shell" data-component="provider-search-page-shell">
+                <header class="page-card-header">
+                    <h1 class="page-title">Provider search</h1>
+                    <p class="page-intro">Search for in-network doctors, specialists, and clinics that accept your Abha Card.</p>
+                </header>
+
+                <section class="page-section filters-section" aria-labelledby="provider-search-filters-heading">
+                    <h2 id="provider-search-filters-heading" class="visually-hidden">Search filters</h2>
+                    <div class="filters-inner">
+                        <div class="filters-loader" data-component="filter-options-loader" aria-live="polite">
+                            Loading search filters…
+                        </div>
+                        <div class="filters-form-container" data-component="provider-search-filters-form" data-populate="provider-search-filters">
+                            <!-- Filter form will be rendered here by JavaScript. -->
+                        </div>
+                    </div>
+                </section>
+
+                <section class="page-section results-section" aria-labelledby="provider-search-results-heading">
+                    <h2 id="provider-search-results-heading" class="visually-hidden">Search results</h2>
+
+                    <div class="results-summary-bar" data-component="results-summary-bar" aria-live="polite">
+                        <!-- Summary text will be rendered by JavaScript. -->
+                    </div>
+
+                    <div class="results-body">
+                        <div class="results-list" data-component="search-results-list" data-populate="provider-results">
+                            <!-- Provider result cards will be rendered here by JavaScript. -->
+                        </div>
+
+                        <div class="results-empty-state" data-component="results-empty-state" hidden>
+                            <!-- Empty state will be rendered here by JavaScript when needed. -->
+                        </div>
+                    </div>
+                </section>
+            </section>
+        </main>
+    </div>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="accessibility.html">Accessibility</a></li>
+                    <li><a href="help_faqs.html">Help &amp; FAQs</a></li>
+                    <li><a href="coverage_overview.html">Coverage overview</a></li>
+                    <li><a href="resources.html">Resources</a></li>
+                    <li><a href="provider_search.html">Find a provider</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">&copy; 2024 Abha Card. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <!-- SDK / business logic -->
+    <script src="business_logic.js"></script>
+
+    <!-- Page-specific UI logic -->
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        'use strict';
+
+        var filtersLoader = document.querySelector('[data-component="filter-options-loader"]');
+        var filtersContainer = document.querySelector('[data-populate="provider-search-filters"]');
+        var resultsContainer = document.querySelector('[data-populate="provider-results"]');
+        var summaryBar = document.querySelector('[data-component="results-summary-bar"]');
+        var emptyStateContainer = document.querySelector('[data-component="results-empty-state"]');
+
+        var filtersOptions = null;
+        var currentFilters = {
+            specialty: '',
+            location: '',
+            distanceMiles: null,
+            minRating: null,
+            acceptingNewPatientsOnly: false
+        };
+        var searchState = {
+            providers: [],
+            hasSearched: false
+        };
+
+        function escapeHtml(value) {
+            if (!value && value !== 0) {
+                return '';
+            }
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function getSpecialtyLabel(value) {
+            if (!filtersOptions || !filtersOptions.specialty_options) {
+                return '';
+            }
+            var label = '';
+            filtersOptions.specialty_options.forEach(function (opt) {
+                if (opt.value === value) {
+                    label = opt.label;
+                }
+            });
+            return label;
+        }
+
+        function parseFiltersFromUrl(urlParams, options) {
+            var result = {
+                specialty: '',
+                location: '',
+                distanceMiles: null,
+                minRating: null,
+                acceptingNewPatientsOnly: false
+            };
+
+            var specialtyParam = urlParams.get('specialty') || '';
+            var locationParam = urlParams.get('location') || '';
+            var distanceParam = urlParams.get('distance');
+            var minRatingParam = urlParams.get('minRating');
+            var acceptingParam = urlParams.get('acceptingNewPatientsOnly');
+
+            if (options && options.specialty_options && specialtyParam) {
+                var specialtyValid = options.specialty_options.some(function (opt) {
+                    return opt.value === specialtyParam;
+                });
+                if (specialtyValid) {
+                    result.specialty = specialtyParam;
+                }
+            }
+
+            result.location = locationParam;
+
+            if (options && options.distance_options && options.distance_options.length > 0) {
+                var distanceValue = null;
+                if (distanceParam) {
+                    var parsedDistance = parseFloat(distanceParam);
+                    if (!isNaN(parsedDistance)) {
+                        var hasDistance = options.distance_options.some(function (opt) {
+                            return opt.value_miles === parsedDistance;
+                        });
+                        if (hasDistance) {
+                            distanceValue = parsedDistance;
+                        }
+                    }
+                }
+                if (distanceValue === null) {
+                    distanceValue = options.distance_options[0].value_miles;
+                }
+                result.distanceMiles = distanceValue;
+            }
+
+            if (minRatingParam) {
+                var parsedRating = parseFloat(minRatingParam);
+                if (!isNaN(parsedRating)) {
+                    result.minRating = parsedRating;
+                }
+            }
+
+            if (acceptingParam === 'true') {
+                result.acceptingNewPatientsOnly = true;
+            }
+
+            return result;
+        }
+
+        function shouldAutoSearch(filters) {
+            return !!(filters && filters.specialty && filters.location && filters.distanceMiles !== null && filters.distanceMiles !== undefined);
+        }
+
+        function renderFiltersForm(container, options, filters) {
+            if (!container || !options) {
+                return;
+            }
+
+            var specialtyOptionsHtml = '';
+            options.specialty_options.forEach(function (opt) {
+                var selected = filters.specialty === opt.value ? ' selected' : '';
+                specialtyOptionsHtml += '<option value="' + opt.value + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
+            });
+
+            var distanceOptionsHtml = '';
+            options.distance_options.forEach(function (opt) {
+                var selected = filters.distanceMiles === opt.value_miles ? ' selected' : '';
+                distanceOptionsHtml += '<option value="' + opt.value_miles + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
+            });
+
+            var ratingOptionsHtml = '<option value="">Any rating</option>';
+            options.rating_filter_options.forEach(function (opt) {
+                var selected = filters.minRating === opt.min_rating ? ' selected' : '';
+                ratingOptionsHtml += '<option value="' + opt.min_rating + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
+            });
+
+            var acceptingNewLabel = 'Accepting new patients only';
+            if (options.availability_filter_options && options.availability_filter_options.length) {
+                options.availability_filter_options.forEach(function (opt) {
+                    if (opt.key === 'accepting_new_patients') {
+                        acceptingNewLabel = opt.label || acceptingNewLabel;
+                    }
+                });
+            }
+
+            var acceptingChecked = filters.acceptingNewPatientsOnly ? ' checked' : '';
+            var safeLocationValue = filters.location ? escapeHtml(filters.location) : '';
+
+            container.innerHTML = `
+<form id="provider-search-form" class="provider-search-form" novalidate>
+  <div id="search-validation-errors" class="form-error-summary" aria-live="polite"></div>
+  <div class="form-grid">
+    <div class="form-field">
+      <label for="specialtySelect">Specialty<span class="required-indicator">*</span></label>
+      <select id="specialtySelect" name="specialty" required>
+        <option value="">Select a specialty</option>
+        ${specialtyOptionsHtml}
+      </select>
+    </div>
+    <div class="form-field">
+      <label for="locationInput">Location<span class="required-indicator">*</span></label>
+      <input id="locationInput" name="location" type="text" autocomplete="postal-code address-level2" placeholder="City, state or ZIP" value="${safeLocationValue}" required />
+    </div>
+    <div class="form-field">
+      <label for="distanceSelect">Distance</label>
+      <select id="distanceSelect" name="distance">
+        ${distanceOptionsHtml}
+      </select>
+    </div>
+    <div class="form-field">
+      <label for="ratingSelect">Minimum rating</label>
+      <select id="ratingSelect" name="minRating">
+        ${ratingOptionsHtml}
+      </select>
+    </div>
+    <div class="form-field form-field--checkbox">
+      <input id="acceptingNewPatientsOnly" type="checkbox" name="acceptingNewPatientsOnly"${acceptingChecked} />
+      <label for="acceptingNewPatientsOnly">${escapeHtml(acceptingNewLabel)}</label>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary" data-action="submit-search">Search providers</button>
+    </div>
+  </div>
+  <p class="form-required-note"><span class="required-indicator">*</span>Required fields</p>
+</form>
+`;
+        }
+
+        function renderResultsSummary(container, providers, filters, hasSearched) {
+            if (!container) {
+                return;
+            }
+
+            var html = '';
+            if (!hasSearched) {
+                html = '<p class="results-summary-text">Enter a location and specialty to see in-network providers near you.</p>';
+            } else if (!providers || providers.length === 0) {
+                html = '<p class="results-summary-text">No providers found for your current filters.</p>';
+            } else {
+                var countText = providers.length === 1 ? '1 provider' : providers.length + ' providers';
+                var locationPart = filters.location ? ' near ' + escapeHtml(filters.location) : '';
+                var specialtyLabel = getSpecialtyLabel(filters.specialty);
+                var specialtyPart = specialtyLabel ? ' for ' + escapeHtml(specialtyLabel) : '';
+                var distancePart = filters.distanceMiles ? ' within ' + filters.distanceMiles + ' miles' : '';
+                html = '<p class="results-summary-text">Showing ' + countText + locationPart + specialtyPart + distancePart + '.</p>';
+            }
+
+            container.innerHTML = html;
+        }
+
+        function renderResultsList(container, providers) {
+            if (!container) {
+                return;
+            }
+
+            if (!providers || !providers.length) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var cardsHtml = providers.map(function (provider) {
+                var name = escapeHtml(provider.full_name || '');
+                var specialtyLabel = getSpecialtyLabel(provider.specialty);
+                var specialtyText = specialtyLabel || provider.specialty || '';
+                var practice = provider.practice_name ? escapeHtml(provider.practice_name) : '';
+
+                var addressParts = [];
+                if (provider.address_line1) {
+                    addressParts.push(escapeHtml(provider.address_line1));
+                }
+                if (provider.address_line2) {
+                    addressParts.push(escapeHtml(provider.address_line2));
+                }
+                var cityStateZip = [];
+                if (provider.city) {
+                    cityStateZip.push(escapeHtml(provider.city));
+                }
+                if (provider.state) {
+                    cityStateZip.push(escapeHtml(provider.state));
+                }
+                if (provider.zip_code) {
+                    cityStateZip.push(escapeHtml(provider.zip_code));
+                }
+                if (cityStateZip.length) {
+                    addressParts.push(cityStateZip.join(', '));
+                }
+                var addressHtml = addressParts.join('<br>');
+
+                var distanceText = '';
+                if (typeof provider.distance_miles === 'number') {
+                    distanceText = provider.distance_miles.toFixed(1) + ' miles away';
+                }
+
+                var ratingText = '';
+                if (typeof provider.rating === 'number') {
+                    ratingText = provider.rating.toFixed(1) + ' stars';
+                    if (typeof provider.rating_count === 'number' && provider.rating_count > 0) {
+                        ratingText += ' (' + provider.rating_count + ')';
+                    }
+                }
+
+                var availabilityText = provider.accepting_new_patients ? 'Accepting new patients' : 'Not currently accepting new patients';
+                var availabilityClass = provider.accepting_new_patients ? 'status-pill status-pill--available' : 'status-pill status-pill--unavailable';
+                var inNetworkText = provider.in_network ? 'In-network' : '';
+
+                return `
+<article class="provider-card" data-component="provider-result-card">
+  <button type="button" class="provider-card-inner" data-action="open-provider-profile" data-provider-id="${escapeHtml(provider.id)}">
+    <div class="provider-card-main">
+      <div class="provider-card-details">
+        <h2 class="provider-name">${name}</h2>
+        <p class="provider-specialty">${escapeHtml(specialtyText)}${practice ? ' · ' + practice : ''}</p>
+        ${addressHtml ? `<p class="provider-address">${addressHtml}</p>` : ''}
+        <div class="provider-meta">
+          ${distanceText ? `<span class="provider-distance">${escapeHtml(distanceText)}</span>` : ''}
+          ${ratingText ? `<span class="provider-rating">${escapeHtml(ratingText)}</span>` : ''}
+        </div>
+        <div class="provider-tags">
+          ${inNetworkText ? `<span class="status-pill status-pill--in-network">${escapeHtml(inNetworkText)}</span>` : ''}
+          <span class="${availabilityClass}">${escapeHtml(availabilityText)}</span>
+        </div>
+      </div>
+      <div class="provider-card-actions">
+        <span class="link-like">View profile</span>
+      </div>
+    </div>
+  </button>
+</article>`;
+            }).join('');
+
+            container.innerHTML = cardsHtml;
+        }
+
+        function renderEmptyState(container, filters, overrideMessage) {
+            if (!container) {
+                return;
+            }
+
+            var helpText = overrideMessage;
+            if (!helpText) {
+                helpText = 'Try broadening your search by increasing the distance, lowering the minimum rating, or removing the \"accepting new patients\" filter.';
+            }
+
+            var hasLocation = !!filters.location;
+            var locationText = hasLocation ? ' near ' + escapeHtml(filters.location) : '';
+            var specialtyLabel = getSpecialtyLabel(filters.specialty);
+            var specialtyText = specialtyLabel ? ' for ' + escapeHtml(specialtyLabel) : '';
+
+            container.innerHTML = `
+<div class="empty-state">
+  <h2 class="empty-state-title">No providers found</h2>
+  <p class="empty-state-body">We could not find any in-network providers${specialtyText}${locationText} that match your current filters.</p>
+  <p class="empty-state-help">${escapeHtml(helpText)}</p>
+  <button type="button" class="btn btn-secondary" data-action="clear-filters">Clear filters</button>
+</div>
+`;
+        }
+
+        function updateUrlFromFilters(filters, useReplace) {
+            var params = new URLSearchParams();
+
+            if (filters.specialty) {
+                params.set('specialty', filters.specialty);
+            }
+            if (filters.location) {
+                params.set('location', filters.location);
+            }
+            if (filters.distanceMiles !== null && filters.distanceMiles !== undefined) {
+                params.set('distance', String(filters.distanceMiles));
+            }
+            if (filters.minRating !== null && filters.minRating !== undefined && filters.minRating !== '') {
+                params.set('minRating', String(filters.minRating));
+            }
+            if (filters.acceptingNewPatientsOnly) {
+                params.set('acceptingNewPatientsOnly', 'true');
+            }
+
+            var newQuery = params.toString();
+            var newUrl = window.location.pathname + (newQuery ? '?' + newQuery : '');
+
+            if (useReplace) {
+                window.history.replaceState({}, '', newUrl);
+            } else {
+                window.history.pushState({}, '', newUrl);
+            }
+        }
+
+        function performSearch(pushToHistory) {
+            if (!filtersOptions) {
+                return;
+            }
+
+            if (currentFilters.distanceMiles === null || currentFilters.distanceMiles === undefined) {
+                if (filtersOptions.distance_options && filtersOptions.distance_options.length > 0) {
+                    currentFilters.distanceMiles = filtersOptions.distance_options[0].value_miles;
+                }
+            }
+
+            if (pushToHistory) {
+                updateUrlFromFilters(currentFilters, false);
+            } else {
+                updateUrlFromFilters(currentFilters, true);
+            }
+
+            if (!resultsContainer || !summaryBar || !emptyStateContainer) {
+                return;
+            }
+
+            resultsContainer.innerHTML = '<p class="results-loading">Searching providers…</p>';
+            emptyStateContainer.hidden = true;
+
+            var providers = [];
+            try {
+                providers = WebsiteSDK.searchProviders(
+                    currentFilters.specialty,
+                    currentFilters.location,
+                    currentFilters.distanceMiles,
+                    currentFilters.minRating !== null && currentFilters.minRating !== '' ? currentFilters.minRating : undefined,
+                    currentFilters.acceptingNewPatientsOnly ? true : false
+                ) || [];
+            } catch (error) {
+                searchState.providers = [];
+                searchState.hasSearched = true;
+                resultsContainer.innerHTML = '';
+                renderResultsSummary(summaryBar, [], currentFilters, true);
+                renderEmptyState(emptyStateContainer, currentFilters, 'We could not complete your search. Please try again in a moment.');
+                emptyStateContainer.hidden = false;
+                return;
+            }
+
+            searchState.providers = providers;
+            searchState.hasSearched = true;
+
+            if (providers.length > 0) {
+                renderResultsList(resultsContainer, providers);
+                emptyStateContainer.hidden = true;
+            } else {
+                resultsContainer.innerHTML = '';
+                renderEmptyState(emptyStateContainer, currentFilters, null);
+                emptyStateContainer.hidden = false;
+            }
+
+            renderResultsSummary(summaryBar, providers, currentFilters, true);
+        }
+
+        function bindFormEvents() {
+            var form = document.getElementById('provider-search-form');
+            if (!form) {
+                return;
+            }
+
+            var specialtySelect = form.querySelector('#specialtySelect');
+            var locationInput = form.querySelector('#locationInput');
+            var distanceSelect = form.querySelector('#distanceSelect');
+            var ratingSelect = form.querySelector('#ratingSelect');
+            var acceptingCheckbox = form.querySelector('#acceptingNewPatientsOnly');
+            var errorSummary = document.getElementById('search-validation-errors');
+
+            if (specialtySelect) {
+                specialtySelect.addEventListener('change', function (event) {
+                    currentFilters.specialty = event.target.value;
+                });
+            }
+
+            if (locationInput) {
+                locationInput.addEventListener('input', function (event) {
+                    currentFilters.location = event.target.value.trim();
+                });
+            }
+
+            if (distanceSelect) {
+                distanceSelect.addEventListener('change', function (event) {
+                    var value = event.target.value;
+                    var parsed = parseFloat(value);
+                    currentFilters.distanceMiles = !isNaN(parsed) ? parsed : currentFilters.distanceMiles;
+                });
+            }
+
+            if (ratingSelect) {
+                ratingSelect.addEventListener('change', function (event) {
+                    var value = event.target.value;
+                    if (!value) {
+                        currentFilters.minRating = null;
+                    } else {
+                        var parsed = parseFloat(value);
+                        currentFilters.minRating = !isNaN(parsed) ? parsed : null;
+                    }
+                });
+            }
+
+            if (acceptingCheckbox) {
+                acceptingCheckbox.addEventListener('change', function (event) {
+                    currentFilters.acceptingNewPatientsOnly = !!event.target.checked;
+                });
+            }
+
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+
+                if (errorSummary) {
+                    errorSummary.textContent = '';
+                }
+
+                var errors = [];
+                if (!currentFilters.specialty) {
+                    errors.push('Select a specialty.');
+                }
+                if (!currentFilters.location) {
+                    errors.push('Enter a location.');
+                }
+
+                if (errors.length > 0) {
+                    if (errorSummary) {
+                        errorSummary.innerHTML = '<ul>' + errors.map(function (msg) { return '<li>' + escapeHtml(msg) + '</li>'; }).join('') + '</ul>';
+                        errorSummary.focus && errorSummary.focus();
+                    }
+                    return;
+                }
+
+                performSearch(true);
+            });
+        }
+
+        function handleClearFilters() {
+            if (!filtersOptions) {
+                return;
+            }
+
+            var emptyParams = new URLSearchParams('');
+            currentFilters = parseFiltersFromUrl(emptyParams, filtersOptions);
+
+            renderFiltersForm(filtersContainer, filtersOptions, currentFilters);
+            bindFormEvents();
+
+            searchState.providers = [];
+            searchState.hasSearched = false;
+
+            if (resultsContainer) {
+                resultsContainer.innerHTML = '';
+            }
+            if (emptyStateContainer) {
+                emptyStateContainer.hidden = true;
+            }
+            if (summaryBar) {
+                renderResultsSummary(summaryBar, [], currentFilters, false);
+            }
+
+            updateUrlFromFilters(currentFilters, true);
+        }
+
+        document.addEventListener('click', function (event) {
+            var target = event.target;
+
+            if (typeof target.closest === 'function') {
+                var profileTrigger = target.closest('[data-action="open-provider-profile"]');
+                if (profileTrigger) {
+                    var providerId = profileTrigger.getAttribute('data-provider-id');
+                    if (providerId) {
+                        window.location.href = 'provider_profile.html?providerId=' + encodeURIComponent(providerId);
+                    }
+                    return;
+                }
+
+                var clearFiltersTrigger = target.closest('[data-action="clear-filters"]');
+                if (clearFiltersTrigger) {
+                    event.preventDefault();
+                    handleClearFilters();
+                    return;
+                }
+            }
+        });
+
+        window.addEventListener('popstate', function () {
+            if (!filtersOptions) {
+                return;
+            }
+
+            var params = new URLSearchParams(window.location.search);
+            currentFilters = parseFiltersFromUrl(params, filtersOptions);
+
+            renderFiltersForm(filtersContainer, filtersOptions, currentFilters);
+            bindFormEvents();
+
+            if (shouldAutoSearch(currentFilters)) {
+                performSearch(false);
+            } else {
+                searchState.providers = [];
+                searchState.hasSearched = false;
+                if (resultsContainer) {
+                    resultsContainer.innerHTML = '';
+                }
+                if (emptyStateContainer) {
+                    emptyStateContainer.hidden = true;
+                }
+                if (summaryBar) {
+                    renderResultsSummary(summaryBar, [], currentFilters, false);
+                }
+            }
+        });
+
+        (function initialize() {
+            if (filtersLoader) {
+                filtersLoader.removeAttribute('hidden');
+                filtersLoader.textContent = 'Loading search filters…';
+            }
+
+            try {
+                filtersOptions = WebsiteSDK.getProviderSearchFilters();
+            } catch (error) {
+                if (filtersLoader) {
+                    filtersLoader.textContent = 'We were unable to load search filters. Please refresh the page.';
+                }
+                return;
+            }
+
+            if (filtersLoader) {
+                filtersLoader.setAttribute('hidden', 'hidden');
+            }
+
+            var initialParams = new URLSearchParams(window.location.search);
+            currentFilters = parseFiltersFromUrl(initialParams, filtersOptions);
+
+            renderFiltersForm(filtersContainer, filtersOptions, currentFilters);
+            bindFormEvents();
+
+            if (summaryBar) {
+                renderResultsSummary(summaryBar, [], currentFilters, false);
+            }
+
+            if (shouldAutoSearch(currentFilters)) {
+                performSearch(false);
+            }
+        })();
+    });
+    </script>
+</body>
+</html>

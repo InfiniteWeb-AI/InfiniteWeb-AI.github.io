@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <title>Slide QC Dashboard - Digital Pathology Image Analysis Platform</title>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <link rel='stylesheet' href='framework.css'>
+    <link rel='stylesheet' href='qc_dashboard.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <div class='header-inner'>
+            <div class='site-branding'>
+                <span class='site-title'>Digital Pathology Image Analysis</span>
+            </div>
+            <nav class='site-nav' aria-label='Primary navigation'>
+                <ul>
+                    <li><a href='index.html'>Dashboard</a></li>
+                    <li><a href='projects.html'>Projects</a></li>
+                    <li><a href='slide_library.html'>Slide Library</a></li>
+                    <li><a href='analytics_biomarker_browser.html'>Analytics</a></li>
+                    <li><a href='collections.html'>Collections</a></li>
+                    <li><a href='cohorts.html'>Cohorts</a></li>
+                    <li><a href='algorithms.html'>Algorithms</a></li>
+                    <li><a href='qc_dashboard.html'>QC</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id='content' class='site-content' role='main'>
+        <section class='qc-dashboard' aria-label='Slide QC Dashboard'>
+            <h1>Slide QC Dashboard</h1>
+
+            <div class='qc-controls'>
+                <div class='qc-filter-bar' data-component='qc-filter-bar'>
+                    <label for='qcStudySelect'>Study:</label>
+                    <select id='qcStudySelect' name='studyId' data-populate='qc-studies' data-action='study-select'>
+                        <option value=''>Loading studies...</option>
+                    </select>
+
+                    <label for='qcStatusFilter'>QC status:</label>
+                    <select id='qcStatusFilter' name='qcStatus' data-populate='qc-statuses' data-action='status-select'>
+                        <option value=''>All statuses</option>
+                    </select>
+                </div>
+
+                <div class='qc-focus-threshold' data-component='qc-focus-threshold-selector'>
+                    <label for='focusThresholdInput'>Select slides with focus score below:</label>
+                    <input type='number' step='0.01' min='0' max='1' id='focusThresholdInput' data-action='focus-threshold-change'>
+                    <button type='button' data-action='apply-threshold-selection'>Select below threshold</button>
+                    <span class='qc-focus-threshold-help'>Operates on currently loaded page only.</span>
+                </div>
+
+                <div class='qc-bulk-toolbar' data-component='qc-bulk-status-toolbar'>
+                    <span data-populate='selection-count'>0 slides selected</span>
+                    <label for='bulkStatusSelect'>Set QC status to:</label>
+                    <select id='bulkStatusSelect' data-populate='qc-statuses' data-action='bulk-target-status-select'>
+                        <option value=''>Choose status</option>
+                    </select>
+                    <button type='button' data-action='bulk-apply'>Apply to selected</button>
+                    <span class='qc-bulk-feedback' aria-live='polite'></span>
+                </div>
+            </div>
+
+            <div class='qc-table-container' style='margin-top:24px;'>
+                <div class='qc-loader' data-component='qc-data-loader' aria-live='polite'></div>
+                <table class='qc-table' data-component='qc-slides-table'>
+                    <thead>
+                        <tr>
+                            <th scope='col'>
+                                <input type='checkbox' data-action='select-all-current-page' aria-label='Select all slides on this page'>
+                            </th>
+                            <th scope='col'>Thumbnail</th>
+                            <th scope='col'>Slide label</th>
+                            <th scope='col'>Case ID</th>
+                            <th scope='col'>
+                                <button type='button' data-action='sort-focus-score' aria-label='Sort by focus score'>Focus score</button>
+                                <span data-populate='focus-sort-indicator'></span>
+                            </th>
+                            <th scope='col'>QC status</th>
+                            <th scope='col'>Study</th>
+                            <th scope='col'>Organ</th>
+                            <th scope='col'>Stain</th>
+                        </tr>
+                    </thead>
+                    <tbody data-populate='qc-slides-rows'>
+                        <tr>
+                            <td colspan='9'>Loading slides...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class='qc-pagination' data-component='qc-pagination-controls' style='margin-top:16px;'>
+                <button type='button' data-action='page-prev'>Previous</button>
+                <span>
+                    Page <span data-populate='current-page'>1</span>
+                    of <span data-populate='total-pages'>1</span>
+                </span>
+                <button type='button' data-action='page-next'>Next</button>
+
+                <label for='pageSizeSelect'>Rows per page:</label>
+                <select id='pageSizeSelect' data-action='page-size-select'>
+                    <option value='10'>10</option>
+                    <option value='25'>25</option>
+                    <option value='50' selected>50</option>
+                    <option value='100'>100</option>
+                </select>
+
+                <span data-populate='total-count'></span>
+            </div>
+        </section>
+    </main>
+
+    <footer class='site-footer'>
+        <div class='footer-inner'>
+            <nav class='footer-nav' aria-label='Footer navigation'>
+                <ul>
+                    <li><a href='about.html'>About</a></li>
+                    <li><a href='help.html'>Help &amp; User Guide</a></li>
+                </ul>
+            </nav>
+            <p class='footer-meta'>Digital pathology image analysis platform</p>
+        </div>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const state = {
+            studies: [],
+            qcStatuses: [],
+            slides: [],
+            totalCount: 0,
+            selectedSlideIds: new Set(),
+            bulkTargetStatus: '',
+            params: {
+                studyId: null,
+                status: null,
+                sort: null,
+                page: 1,
+                pageSize: 50
+            }
+        };
+
+        const studySelect = document.getElementById('qcStudySelect');
+        const statusSelect = document.getElementById('qcStatusFilter');
+        const bulkStatusSelect = document.getElementById('bulkStatusSelect');
+        const focusThresholdInput = document.getElementById('focusThresholdInput');
+        const tableBody = document.querySelector('[data-populate="qc-slides-rows"]');
+        const selectionCountSpan = document.querySelector('[data-populate="selection-count"]');
+        const loaderContainer = document.querySelector('[data-component="qc-data-loader"]');
+        const focusSortIndicator = document.querySelector('[data-populate="focus-sort-indicator"]');
+        const selectAllCheckbox = document.querySelector('[data-action="select-all-current-page"]');
+        const pagePrevButton = document.querySelector('[data-action="page-prev"]');
+        const pageNextButton = document.querySelector('[data-action="page-next"]');
+        const pageSizeSelect = document.getElementById('pageSizeSelect');
+        const currentPageSpan = document.querySelector('[data-populate="current-page"]');
+        const totalPagesSpan = document.querySelector('[data-populate="total-pages"]');
+        const totalCountSpan = document.querySelector('[data-populate="total-count"]');
+        const bulkFeedbackSpan = document.querySelector('.qc-bulk-feedback');
+
+        function parseUrlParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const obj = {};
+            obj.studyId = urlParams.get('studyId');
+            const status = urlParams.get('status');
+            obj.status = status && status.trim() !== '' ? status : null;
+
+            const sortParam = urlParams.get('sort');
+            obj.sort = sortParam && sortParam.trim() !== '' ? sortParam : null;
+
+            const pageParam = parseInt(urlParams.get('page') || '1', 10);
+            obj.page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+
+            const pageSizeParam = parseInt(urlParams.get('pageSize') || '50', 10);
+            obj.pageSize = Number.isFinite(pageSizeParam) && pageSizeParam > 0 ? pageSizeParam : 50;
+
+            return obj;
+        }
+
+        function updateUrlFromState(mode) {
+            const params = new URLSearchParams();
+            if (state.params.studyId) {
+                params.set('studyId', state.params.studyId);
+            }
+            if (state.params.status) {
+                params.set('status', state.params.status);
+            }
+            if (state.params.sort) {
+                params.set('sort', state.params.sort);
+            }
+            params.set('page', String(state.params.page));
+            params.set('pageSize', String(state.params.pageSize));
+            const newUrl = window.location.pathname + '?' + params.toString();
+            if (mode === 'replace') {
+                window.history.replaceState({}, '', newUrl);
+            } else {
+                window.history.pushState({}, '', newUrl);
+            }
+        }
+
+        function renderStudyOptions(container, studies, selectedId) {
+            container.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = studies.length ? 'Select study' : 'No studies available';
+            container.appendChild(placeholder);
+
+            studies.forEach(function (study) {
+                const option = document.createElement('option');
+                option.value = study.id;
+                option.textContent = study.name || study.id;
+                if (study.id === selectedId) {
+                    option.selected = true;
+                }
+                container.appendChild(option);
+            });
+        }
+
+        function renderStatusOptions(container, statuses, selectedValue, includeAllOption) {
+            container.innerHTML = '';
+            if (includeAllOption) {
+                const anyOption = document.createElement('option');
+                anyOption.value = '';
+                anyOption.textContent = 'All statuses';
+                container.appendChild(anyOption);
+            } else {
+                const placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = 'Choose status';
+                container.appendChild(placeholder);
+            }
+
+            statuses.forEach(function (status) {
+                const option = document.createElement('option');
+                option.value = status.value;
+                option.textContent = status.label || status.value;
+                if (status.value === selectedValue) {
+                    option.selected = true;
+                }
+                container.appendChild(option);
+            });
+        }
+
+        function renderSlidesRows(container, items) {
+            container.innerHTML = '';
+            if (!items || items.length === 0) {
+                const row = document.createElement('tr');
+                const cell = document.createElement('td');
+                cell.colSpan = 9;
+                cell.textContent = 'No slides found for the current filters.';
+                row.appendChild(cell);
+                container.appendChild(row);
+                return;
+            }
+
+            items.forEach(function (item) {
+                const row = document.createElement('tr');
+
+                const selectCell = document.createElement('td');
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.dataset.action = 'row-select';
+                checkbox.dataset.slideId = item.slideId;
+                if (state.selectedSlideIds.has(item.slideId)) {
+                    checkbox.checked = true;
+                }
+                selectCell.appendChild(checkbox);
+                row.appendChild(selectCell);
+
+                const thumbCell = document.createElement('td');
+                const thumbLink = document.createElement('a');
+                thumbLink.href = 'javascript:void(0)';
+                thumbLink.dataset.action = 'open-slide-viewer';
+                thumbLink.dataset.slideId = item.slideId;
+                thumbLink.textContent = 'View';
+                thumbCell.appendChild(thumbLink);
+                row.appendChild(thumbCell);
+
+                const labelCell = document.createElement('td');
+                const labelLink = document.createElement('a');
+                labelLink.href = 'javascript:void(0)';
+                labelLink.dataset.action = 'open-slide-viewer';
+                labelLink.dataset.slideId = item.slideId;
+                labelLink.textContent = item.label || item.slideId;
+                labelCell.appendChild(labelLink);
+                row.appendChild(labelCell);
+
+                const caseCell = document.createElement('td');
+                caseCell.textContent = item.caseIdentifier || '';
+                row.appendChild(caseCell);
+
+                const focusCell = document.createElement('td');
+                focusCell.textContent = typeof item.focusScore === 'number' ? item.focusScore.toFixed(3) : '';
+                row.appendChild(focusCell);
+
+                const statusCell = document.createElement('td');
+                statusCell.textContent = item.qcStatus || '';
+                row.appendChild(statusCell);
+
+                const studyCell = document.createElement('td');
+                studyCell.textContent = item.studyName || '';
+                row.appendChild(studyCell);
+
+                const organCell = document.createElement('td');
+                organCell.textContent = item.organ || '';
+                row.appendChild(organCell);
+
+                const stainCell = document.createElement('td');
+                stainCell.textContent = item.stain || '';
+                row.appendChild(stainCell);
+
+                container.appendChild(row);
+            });
+        }
+
+        function updateSelectionCountUI() {
+            const count = state.selectedSlideIds.size;
+            if (selectionCountSpan) {
+                selectionCountSpan.textContent = count + (count === 1 ? ' slide selected' : ' slides selected');
+            }
+        }
+
+        function clearSelection() {
+            state.selectedSlideIds.clear();
+            if (selectAllCheckbox) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            }
+            updateSelectionCountUI();
+        }
+
+        function updateSelectAllCheckboxState() {
+            if (!selectAllCheckbox) {
+                return;
+            }
+            const currentIds = state.slides.map(function (s) { return s.slideId; });
+            if (currentIds.length === 0) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+                return;
+            }
+            let selectedOnPage = 0;
+            currentIds.forEach(function (id) {
+                if (state.selectedSlideIds.has(id)) {
+                    selectedOnPage += 1;
+                }
+            });
+            if (selectedOnPage === 0) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            } else if (selectedOnPage === currentIds.length) {
+                selectAllCheckbox.checked = true;
+                selectAllCheckbox.indeterminate = false;
+            } else {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = true;
+            }
+        }
+
+        function updatePaginationUI() {
+            const total = state.totalCount || 0;
+            const pageSize = state.params.pageSize || 1;
+            const totalPages = total > 0 ? Math.ceil(total / pageSize) : 1;
+
+            if (currentPageSpan) {
+                currentPageSpan.textContent = String(state.params.page);
+            }
+            if (totalPagesSpan) {
+                totalPagesSpan.textContent = String(totalPages);
+            }
+            if (totalCountSpan) {
+                totalCountSpan.textContent = total + ' slides total';
+            }
+            if (pagePrevButton) {
+                pagePrevButton.disabled = state.params.page <= 1;
+            }
+            if (pageNextButton) {
+                pageNextButton.disabled = state.params.page >= totalPages;
+            }
+        }
+
+        function buildSortObject(sortParam) {
+            if (!sortParam) {
+                return null;
+            }
+            let fieldPart = sortParam;
+            let direction = 'asc';
+            const parts = sortParam.split('_');
+            if (parts.length >= 2) {
+                direction = parts[parts.length - 1];
+                fieldPart = parts.slice(0, parts.length - 1).join('_');
+            }
+            if (direction !== 'asc' && direction !== 'desc') {
+                direction = 'asc';
+            }
+
+            let fieldInternal;
+            if (fieldPart === 'focusScore' || fieldPart === 'focus_score') {
+                fieldInternal = 'focus_score';
+            } else if (fieldPart === 'caseId' || fieldPart === 'caseIdentifier' || fieldPart === 'case_id') {
+                fieldInternal = 'case_id';
+            } else {
+                fieldInternal = fieldPart;
+            }
+
+            return {
+                field: fieldInternal,
+                direction: direction
+            };
+        }
+
+        function updateFocusSortIndicator() {
+            if (!focusSortIndicator) {
+                return;
+            }
+            const sortParam = state.params.sort || '';
+            if (!sortParam) {
+                focusSortIndicator.textContent = '';
+                return;
+            }
+            if (sortParam.indexOf('focus') === -1) {
+                focusSortIndicator.textContent = '';
+                return;
+            }
+            if (sortParam.endsWith('_desc')) {
+                focusSortIndicator.textContent = '↓';
+            } else {
+                focusSortIndicator.textContent = '↑';
+            }
+        }
+
+        function loadSlides() {
+            clearSelection();
+            if (!state.params.studyId) {
+                if (loaderContainer) {
+                    loaderContainer.textContent = 'No studies available.';
+                }
+                renderSlidesRows(tableBody, []);
+                state.slides = [];
+                state.totalCount = 0;
+                updatePaginationUI();
+                updateFocusSortIndicator();
+                return;
+            }
+            if (loaderContainer) {
+                loaderContainer.textContent = 'Loading slides...';
+            }
+            try {
+                let filters = null;
+                if (state.params.status) {
+                    filters = { qcStatus: state.params.status };
+                }
+                const sortObj = buildSortObject(state.params.sort);
+                const result = WebsiteSDK.getQcSlidesForStudy(
+                    state.params.studyId,
+                    filters,
+                    sortObj,
+                    state.params.page,
+                    state.params.pageSize
+                );
+                state.slides = (result && result.items) ? result.items : [];
+                state.totalCount = (result && typeof result.totalCount === 'number') ? result.totalCount : 0;
+
+                renderSlidesRows(tableBody, state.slides);
+                updatePaginationUI();
+                updateFocusSortIndicator();
+                updateSelectAllCheckboxState();
+                if (loaderContainer) {
+                    loaderContainer.textContent = '';
+                }
+            } catch (e) {
+                if (loaderContainer) {
+                    loaderContainer.textContent = 'Error loading slides.';
+                }
+                tableBody.innerHTML = '';
+                const row = document.createElement('tr');
+                const cell = document.createElement('td');
+                cell.colSpan = 9;
+                cell.textContent = 'Error loading slides.';
+                row.appendChild(cell);
+                tableBody.appendChild(row);
+            }
+        }
+
+        function findStatusLabel(value) {
+            let label = value;
+            state.qcStatuses.forEach(function (s) {
+                if (s.value === value) {
+                    label = s.label || s.value;
+                }
+            });
+            return label;
+        }
+
+        function initializeFiltersAndState() {
+            let options;
+            try {
+                options = WebsiteSDK.getQcFilterOptions();
+            } catch (e) {
+                if (loaderContainer) {
+                    loaderContainer.textContent = 'Error loading QC filter options.';
+                }
+                return;
+            }
+
+            state.studies = options && options.studies ? options.studies : [];
+            state.qcStatuses = options && options.qcStatuses ? options.qcStatuses : [];
+
+            const urlState = parseUrlParams();
+            let needsUrlUpdate = false;
+
+            const validStudyIds = new Set(state.studies.map(function (s) { return s.id; }));
+            let activeStudyId = urlState.studyId;
+            if (!activeStudyId || !validStudyIds.has(activeStudyId)) {
+                if (state.studies.length > 0) {
+                    activeStudyId = state.studies[0].id;
+                    needsUrlUpdate = true;
+                } else {
+                    activeStudyId = null;
+                }
+            }
+
+            const validStatuses = new Set(state.qcStatuses.map(function (s) { return s.value; }));
+            let activeStatus = urlState.status;
+            if (activeStatus && !validStatuses.has(activeStatus)) {
+                activeStatus = null;
+                needsUrlUpdate = true;
+            }
+
+            let sortParam = urlState.sort;
+            if (!sortParam) {
+                sortParam = 'focusScore_asc';
+                needsUrlUpdate = true;
+            }
+
+            state.params.studyId = activeStudyId;
+            state.params.status = activeStatus;
+            state.params.sort = sortParam;
+            state.params.page = urlState.page;
+            state.params.pageSize = urlState.pageSize;
+
+            if (needsUrlUpdate) {
+                updateUrlFromState('replace');
+            }
+
+            if (studySelect) {
+                renderStudyOptions(studySelect, state.studies, state.params.studyId);
+            }
+            if (statusSelect) {
+                renderStatusOptions(statusSelect, state.qcStatuses, state.params.status, true);
+            }
+            if (bulkStatusSelect) {
+                renderStatusOptions(bulkStatusSelect, state.qcStatuses, '', false);
+            }
+            if (pageSizeSelect) {
+                pageSizeSelect.value = String(state.params.pageSize);
+            }
+        }
+
+        function bindEventHandlers() {
+            if (studySelect) {
+                studySelect.addEventListener('change', function (event) {
+                    const newStudyId = event.target.value || null;
+                    state.params.studyId = newStudyId;
+                    state.params.page = 1;
+                    updateUrlFromState('push');
+                    loadSlides();
+                });
+            }
+
+            if (statusSelect) {
+                statusSelect.addEventListener('change', function (event) {
+                    const newStatus = event.target.value || null;
+                    state.params.status = newStatus && newStatus !== '' ? newStatus : null;
+                    state.params.page = 1;
+                    updateUrlFromState('push');
+                    loadSlides();
+                });
+            }
+
+            const thresholdButton = document.querySelector('[data-action="apply-threshold-selection"]');
+            if (thresholdButton && focusThresholdInput) {
+                thresholdButton.addEventListener('click', function () {
+                    const raw = focusThresholdInput.value;
+                    const threshold = parseFloat(raw);
+                    if (isNaN(threshold)) {
+                        window.alert('Please enter a numeric focus score threshold.');
+                        return;
+                    }
+                    state.slides.forEach(function (slide) {
+                        if (typeof slide.focusScore === 'number' && slide.focusScore < threshold) {
+                            state.selectedSlideIds.add(slide.slideId);
+                        }
+                    });
+                    renderSlidesRows(tableBody, state.slides);
+                    updateSelectionCountUI();
+                    updateSelectAllCheckboxState();
+                });
+            }
+
+            if (bulkStatusSelect) {
+                bulkStatusSelect.addEventListener('change', function (event) {
+                    state.bulkTargetStatus = event.target.value || '';
+                });
+            }
+
+            const bulkApplyButton = document.querySelector('[data-action="bulk-apply"]');
+            if (bulkApplyButton) {
+                bulkApplyButton.addEventListener('click', function () {
+                    const count = state.selectedSlideIds.size;
+                    if (count === 0) {
+                        window.alert('Select at least one slide to apply a QC status.');
+                        return;
+                    }
+                    if (!state.bulkTargetStatus) {
+                        window.alert('Choose a target QC status to apply.');
+                        return;
+                    }
+                    const statusLabel = findStatusLabel(state.bulkTargetStatus);
+                    const confirmed = window.confirm('Apply status ' + statusLabel + ' to ' + count + ' slides?');
+                    if (!confirmed) {
+                        return;
+                    }
+                    try {
+                        const slideIds = Array.from(state.selectedSlideIds);
+                        const result = WebsiteSDK.bulkUpdateQcStatus(slideIds, state.bulkTargetStatus);
+                        if (result && result.success) {
+                            if (bulkFeedbackSpan) {
+                                bulkFeedbackSpan.textContent = 'Updated ' + (result.updatedCount || 0) + ' slides to status ' + (result.newStatus || state.bulkTargetStatus) + '.';
+                            }
+                            clearSelection();
+                            loadSlides();
+                        } else {
+                            if (bulkFeedbackSpan) {
+                                bulkFeedbackSpan.textContent = 'Bulk update failed.';
+                            }
+                        }
+                    } catch (e) {
+                        if (bulkFeedbackSpan) {
+                            bulkFeedbackSpan.textContent = 'Error performing bulk update.';
+                        }
+                    }
+                });
+            }
+
+            if (selectAllCheckbox) {
+                selectAllCheckbox.addEventListener('change', function (event) {
+                    const checked = event.target.checked;
+                    state.slides.forEach(function (slide) {
+                        if (checked) {
+                            state.selectedSlideIds.add(slide.slideId);
+                        } else {
+                            state.selectedSlideIds.delete(slide.slideId);
+                        }
+                    });
+                    renderSlidesRows(tableBody, state.slides);
+                    updateSelectionCountUI();
+                    updateSelectAllCheckboxState();
+                });
+            }
+
+            if (tableBody) {
+                tableBody.addEventListener('change', function (event) {
+                    const target = event.target;
+                    if (target && target.dataset && target.dataset.action === 'row-select') {
+                        const slideId = target.dataset.slideId;
+                        if (target.checked) {
+                            state.selectedSlideIds.add(slideId);
+                        } else {
+                            state.selectedSlideIds.delete(slideId);
+                        }
+                        updateSelectionCountUI();
+                        updateSelectAllCheckboxState();
+                    }
+                });
+
+                tableBody.addEventListener('click', function (event) {
+                    const target = event.target;
+                    if (target && target.dataset && target.dataset.action === 'open-slide-viewer') {
+                        const slideId = target.dataset.slideId;
+                        if (slideId) {
+                            window.location.href = 'slide_viewer.html?slideId=' + encodeURIComponent(slideId);
+                        }
+                    }
+                });
+            }
+
+            const sortFocusButton = document.querySelector('[data-action="sort-focus-score"]');
+            if (sortFocusButton) {
+                sortFocusButton.addEventListener('click', function () {
+                    const current = state.params.sort || 'focusScore_asc';
+                    let next;
+                    if (current === 'focusScore_asc' || current === 'focus_score_asc') {
+                        next = 'focusScore_desc';
+                    } else {
+                        next = 'focusScore_asc';
+                    }
+                    state.params.sort = next;
+                    state.params.page = 1;
+                    updateUrlFromState('push');
+                    loadSlides();
+                });
+            }
+
+            if (pagePrevButton) {
+                pagePrevButton.addEventListener('click', function () {
+                    if (state.params.page <= 1) {
+                        return;
+                    }
+                    state.params.page = state.params.page - 1;
+                    updateUrlFromState('push');
+                    loadSlides();
+                });
+            }
+
+            if (pageNextButton) {
+                pageNextButton.addEventListener('click', function () {
+                    const total = state.totalCount || 0;
+                    const pageSize = state.params.pageSize || 1;
+                    const totalPages = total > 0 ? Math.ceil(total / pageSize) : 1;
+                    if (state.params.page >= totalPages) {
+                        return;
+                    }
+                    state.params.page = state.params.page + 1;
+                    updateUrlFromState('push');
+                    loadSlides();
+                });
+            }
+
+            if (pageSizeSelect) {
+                pageSizeSelect.addEventListener('change', function (event) {
+                    const newSize = parseInt(event.target.value, 10);
+                    if (!Number.isFinite(newSize) || newSize <= 0) {
+                        return;
+                    }
+                    state.params.pageSize = newSize;
+                    state.params.page = 1;
+                    updateUrlFromState('push');
+                    loadSlides();
+                });
+            }
+
+            window.addEventListener('popstate', function () {
+                const urlState = parseUrlParams();
+                state.params.studyId = urlState.studyId || state.params.studyId;
+                state.params.status = urlState.status || null;
+                state.params.sort = urlState.sort || state.params.sort || 'focusScore_asc';
+                state.params.page = urlState.page;
+                state.params.pageSize = urlState.pageSize;
+
+                if (studySelect) {
+                    renderStudyOptions(studySelect, state.studies, state.params.studyId);
+                }
+                if (statusSelect) {
+                    renderStatusOptions(statusSelect, state.qcStatuses, state.params.status, true);
+                }
+                if (pageSizeSelect) {
+                    pageSizeSelect.value = String(state.params.pageSize);
+                }
+                clearSelection();
+                loadSlides();
+            });
+        }
+
+        initializeFiltersAndState();
+        loadSlides();
+        bindEventHandlers();
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Characters Directory - The Initiative</title>
+    <meta name="description" content="Browse and filter Initiative characters, compare anomaly indices, and open individual profiles.">
+    
+    <link rel="stylesheet" href="characters.css">
+</head>
+<body>
+    <div class="page">
+        <header class="site-header">
+            <div class="site-identity">
+                <span class="site-title">The Initiative</span>
+            </div>
+            <nav class="site-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html" title="Homepage and primary entry into the ARG experience">Home</a></li>
+                    <li><a href="transmission_logs.html" title="Browse transmissions and unlock the Phase I teaser via Prelude logs">Transmission Logs</a></li>
+                    <li><a href="timeline.html" title="Chronological view of events with filters and severity controls">Timeline</a></li>
+                    <li><a href="timeline.html?view=watchlist" title="List of events the user has flagged for monitoring">Watchlist</a></li>
+                    <li><a href="characters.html" title="Directory of Initiative characters, including Project Orion profiles">Characters</a></li>
+                    <li><a href="anomaly_map.html" title="Interactive map and list of anomalous locations and case files">Anomaly Map</a></li>
+                    <li><a href="media_videos.html" title="Media gallery for teaser and briefing videos">Videos</a></li>
+                    <li><a href="incident_logs.html" title="Searchable archive of incident logs and low-threat reports">Incident Logs</a></li>
+                    <li><a href="signals.html" title="Live signal stream used as clues for theories">Signals</a></li>
+                    <li><a href="ciphers.html" title="Tools and cipher list for decoding and theory building">Ciphers</a></li>
+                    <li><a href="theory_board.html" title="Workspace for assembling clues into named theories">Theory Board</a></li>
+                    <li><a href="artifacts.html" title="Catalog of recovered artifacts and their risk levels">Artifacts</a></li>
+                    <li><a href="recruitment.html" title="Recruitment and assessment form for new operatives">Join the Initiative</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id="content" class="site-main" tabindex="-1">
+            <div class="characters-column">
+                <section data-component="characters-directory-controller" class="characters-controller" aria-label="Characters directory">
+                    <h1>Characters Directory</h1>
+                    <p>Directory view for Initiative personnel and associates. Filters and comparisons update in-place; profiles open in a separate record view.</p>
+                </section>
+
+                <section data-component="characters-filter-toolbar" data-populate="character-filters" class="characters-filters" aria-label="Characters filters and sorting">
+                    <!-- Filter toolbar content is populated by JavaScript using getCharacterFilterOptions. -->
+                </section>
+
+                <section data-component="characters-list" data-populate="characters-list" class="characters-list" aria-label="Characters list">
+                    <!-- Character cards are populated by JavaScript using searchCharacters. -->
+                </section>
+
+                <nav data-component="characters-pagination" data-populate="characters-pagination" class="characters-pagination" aria-label="Characters pagination">
+                    <!-- Pagination controls populated by JavaScript. -->
+                </nav>
+
+                <section data-component="compare-selection-bar" data-populate="compare-selection-bar" class="compare-selection-bar" aria-live="polite">
+                    <!-- Comparison selection bar appears when two characters are selected. -->
+                </section>
+
+                <section data-component="comparison-panel" data-populate="comparison-panel" class="comparison-panel" aria-label="Character comparison" aria-live="polite">
+                    <!-- Comparison panel content is rendered in-page when comparison is open. -->
+                </section>
+            </div>
+        </main>
+
+        <footer class="site-footer">
+            <hr class="footer-rule">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="about.html" title="About the Initiative and the ARG universe">About</a></li>
+                    <li><a href="transmission_logs.html" title="Access the transmission archive">Transmission Logs</a></li>
+                    <li><a href="incident_logs.html" title="Access the incident log archives">Incident Logs</a></li>
+                    <li><a href="artifacts.html" title="Browse artifacts by origin and corruption risk">Artifacts Catalog</a></li>
+                    <li><a href="recruitment.html" title="Create your recruitment profile">Join the Initiative</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">The Initiative</p>
+        </footer>
+    </div>
+
+    <script src="business_logic.js"></script>
+    <script>
+    'use strict';
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var mainEl = document.getElementById('content');
+        if (!mainEl || typeof WebsiteSDK === 'undefined') {
+            return;
+        }
+
+        var filterToolbarContainer = document.querySelector('[data-component="characters-filter-toolbar"]');
+        var listContainer = document.querySelector('[data-component="characters-list"]');
+        var paginationContainer = document.querySelector('[data-component="characters-pagination"]');
+        var compareBarContainer = document.querySelector('[data-component="compare-selection-bar"]');
+        var comparisonPanelContainer = document.querySelector('[data-component="comparison-panel"]');
+
+        var pageState = {
+            filters: {
+                project_affiliations: []
+            },
+            sort: null,
+            defaultSort: null,
+            page: 1,
+            pageSize: 10,
+            filterOptions: null,
+            compareState: { character_ids: [] },
+            compareCharactersMap: new Map(),
+            isComparisonOpen: false,
+            lastSearchResult: null
+        };
+
+        function escapeHtml(value) {
+            if (typeof value !== 'string') {
+                return '';
+            }
+            return value.replace(/[&<>"']/g, function (ch) {
+                if (ch === '&') return '&amp;';
+                if (ch === '<') return '&lt;';
+                if (ch === '>') return '&gt;';
+                if (ch === '"') return '&quot;';
+                if (ch === "'") return '&#39;';
+                return ch;
+            });
+        }
+
+        function readUrlState() {
+            var params = new URLSearchParams(window.location.search);
+            var project = params.get('project');
+            var sort = params.get('sort');
+            var pageParam = params.get('page');
+            var page = 1;
+            if (pageParam) {
+                var parsed = parseInt(pageParam, 10);
+                if (!isNaN(parsed) && parsed > 0) {
+                    page = parsed;
+                }
+            }
+            return {
+                project: project,
+                sort: sort,
+                page: page
+            };
+        }
+
+        function updateUrlState() {
+            var params = new URLSearchParams(window.location.search);
+
+            if (pageState.filters.project_affiliations && pageState.filters.project_affiliations.length > 0) {
+                params.set('project', pageState.filters.project_affiliations[0]);
+            } else {
+                params.delete('project');
+            }
+
+            if (pageState.sort) {
+                params.set('sort', pageState.sort);
+            } else {
+                params.delete('sort');
+            }
+
+            if (pageState.page && pageState.page > 1) {
+                params.set('page', String(pageState.page));
+            } else {
+                params.delete('page');
+            }
+
+            var newQuery = params.toString();
+            var newUrl = window.location.pathname + (newQuery ? '?' + newQuery : '');
+            window.history.replaceState(null, '', newUrl);
+        }
+
+        function renderFilterToolbar(container) {
+            var options = pageState.filterOptions || { projects: [], sort_options: [] };
+            var currentProject = pageState.filters.project_affiliations && pageState.filters.project_affiliations.length > 0
+                ? pageState.filters.project_affiliations[0]
+                : '';
+            var projectsHtml = '<option value="">Any project</option>';
+            if (Array.isArray(options.projects)) {
+                for (var i = 0; i < options.projects.length; i++) {
+                    var proj = options.projects[i];
+                    var selectedAttr = proj === currentProject ? ' selected' : '';
+                    projectsHtml += '<option value="' + escapeHtml(proj) + '"' + selectedAttr + '>' + escapeHtml(proj) + '</option>';
+                }
+            }
+
+            var sortOptionsHtml = '';
+            if (Array.isArray(options.sort_options)) {
+                for (var j = 0; j < options.sort_options.length; j++) {
+                    var opt = options.sort_options[j];
+                    var key = opt && opt.key ? String(opt.key) : '';
+                    var label = opt && opt.label ? String(opt.label) : key;
+                    var sortSelected = key && key === pageState.sort ? ' selected' : '';
+                    sortOptionsHtml += '<option value="' + escapeHtml(key) + '"' + sortSelected + '>' + escapeHtml(label) + '</option>';
+                }
+            }
+
+            container.innerHTML = '\n                <div class="filters-block">\n                    <div class="filter-row">\n                        <label for="projectFilter">Project</label><br>\n                        <select id="projectFilter" name="project" data-action="project-filter-change">\n                            ' + projectsHtml + '\n                        </select>\n                    </div>\n                    <div class="filter-row">\n                        <label for="sortOption">Sort</label><br>\n                        <select id="sortOption" name="sort" data-action="sort-change">\n                            ' + sortOptionsHtml + '\n                        </select>\n                    </div>\n                    <div class="filter-row">\n                        <a href="javascript:void(0)" data-action="reset-filters">Reset filters</a>\n                    </div>\n                </div>\n            ';
+        }
+
+        function renderCharactersList(container, items) {
+            if (!Array.isArray(items) || items.length === 0) {
+                container.innerHTML = '<p>No characters found for the current filters.</p>';
+                return;
+            }
+
+            var selectedIds = [];
+            if (pageState.compareState && Array.isArray(pageState.compareState.character_ids)) {
+                selectedIds = pageState.compareState.character_ids.slice();
+            }
+
+            var html = '';
+            for (var i = 0; i < items.length; i++) {
+                var ch = items[i];
+                if (!ch) continue;
+                var id = ch.id ? String(ch.id) : '';
+                var name = ch.name ? String(ch.name) : '';
+                var codename = ch.codename ? String(ch.codename) : '';
+                var role = ch.role ? String(ch.role) : '';
+                var isPrimary = !!ch.is_primary_contact;
+                var inCompare = selectedIds.indexOf(id) !== -1;
+                var compareLabel = inCompare ? 'Remove from Compare' : 'Add to Compare';
+                var compareStateNote = inCompare ? ' (selected)' : '';
+                var projectsLine = '';
+                if (Array.isArray(ch.project_affiliations) && ch.project_affiliations.length > 0) {
+                    var projParts = [];
+                    for (var p = 0; p < ch.project_affiliations.length; p++) {
+                        projParts.push(escapeHtml(String(ch.project_affiliations[p])));
+                    }
+                    projectsLine = '<div>Projects: ' + projParts.join(', ') + '</div>';
+                }
+                var codenameLine = codename ? '<div>Codename: ' + escapeHtml(codename) + '</div>' : '';
+                var roleLine = role ? '<div>Role: ' + escapeHtml(role) + '</div>' : '';
+                var primaryLine = isPrimary ? '<div>Primary contact</div>' : '';
+                var bioSnippet = '';
+                if (typeof ch.bio === 'string') {
+                    var rawBio = ch.bio;
+                    if (rawBio.length > 200) {
+                        rawBio = rawBio.slice(0, 197) + '\u2026';
+                    }
+                    bioSnippet = escapeHtml(rawBio);
+                }
+
+                html += '\n                    <article class="character-card">\n                        <h2 class="character-name">\n                            <a href="javascript:void(0)" data-action="open-character-detail" data-character-id="' + escapeHtml(id) + '">' + escapeHtml(name) + '</a>\n                        </h2>\n                        ' + codenameLine + '\n                        ' + roleLine + '\n                        ' + projectsLine + '\n                        ' + primaryLine + '\n                        <p class="character-bio-snippet">' + bioSnippet + '</p>\n                        <p class="character-card-actions">\n                            <a href="javascript:void(0)" data-action="toggle-compare" data-character-id="' + escapeHtml(id) + '">' + compareLabel + '</a>' + compareStateNote + '\n                        </p>\n                    </article>\n                ';
+            }
+
+            container.innerHTML = html;
+        }
+
+        function renderPagination(container, total, page, pageSize) {
+            var safeTotal = typeof total === 'number' && total >= 0 ? total : 0;
+            var safePageSize = typeof pageSize === 'number' && pageSize > 0 ? pageSize : pageState.pageSize;
+            var safePage = typeof page === 'number' && page > 0 ? page : 1;
+            var totalPages = safeTotal === 0 ? 1 : Math.ceil(safeTotal / safePageSize);
+
+            if (totalPages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var html = '';
+            html += '<span class="pagination-status">Page ' + safePage + ' of ' + totalPages + '</span> ';
+
+            if (safePage > 1) {
+                html += '<a href="javascript:void(0)" data-action="change-page" data-page="' + (safePage - 1) + '">Previous</a> ';
+            }
+
+            for (var i = 1; i <= totalPages; i++) {
+                if (i === safePage) {
+                    html += '<span class="pagination-current">' + i + '</span> ';
+                } else {
+                    html += '<a href="javascript:void(0)" data-action="change-page" data-page="' + i + '">' + i + '</a> ';
+                }
+            }
+
+            if (safePage < totalPages) {
+                html += '<a href="javascript:void(0)" data-action="change-page" data-page="' + (safePage + 1) + '">Next</a>';
+            }
+
+            container.innerHTML = html;
+        }
+
+        function renderCompareSelectionBar(container) {
+            if (!pageState.compareState || !Array.isArray(pageState.compareState.character_ids)) {
+                container.innerHTML = '';
+                return;
+            }
+            var ids = pageState.compareState.character_ids.slice();
+            if (ids.length !== 2) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var first = pageState.compareCharactersMap.get(ids[0]) || null;
+            var second = pageState.compareCharactersMap.get(ids[1]) || null;
+            var nameA = first && first.name ? String(first.name) : 'Unknown';
+            var nameB = second && second.name ? String(second.name) : 'Unknown';
+
+            container.innerHTML = '\n                <div class="compare-bar-inner">\n                    <span>Selected for comparison: ' + escapeHtml(nameA) + ', ' + escapeHtml(nameB) + '</span>\n                    <span> \u2013 </span>\n                    <a href="javascript:void(0)" data-action="open-comparison">Compare (2)</a>\n                    <span> | </span>\n                    <a href="javascript:void(0)" data-action="clear-comparison-selection">Clear</a>\n                </div>\n            ';
+        }
+
+        function renderComparisonPanel(container) {
+            if (!pageState.isComparisonOpen || !pageState.compareState || !Array.isArray(pageState.compareState.character_ids)) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var ids = pageState.compareState.character_ids.slice();
+            if (ids.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var first = ids[0] ? pageState.compareCharactersMap.get(ids[0]) : null;
+            var second = ids[1] ? pageState.compareCharactersMap.get(ids[1]) : null;
+
+            function cellForCharacterName(ch) {
+                if (!ch || !ch.id) {
+                    return 'Empty slot';
+                }
+                var id = String(ch.id);
+                var name = ch.name ? String(ch.name) : 'Unknown';
+                return '<a href="javascript:void(0)" data-action="open-character-detail" data-character-id="' + escapeHtml(id) + '">' + escapeHtml(name) + '</a>' +
+                    ' (<a href="javascript:void(0)" data-action="remove-from-comparison" data-character-id="' + escapeHtml(id) + '">remove</a>)';
+            }
+
+            function cellText(ch, fieldName) {
+                if (!ch) return '';
+                if (fieldName === 'role') {
+                    return ch.role ? escapeHtml(String(ch.role)) : '';
+                }
+                if (fieldName === 'codename') {
+                    return ch.codename ? escapeHtml(String(ch.codename)) : '';
+                }
+                if (fieldName === 'anomaly_index') {
+                    if (typeof ch.anomaly_index === 'number') {
+                        return String(ch.anomaly_index);
+                    }
+                    return '';
+                }
+                if (fieldName === 'projects') {
+                    if (Array.isArray(ch.project_affiliations) && ch.project_affiliations.length > 0) {
+                        var parts = [];
+                        for (var i = 0; i < ch.project_affiliations.length; i++) {
+                            parts.push(escapeHtml(String(ch.project_affiliations[i])));
+                        }
+                        return parts.join(', ');
+                    }
+                    return '';
+                }
+                if (fieldName === 'primary') {
+                    return ch.is_primary_contact ? 'Yes' : 'No';
+                }
+                if (fieldName === 'bio') {
+                    if (typeof ch.bio === 'string') {
+                        var text = ch.bio;
+                        if (text.length > 260) {
+                            text = text.slice(0, 257) + '\u2026';
+                        }
+                        return escapeHtml(text);
+                    }
+                    return '';
+                }
+                return '';
+            }
+
+            var html = '\n                <div class="comparison-panel-inner">\n                    <div class="comparison-header">\n                        <span>Comparison view</span>\n                        <span class="comparison-header-actions">\n                            <a href="javascript:void(0)" data-action="close-comparison">Close</a> |\n                            <a href="javascript:void(0)" data-action="clear-comparison-selection">Clear</a>\n                        </span>\n                    </div>\n                    <div class="comparison-body">\n                        <div class="comparison-row comparison-row-headings">\n                            <div class="comparison-label">Attribute</div>\n                            <div class="comparison-value">Character A</div>\n                            <div class="comparison-value">Character B</div>\n                        </div>\n                        <div class="comparison-row">\n                            <div class="comparison-label">Name</div>\n                            <div class="comparison-value">' + cellForCharacterName(first) + '</div>\n                            <div class="comparison-value">' + cellForCharacterName(second) + '</div>\n                        </div>\n                        <div class="comparison-row">\n                            <div class="comparison-label">Codename</div>\n                            <div class="comparison-value">' + cellText(first, 'codename') + '</div>\n                            <div class="comparison-value">' + cellText(second, 'codename') + '</div>\n                        </div>\n                        <div class="comparison-row">\n                            <div class="comparison-label">Role</div>\n                            <div class="comparison-value">' + cellText(first, 'role') + '</div>\n                            <div class="comparison-value">' + cellText(second, 'role') + '</div>\n                        </div>\n                        <div class="comparison-row">\n                            <div class="comparison-label">Projects</div>\n                            <div class="comparison-value">' + cellText(first, 'projects') + '</div>\n                            <div class="comparison-value">' + cellText(second, 'projects') + '</div>\n                        </div>\n                        <div class="comparison-row">\n                            <div class="comparison-label">Primary contact</div>\n                            <div class="comparison-value">' + cellText(first, 'primary') + '</div>\n                            <div class="comparison-value">' + cellText(second, 'primary') + '</div>\n                        </div>\n                        <div class="comparison-row">\n                            <div class="comparison-label">Anomaly Index</div>\n                            <div class="comparison-value">' + cellText(first, 'anomaly_index') + '</div>\n                            <div class="comparison-value">' + cellText(second, 'anomaly_index') + '</div>\n                        </div>\n                        <div class="comparison-row comparison-row-bio">\n                            <div class="comparison-label">Bio (excerpt)</div>\n                            <div class="comparison-value">' + cellText(first, 'bio') + '</div>\n                            <div class="comparison-value">' + cellText(second, 'bio') + '</div>\n                        </div>\n                    </div>\n                </div>\n            ';
+
+            container.innerHTML = html;
+        }
+
+        function refreshCharacters() {
+            if (!listContainer || !paginationContainer) {
+                return;
+            }
+
+            var filtersArg = {};
+            if (pageState.filters && Array.isArray(pageState.filters.project_affiliations) && pageState.filters.project_affiliations.length > 0) {
+                filtersArg.project_affiliations = pageState.filters.project_affiliations.slice();
+            }
+
+            var sortArg = pageState.sort || undefined;
+            var pageArg = pageState.page || 1;
+            var pageSizeArg = pageState.pageSize;
+
+            try {
+                var result = WebsiteSDK.searchCharacters(filtersArg, sortArg, pageArg, pageSizeArg);
+                pageState.lastSearchResult = result;
+                var items = result && Array.isArray(result.items) ? result.items : [];
+                var total = result && typeof result.total === 'number' ? result.total : items.length;
+                var pageVal = result && typeof result.page === 'number' ? result.page : pageArg;
+                var pageSizeVal = result && typeof result.pageSize === 'number' ? result.pageSize : pageSizeArg;
+
+                renderCharactersList(listContainer, items);
+                renderPagination(paginationContainer, total, pageVal, pageSizeVal);
+            } catch (e) {
+                console.error('Error loading characters', e);
+                listContainer.innerHTML = '<p>Unable to load characters right now.</p>';
+                paginationContainer.innerHTML = '';
+            }
+        }
+
+        function initialiseCompareState() {
+            try {
+                var resp = WebsiteSDK.getCharacterCompareState();
+                if (resp && resp.compare_state) {
+                    pageState.compareState = resp.compare_state;
+                } else {
+                    pageState.compareState = { character_ids: [] };
+                }
+                pageState.compareCharactersMap = new Map();
+                if (resp && Array.isArray(resp.characters)) {
+                    for (var i = 0; i < resp.characters.length; i++) {
+                        var ch = resp.characters[i];
+                        if (ch && ch.id) {
+                            pageState.compareCharactersMap.set(String(ch.id), ch);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('Error loading character compare state', e);
+                pageState.compareState = { character_ids: [] };
+                pageState.compareCharactersMap = new Map();
+            }
+        }
+
+        function updateCompareStateFromResponse(resp) {
+            if (!resp) return;
+            if (resp.compare_state) {
+                pageState.compareState = resp.compare_state;
+            }
+            pageState.compareCharactersMap = new Map();
+            if (Array.isArray(resp.characters)) {
+                for (var i = 0; i < resp.characters.length; i++) {
+                    var ch = resp.characters[i];
+                    if (ch && ch.id) {
+                        pageState.compareCharactersMap.set(String(ch.id), ch);
+                    }
+                }
+            }
+        }
+
+        function handleToggleCompare(characterId) {
+            if (!characterId) return;
+            var ids = [];
+            if (pageState.compareState && Array.isArray(pageState.compareState.character_ids)) {
+                ids = pageState.compareState.character_ids.slice();
+            }
+            var index = ids.indexOf(characterId);
+            var operation;
+
+            if (index !== -1) {
+                operation = 'remove';
+            } else {
+                if (ids.length >= 2) {
+                    window.alert('You can only compare two characters at a time.');
+                    return;
+                }
+                operation = 'add';
+            }
+
+            try {
+                var resp = WebsiteSDK.updateCharacterCompareSelection(characterId, operation);
+                updateCompareStateFromResponse(resp);
+            } catch (e) {
+                console.error('Error updating character comparison selection', e);
+                return;
+            }
+
+            if (pageState.lastSearchResult && listContainer) {
+                var items = Array.isArray(pageState.lastSearchResult.items) ? pageState.lastSearchResult.items : [];
+                renderCharactersList(listContainer, items);
+            }
+            if (compareBarContainer) {
+                renderCompareSelectionBar(compareBarContainer);
+            }
+            if (comparisonPanelContainer && pageState.isComparisonOpen) {
+                renderComparisonPanel(comparisonPanelContainer);
+            }
+        }
+
+        function handleClearComparison() {
+            try {
+                var resp = WebsiteSDK.updateCharacterCompareSelection(null, 'clear_all');
+                updateCompareStateFromResponse(resp);
+            } catch (e) {
+                console.error('Error clearing character comparison selection', e);
+                return;
+            }
+
+            pageState.isComparisonOpen = false;
+
+            if (pageState.lastSearchResult && listContainer) {
+                var items = Array.isArray(pageState.lastSearchResult.items) ? pageState.lastSearchResult.items : [];
+                renderCharactersList(listContainer, items);
+            }
+            if (compareBarContainer) {
+                renderCompareSelectionBar(compareBarContainer);
+            }
+            if (comparisonPanelContainer) {
+                renderComparisonPanel(comparisonPanelContainer);
+            }
+        }
+
+        function findActionElement(startEl) {
+            var el = startEl;
+            while (el && el !== mainEl && !el.dataset.action) {
+                el = el.parentElement;
+            }
+            if (el && el.dataset && el.dataset.action) {
+                return el;
+            }
+            return null;
+        }
+
+        function navigateToCharacterDetail(characterId) {
+            if (!characterId) return;
+            var url = 'character_detail.html?id=' + encodeURIComponent(characterId);
+            window.location.href = url;
+        }
+
+        function initialiseFiltersAndState() {
+            var urlState = readUrlState();
+
+            try {
+                var options = WebsiteSDK.getCharacterFilterOptions();
+                pageState.filterOptions = options;
+            } catch (e) {
+                console.error('Error loading character filter options', e);
+                pageState.filterOptions = { projects: [], sort_options: [] };
+            }
+
+            var sortOptions = pageState.filterOptions && Array.isArray(pageState.filterOptions.sort_options)
+                ? pageState.filterOptions.sort_options
+                : [];
+
+            if (sortOptions.length > 0) {
+                pageState.defaultSort = sortOptions[0].key ? String(sortOptions[0].key) : null;
+            } else {
+                pageState.defaultSort = null;
+            }
+
+            var validSort = urlState.sort;
+            var sortIsValid = false;
+            if (validSort && sortOptions.length > 0) {
+                for (var i = 0; i < sortOptions.length; i++) {
+                    if (String(sortOptions[i].key) === validSort) {
+                        sortIsValid = true;
+                        break;
+                    }
+                }
+            }
+            if (sortIsValid) {
+                pageState.sort = validSort;
+            } else {
+                pageState.sort = pageState.defaultSort;
+            }
+
+            pageState.page = urlState.page || 1;
+
+            var initialProject = urlState.project;
+            var hasProject = false;
+            if (initialProject && pageState.filterOptions && Array.isArray(pageState.filterOptions.projects)) {
+                for (var j = 0; j < pageState.filterOptions.projects.length; j++) {
+                    if (pageState.filterOptions.projects[j] === initialProject) {
+                        hasProject = true;
+                        break;
+                    }
+                }
+            }
+            if (hasProject) {
+                pageState.filters.project_affiliations = [initialProject];
+            } else {
+                pageState.filters.project_affiliations = [];
+            }
+
+            if (filterToolbarContainer) {
+                renderFilterToolbar(filterToolbarContainer);
+            }
+        }
+
+        function attachEventHandlers() {
+            mainEl.addEventListener('change', function (event) {
+                var actionEl = findActionElement(event.target);
+                if (!actionEl) return;
+                var action = actionEl.dataset.action;
+
+                if (action === 'project-filter-change') {
+                    var value = actionEl.value || '';
+                    if (value) {
+                        pageState.filters.project_affiliations = [value];
+                    } else {
+                        pageState.filters.project_affiliations = [];
+                    }
+                    pageState.page = 1;
+                    updateUrlState();
+                    refreshCharacters();
+                    return;
+                }
+
+                if (action === 'sort-change') {
+                    var sortValue = actionEl.value || '';
+                    if (sortValue) {
+                        pageState.sort = sortValue;
+                    } else {
+                        pageState.sort = pageState.defaultSort;
+                    }
+                    pageState.page = 1;
+                    updateUrlState();
+                    refreshCharacters();
+                    return;
+                }
+            });
+
+            mainEl.addEventListener('click', function (event) {
+                var actionEl = findActionElement(event.target);
+                if (!actionEl) return;
+                var action = actionEl.dataset.action;
+                if (!action) return;
+
+                if (action === 'reset-filters' ||
+                    action === 'open-character-detail' ||
+                    action === 'toggle-compare' ||
+                    action === 'change-page' ||
+                    action === 'open-comparison' ||
+                    action === 'close-comparison' ||
+                    action === 'clear-comparison-selection' ||
+                    action === 'remove-from-comparison') {
+                    event.preventDefault();
+                }
+
+                if (action === 'reset-filters') {
+                    pageState.filters.project_affiliations = [];
+                    pageState.sort = pageState.defaultSort;
+                    pageState.page = 1;
+                    if (filterToolbarContainer) {
+                        renderFilterToolbar(filterToolbarContainer);
+                    }
+                    updateUrlState();
+                    refreshCharacters();
+                    return;
+                }
+
+                if (action === 'open-character-detail') {
+                    var cid = actionEl.getAttribute('data-character-id');
+                    navigateToCharacterDetail(cid);
+                    return;
+                }
+
+                if (action === 'toggle-compare') {
+                    var charId = actionEl.getAttribute('data-character-id');
+                    handleToggleCompare(charId);
+                    return;
+                }
+
+                if (action === 'change-page') {
+                    var pageAttr = actionEl.getAttribute('data-page');
+                    var newPage = parseInt(pageAttr, 10);
+                    if (!isNaN(newPage) && newPage > 0 && newPage !== pageState.page) {
+                        pageState.page = newPage;
+                        updateUrlState();
+                        refreshCharacters();
+                    }
+                    return;
+                }
+
+                if (action === 'open-comparison') {
+                    pageState.isComparisonOpen = true;
+                    if (comparisonPanelContainer) {
+                        renderComparisonPanel(comparisonPanelContainer);
+                    }
+                    return;
+                }
+
+                if (action === 'close-comparison') {
+                    pageState.isComparisonOpen = false;
+                    if (comparisonPanelContainer) {
+                        renderComparisonPanel(comparisonPanelContainer);
+                    }
+                    return;
+                }
+
+                if (action === 'clear-comparison-selection') {
+                    handleClearComparison();
+                    return;
+                }
+
+                if (action === 'remove-from-comparison') {
+                    var removeId = actionEl.getAttribute('data-character-id');
+                    if (!removeId) return;
+                    try {
+                        var resp = WebsiteSDK.updateCharacterCompareSelection(removeId, 'remove');
+                        updateCompareStateFromResponse(resp);
+                    } catch (e) {
+                        console.error('Error removing character from comparison', e);
+                        return;
+                    }
+
+                    if (pageState.compareState && Array.isArray(pageState.compareState.character_ids) && pageState.compareState.character_ids.length < 2) {
+                        pageState.isComparisonOpen = false;
+                    }
+
+                    if (pageState.lastSearchResult && listContainer) {
+                        var items = Array.isArray(pageState.lastSearchResult.items) ? pageState.lastSearchResult.items : [];
+                        renderCharactersList(listContainer, items);
+                    }
+                    if (compareBarContainer) {
+                        renderCompareSelectionBar(compareBarContainer);
+                    }
+                    if (comparisonPanelContainer) {
+                        renderComparisonPanel(comparisonPanelContainer);
+                    }
+                    return;
+                }
+            });
+        }
+
+        initialiseFiltersAndState();
+        initialiseCompareState();
+
+        if (compareBarContainer) {
+            renderCompareSelectionBar(compareBarContainer);
+        }
+
+        refreshCharacters();
+
+        attachEventHandlers();
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta http-equiv='X-UA-Compatible' content='IE=edge'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>SANROBEL, INC. &mdash; Anti-Aging Supplements</title>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='quiz_results.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <div class='site-title-wrapper'>
+            <h1 class='site-title'>SANROBEL, INC.</h1>
+        </div>
+        <nav class='primary-nav' aria-label='Primary navigation'>
+            <a href='index.html'>Home</a>
+            <a href='products.html'>Products</a>
+            <a href='bundles.html'>Bundles</a>
+            <a href='quiz.html'>Quiz</a>
+            <a href='science.html?section=clinical_studies'>Science</a>
+            <a href='blog.html?categoryId=anti_aging_tips'>Blog</a>
+            <a href='contact.html'>Contact</a>
+        </nav>
+    </header>
+
+    <main id='content' class='page-content' role='main'>
+        <div class='quiz-results-page'>
+            <!-- State / status message -->
+            <div data-component='quiz-results-state-manager' data-populate='status-message' style='text-align:center; margin:12px 0;'></div>
+
+            <!-- Quiz summary header -->
+            <section data-component='quiz-summary-header' style='margin-top:16px;'>
+                <div data-populate='quiz-summary'></div>
+            </section>
+
+            <!-- Global controls: purchase emphasis, under-threshold filter, sort -->
+            <section data-component='controls' style='margin-top:12px;'>
+                <div data-populate='quiz-controls'></div>
+            </section>
+
+            <hr style='margin:16px auto; max-width:800px;'>
+
+            <!-- Error / empty state -->
+            <section data-component='error-and-empty-state-handler' style='margin-top:16px;'>
+                <div data-populate='error-empty'></div>
+            </section>
+
+            <!-- Recommendation list -->
+            <section data-component='recommendation-list' style='margin-top:8px;'>
+                <div data-populate='recommendations-list'></div>
+            </section>
+        </div>
+
+        <!-- Mini-cart overlay -->
+        <div data-component='mini-cart-overlay' style='display:none; position:fixed; top:0; left:0; right:0; bottom:0; z-index:1000;'>
+            <div style='position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); border:1px solid #000; background:#fff; padding:16px; max-width:480px; width:90%;'>
+                <div data-populate='mini-cart-contents'></div>
+            </div>
+        </div>
+    </main>
+
+    <footer class='site-footer'>
+        <hr class='footer-divider'>
+        <nav class='footer-nav' aria-label='Footer navigation'>
+            <p class='footer-links'>
+                <a href='about.html'>About</a>
+                <span class='footer-separator'>|</span>
+                <a href='faq.html'>FAQ</a>
+                <span class='footer-separator'>|</span>
+                <a href='contact.html'>Contact Support</a>
+                <span class='footer-separator'>|</span>
+                <a href='science.html?section=clinical_studies'>Science - Clinical Studies</a>
+                <span class='footer-separator'>|</span>
+                <a href='policies.html'>Shipping &amp; Policies</a>
+                <span class='footer-separator'>|</span>
+                <a href='blog.html?categoryId=anti_aging_tips'>Blog: Anti-aging Tips</a>
+                <span class='footer-separator'>|</span>
+                <a href='blog.html?categoryId=product_launches'>Blog: Product Launches</a>
+            </p>
+        </nav>
+        <p class='footer-copy'>&copy; <span class='footer-year'>2026</span> SANROBEL, INC. All rights reserved.</p>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var UNDER_THRESHOLD_PRICE = 100;
+
+        var state = {
+            quizResponseId: null,
+            quizResponse: null,
+            recommendationsRaw: [],
+            recommendationsById: {},
+            recommendationsView: [],
+            sort: 'primary_first',
+            filterUnderThreshold: false,
+            purchaseEmphasis: 'one_time',
+            cardSelections: {},
+            productVariants: [],
+            latestCartSummary: null
+        };
+
+        var populateContainers = {};
+        var populateNodes = document.querySelectorAll('[data-populate]');
+        for (var i = 0; i < populateNodes.length; i++) {
+            var el = populateNodes[i];
+            var key = el.getAttribute('data-populate');
+            if (key) {
+                populateContainers[key] = el;
+            }
+        }
+
+        function getContainer(name) {
+            return populateContainers[name] || null;
+        }
+
+        function loadProductVariantsFromStorage() {
+            try {
+                var raw = localStorage.getItem('product_variants');
+                if (!raw) {
+                    return [];
+                }
+                var parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    return parsed;
+                }
+                return [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function readQuizResponseIdFromUrl() {
+            var params = new URLSearchParams(window.location.search);
+            state.quizResponseId = params.get('quizResponseId');
+        }
+
+        function syncViewStateFromUrl() {
+            var params = new URLSearchParams(window.location.search);
+            var sort = params.get('sort');
+            if (sort === 'one_time_price_asc' || sort === 'subscription_price_asc' || sort === 'primary_first') {
+                state.sort = sort;
+            } else {
+                state.sort = 'primary_first';
+            }
+
+            var filter = params.get('filterUnderThreshold');
+            if (filter && (filter.toLowerCase() === 'true' || filter === '1' || filter.toLowerCase() === 'yes' || filter.toLowerCase() === 'on')) {
+                state.filterUnderThreshold = true;
+            } else {
+                state.filterUnderThreshold = false;
+            }
+
+            var pe = params.get('purchaseEmphasis');
+            if (pe === 'subscription' || pe === 'one_time') {
+                state.purchaseEmphasis = pe;
+            } else {
+                state.purchaseEmphasis = 'one_time';
+            }
+        }
+
+        function updateQueryParam(key, value) {
+            var url = new URL(window.location.href);
+            if (value === null || value === undefined || value === '') {
+                url.searchParams.delete(key);
+            } else {
+                url.searchParams.set(key, value);
+            }
+            window.history.pushState({}, '', url.toString());
+        }
+
+        function setStatusMessage(message) {
+            var container = getContainer('status-message');
+            if (!container) {
+                return;
+            }
+            container.textContent = message || '';
+        }
+
+        function formatAgeRange(tag) {
+            if (!tag) {
+                return '';
+            }
+            switch (tag) {
+                case 'under_30': return 'Under 30';
+                case '30_39': return '30	639';
+                case '40_49': return '40	649';
+                case '50_59': return '50	659';
+                case '60_69': return '60	669';
+                case '70_plus': return '70+';
+                default: return tag.replace(/_/g, ' ');
+            }
+        }
+
+        function formatConcernTag(tag) {
+            if (!tag) {
+                return '';
+            }
+            var labels = {
+                fine_lines_wrinkles: 'Fine lines and wrinkles',
+                skin_appearance: 'Skin appearance',
+                low_energy: 'Low energy',
+                fatigue: 'Fatigue',
+                overall_health: 'Overall health',
+                joint_health: 'Joint health',
+                sleep_quality: 'Sleep quality',
+                stress_support: 'Stress support',
+                energy_and_focus: 'Energy and focus'
+            };
+            if (labels[tag]) {
+                return labels[tag];
+            }
+            return tag.replace(/_/g, ' ');
+        }
+
+        function formatPrice(value) {
+            if (typeof value !== 'number') {
+                return '';
+            }
+            return '$' + value.toFixed(2);
+        }
+
+        function renderQuizSummary(container, quizResponse) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+            if (!quizResponse) {
+                return;
+            }
+
+            var title = document.createElement('h2');
+            title.textContent = 'Your anti-aging quiz results';
+            title.style.textAlign = 'center';
+
+            var ageText = '';
+            if (typeof quizResponse.age === 'number') {
+                ageText = 'Age: ' + quizResponse.age;
+            } else if (quizResponse.age_range) {
+                ageText = 'Age range: ' + formatAgeRange(quizResponse.age_range);
+            }
+
+            var concernsText = '';
+            if (Array.isArray(quizResponse.primary_concerns) && quizResponse.primary_concerns.length > 0) {
+                var formatted = [];
+                for (var i = 0; i < quizResponse.primary_concerns.length; i++) {
+                    formatted.push(formatConcernTag(quizResponse.primary_concerns[i]));
+                }
+                concernsText = 'Primary concerns: ' + formatted.join(', ');
+            }
+
+            var summaryParts = [];
+            if (ageText) {
+                summaryParts.push(ageText);
+            }
+            if (concernsText) {
+                summaryParts.push(concernsText);
+            }
+
+            if (summaryParts.length > 0) {
+                var p = document.createElement('p');
+                p.style.textAlign = 'center';
+                p.textContent = summaryParts.join(' 	7 ');
+                container.appendChild(p);
+            }
+
+            var note = document.createElement('p');
+            note.style.textAlign = 'center';
+            note.textContent = 'These suggestions are tailored to the answers you shared in the quiz.';
+
+            var retake = document.createElement('p');
+            retake.style.textAlign = 'center';
+            var link = document.createElement('a');
+            link.href = 'quiz.html';
+            link.textContent = 'Retake quiz';
+            link.setAttribute('data-action', 'retake-quiz');
+            retake.appendChild(link);
+
+            container.insertBefore(title, container.firstChild);
+            container.appendChild(note);
+            container.appendChild(retake);
+        }
+
+        function buildSortLink(label, key, currentSort) {
+            var isActive = currentSort === key;
+            var inner = isActive ? '<strong>' + label + '</strong>' : label;
+            return '<a href=\'javascript:void(0)\' data-action=\'change-sort\' data-sort=\'' + key + '\'>' + inner + '</a>';
+        }
+
+        function renderControls(container) {
+            if (!container) {
+                return;
+            }
+            if (!state.quizResponse || !state.recommendationsRaw.length) {
+                container.innerHTML = '';
+                return;
+            }
+            var html = '';
+            html += '<p style=\'text-align:center;\'>\n';
+            html += 'Purchase emphasis: ';
+            html += '<label><input type=\'radio\' name=\'purchaseEmphasis\' value=\'one_time\' data-action=\'set-purchase-emphasis\'' + (state.purchaseEmphasis === 'one_time' ? ' checked' : '') + '> One-time</label> ';
+            html += '<label><input type=\'radio\' name=\'purchaseEmphasis\' value=\'subscription\' data-action=\'set-purchase-emphasis\'' + (state.purchaseEmphasis === 'subscription' ? ' checked' : '') + '> Subscription</label>';
+            html += ' &nbsp;&nbsp; ';
+            html += '<label><input type=\'checkbox\' data-action=\'toggle-under-threshold\'' + (state.filterUnderThreshold ? ' checked' : '') + '> Show only one-time prices under $' + UNDER_THRESHOLD_PRICE.toFixed(0) + '</label>';
+            html += ' &nbsp;&nbsp; ';
+            html += 'Sort by: ';
+            html += buildSortLink('Best match', 'primary_first', state.sort);
+            html += ' | ' + buildSortLink('Lowest one-time price', 'one_time_price_asc', state.sort);
+            html += ' | ' + buildSortLink('Lowest subscription price', 'subscription_price_asc', state.sort);
+            html += '</p>';
+            container.innerHTML = html;
+        }
+
+        function renderErrorState(container, type) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+            var title = '';
+            var body = '';
+            if (type === 'missingQuizResponseId') {
+                title = 'We could not load your quiz results.';
+                body = 'The quiz results link is missing its reference. Please start a new quiz to see personalized recommendations.';
+            } else if (type === 'getQuizResultsError') {
+                title = 'There was a problem loading your quiz results.';
+                body = 'Please refresh this page or return to the quiz to try again.';
+            } else {
+                title = 'No recommendations found.';
+                body = 'We were not able to generate recommendations from your quiz responses. You can retake the quiz or contact support for help.';
+            }
+
+            var wrapper = document.createElement('div');
+            wrapper.style.textAlign = 'center';
+            wrapper.style.margin = '24px auto';
+            wrapper.style.maxWidth = '640px';
+
+            var p1 = document.createElement('p');
+            p1.textContent = title;
+            p1.style.fontWeight = 'bold';
+
+            var p2 = document.createElement('p');
+            p2.textContent = body;
+
+            var p3 = document.createElement('p');
+            var a = document.createElement('a');
+            a.href = 'quiz.html';
+            a.textContent = 'Go to quiz';
+            a.setAttribute('data-action', 'go-to-quiz');
+            p3.appendChild(a);
+
+            wrapper.appendChild(p1);
+            wrapper.appendChild(p2);
+            wrapper.appendChild(p3);
+            container.appendChild(wrapper);
+        }
+
+        function clearError(container) {
+            if (container) {
+                container.innerHTML = '';
+            }
+        }
+
+        function prepareRecommendations(list) {
+            state.recommendationsRaw = [];
+            state.recommendationsById = {};
+            if (!Array.isArray(list)) {
+                return;
+            }
+            for (var i = 0; i < list.length; i++) {
+                var item = list[i];
+                if (!item || !item.recommendation) {
+                    continue;
+                }
+                var rec = item.recommendation;
+                var enhanced = {
+                    recommendation: rec,
+                    product: item.product || null,
+                    bundle: item.bundle || null,
+                    regimen: item.regimen || null,
+                    one_time_price: typeof item.one_time_price === 'number' ? item.one_time_price : rec.one_time_price,
+                    subscription_price: typeof item.subscription_price === 'number' ? item.subscription_price : rec.subscription_price,
+                    supply_months: typeof item.supply_months === 'number' ? item.supply_months : rec.supply_months,
+                    goal_tags: Array.isArray(item.goal_tags) && item.goal_tags.length ? item.goal_tags : (rec.goal_tags || []),
+                    _originalIndex: i,
+                    _productVariantId: null
+                };
+
+                if (rec.recommended_item_type === 'product' && enhanced.product && Array.isArray(state.productVariants) && state.productVariants.length) {
+                    var variants = [];
+                    for (var j = 0; j < state.productVariants.length; j++) {
+                        if (state.productVariants[j].product_id === enhanced.product.id) {
+                            variants.push(state.productVariants[j]);
+                        }
+                    }
+                    var defaultVariant = null;
+                    for (var k = 0; k < variants.length; k++) {
+                        if (variants[k].is_default) {
+                            defaultVariant = variants[k];
+                            break;
+                        }
+                    }
+                    if (!defaultVariant && variants.length > 0) {
+                        defaultVariant = variants[0];
+                    }
+                    if (defaultVariant) {
+                        enhanced._productVariantId = defaultVariant.id;
+                    }
+                }
+
+                state.recommendationsRaw.push(enhanced);
+                state.recommendationsById[rec.id] = enhanced;
+            }
+        }
+
+        function isUnderThreshold(enhanced) {
+            return typeof enhanced.one_time_price === 'number' && enhanced.one_time_price > 0 && enhanced.one_time_price < UNDER_THRESHOLD_PRICE;
+        }
+
+        function recomputeRecommendationsView() {
+            var items = state.recommendationsRaw.slice();
+            if (state.filterUnderThreshold) {
+                var filtered = [];
+                for (var i = 0; i < items.length; i++) {
+                    if (isUnderThreshold(items[i])) {
+                        filtered.push(items[i]);
+                    }
+                }
+                items = filtered;
+            }
+
+            if (state.sort === 'one_time_price_asc') {
+                items.sort(function(a, b) {
+                    var ap = typeof a.one_time_price === 'number' ? a.one_time_price : Number.POSITIVE_INFINITY;
+                    var bp = typeof b.one_time_price === 'number' ? b.one_time_price : Number.POSITIVE_INFINITY;
+                    if (ap === bp) {
+                        return a._originalIndex - b._originalIndex;
+                    }
+                    return ap - bp;
+                });
+            } else if (state.sort === 'subscription_price_asc') {
+                items.sort(function(a, b) {
+                    var ap = typeof a.subscription_price === 'number' ? a.subscription_price : Number.POSITIVE_INFINITY;
+                    var bp = typeof b.subscription_price === 'number' ? b.subscription_price : Number.POSITIVE_INFINITY;
+                    if (ap === bp) {
+                        return a._originalIndex - b._originalIndex;
+                    }
+                    return ap - bp;
+                });
+            } else {
+                items.sort(function(a, b) {
+                    var aPrimary = a.recommendation.is_primary_recommendation ? 1 : 0;
+                    var bPrimary = b.recommendation.is_primary_recommendation ? 1 : 0;
+                    if (aPrimary !== bPrimary) {
+                        return bPrimary - aPrimary;
+                    }
+                    return a._originalIndex - b._originalIndex;
+                });
+            }
+
+            state.recommendationsView = items;
+        }
+
+        function getDisplayName(enhanced) {
+            if (enhanced.product && enhanced.product.name) {
+                return enhanced.product.name;
+            }
+            if (enhanced.bundle && enhanced.bundle.name) {
+                return enhanced.bundle.name;
+            }
+            if (enhanced.regimen && enhanced.regimen.name) {
+                return enhanced.regimen.name;
+            }
+            return 'Recommended item';
+        }
+
+        function createRecommendationCardElement(enhanced) {
+            var rec = enhanced.recommendation;
+            var recId = rec.id;
+            var card = document.createElement('article');
+            card.setAttribute('data-component', 'recommendation-card');
+            card.setAttribute('data-recommendation-id', recId);
+            card.setAttribute('data-item-type', rec.recommended_item_type);
+            card.style.margin = '16px auto';
+            card.style.maxWidth = '800px';
+            card.style.textAlign = 'left';
+
+            if (isUnderThreshold(enhanced)) {
+                card.setAttribute('data-under-threshold', 'true');
+            } else {
+                card.setAttribute('data-under-threshold', 'false');
+            }
+
+            var title = document.createElement('h3');
+            var name = getDisplayName(enhanced);
+            if (rec.is_primary_recommendation) {
+                title.textContent = name + ' (Primary recommendation)';
+            } else {
+                title.textContent = name;
+            }
+
+            var supply = document.createElement('p');
+            if (typeof enhanced.supply_months === 'number') {
+                supply.textContent = 'Typical supply: ' + enhanced.supply_months + ' month' + (enhanced.supply_months === 1 ? '' : 's');
+            }
+
+            var goals = document.createElement('p');
+            if (Array.isArray(enhanced.goal_tags) && enhanced.goal_tags.length) {
+                var goalLabels = [];
+                for (var i = 0; i < enhanced.goal_tags.length; i++) {
+                    goalLabels.push(formatConcernTag(enhanced.goal_tags[i]));
+                }
+                goals.textContent = 'Goals supported: ' + goalLabels.join(', ');
+            }
+
+            var pOne = document.createElement('p');
+            var hasOneTime = typeof enhanced.one_time_price === 'number';
+            if (hasOneTime) {
+                pOne.textContent = 'One-time price: ' + formatPrice(enhanced.one_time_price);
+            } else {
+                pOne.textContent = 'One-time purchase not available for this recommendation.';
+            }
+
+            var pSub = document.createElement('p');
+            var hasSubscription = typeof enhanced.subscription_price === 'number';
+            if (hasSubscription) {
+                pSub.textContent = 'Subscription price: ' + formatPrice(enhanced.subscription_price);
+            } else {
+                pSub.textContent = 'Subscription purchase not available for this recommendation.';
+            }
+
+            var badge = null;
+            if (isUnderThreshold(enhanced) && hasOneTime) {
+                badge = document.createElement('p');
+                badge.textContent = 'This recommendation qualifies under your selected price threshold.';
+                badge.style.fontStyle = 'italic';
+            }
+
+            var selection = state.cardSelections[recId];
+            if (!selection) {
+                selection = {};
+                var defaultPurchaseType = null;
+                if (state.purchaseEmphasis === 'subscription' && hasSubscription) {
+                    defaultPurchaseType = 'subscription';
+                } else if (state.purchaseEmphasis === 'one_time' && hasOneTime) {
+                    defaultPurchaseType = 'one_time';
+                } else if (hasOneTime) {
+                    defaultPurchaseType = 'one_time';
+                } else if (hasSubscription) {
+                    defaultPurchaseType = 'subscription';
+                } else {
+                    defaultPurchaseType = null;
+                }
+                selection.purchaseType = defaultPurchaseType;
+                selection.subscriptionFrequency = defaultPurchaseType === 'subscription' ? 'every_30_days' : null;
+                selection.quantity = 1;
+                state.cardSelections[recId] = selection;
+            }
+
+            var selectorDiv = document.createElement('div');
+            selectorDiv.setAttribute('data-component', 'purchase-type-selector');
+            selectorDiv.style.marginTop = '8px';
+
+            var selectorLabel = document.createElement('p');
+            selectorLabel.textContent = 'Choose how you would like to purchase:';
+            selectorDiv.appendChild(selectorLabel);
+
+            if (hasOneTime) {
+                var labelOne = document.createElement('label');
+                var radioOne = document.createElement('input');
+                radioOne.type = 'radio';
+                radioOne.name = 'purchase_type_' + recId;
+                radioOne.value = 'one_time';
+                radioOne.setAttribute('data-action', 'card-purchase-type-change');
+                radioOne.setAttribute('data-recommendation-id', recId);
+                if (selection.purchaseType === 'one_time') {
+                    radioOne.checked = true;
+                }
+                labelOne.appendChild(radioOne);
+                labelOne.appendChild(document.createTextNode(' One-time'));
+                selectorDiv.appendChild(labelOne);
+                selectorDiv.appendChild(document.createTextNode(' '));
+            }
+
+            if (hasSubscription) {
+                var labelSub = document.createElement('label');
+                var radioSub = document.createElement('input');
+                radioSub.type = 'radio';
+                radioSub.name = 'purchase_type_' + recId;
+                radioSub.value = 'subscription';
+                radioSub.setAttribute('data-action', 'card-purchase-type-change');
+                radioSub.setAttribute('data-recommendation-id', recId);
+                if (selection.purchaseType === 'subscription') {
+                    radioSub.checked = true;
+                }
+                labelSub.appendChild(radioSub);
+                labelSub.appendChild(document.createTextNode(' Subscription'));
+                selectorDiv.appendChild(labelSub);
+
+                var freqWrapper = document.createElement('p');
+                freqWrapper.style.marginTop = '4px';
+                var freqLabel = document.createElement('span');
+                freqLabel.textContent = 'Subscription frequency: ';
+                var select = document.createElement('select');
+                select.name = 'subscription_frequency_' + recId;
+                select.setAttribute('data-action', 'card-subscription-frequency-change');
+                select.setAttribute('data-recommendation-id', recId);
+
+                var frequencies = [
+                    { value: 'every_30_days', label: 'Every 30 days' },
+                    { value: 'every_60_days', label: 'Every 60 days' },
+                    { value: 'every_90_days', label: 'Every 90 days' }
+                ];
+                for (var f = 0; f < frequencies.length; f++) {
+                    var opt = document.createElement('option');
+                    opt.value = frequencies[f].value;
+                    opt.textContent = frequencies[f].label;
+                    if (selection.subscriptionFrequency === frequencies[f].value || (!selection.subscriptionFrequency && frequencies[f].value === 'every_30_days')) {
+                        opt.selected = true;
+                    }
+                    select.appendChild(opt);
+                }
+
+                freqWrapper.appendChild(freqLabel);
+                freqWrapper.appendChild(select);
+                selectorDiv.appendChild(freqWrapper);
+            }
+
+            var formDiv = document.createElement('div');
+            formDiv.setAttribute('data-component', 'quick-add-to-cart-controller');
+            formDiv.style.marginTop = '8px';
+
+            var qtyLabel = document.createElement('label');
+            qtyLabel.textContent = 'Quantity: ';
+            var qtyInput = document.createElement('input');
+            qtyInput.type = 'number';
+            qtyInput.min = '1';
+            qtyInput.value = selection.quantity && selection.quantity > 0 ? selection.quantity : 1;
+            qtyInput.style.width = '60px';
+            qtyInput.setAttribute('data-action', 'card-quantity-change');
+            qtyInput.setAttribute('data-recommendation-id', recId);
+            qtyLabel.appendChild(qtyInput);
+
+            var addButton = document.createElement('button');
+            addButton.type = 'button';
+            addButton.textContent = 'Add to cart';
+            addButton.style.marginLeft = '8px';
+            addButton.setAttribute('data-action', 'add-to-cart');
+            addButton.setAttribute('data-recommendation-id', recId);
+
+            formDiv.appendChild(qtyLabel);
+            formDiv.appendChild(addButton);
+
+            var errorBlock = document.createElement('div');
+            errorBlock.setAttribute('data-role', 'card-error');
+            errorBlock.style.color = 'red';
+            errorBlock.style.marginTop = '4px';
+            formDiv.appendChild(errorBlock);
+
+            var detailsP = document.createElement('p');
+            detailsP.style.marginTop = '8px';
+            var detailsLink = document.createElement('a');
+            detailsLink.href = 'javascript:void(0)';
+            detailsLink.textContent = 'View details';
+            detailsLink.setAttribute('data-action', 'view-details');
+            detailsLink.setAttribute('data-item-type', rec.recommended_item_type);
+            if (rec.recommended_item_type === 'product' && enhanced.product) {
+                detailsLink.setAttribute('data-item-id', enhanced.product.id);
+            } else if (rec.recommended_item_type === 'bundle' && enhanced.bundle) {
+                detailsLink.setAttribute('data-item-id', enhanced.bundle.id);
+            } else if (rec.recommended_item_type === 'regimen' && enhanced.regimen) {
+                detailsLink.setAttribute('data-item-id', enhanced.regimen.id);
+            }
+            detailsP.appendChild(detailsLink);
+
+            card.appendChild(title);
+            if (supply.textContent) {
+                card.appendChild(supply);
+            }
+            if (goals.textContent) {
+                card.appendChild(goals);
+            }
+            card.appendChild(pOne);
+            card.appendChild(pSub);
+            if (badge) {
+                card.appendChild(badge);
+            }
+            card.appendChild(selectorDiv);
+            card.appendChild(formDiv);
+            card.appendChild(detailsP);
+
+            var hr = document.createElement('hr');
+            hr.style.marginTop = '16px';
+            card.appendChild(hr);
+
+            return card;
+        }
+
+        function renderRecommendationsArea() {
+            var container = getContainer('recommendations-list');
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+            var items = state.recommendationsView || [];
+            if (!items.length) {
+                return;
+            }
+            for (var i = 0; i < items.length; i++) {
+                container.appendChild(createRecommendationCardElement(items[i]));
+            }
+        }
+
+        function openMiniCartOverlay(summary) {
+            state.latestCartSummary = summary || null;
+            var overlay = document.querySelector('[data-component="mini-cart-overlay"]');
+            var container = getContainer('mini-cart-contents');
+            if (!overlay || !container) {
+                return;
+            }
+            container.innerHTML = '';
+
+            var wrapper = document.createElement('div');
+            wrapper.style.textAlign = 'left';
+
+            var heading = document.createElement('h2');
+            heading.textContent = 'Your cart';
+            wrapper.appendChild(heading);
+
+            var items = summary && summary.items_detailed ? summary.items_detailed : [];
+            if (items && items.length) {
+                var list = document.createElement('ul');
+                for (var i = 0; i < items.length; i++) {
+                    var entry = items[i];
+                    var li = document.createElement('li');
+                    var displayName = entry.display_name || (entry.product && entry.product.name) || (entry.bundle && entry.bundle.name) || (entry.regimen && entry.regimen.name) || 'Item';
+                    var qty = entry.cart_item && entry.cart_item.quantity ? entry.cart_item.quantity : 1;
+                    var linePrice = entry.cart_item && typeof entry.cart_item.total_price === 'number' ? entry.cart_item.total_price : null;
+                    var text = displayName + ' x ' + qty;
+                    if (linePrice !== null) {
+                        text += ' 	7 ' + formatPrice(linePrice);
+                    }
+                    li.textContent = text;
+                    list.appendChild(li);
+                }
+                wrapper.appendChild(list);
+            } else {
+                var emptyP = document.createElement('p');
+                emptyP.textContent = 'Your cart is currently empty.';
+                wrapper.appendChild(emptyP);
+            }
+
+            if (summary && typeof summary.subtotal === 'number') {
+                var subtotalP = document.createElement('p');
+                subtotalP.textContent = 'Subtotal: ' + formatPrice(summary.subtotal);
+                wrapper.appendChild(subtotalP);
+            }
+            if (summary && typeof summary.estimated_discounts === 'number' && summary.estimated_discounts > 0) {
+                var discP = document.createElement('p');
+                discP.textContent = 'Estimated discounts: -' + formatPrice(summary.estimated_discounts);
+                wrapper.appendChild(discP);
+            }
+            if (summary && summary.note_about_shipping) {
+                var shipP = document.createElement('p');
+                shipP.textContent = summary.note_about_shipping;
+                wrapper.appendChild(shipP);
+            }
+
+            var actionsP = document.createElement('p');
+            var viewBtn = document.createElement('button');
+            viewBtn.type = 'button';
+            viewBtn.textContent = 'View cart';
+            viewBtn.setAttribute('data-action', 'view-cart');
+            var checkoutBtn = document.createElement('button');
+            checkoutBtn.type = 'button';
+            checkoutBtn.textContent = 'Checkout';
+            checkoutBtn.setAttribute('data-action', 'checkout');
+            checkoutBtn.style.marginLeft = '8px';
+            var closeLink = document.createElement('a');
+            closeLink.href = 'javascript:void(0)';
+            closeLink.textContent = 'Close';
+            closeLink.setAttribute('data-action', 'close-mini-cart');
+            closeLink.style.marginLeft = '8px';
+
+            actionsP.appendChild(viewBtn);
+            actionsP.appendChild(checkoutBtn);
+            actionsP.appendChild(closeLink);
+            wrapper.appendChild(actionsP);
+
+            container.appendChild(wrapper);
+            overlay.style.display = 'block';
+        }
+
+        function hideMiniCartOverlay() {
+            var overlay = document.querySelector('[data-component="mini-cart-overlay"]');
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+        }
+
+        function handleAddToCart(recId) {
+            var enhanced = state.recommendationsById[recId];
+            if (!enhanced) {
+                return;
+            }
+            var rec = enhanced.recommendation;
+            var card = document.querySelector('article[data-component="recommendation-card"][data-recommendation-id="' + recId + '"]');
+            var errorNode = card ? card.querySelector('[data-role="card-error"]') : null;
+            if (errorNode) {
+                errorNode.textContent = '';
+            }
+
+            var selection = state.cardSelections[recId] || {};
+            var purchaseType = selection.purchaseType;
+            var subscriptionFrequency = selection.subscriptionFrequency;
+            var quantity = selection.quantity || 1;
+
+            if (!purchaseType) {
+                if (errorNode) {
+                    errorNode.textContent = 'Please choose a purchase type before adding to cart.';
+                }
+                return;
+            }
+            if (purchaseType === 'subscription' && !subscriptionFrequency) {
+                if (errorNode) {
+                    errorNode.textContent = 'Please choose a subscription frequency.';
+                }
+                return;
+            }
+            if (quantity < 1) {
+                quantity = 1;
+            }
+
+            var addResult = null;
+            try {
+                if (rec.recommended_item_type === 'product') {
+                    if (!enhanced.product || !enhanced._productVariantId) {
+                        if (errorNode) {
+                            errorNode.textContent = 'This product configuration is not available to add to cart.';
+                        }
+                        return;
+                    }
+                    addResult = WebsiteSDK.addProductToCart(enhanced.product.id, enhanced._productVariantId, purchaseType, purchaseType === 'subscription' ? subscriptionFrequency : undefined, quantity);
+                } else if (rec.recommended_item_type === 'bundle') {
+                    if (!enhanced.bundle) {
+                        if (errorNode) {
+                            errorNode.textContent = 'This bundle is not available to add to cart.';
+                        }
+                        return;
+                    }
+                    addResult = WebsiteSDK.addBundleToCart(enhanced.bundle.id, purchaseType, purchaseType === 'subscription' ? subscriptionFrequency : undefined, quantity);
+                } else if (rec.recommended_item_type === 'regimen') {
+                    if (!enhanced.regimen) {
+                        if (errorNode) {
+                            errorNode.textContent = 'This regimen is not available to add to cart.';
+                        }
+                        return;
+                    }
+                    addResult = WebsiteSDK.addRegimenToCart(enhanced.regimen.id, purchaseType, purchaseType === 'subscription' ? subscriptionFrequency : undefined, quantity);
+                }
+            } catch (e) {
+                if (errorNode) {
+                    errorNode.textContent = 'Unable to add this recommendation to your cart. Please try again.';
+                }
+                return;
+            }
+
+            if (!addResult || addResult.success === false) {
+                var message = addResult && addResult.message ? addResult.message : 'Unable to add this recommendation to your cart. Please try again.';
+                if (errorNode) {
+                    errorNode.textContent = message;
+                }
+                return;
+            }
+
+            try {
+                var summary = WebsiteSDK.getCartSummary();
+                openMiniCartOverlay(summary);
+            } catch (e2) {
+                if (errorNode) {
+                    errorNode.textContent = 'Item added, but there was a problem showing your cart.';
+                }
+            }
+        }
+
+        function initPage() {
+            state.productVariants = loadProductVariantsFromStorage();
+            readQuizResponseIdFromUrl();
+
+            if (!state.quizResponseId) {
+                setStatusMessage('');
+                renderQuizSummary(getContainer('quiz-summary'), null);
+                renderControls(getContainer('quiz-controls'));
+                renderErrorState(getContainer('error-empty'), 'missingQuizResponseId');
+                return;
+            }
+
+            syncViewStateFromUrl();
+            setStatusMessage('Loading your quiz results...');
+
+            try {
+                var result = WebsiteSDK.getQuizResults(state.quizResponseId);
+                if (!result || !result.quiz_response) {
+                    setStatusMessage('');
+                    renderQuizSummary(getContainer('quiz-summary'), null);
+                    renderControls(getContainer('quiz-controls'));
+                    renderErrorState(getContainer('error-empty'), 'getQuizResultsError');
+                    return;
+                }
+                state.quizResponse = result.quiz_response;
+                prepareRecommendations(result.recommendations_detailed || []);
+                setStatusMessage('');
+
+                renderQuizSummary(getContainer('quiz-summary'), state.quizResponse);
+
+                if (!state.recommendationsRaw.length) {
+                    renderControls(getContainer('quiz-controls'));
+                    renderErrorState(getContainer('error-empty'), 'noRecommendations');
+                    return;
+                }
+
+                recomputeRecommendationsView();
+                renderControls(getContainer('quiz-controls'));
+                clearError(getContainer('error-empty'));
+                renderRecommendationsArea();
+            } catch (e) {
+                setStatusMessage('');
+                renderQuizSummary(getContainer('quiz-summary'), null);
+                renderControls(getContainer('quiz-controls'));
+                renderErrorState(getContainer('error-empty'), 'getQuizResultsError');
+            }
+        }
+
+        document.addEventListener('click', function(event) {
+            var target = event.target;
+            var action = target.getAttribute('data-action');
+            if (!action) {
+                return;
+            }
+            if (action === 'change-sort') {
+                event.preventDefault();
+                var sort = target.getAttribute('data-sort') || 'primary_first';
+                updateQueryParam('sort', sort);
+                syncViewStateFromUrl();
+                recomputeRecommendationsView();
+                renderControls(getContainer('quiz-controls'));
+                renderRecommendationsArea();
+            } else if (action === 'add-to-cart') {
+                event.preventDefault();
+                var recId = target.getAttribute('data-recommendation-id');
+                if (recId) {
+                    handleAddToCart(recId);
+                }
+            } else if (action === 'view-details') {
+                event.preventDefault();
+                var itemType = target.getAttribute('data-item-type');
+                var itemId = target.getAttribute('data-item-id');
+                if (!itemType || !itemId) {
+                    return;
+                }
+                if (itemType === 'product') {
+                    window.location.href = 'product.html?id=' + encodeURIComponent(itemId);
+                } else if (itemType === 'bundle') {
+                    window.location.href = 'bundle.html?id=' + encodeURIComponent(itemId);
+                } else if (itemType === 'regimen') {
+                    window.location.href = 'regimen.html?id=' + encodeURIComponent(itemId);
+                }
+            } else if (action === 'view-cart') {
+                event.preventDefault();
+                window.location.href = 'cart.html';
+            } else if (action === 'checkout') {
+                event.preventDefault();
+                window.location.href = 'checkout.html';
+            } else if (action === 'close-mini-cart') {
+                event.preventDefault();
+                hideMiniCartOverlay();
+            } else if (action === 'go-to-quiz') {
+                event.preventDefault();
+                window.location.href = 'quiz.html';
+            }
+        });
+
+        document.addEventListener('change', function(event) {
+            var target = event.target;
+            var action = target.getAttribute('data-action');
+            if (!action) {
+                return;
+            }
+            if (action === 'set-purchase-emphasis') {
+                var value = target.value || 'one_time';
+                updateQueryParam('purchaseEmphasis', value);
+                syncViewStateFromUrl();
+                recomputeRecommendationsView();
+                renderControls(getContainer('quiz-controls'));
+                renderRecommendationsArea();
+            } else if (action === 'toggle-under-threshold') {
+                var checked = target.checked;
+                updateQueryParam('filterUnderThreshold', checked ? 'true' : '');
+                syncViewStateFromUrl();
+                recomputeRecommendationsView();
+                renderControls(getContainer('quiz-controls'));
+                renderRecommendationsArea();
+            } else if (action === 'card-purchase-type-change') {
+                var recId = target.getAttribute('data-recommendation-id');
+                if (!recId) {
+                    return;
+                }
+                if (!state.cardSelections[recId]) {
+                    state.cardSelections[recId] = { quantity: 1 };
+                }
+                state.cardSelections[recId].purchaseType = target.value;
+                if (target.value !== 'subscription') {
+                    state.cardSelections[recId].subscriptionFrequency = null;
+                } else if (!state.cardSelections[recId].subscriptionFrequency) {
+                    state.cardSelections[recId].subscriptionFrequency = 'every_30_days';
+                }
+            } else if (action === 'card-subscription-frequency-change') {
+                var recId2 = target.getAttribute('data-recommendation-id');
+                if (!recId2) {
+                    return;
+                }
+                if (!state.cardSelections[recId2]) {
+                    state.cardSelections[recId2] = { quantity: 1 };
+                }
+                state.cardSelections[recId2].subscriptionFrequency = target.value;
+            } else if (action === 'card-quantity-change') {
+                var recId3 = target.getAttribute('data-recommendation-id');
+                if (!recId3) {
+                    return;
+                }
+                var val = parseInt(target.value, 10);
+                if (isNaN(val) || val < 1) {
+                    val = 1;
+                }
+                target.value = val;
+                if (!state.cardSelections[recId3]) {
+                    state.cardSelections[recId3] = { purchaseType: null, subscriptionFrequency: null };
+                }
+                state.cardSelections[recId3].quantity = val;
+            }
+        });
+
+        var overlayElem = document.querySelector('[data-component="mini-cart-overlay"]');
+        if (overlayElem) {
+            overlayElem.addEventListener('click', function(event) {
+                if (event.target === overlayElem) {
+                    hideMiniCartOverlay();
+                }
+            });
+        }
+
+        window.addEventListener('popstate', function() {
+            if (!state.quizResponse) {
+                return;
+            }
+            syncViewStateFromUrl();
+            recomputeRecommendationsView();
+            renderControls(getContainer('quiz-controls'));
+            renderRecommendationsArea();
+        });
+
+        initPage();
+    });
+    </script>
+</body>
+</html>

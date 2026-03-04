@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='privacy.css'>
+<script src='business_logic.js'></script>
+
+<section class='privacy-page' data-component='privacy-policy-page-controller'>
+    <div class='privacy-page-inner container-narrow'>
+        <!-- Metadata bar / header -->
+        <header class='privacy-metadata-bar' data-component='privacy-policy-metadata-bar'>
+            <div class='metadata-row'>
+                <div class='metadata-main'>
+                    <h1 class='privacy-title'>Privacy Policy</h1>
+                    <div class='privacy-meta'>
+                        <span class='privacy-updated-label'>Last updated:</span>
+                        <span class='privacy-updated-value' data-populate='privacy-last-updated'>—</span>
+                    </div>
+                </div>
+                <div class='metadata-actions'>
+                    <button type='button' class='btn btn-primary btn-sm' data-action='print-policy'>Print</button>
+                    <button type='button' class='btn btn-secondary btn-sm' data-action='retry-load' hidden>Retry</button>
+                </div>
+            </div>
+            <div class='privacy-status' aria-live='polite'></div>
+        </header>
+
+        <!-- Search form -->
+        <section class='privacy-search' data-component='privacy-policy-search-form'>
+            <form class='privacy-search-form' data-action='search-form'>
+                <label for='privacySearchInput' class='search-label'>Search in this policy</label>
+                <div class='form-group'>
+                    <input id='privacySearchInput'
+                           name='q'
+                           type='search'
+                           class='form-control'
+                           placeholder='Search by keyword or phrase'
+                           autocomplete='off'>
+                </div>
+                <div class='search-actions'>
+                    <button type='submit' class='btn btn-primary' data-action='search-submit'>Search</button>
+                    <button type='button' class='btn btn-secondary' data-action='search-clear'>Clear</button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Table of contents -->
+        <nav class='privacy-toc' data-component='privacy-policy-toc' aria-label='Privacy policy sections'>
+            <div class='toc-inner'>
+                <div class='toc-header'>Sections</div>
+                <ol class='toc-list'>
+                    <!-- Sections populated via JavaScript -->
+                </ol>
+            </div>
+        </nav>
+
+        <!-- Content viewer -->
+        <section class='privacy-content-viewer' data-component='privacy-policy-content-viewer'>
+            <article class='privacy-content' data-populate='privacy-body'>
+                <p class='privacy-loading'>Loading current privacy policy…</p>
+            </article>
+        </section>
+    </div>
+</section>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const pageController = document.querySelector('[data-component="privacy-policy-page-controller"]');
+    if (!pageController) return;
+
+    const metadataBar = pageController.querySelector('[data-component="privacy-policy-metadata-bar"]');
+    const searchFormSection = pageController.querySelector('[data-component="privacy-policy-search-form"]');
+    const tocNav = pageController.querySelector('[data-component="privacy-policy-toc"]');
+    const contentViewerSection = pageController.querySelector('[data-component="privacy-policy-content-viewer"]');
+
+    const lastUpdatedEl = metadataBar ? metadataBar.querySelector('[data-populate="privacy-last-updated"]') : null;
+    const statusEl = metadataBar ? metadataBar.querySelector('.privacy-status') : null;
+    const articleEl = contentViewerSection ? contentViewerSection.querySelector('[data-populate="privacy-body"]') : null;
+    const searchInput = searchFormSection ? searchFormSection.querySelector('#privacySearchInput') : null;
+    const tocList = tocNav ? tocNav.querySelector('.toc-list') : null;
+
+    const pageState = {
+        loadStatus: 'idle',
+        error: null,
+        lastUpdated: '',
+        bodyHtml: '',
+        sections: [],
+        activeSearchTerm: '',
+        activeSection: '',
+        mode: ''
+    };
+
+    function readUrlState() {
+        const params = new URLSearchParams(window.location.search);
+        pageState.activeSearchTerm = (params.get('q') || '').trim();
+        pageState.activeSection = (params.get('section') || '').trim();
+        pageState.mode = (params.get('mode') || '').trim();
+    }
+
+    readUrlState();
+
+    if (searchInput) {
+        searchInput.value = pageState.activeSearchTerm;
+    }
+
+    function applyModeLayout() {
+        if (!pageController) return;
+        if (pageState.mode === 'print') {
+            pageController.classList.add('mode-print');
+        } else {
+            pageController.classList.remove('mode-print');
+        }
+    }
+
+    applyModeLayout();
+
+    function setStatus(message) {
+        if (statusEl) {
+            statusEl.textContent = message || '';
+        }
+    }
+
+    function updateMetadataBar() {
+        if (!metadataBar) return;
+
+        if (lastUpdatedEl) {
+            lastUpdatedEl.textContent = pageState.lastUpdated ? pageState.lastUpdated : '—';
+        }
+
+        if (pageState.loadStatus === 'loading') {
+            setStatus('Loading current privacy policy…');
+        } else if (pageState.loadStatus === 'error') {
+            setStatus(pageState.error || 'Unable to load privacy policy.');
+        } else {
+            setStatus('');
+        }
+
+        const retryButton = metadataBar.querySelector('[data-action="retry-load"]');
+        if (retryButton) {
+            retryButton.hidden = pageState.loadStatus !== 'error';
+        }
+    }
+
+    function slugify(text) {
+        return text
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '') || 'section';
+    }
+
+    function buildSections(bodyHtml) {
+        const temp = document.createElement('div');
+        temp.innerHTML = bodyHtml;
+        const headings = temp.querySelectorAll('h1,h2,h3,h4,h5,h6');
+        const slugCounts = {};
+        const sections = [];
+
+        headings.forEach(h => {
+            const text = (h.textContent || '').trim();
+            if (!text) return;
+            const level = parseInt(h.tagName.charAt(1), 10) || 2;
+            const baseSlug = slugify(text);
+            let slug = baseSlug;
+            if (slugCounts[baseSlug]) {
+                slugCounts[baseSlug] += 1;
+                slug = `${baseSlug}-${slugCounts[baseSlug]}`;
+            } else {
+                slugCounts[baseSlug] = 1;
+            }
+            sections.push({ id: slug, text, level });
+        });
+
+        return sections;
+    }
+
+    function escapeRegExp(str) {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function highlightInNode(node, term, cssClass) {
+        if (!term) return;
+
+        if (node.nodeType === Node.TEXT_NODE) {
+            const text = node.textContent;
+            const regex = new RegExp(escapeRegExp(term), 'gi');
+            let match;
+            let lastIndex = 0;
+            const frag = document.createDocumentFragment();
+            let found = false;
+
+            while ((match = regex.exec(text)) !== null) {
+                found = true;
+                if (match.index > lastIndex) {
+                    frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+                }
+                const span = document.createElement('span');
+                span.className = cssClass;
+                span.textContent = match[0];
+                frag.appendChild(span);
+                lastIndex = regex.lastIndex;
+            }
+
+            if (!found) return;
+
+            if (lastIndex < text.length) {
+                frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+            }
+
+            if (node.parentNode) {
+                node.parentNode.replaceChild(frag, node);
+            }
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+            if (node.tagName === 'SCRIPT' || node.tagName === 'STYLE') return;
+            const children = Array.from(node.childNodes);
+            children.forEach(child => highlightInNode(child, term, cssClass));
+        }
+    }
+
+    function renderPolicyContent(container, bodyHtml, sections, searchTerm) {
+        if (!container) return;
+
+        if (pageState.loadStatus === 'loading') {
+            container.innerHTML = '<p class=\'privacy-loading\'>Loading current privacy policy…</p>';
+            return;
+        }
+
+        if (pageState.loadStatus === 'error') {
+            const msg = pageState.error || 'Unable to load privacy policy. Please try again.';
+            container.innerHTML = `<p class='privacy-error'>${msg}</p>`;
+            return;
+        }
+
+        const temp = document.createElement('div');
+        temp.innerHTML = bodyHtml;
+
+        const headings = temp.querySelectorAll('h1,h2,h3,h4,h5,h6');
+        headings.forEach((h, idx) => {
+            const sectionMeta = sections[idx];
+            if (sectionMeta) {
+                h.id = sectionMeta.id;
+                h.setAttribute('data-section-id', sectionMeta.id);
+            }
+        });
+
+        if (searchTerm) {
+            highlightInNode(temp, searchTerm, 'privacy-highlight');
+        }
+
+        container.innerHTML = '';
+        while (temp.firstChild) {
+            container.appendChild(temp.firstChild);
+        }
+    }
+
+    function renderTocList(container, sections, activeSectionId) {
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        if (pageState.loadStatus !== 'success' || !sections.length) {
+            const li = document.createElement('li');
+            li.className = 'toc-empty';
+            li.textContent = pageState.loadStatus === 'loading'
+                ? 'Sections will appear here once the policy is loaded.'
+                : 'No section headings available.';
+            container.appendChild(li);
+            return;
+        }
+
+        sections.forEach(section => {
+            const li = document.createElement('li');
+            li.className = `toc-item toc-level-${section.level}`;
+            if (section.id === activeSectionId) {
+                li.classList.add('is-active');
+            }
+
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'toc-link';
+            btn.dataset.action = 'toc-jump';
+            btn.dataset.sectionId = section.id;
+            btn.textContent = section.text;
+
+            li.appendChild(btn);
+            container.appendChild(li);
+        });
+    }
+
+    function scrollToSection(sectionId, smooth = true) {
+        if (!sectionId) return;
+
+        let target = null;
+        if (contentViewerSection) {
+            target = contentViewerSection.querySelector(`[data-section-id="${sectionId}"]`);
+        }
+        if (!target) {
+            target = document.getElementById(sectionId);
+        }
+        if (!target) return;
+
+        const rect = target.getBoundingClientRect();
+        const offset = 24;
+        const targetTop = window.pageYOffset + rect.top - offset;
+
+        window.scrollTo({
+            top: targetTop,
+            behavior: smooth ? 'smooth' : 'auto'
+        });
+    }
+
+    function scrollToFirstHighlight() {
+        if (!contentViewerSection) return;
+        const firstMatch = contentViewerSection.querySelector('.privacy-highlight');
+        if (!firstMatch) return;
+
+        const rect = firstMatch.getBoundingClientRect();
+        const offset = 24;
+        const targetTop = window.pageYOffset + rect.top - offset;
+
+        window.scrollTo({
+            top: targetTop,
+            behavior: 'smooth'
+        });
+    }
+
+    function updateUrlParam(key, value) {
+        const url = new URL(window.location.href);
+        if (value === null || value === undefined || value === '') {
+            url.searchParams.delete(key);
+        } else {
+            url.searchParams.set(key, value);
+        }
+        history.pushState({}, '', url.toString());
+    }
+
+    function renderAll(afterFetch) {
+        updateMetadataBar();
+
+        if (pageState.loadStatus === 'success') {
+            if (!pageState.sections || !pageState.sections.length) {
+                pageState.sections = buildSections(pageState.bodyHtml);
+            }
+        }
+
+        renderPolicyContent(articleEl, pageState.bodyHtml, pageState.sections, pageState.activeSearchTerm);
+        renderTocList(tocList, pageState.sections, pageState.activeSection);
+        applyModeLayout();
+
+        if (pageState.loadStatus === 'success') {
+            if (afterFetch && pageState.activeSection) {
+                scrollToSection(pageState.activeSection, false);
+            } else if (afterFetch && pageState.activeSearchTerm && !pageState.activeSection) {
+                scrollToFirstHighlight();
+            }
+        }
+    }
+
+    function fetchPolicy() {
+        pageState.loadStatus = 'loading';
+        pageState.error = null;
+        updateMetadataBar();
+        renderPolicyContent(articleEl, '', [], '');
+
+        try {
+            const result = WebsiteSDK.getPrivacyPolicyContent();
+            pageState.lastUpdated = result && result.last_updated ? result.last_updated : '';
+            pageState.bodyHtml = result && result.body ? result.body : '';
+            pageState.loadStatus = 'success';
+            pageState.sections = buildSections(pageState.bodyHtml);
+            renderAll(true);
+        } catch (err) {
+            console.error('Error loading privacy policy:', err);
+            pageState.loadStatus = 'error';
+            pageState.error = 'Unable to load privacy policy. Please check your connection and try again.';
+            renderAll(false);
+        }
+    }
+
+    fetchPolicy();
+
+    document.addEventListener('click', event => {
+        const actionEl = event.target.closest('[data-action]');
+        if (!actionEl) return;
+        const action = actionEl.dataset.action;
+        if (!action) return;
+
+        if (action === 'print-policy') {
+            event.preventDefault();
+            window.print();
+        } else if (action === 'search-clear') {
+            event.preventDefault();
+            if (!searchInput) return;
+            searchInput.value = '';
+            pageState.activeSearchTerm = '';
+            updateUrlParam('q', '');
+            if (pageState.bodyHtml) {
+                renderPolicyContent(articleEl, pageState.bodyHtml, pageState.sections, '');
+            }
+            renderTocList(tocList, pageState.sections, pageState.activeSection);
+        } else if (action === 'toc-jump') {
+            event.preventDefault();
+            const sectionId = actionEl.dataset.sectionId;
+            if (!sectionId) return;
+            pageState.activeSection = sectionId;
+            updateUrlParam('section', sectionId);
+            renderTocList(tocList, pageState.sections, pageState.activeSection);
+            scrollToSection(sectionId, true);
+        } else if (action === 'retry-load') {
+            event.preventDefault();
+            fetchPolicy();
+        }
+    });
+
+    if (searchFormSection && searchInput) {
+        const form = searchFormSection.querySelector('form[data-action="search-form"]');
+        if (form) {
+            form.addEventListener('submit', event => {
+                event.preventDefault();
+                const term = searchInput.value.trim();
+                pageState.activeSearchTerm = term;
+                updateUrlParam('q', term || '');
+
+                if (pageState.bodyHtml) {
+                    renderPolicyContent(articleEl, pageState.bodyHtml, pageState.sections, term);
+                    renderTocList(tocList, pageState.sections, pageState.activeSection);
+                    if (term && !pageState.activeSection) {
+                        scrollToFirstHighlight();
+                    }
+                }
+            });
+        }
+    }
+
+    window.addEventListener('popstate', () => {
+        const prevSearch = pageState.activeSearchTerm;
+        const prevSection = pageState.activeSection;
+        const prevMode = pageState.mode;
+
+        readUrlState();
+
+        if (searchInput && pageState.activeSearchTerm !== prevSearch) {
+            searchInput.value = pageState.activeSearchTerm;
+        }
+
+        if (pageState.mode !== prevMode) {
+            applyModeLayout();
+        }
+
+        if (pageState.bodyHtml) {
+            renderPolicyContent(articleEl, pageState.bodyHtml, pageState.sections, pageState.activeSearchTerm);
+            renderTocList(tocList, pageState.sections, pageState.activeSection);
+
+            if (pageState.activeSection && pageState.activeSection !== prevSection) {
+                scrollToSection(pageState.activeSection, false);
+            } else if (!pageState.activeSection && pageState.activeSearchTerm && pageState.activeSearchTerm !== prevSearch) {
+                scrollToFirstHighlight();
+            }
+        }
+    });
+});
+</script>

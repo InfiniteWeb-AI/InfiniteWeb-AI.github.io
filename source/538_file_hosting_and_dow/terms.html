@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terms of Service - File Hosting Service</title>
+    
+    <link rel="stylesheet" href="terms.css">
+</head>
+<body>
+    <header class="site-header">
+        <nav class="main-nav" aria-label="Main navigation">
+            <ul class="main-nav__list">
+                <li class="main-nav__item"><a href="index.html">Dashboard</a></li>
+                <li class="main-nav__item"><a href="explore.html">Explore</a></li>
+                <li class="main-nav__item"><a href="collections.html">Collections</a></li>
+                <li class="main-nav__item"><a href="download_queue.html">Download Queue</a></li>
+                <li class="main-nav__item"><a href="settings.html">Settings</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" class="site-content" role="main">
+        <div id="tosStatus" role="status" aria-live="polite"></div>
+
+        <section aria-labelledby="page-title" data-component="tos-header">
+            <h1 id="page-title">Terms of Service</h1>
+            <p>
+                Last updated:
+                <span data-populate="tos-last-updated"></span>
+            </p>
+        </section>
+
+        <section data-component="tos-mode-toggle">
+            <label for="modeSelect">View mode:</label>
+            <select id="modeSelect" name="mode" data-action="change-mode">
+                <option value="">Default</option>
+                <option value="print">Print-friendly</option>
+            </select>
+        </section>
+
+        <section data-component="tos-search-form">
+            <form id="tosSearchForm" data-action="search-form">
+                <label for="tosSearchInput">Search terms:</label>
+                <input type="text" id="tosSearchInput" name="query">
+                <input type="submit" value="Search">
+                <button type="button" data-action="clear-search">Clear</button>
+            </form>
+            <p id="searchStatus"></p>
+        </section>
+
+        <section data-component="tos-deep-link-control">
+            <p>
+                <button type="button" data-action="copy-current-view-link">Copy link to current view</button>
+                <span id="copyStatus" aria-live="polite"></span>
+            </p>
+        </section>
+
+        <nav aria-label="Table of contents" data-component="toc-navigation">
+            <h2>Table of contents</h2>
+            <ul data-populate="tos-toc">
+                <!-- Table of contents items will be populated here -->
+            </ul>
+        </nav>
+
+        <section aria-label="Terms sections" data-component="tos-section-list">
+            <div data-populate="tos-sections">
+                <!-- Terms sections will be populated here -->
+            </div>
+        </section>
+
+        <div data-component="tos-url-state-controller" aria-hidden="true"></div>
+    </main>
+
+    <footer class="site-footer">
+        <p class="site-footer__copy">
+            &copy; 2010–2026 Example File Hosting Service
+        </p>
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul class="footer-nav__list">
+                <li class="footer-nav__item"><a href="about.html">About</a></li>
+                <li class="footer-nav__item"><a href="help.html">Help &amp; Support</a></li>
+                <li class="footer-nav__item"><a href="terms.html">Terms of Service</a></li>
+                <li class="footer-nav__item"><a href="privacy.html">Privacy Policy</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    (function() {
+        'use strict';
+
+        let termsData = null; // { lastUpdated, sections }
+        let loadError = null;
+        let hasInitialRender = false;
+        let expandedSections = {}; // sectionId -> boolean
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const statusEl = document.getElementById('tosStatus');
+            const searchInput = document.getElementById('tosSearchInput');
+            const modeSelect = document.getElementById('modeSelect');
+
+            const initialState = readUrlState();
+            statusEl.textContent = 'Loading Terms of Service...';
+
+            try {
+                termsData = WebsiteSDK.getTermsOfServiceContent();
+                loadError = null;
+            } catch (e) {
+                loadError = e || new Error('Unknown error');
+            }
+
+            if (loadError) {
+                renderLoadError(statusEl, loadError);
+                return;
+            }
+
+            statusEl.textContent = '';
+
+            // Cache populate elements
+            const populateElements = Array.prototype.slice.call(document.querySelectorAll('[data-populate]'));
+
+            // Initial render
+            renderAll(populateElements, initialState);
+            applyStateToUI(initialState);
+            hasInitialRender = true;
+
+            // Initialize input values from URL state
+            if (searchInput) {
+                searchInput.value = initialState.query || '';
+            }
+            if (modeSelect) {
+                modeSelect.value = initialState.mode || '';
+            }
+
+            // Global event delegation for click, change, submit
+            document.addEventListener('click', function(event) {
+                const target = event.target.closest('[data-action]');
+                if (!target) return;
+                const action = target.dataset.action;
+
+                switch (action) {
+                    case 'clear-search':
+                        event.preventDefault();
+                        handleClearSearch();
+                        break;
+                    case 'toc-section-link':
+                        event.preventDefault();
+                        handleTocSectionClick(target);
+                        break;
+                    case 'toggle-section':
+                        event.preventDefault();
+                        handleToggleSection(target);
+                        break;
+                    case 'copy-section-link':
+                        event.preventDefault();
+                        handleCopySectionLink(target);
+                        break;
+                    case 'copy-current-view-link':
+                        event.preventDefault();
+                        handleCopyCurrentViewLink();
+                        break;
+                    case 'scroll-to-top':
+                        event.preventDefault();
+                        handleScrollToTop();
+                        break;
+                    case 'retry-load':
+                        event.preventDefault();
+                        handleRetryLoad();
+                        break;
+                    default:
+                        break;
+                }
+            });
+
+            document.addEventListener('change', function(event) {
+                const target = event.target.closest('[data-action]');
+                if (!target) return;
+                const action = target.dataset.action;
+
+                if (action === 'change-mode') {
+                    handleModeChange(target);
+                }
+            });
+
+            document.addEventListener('submit', function(event) {
+                const target = event.target.closest('[data-action]');
+                if (!target) return;
+                const action = target.dataset.action;
+
+                if (action === 'search-form') {
+                    event.preventDefault();
+                    handleSearchSubmit(target);
+                }
+            });
+
+            window.addEventListener('popstate', function() {
+                if (!termsData || loadError) {
+                    return;
+                }
+                const state = readUrlState();
+                // Re-render to apply new URL state
+                renderAll(populateElements, state);
+                applyStateToUI(state);
+            });
+        });
+
+        function readUrlState() {
+            const params = new URLSearchParams(window.location.search);
+            const section = params.get('section') || null;
+            const query = params.get('query') || null;
+            const mode = params.get('mode') || null;
+            return { section: section, query: query, mode: mode };
+        }
+
+        function updateUrlState(partialState, replace) {
+            const url = new URL(window.location.href);
+            const params = url.searchParams;
+
+            const keys = ['section', 'query', 'mode'];
+            const current = readUrlState();
+            const next = {
+                section: current.section,
+                query: current.query,
+                mode: current.mode
+            };
+
+            if (Object.prototype.hasOwnProperty.call(partialState, 'section')) {
+                next.section = partialState.section || null;
+            }
+            if (Object.prototype.hasOwnProperty.call(partialState, 'query')) {
+                next.query = partialState.query || null;
+            }
+            if (Object.prototype.hasOwnProperty.call(partialState, 'mode')) {
+                next.mode = partialState.mode || null;
+            }
+
+            keys.forEach(function(key) {
+                if (next[key]) {
+                    params.set(key, next[key]);
+                } else {
+                    params.delete(key);
+                }
+            });
+
+            url.search = params.toString();
+
+            if (replace) {
+                window.history.replaceState(null, '', url.toString());
+            } else {
+                window.history.pushState(null, '', url.toString());
+            }
+        }
+
+        function renderAll(populateElements, state) {
+            if (!termsData) return;
+            populateElements.forEach(function(element) {
+                const key = element.dataset.populate;
+                if (!key) return;
+                switch (key) {
+                    case 'tos-last-updated':
+                        renderLastUpdated(element, termsData);
+                        break;
+                    case 'tos-toc':
+                        renderToc(element, termsData, state);
+                        break;
+                    case 'tos-sections':
+                        renderSections(element, termsData, state);
+                        break;
+                    default:
+                        break;
+                }
+            });
+        }
+
+        function renderLastUpdated(container, data) {
+            container.textContent = data.lastUpdated || '';
+        }
+
+        function renderToc(container, data, state) {
+            const query = state.query || '';
+            const activeSectionId = state.section || null;
+            container.innerHTML = '';
+
+            if (!data.sections || data.sections.length === 0) {
+                const li = document.createElement('li');
+                li.textContent = 'No sections available.';
+                container.appendChild(li);
+                return;
+            }
+
+            data.sections.forEach(function(section) {
+                const li = document.createElement('li');
+                const link = document.createElement('a');
+                link.href = 'javascript:void(0)';
+                link.dataset.action = 'toc-section-link';
+                link.dataset.sectionId = section.id;
+                link.innerHTML = highlightText(section.title || '', query);
+                if (activeSectionId && activeSectionId === section.id) {
+                    link.setAttribute('aria-current', 'true');
+                }
+                li.appendChild(link);
+                container.appendChild(li);
+            });
+        }
+
+        function renderSections(container, data, state) {
+            const query = state.query || '';
+            const activeSectionId = state.section || null;
+            container.innerHTML = '';
+
+            if (!data.sections || data.sections.length === 0) {
+                const p = document.createElement('p');
+                p.textContent = 'No Terms of Service sections are available.';
+                container.appendChild(p);
+                return;
+            }
+
+            data.sections.forEach(function(section, index) {
+                const article = document.createElement('article');
+                article.id = 'tos-section-' + section.id;
+                article.dataset.sectionId = section.id;
+
+                if (activeSectionId && activeSectionId === section.id) {
+                    article.setAttribute('data-active', 'true');
+                } else {
+                    article.removeAttribute('data-active');
+                }
+
+                const heading = document.createElement('h2');
+                heading.innerHTML = highlightText(section.title || '', query);
+                article.appendChild(heading);
+
+                const controlsPara = document.createElement('p');
+
+                const toggleBtn = document.createElement('button');
+                toggleBtn.type = 'button';
+                toggleBtn.dataset.action = 'toggle-section';
+                toggleBtn.dataset.sectionId = section.id;
+                const isExpanded = getSectionExpandedState(section.id);
+                toggleBtn.textContent = isExpanded ? 'Collapse section' : 'Expand section';
+                controlsPara.appendChild(toggleBtn);
+
+                const spaceText = document.createTextNode(' ');
+                controlsPara.appendChild(spaceText);
+
+                const copyBtn = document.createElement('button');
+                copyBtn.type = 'button';
+                copyBtn.dataset.action = 'copy-section-link';
+                copyBtn.dataset.sectionId = section.id;
+                copyBtn.textContent = 'Copy link';
+                controlsPara.appendChild(copyBtn);
+
+                const spaceText2 = document.createTextNode(' ');
+                controlsPara.appendChild(spaceText2);
+
+                const topLink = document.createElement('a');
+                topLink.href = 'javascript:void(0)';
+                topLink.dataset.action = 'scroll-to-top';
+                topLink.textContent = 'Back to top';
+                controlsPara.appendChild(topLink);
+
+                article.appendChild(controlsPara);
+
+                const bodyContainer = document.createElement('div');
+                bodyContainer.className = 'tos-section-body';
+
+                const rawBody = section.body || '';
+                const paragraphs = rawBody.split(/\n{2,}/);
+                paragraphs.forEach(function(parText) {
+                    const trimmed = parText.trim();
+                    if (!trimmed) return;
+                    const p = document.createElement('p');
+                    p.innerHTML = highlightText(trimmed, query);
+                    bodyContainer.appendChild(p);
+                });
+
+                const expanded = getSectionExpandedState(section.id);
+                if (!expanded) {
+                    bodyContainer.style.display = 'none';
+                }
+
+                article.appendChild(bodyContainer);
+                container.appendChild(article);
+            });
+
+            // After rendering, scroll active section into view on initial load or when section changes
+            if (state.section) {
+                scrollToSection(state.section);
+            }
+        }
+
+        function getSectionExpandedState(sectionId) {
+            if (Object.prototype.hasOwnProperty.call(expandedSections, sectionId)) {
+                return !!expandedSections[sectionId];
+            }
+            // Default: expanded
+            return true;
+        }
+
+        function setSectionExpandedState(sectionId, expanded) {
+            expandedSections[sectionId] = !!expanded;
+        }
+
+        function applyStateToUI(state) {
+            const modeSelect = document.getElementById('modeSelect');
+            const searchInput = document.getElementById('tosSearchInput');
+            const tocNav = document.querySelector('[data-component="toc-navigation"]');
+            const searchStatus = document.getElementById('searchStatus');
+
+            if (modeSelect) {
+                modeSelect.value = state.mode || '';
+            }
+            if (searchInput) {
+                searchInput.value = state.query || '';
+            }
+
+            // Mode/layout handling
+            if (tocNav) {
+                if (state.mode === 'print') {
+                    tocNav.hidden = true;
+                } else {
+                    tocNav.hidden = false;
+                }
+            }
+
+            // Search status
+            if (searchStatus && termsData && termsData.sections) {
+                if (state.query) {
+                    const q = state.query;
+                    const count = countMatchingSections(termsData.sections, q);
+                    if (count > 0) {
+                        searchStatus.textContent = 'Found ' + count + ' section(s) containing "' + q + '".';
+                    } else {
+                        searchStatus.textContent = 'No sections found containing "' + q + '".';
+                    }
+                } else {
+                    searchStatus.textContent = '';
+                }
+            }
+        }
+
+        function handleSearchSubmit(formEl) {
+            if (!formEl) return;
+            const input = document.getElementById('tosSearchInput');
+            const queryRaw = input ? input.value : '';
+            const query = queryRaw && queryRaw.trim() ? queryRaw.trim() : null;
+
+            updateUrlState({ query: query }, false);
+            const state = readUrlState();
+
+            const populateElements = Array.prototype.slice.call(document.querySelectorAll('[data-populate]'));
+            renderAll(populateElements, state);
+            applyStateToUI(state);
+        }
+
+        function handleClearSearch() {
+            const input = document.getElementById('tosSearchInput');
+            if (input) {
+                input.value = '';
+            }
+            updateUrlState({ query: null }, false);
+            const state = readUrlState();
+            const populateElements = Array.prototype.slice.call(document.querySelectorAll('[data-populate]'));
+            renderAll(populateElements, state);
+            applyStateToUI(state);
+        }
+
+        function handleModeChange(selectEl) {
+            if (!selectEl) return;
+            const value = selectEl.value || null;
+            updateUrlState({ mode: value }, false);
+            const state = readUrlState();
+            const populateElements = Array.prototype.slice.call(document.querySelectorAll('[data-populate]'));
+            renderAll(populateElements, state);
+            applyStateToUI(state);
+        }
+
+        function handleTocSectionClick(linkEl) {
+            const sectionId = linkEl.dataset.sectionId;
+            if (!sectionId) return;
+            updateUrlState({ section: sectionId }, false);
+            const state = readUrlState();
+            const populateElements = Array.prototype.slice.call(document.querySelectorAll('[data-populate]'));
+            renderAll(populateElements, state);
+            applyStateToUI(state);
+        }
+
+        function handleToggleSection(buttonEl) {
+            const sectionId = buttonEl.dataset.sectionId;
+            if (!sectionId) return;
+            const article = document.querySelector('article[data-section-id="' + sectionId + '"]');
+            if (!article) return;
+            const body = article.querySelector('.tos-section-body');
+            if (!body) return;
+
+            const currentlyVisible = body.style.display !== 'none';
+            const newVisible = !currentlyVisible;
+            body.style.display = newVisible ? '' : 'none';
+            buttonEl.textContent = newVisible ? 'Collapse section' : 'Expand section';
+            setSectionExpandedState(sectionId, newVisible);
+        }
+
+        function handleCopySectionLink(buttonEl) {
+            const sectionId = buttonEl.dataset.sectionId;
+            if (!sectionId) return;
+            const state = readUrlState();
+            const url = buildUrl({
+                section: sectionId,
+                query: state.query,
+                mode: state.mode
+            });
+            copyToClipboard(url);
+        }
+
+        function handleCopyCurrentViewLink() {
+            const state = readUrlState();
+            const url = buildUrl({
+                section: state.section,
+                query: state.query,
+                mode: state.mode
+            });
+            copyToClipboard(url);
+        }
+
+        function handleScrollToTop() {
+            window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+        }
+
+        function handleRetryLoad() {
+            const statusEl = document.getElementById('tosStatus');
+            if (statusEl) {
+                statusEl.textContent = 'Retrying load...';
+            }
+            try {
+                termsData = WebsiteSDK.getTermsOfServiceContent();
+                loadError = null;
+            } catch (e) {
+                loadError = e || new Error('Unknown error');
+            }
+
+            if (loadError) {
+                renderLoadError(statusEl, loadError);
+                return;
+            }
+
+            if (statusEl) {
+                statusEl.textContent = '';
+            }
+
+            const state = readUrlState();
+            const populateElements = Array.prototype.slice.call(document.querySelectorAll('[data-populate]'));
+            renderAll(populateElements, state);
+            applyStateToUI(state);
+        }
+
+        function renderLoadError(statusEl, error) {
+            if (!statusEl) return;
+            statusEl.innerHTML = '';
+            const p = document.createElement('p');
+            p.textContent = 'Unable to load the Terms of Service. Please try again.';
+            statusEl.appendChild(p);
+
+            const p2 = document.createElement('p');
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.dataset.action = 'retry-load';
+            btn.textContent = 'Retry';
+            p2.appendChild(btn);
+            statusEl.appendChild(p2);
+        }
+
+        function scrollToSection(sectionId) {
+            if (!sectionId) return;
+            const article = document.querySelector('article[data-section-id="' + sectionId + '"]');
+            if (!article) return;
+            article.scrollIntoView({ behavior: hasInitialRender ? 'smooth' : 'auto', block: 'start' });
+        }
+
+        function countMatchingSections(sections, query) {
+            if (!query) return 0;
+            const qLower = query.toLowerCase();
+            let count = 0;
+            sections.forEach(function(section) {
+                const text = ((section.title || '') + '\n' + (section.body || '')).toLowerCase();
+                if (text.indexOf(qLower) !== -1) {
+                    count += 1;
+                }
+            });
+            return count;
+        }
+
+        function buildUrl(state) {
+            const base = window.location.origin + window.location.pathname.replace(/[^\/]*$/, 'terms.html');
+            const url = new URL(base);
+            const params = url.searchParams;
+
+            if (state.section) {
+                params.set('section', state.section);
+            }
+            if (state.query) {
+                params.set('query', state.query);
+            }
+            if (state.mode) {
+                params.set('mode', state.mode);
+            }
+
+            url.search = params.toString();
+            return url.toString();
+        }
+
+        function copyToClipboard(text) {
+            const copyStatus = document.getElementById('copyStatus');
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function() {
+                    if (copyStatus) {
+                        copyStatus.textContent = 'Link copied to clipboard.';
+                    }
+                }).catch(function() {
+                    fallbackCopy(text, copyStatus);
+                });
+            } else {
+                fallbackCopy(text, copyStatus);
+            }
+        }
+
+        function fallbackCopy(text, copyStatus) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                if (copyStatus) {
+                    copyStatus.textContent = 'Link copied to clipboard.';
+                }
+            } catch (e) {
+                if (copyStatus) {
+                    copyStatus.textContent = 'Unable to copy link.';
+                }
+            }
+            document.body.removeChild(textarea);
+        }
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function escapeRegExp(str) {
+            return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function highlightText(text, query) {
+            if (!query) {
+                return escapeHtml(text);
+            }
+            const pattern = new RegExp(escapeRegExp(query), 'gi');
+            let lastIndex = 0;
+            let result = '';
+            let match;
+            const source = String(text);
+            while ((match = pattern.exec(source)) !== null) {
+                const before = source.slice(lastIndex, match.index);
+                result += escapeHtml(before);
+                result += '<mark>' + escapeHtml(match[0]) + '</mark>';
+                lastIndex = pattern.lastIndex;
+            }
+            const rest = source.slice(lastIndex);
+            result += escapeHtml(rest);
+            return result;
+        }
+
+    })();
+    </script>
+</body>
+</html>

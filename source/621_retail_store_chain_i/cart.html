@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retail Store Chain</title>
+    
+    <link rel="stylesheet" href="cart.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a href="index.html" class="site-logo">Retail Store Chain</a>
+
+            <nav class="primary-nav" aria-label="Primary navigation">
+                <ul>
+                    <li>
+                        <a href="index.html" title="Go to the homepage with featured content and main navigation">Home</a>
+                    </li>
+                    <li>
+                        <a href="store_locator.html" title="Find nearby stores, filter by services and hours, and choose a preferred store">Store Locator</a>
+                    </li>
+                    <li>
+                        <a href="weekly_ad.html" title="View current weekly deals and add items to your shopping list">Weekly Ad</a>
+                    </li>
+                    <li>
+                        <a href="category.html?categoryId=electronics" title="Browse electronics including TVs and related accessories">Electronics</a>
+                    </li>
+                    <li>
+                        <a href="category.html?categoryId=home_cleaning" title="Browse home and cleaning products including cleaning supplies">Home &amp; Cleaning</a>
+                    </li>
+                    <li>
+                        <a href="loyalty.html" title="Learn about and enroll in the loyalty program">Rewards</a>
+                    </li>
+                    <li>
+                        <a href="help.html" title="Access help topics and customer service information">Help</a>
+                    </li>
+                    <li>
+                        <a href="shopping_list.html" title="View and manage items saved to your shopping list">Shopping List</a>
+                    </li>
+                    <li>
+                        <a href="cart.html" title="View and manage items added to your cart for pickup">Cart</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id="content" role="main">
+        <h1>Cart</h1>
+
+        <div data-component="cart-page-loader">Loading your cart...</div>
+
+        <div data-component="cart-global-error" aria-live="polite"></div>
+
+        <section data-component="cart-store-summary" data-populate="cart-store-summary" aria-label="Pickup store and fulfillment details"></section>
+
+        <h2>Items in your cart</h2>
+
+        <ul data-component="cart-item-list" data-populate="cart-item-list" aria-label="Cart items"></ul>
+
+        <section data-component="cart-empty-state" data-populate="cart-empty-state" aria-label="Empty cart message"></section>
+
+        <section data-component="cart-summary-panel" data-populate="cart-summary-panel" aria-label="Order summary"></section>
+
+        <section data-component="cart-continue-shopping-panel" data-populate="cart-continue-shopping-panel" aria-label="Continue shopping options"></section>
+
+        <div data-component="cart-url-state-sync" hidden></div>
+    </main>
+
+    <footer class="site-footer">
+        <p class="footer-label">Language</p>
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul>
+                <li>
+                    <a href="about.html" title="Learn more about the company and its services">About Us</a>
+                </li>
+                <li>
+                    <a href="contact.html" title="Get in touch or request in-store services such as product demonstrations">Contact Us</a>
+                </li>
+                <li>
+                    <a href="store_locator.html" title="Find store locations, services, and hours">Store Locator</a>
+                </li>
+                <li>
+                    <a href="weekly_ad.html" title="See the latest weekly deals for your selected store">Weekly Ad</a>
+                </li>
+                <li>
+                    <a href="returns.html" title="Read return and exchange policies for in-store and other purchases">Returns &amp; Exchanges</a>
+                </li>
+                <li>
+                    <a href="help.html" title="Browse help topics and support options">Help / Customer Service</a>
+                </li>
+                <li>
+                    <a href="loyalty.html" title="Join or learn more about the loyalty rewards program">Rewards Program</a>
+                </li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Page-level state
+        let currentCart = null;
+        let cartItems = [];
+        let currentStore = null;
+        let preferredStoreSummary = null;
+        let pendingHighlightItemId = null;
+
+        const loaderContainer = document.querySelector('[data-component="cart-page-loader"]');
+        const globalErrorContainer = document.querySelector('[data-component="cart-global-error"]');
+        const storeSummaryContainer = document.querySelector('[data-component="cart-store-summary"]');
+        const itemListContainer = document.querySelector('[data-component="cart-item-list"]');
+        const emptyStateContainer = document.querySelector('[data-component="cart-empty-state"]');
+        const summaryPanelContainer = document.querySelector('[data-component="cart-summary-panel"]');
+        const continuePanelContainer = document.querySelector('[data-component="cart-continue-shopping-panel"]');
+
+        function parseUrlState() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                fulfillmentType: params.get('fulfillmentType'),
+                storeId: params.get('storeId'),
+                highlightItemId: params.get('highlightItemId')
+            };
+        }
+
+        function updateUrlParams(changes) {
+            const url = new URL(window.location.href);
+            const params = url.searchParams;
+            Object.keys(changes).forEach(function(key) {
+                const value = changes[key];
+                if (value === null || value === undefined || value === '') {
+                    params.delete(key);
+                } else {
+                    params.set(key, value);
+                }
+            });
+            window.history.replaceState({}, '', url.toString());
+        }
+
+        function getStoreFromLocalById(storeId) {
+            if (!storeId) return null;
+            try {
+                const storesJson = window.localStorage.getItem('stores') || '[]';
+                const stores = JSON.parse(storesJson);
+                if (!Array.isArray(stores)) return null;
+                for (let i = 0; i < stores.length; i++) {
+                    if (stores[i] && stores[i].id === storeId) {
+                        return stores[i];
+                    }
+                }
+            } catch (e) {
+                // ignore parse errors
+            }
+            return null;
+        }
+
+        function formatCurrency(value) {
+            if (typeof value !== 'number' || isNaN(value)) {
+                return '';
+            }
+            return '$' + value.toFixed(2);
+        }
+
+        function renderLoader(container, isLoading) {
+            if (!container) return;
+            container.textContent = isLoading ? 'Loading your cart...' : '';
+        }
+
+        function renderGlobalError(container, message) {
+            if (!container) return;
+            container.textContent = message || '';
+        }
+
+        function renderStoreSummary(container, cart, store, preferredSummary) {
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (!cart) {
+                const p = document.createElement('p');
+                p.textContent = 'Cart information is not available at the moment.';
+                container.appendChild(p);
+                return;
+            }
+
+            const frag = document.createDocumentFragment();
+
+            const heading = document.createElement('p');
+            heading.textContent = 'Pickup details';
+            frag.appendChild(heading);
+
+            const storePara = document.createElement('p');
+            let chosenStore = null;
+            let distanceText = '';
+
+            if (store && store.id) {
+                chosenStore = store;
+            } else if (cart.storeId) {
+                chosenStore = getStoreFromLocalById(cart.storeId);
+            } else if (preferredSummary && preferredSummary.hasPreferredStore && preferredSummary.store) {
+                chosenStore = preferredSummary.store;
+                distanceText = preferredSummary.distanceText || '';
+            }
+
+            if (chosenStore) {
+                const nameParts = [];
+                nameParts.push(chosenStore.name);
+                if (chosenStore.city) {
+                    nameParts.push('' + chosenStore.city);
+                }
+                storePara.textContent = 'Pickup store: ' + nameParts.join('  ').replace('\u001f', '').replace('\u001f', '');
+                if (chosenStore.addressLine1 || chosenStore.postalCode) {
+                    const addr = [];
+                    if (chosenStore.addressLine1) addr.push(chosenStore.addressLine1);
+                    if (chosenStore.city && chosenStore.state) {
+                        addr.push(chosenStore.city + ', ' + chosenStore.state + ' ' + (chosenStore.postalCode || ''));
+                    }
+                    const addrLine = document.createElement('span');
+                    addrLine.textContent = ' (' + addr.join('; ') + ')';
+                    storePara.appendChild(addrLine);
+                }
+                if (distanceText) {
+                    const distSpan = document.createElement('span');
+                    distSpan.textContent = ' [' + distanceText + ']';
+                    storePara.appendChild(distSpan);
+                }
+            } else {
+                storePara.textContent = 'No pickup store is currently associated with this cart.';
+            }
+
+            frag.appendChild(storePara);
+
+            const changeStorePara = document.createElement('p');
+            const changeStoreLink = document.createElement('a');
+            changeStoreLink.href = 'store_locator.html';
+            changeStoreLink.textContent = 'Change store';
+            changeStoreLink.setAttribute('data-action', 'change-store');
+            changeStorePara.appendChild(changeStoreLink);
+            frag.appendChild(changeStorePara);
+
+            const fulfillmentPara = document.createElement('p');
+            const fulfillmentLabel = document.createElement('label');
+            fulfillmentLabel.textContent = 'Fulfillment method: ';
+            fulfillmentLabel.htmlFor = 'cart-fulfillment-type-select';
+
+            const select = document.createElement('select');
+            select.id = 'cart-fulfillment-type-select';
+            select.name = 'fulfillmentType';
+            select.setAttribute('data-action', 'change-fulfillment-type');
+
+            const options = [
+                { value: 'same_day_pickup', label: 'Same-day pickup' },
+                { value: 'scheduled_pickup', label: 'Scheduled pickup' },
+                { value: 'standard_pickup', label: 'Standard pickup' }
+            ];
+
+            const currentType = cart.fulfillmentType || 'same_day_pickup';
+
+            options.forEach(function(opt) {
+                const optionEl = document.createElement('option');
+                optionEl.value = opt.value;
+                optionEl.textContent = opt.label;
+                if (opt.value === currentType) {
+                    optionEl.selected = true;
+                }
+                select.appendChild(optionEl);
+            });
+
+            fulfillmentLabel.appendChild(select);
+            fulfillmentPara.appendChild(fulfillmentLabel);
+            frag.appendChild(fulfillmentPara);
+
+            container.appendChild(frag);
+        }
+
+        function renderCartItemList(container, cart, items) {
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (!cart || !Array.isArray(items) || items.length === 0) {
+                container.style.display = 'none';
+                return;
+            }
+
+            container.style.display = 'block';
+
+            items.forEach(function(entry) {
+                const item = entry.item;
+                const product = entry.product;
+                const li = document.createElement('li');
+                li.setAttribute('data-component', 'cart-item-row');
+                li.setAttribute('data-item-id', item.id);
+
+                const namePara = document.createElement('p');
+                namePara.textContent = product && product.name ? product.name : 'Item';
+                li.appendChild(namePara);
+
+                if (product && product.brandName) {
+                    const brandPara = document.createElement('p');
+                    brandPara.textContent = 'Brand: ' + product.brandName;
+                    li.appendChild(brandPara);
+                }
+
+                const pricePara = document.createElement('p');
+                const unitText = formatCurrency(item.unitPrice);
+                const totalText = formatCurrency(item.totalPrice);
+                pricePara.textContent = 'Price: ' + unitText + '  d7 ' + item.quantity + ' = ' + totalText;
+                li.appendChild(pricePara);
+
+                const quantityPara = document.createElement('p');
+                const qtyLabel = document.createElement('label');
+                qtyLabel.textContent = 'Quantity: ';
+                const qtyInput = document.createElement('input');
+                qtyInput.type = 'number';
+                qtyInput.min = '1';
+                qtyInput.value = String(item.quantity);
+                qtyInput.setAttribute('data-action', 'change-quantity');
+                qtyInput.setAttribute('data-item-id', item.id);
+                qtyLabel.appendChild(qtyInput);
+                quantityPara.appendChild(qtyLabel);
+                li.appendChild(quantityPara);
+
+                const removePara = document.createElement('p');
+                const removeLink = document.createElement('a');
+                removeLink.href = 'javascript:void(0)';
+                removeLink.textContent = 'Remove';
+                removeLink.setAttribute('data-action', 'remove-item');
+                removeLink.setAttribute('data-item-id', item.id);
+                removePara.appendChild(removeLink);
+                li.appendChild(removePara);
+
+                const fulfillmentInfoPara = document.createElement('p');
+                let fulfillmentMessage = '';
+                if (currentCart && currentCart.fulfillmentType === 'same_day_pickup') {
+                    if (product && product.isEligibleSameDayPickup) {
+                        if (typeof product.minPickupHours === 'number') {
+                            fulfillmentMessage = 'Eligible for same-day pickup (ready in approximately ' + product.minPickupHours + ' hours).';
+                        } else {
+                            fulfillmentMessage = 'Eligible for same-day pickup.';
+                        }
+                    } else {
+                        fulfillmentMessage = 'Not eligible for same-day pickup; pickup timing may vary.';
+                    }
+                } else if (currentCart && currentCart.fulfillmentType === 'scheduled_pickup') {
+                    fulfillmentMessage = 'Scheduled pickup will be arranged at checkout.';
+                } else if (currentCart && currentCart.fulfillmentType === 'standard_pickup') {
+                    fulfillmentMessage = 'Standard store pickup timing applies.';
+                }
+                if (fulfillmentMessage) {
+                    fulfillmentInfoPara.textContent = fulfillmentMessage;
+                    li.appendChild(fulfillmentInfoPara);
+                }
+
+                const errorPara = document.createElement('p');
+                errorPara.setAttribute('data-role', 'item-error');
+                li.appendChild(errorPara);
+
+                container.appendChild(li);
+            });
+        }
+
+        function renderEmptyState(container, cart, items) {
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (Array.isArray(items) && items.length > 0) {
+                container.style.display = 'none';
+                return;
+            }
+
+            container.style.display = 'block';
+
+            const p = document.createElement('p');
+            p.textContent = 'Your cart is empty.';
+            container.appendChild(p);
+
+            const p2 = document.createElement('p');
+            p2.textContent = 'You can continue shopping in these categories:';
+            container.appendChild(p2);
+
+            const list = document.createElement('ul');
+
+            const li1 = document.createElement('li');
+            const link1 = document.createElement('a');
+            link1.href = 'category.html?categoryId=electronics';
+            link1.textContent = 'Continue shopping in Electronics';
+            link1.setAttribute('data-action', 'continue-shopping-electronics');
+            li1.appendChild(link1);
+            list.appendChild(li1);
+
+            const li2 = document.createElement('li');
+            const link2 = document.createElement('a');
+            link2.href = 'category.html?categoryId=home_cleaning';
+            link2.textContent = 'Continue shopping in Home & Cleaning';
+            link2.setAttribute('data-action', 'continue-shopping-home-cleaning');
+            li2.appendChild(link2);
+            list.appendChild(li2);
+
+            const li3 = document.createElement('li');
+            const link3 = document.createElement('a');
+            link3.href = 'store_locator.html';
+            link3.textContent = 'Choose a store';
+            link3.setAttribute('data-action', 'empty-change-store');
+            li3.appendChild(link3);
+            list.appendChild(li3);
+
+            container.appendChild(list);
+        }
+
+        function renderSummaryPanel(container, cart, items) {
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (!cart || !Array.isArray(items) || items.length === 0) {
+                container.style.display = 'none';
+                return;
+            }
+
+            container.style.display = 'block';
+
+            const itemCount = items.reduce(function(count, entry) {
+                return count + (entry.item && typeof entry.item.quantity === 'number' ? entry.item.quantity : 0);
+            }, 0);
+
+            const subtotalText = formatCurrency(cart.subtotal);
+            const taxText = formatCurrency(cart.estimatedTax);
+            const totalText = formatCurrency(cart.estimatedTotal);
+
+            const lines = [];
+            lines.push('Order summary');
+            lines.push('Items: ' + itemCount);
+            if (subtotalText) lines.push('Subtotal: ' + subtotalText);
+            if (taxText) lines.push('Estimated tax: ' + taxText);
+            if (totalText) lines.push('Estimated total: ' + totalText);
+
+            let fulfillmentNote = '';
+            if (cart.fulfillmentType === 'same_day_pickup') {
+                fulfillmentNote = 'Totals are estimated for same-day pickup.';
+            } else if (cart.fulfillmentType === 'scheduled_pickup') {
+                fulfillmentNote = 'Totals are estimated for your scheduled pickup window.';
+            } else if (cart.fulfillmentType === 'standard_pickup') {
+                fulfillmentNote = 'Totals are estimated for standard store pickup.';
+            }
+
+            if (fulfillmentNote) {
+                lines.push(fulfillmentNote);
+            }
+
+            lines.forEach(function(text) {
+                const p = document.createElement('p');
+                p.textContent = text;
+                container.appendChild(p);
+            });
+        }
+
+        function renderContinueShoppingPanel(container, cart, items) {
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (!cart || !Array.isArray(items) || items.length === 0) {
+                container.style.display = 'none';
+                return;
+            }
+
+            container.style.display = 'block';
+
+            const p = document.createElement('p');
+            p.textContent = 'Continue shopping:';
+            container.appendChild(p);
+
+            const list = document.createElement('ul');
+
+            const li1 = document.createElement('li');
+            const link1 = document.createElement('a');
+            link1.href = 'category.html?categoryId=electronics';
+            link1.textContent = 'Continue shopping in Electronics';
+            link1.setAttribute('data-action', 'continue-shopping-electronics');
+            li1.appendChild(link1);
+            list.appendChild(li1);
+
+            const li2 = document.createElement('li');
+            const link2 = document.createElement('a');
+            link2.href = 'category.html?categoryId=home_cleaning';
+            link2.textContent = 'Continue shopping in Home & Cleaning';
+            link2.setAttribute('data-action', 'continue-shopping-home-cleaning');
+            li2.appendChild(link2);
+            list.appendChild(li2);
+
+            container.appendChild(list);
+        }
+
+        function applyHighlightIfNeeded(itemContainer) {
+            if (!pendingHighlightItemId || !itemContainer) return;
+            const target = itemContainer.querySelector('[data-item-id="' + pendingHighlightItemId + '"]');
+            if (target) {
+                try {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } catch (e) {
+                    target.scrollIntoView();
+                }
+                target.setAttribute('data-highlighted', 'true');
+                updateUrlParams({ highlightItemId: null });
+                pendingHighlightItemId = null;
+            }
+        }
+
+        function reconcileUrlAndCartState(urlState) {
+            if (!currentCart) return;
+
+            let errorMessage = '';
+            let urlChanges = {};
+
+            // Handle storeId from URL
+            if (urlState.storeId && urlState.storeId !== currentCart.storeId) {
+                const effectiveFulfillmentType = currentCart.fulfillmentType || urlState.fulfillmentType || 'same_day_pickup';
+                try {
+                    const result = WebsiteSDK.setCartFulfillment(urlState.storeId, effectiveFulfillmentType);
+                    if (result && result.success && result.cart) {
+                        currentCart = result.cart;
+                        currentStore = getStoreFromLocalById(currentCart.storeId) || currentStore;
+                        urlChanges.storeId = currentCart.storeId || null;
+                        urlChanges.fulfillmentType = currentCart.fulfillmentType || null;
+                    } else {
+                        errorMessage = result && result.message ? result.message : 'Unable to update cart store.';
+                        urlChanges.storeId = currentCart.storeId || null;
+                    }
+                } catch (e) {
+                    errorMessage = 'An error occurred while updating the cart store.';
+                    urlChanges.storeId = currentCart.storeId || null;
+                }
+            }
+
+            // Handle fulfillmentType from URL when different from cart
+            const requestedFulfillment = urlState.fulfillmentType;
+            if (requestedFulfillment && requestedFulfillment !== currentCart.fulfillmentType) {
+                let storeIdForCall = currentCart.storeId;
+                if (!storeIdForCall && urlState.storeId) {
+                    storeIdForCall = urlState.storeId;
+                }
+                if (!storeIdForCall && preferredStoreSummary && preferredStoreSummary.store) {
+                    storeIdForCall = preferredStoreSummary.store.id;
+                }
+                try {
+                    const result = WebsiteSDK.setCartFulfillment(storeIdForCall || undefined, requestedFulfillment);
+                    if (result && result.success && result.cart) {
+                        currentCart = result.cart;
+                        currentStore = getStoreFromLocalById(currentCart.storeId) || currentStore;
+                        urlChanges.fulfillmentType = currentCart.fulfillmentType || null;
+                        urlChanges.storeId = currentCart.storeId || (urlChanges.storeId !== undefined ? urlChanges.storeId : null);
+                    } else {
+                        errorMessage = result && result.message ? result.message : 'Unable to update cart fulfillment type.';
+                        urlChanges.fulfillmentType = currentCart.fulfillmentType || null;
+                    }
+                } catch (e2) {
+                    errorMessage = 'An error occurred while updating the fulfillment type.';
+                    urlChanges.fulfillmentType = currentCart.fulfillmentType || null;
+                }
+            } else {
+                // Ensure URL reflects actual cart.fulfillmentType if it exists
+                if (currentCart.fulfillmentType) {
+                    urlChanges.fulfillmentType = currentCart.fulfillmentType;
+                } else {
+                    urlChanges.fulfillmentType = null;
+                }
+                if (currentCart.storeId) {
+                    urlChanges.storeId = currentCart.storeId;
+                }
+            }
+
+            if (urlChanges.storeId !== undefined || urlChanges.fulfillmentType !== undefined) {
+                updateUrlParams(urlChanges);
+            }
+
+            if (errorMessage) {
+                renderGlobalError(globalErrorContainer, errorMessage);
+            } else {
+                renderGlobalError(globalErrorContainer, '');
+            }
+        }
+
+        function renderAll() {
+            renderStoreSummary(storeSummaryContainer, currentCart, currentStore, preferredStoreSummary);
+            renderCartItemList(itemListContainer, currentCart, cartItems);
+            renderEmptyState(emptyStateContainer, currentCart, cartItems);
+            renderSummaryPanel(summaryPanelContainer, currentCart, cartItems);
+            renderContinueShoppingPanel(continuePanelContainer, currentCart, cartItems);
+            applyHighlightIfNeeded(itemListContainer);
+        }
+
+        function loadCartFromBackend() {
+            const urlState = parseUrlState();
+            pendingHighlightItemId = urlState.highlightItemId;
+
+            renderLoader(loaderContainer, true);
+
+            try {
+                try {
+                    preferredStoreSummary = WebsiteSDK.getPreferredStoreSummary();
+                } catch (e) {
+                    preferredStoreSummary = null;
+                }
+
+                const cartResult = WebsiteSDK.getCart();
+                if (cartResult && cartResult.cart) {
+                    currentCart = cartResult.cart;
+                    cartItems = Array.isArray(cartResult.items) ? cartResult.items : [];
+                    currentStore = cartResult.store || getStoreFromLocalById(currentCart.storeId) || null;
+                } else {
+                    currentCart = null;
+                    cartItems = [];
+                    currentStore = null;
+                }
+
+                reconcileUrlAndCartState(urlState);
+                renderAll();
+            } catch (e) {
+                renderGlobalError(globalErrorContainer, 'An error occurred while loading your cart.');
+            } finally {
+                renderLoader(loaderContainer, false);
+            }
+        }
+
+        function findCartItemEntryById(cartItemId) {
+            for (let i = 0; i < cartItems.length; i++) {
+                if (cartItems[i].item && cartItems[i].item.id === cartItemId) {
+                    return cartItems[i];
+                }
+            }
+            return null;
+        }
+
+        function handleFulfillmentChange(selectEl) {
+            if (!currentCart) return;
+            const newType = selectEl.value;
+            const currentType = currentCart.fulfillmentType || 'same_day_pickup';
+            if (!newType || newType === currentType) {
+                selectEl.value = currentType;
+                return;
+            }
+
+            const urlState = parseUrlState();
+            let storeIdForCall = currentCart.storeId || urlState.storeId;
+            if (!storeIdForCall && preferredStoreSummary && preferredStoreSummary.store) {
+                storeIdForCall = preferredStoreSummary.store.id;
+            }
+
+            let errorMessage = '';
+            try {
+                const result = WebsiteSDK.setCartFulfillment(storeIdForCall || undefined, newType);
+                if (result && result.success && result.cart) {
+                    currentCart = result.cart;
+                    currentStore = getStoreFromLocalById(currentCart.storeId) || currentStore;
+                    updateUrlParams({
+                        fulfillmentType: currentCart.fulfillmentType || null,
+                        storeId: currentCart.storeId || null
+                    });
+                    renderAll();
+                } else {
+                    errorMessage = result && result.message ? result.message : 'Unable to update fulfillment type.';
+                    selectEl.value = currentType;
+                }
+            } catch (e) {
+                errorMessage = 'An error occurred while updating fulfillment type.';
+                selectEl.value = currentType;
+            }
+
+            if (errorMessage) {
+                renderGlobalError(globalErrorContainer, errorMessage);
+            } else {
+                renderGlobalError(globalErrorContainer, '');
+            }
+        }
+
+        function handleQuantityChange(inputEl) {
+            if (!currentCart) return;
+            const cartItemId = inputEl.getAttribute('data-item-id');
+            if (!cartItemId) return;
+
+            const newQuantity = parseInt(inputEl.value, 10);
+            const entry = findCartItemEntryById(cartItemId);
+            const previousQuantity = entry && entry.item ? entry.item.quantity : 1;
+
+            if (!Number.isFinite(newQuantity) || newQuantity < 1) {
+                inputEl.value = String(previousQuantity);
+                const row = inputEl.closest('[data-component="cart-item-row"]');
+                if (row) {
+                    const errorEl = row.querySelector('[data-role="item-error"]');
+                    if (errorEl) {
+                        errorEl.textContent = 'Quantity must be at least 1.';
+                    }
+                }
+                return;
+            }
+
+            if (newQuantity === previousQuantity) {
+                return;
+            }
+
+            let errorMessage = '';
+            try {
+                const result = WebsiteSDK.updateCartItemQuantity(cartItemId, newQuantity);
+                if (result && result.success && result.cart && result.updatedItem) {
+                    currentCart = result.cart;
+                    if (entry && entry.item) {
+                        entry.item = result.updatedItem;
+                    }
+                    renderGlobalError(globalErrorContainer, '');
+                    renderAll();
+                } else {
+                    errorMessage = result && result.message ? result.message : 'Unable to update item quantity.';
+                    inputEl.value = String(previousQuantity);
+                }
+            } catch (e) {
+                errorMessage = 'An error occurred while updating item quantity.';
+                inputEl.value = String(previousQuantity);
+            }
+
+            if (errorMessage) {
+                const row = inputEl.closest('[data-component="cart-item-row"]');
+                if (row) {
+                    const errorEl = row.querySelector('[data-role="item-error"]');
+                    if (errorEl) {
+                        errorEl.textContent = errorMessage;
+                    }
+                }
+            }
+        }
+
+        function handleRemoveItem(linkEl) {
+            if (!currentCart) return;
+            const cartItemId = linkEl.getAttribute('data-item-id');
+            if (!cartItemId) return;
+
+            const confirmRemove = window.confirm('Remove this item from your cart?');
+            if (!confirmRemove) return;
+
+            let errorMessage = '';
+            try {
+                const result = WebsiteSDK.removeCartItem(cartItemId);
+                if (result && result.success && result.cart) {
+                    currentCart = result.cart;
+                    const removedId = result.removedItemId || cartItemId;
+                    cartItems = cartItems.filter(function(entry) {
+                        return !(entry.item && entry.item.id === removedId);
+                    });
+                    renderGlobalError(globalErrorContainer, '');
+                    renderAll();
+                } else {
+                    errorMessage = result && result.message ? result.message : 'Unable to remove item from cart.';
+                }
+            } catch (e) {
+                errorMessage = 'An error occurred while removing the item.';
+            }
+
+            if (errorMessage) {
+                const row = linkEl.closest('[data-component="cart-item-row"]');
+                if (row) {
+                    const errorEl = row.querySelector('[data-role="item-error"]');
+                    if (errorEl) {
+                        errorEl.textContent = errorMessage;
+                    }
+                }
+            }
+        }
+
+        document.addEventListener('change', function(event) {
+            const target = event.target;
+            const action = target.getAttribute('data-action');
+            if (action === 'change-fulfillment-type' && target.tagName === 'SELECT') {
+                handleFulfillmentChange(target);
+            } else if (action === 'change-quantity' && target.tagName === 'INPUT') {
+                handleQuantityChange(target);
+            }
+        });
+
+        document.addEventListener('click', function(event) {
+            const target = event.target;
+            const action = target.getAttribute('data-action');
+            if (!action) return;
+
+            if (action === 'remove-item') {
+                event.preventDefault();
+                handleRemoveItem(target);
+            } else if (action === 'change-store') {
+                // Simple navigation; href already set
+            } else if (action === 'empty-change-store') {
+                // Simple navigation; href already set
+            } else if (action === 'continue-shopping-electronics') {
+                // Simple navigation via href
+            } else if (action === 'continue-shopping-home-cleaning') {
+                // Simple navigation via href
+            }
+        });
+
+        window.addEventListener('popstate', function() {
+            loadCartFromBackend();
+        });
+
+        // Initial load
+        loadCartFromBackend();
+    });
+    </script>
+</body>
+</html>

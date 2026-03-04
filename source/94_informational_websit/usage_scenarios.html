@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <title>Abha Card – Digital Health Card</title>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+
+    <!-- Typography -->
+    <link rel='preconnect' href='https://fonts.googleapis.com'>
+    <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+    <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap' rel='stylesheet'>
+
+    <!-- Site stylesheet -->
+    <link rel='stylesheet' href='styles.css'>
+    <!-- Page-specific stylesheet -->
+    <link rel='stylesheet' href='usage_scenarios.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <div class='header-inner'>
+            <a href='index.html' class='brand' aria-label='Abha Card home'>
+                Abha Card
+            </a>
+            <nav class='primary-nav' aria-label='Primary navigation'>
+                <ul>
+                    <li><a href='index.html'>Home</a></li>
+                    <li><a href='eligibility.html'>Check eligibility</a></li>
+                    <li><a href='plans_pricing.html'>Plans &amp; pricing</a></li>
+                    <li><a href='cost_estimator.html'>Cost estimator</a></li>
+                    <li><a href='provider_search.html'>Find a provider</a></li>
+                    <li><a href='coverage_overview.html'>Coverage</a></li>
+                    <li><a href='usage_scenarios.html'>How to use your card</a></li>
+                    <li><a href='resources.html'>Resources</a></li>
+                    <li><a href='help_faqs.html'>Help &amp; FAQs</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <div class='page-background'>
+        <main id='content' class='content-shell' role='main'>
+            <article class='page-card usage-scenarios-card' data-component='usage-scenarios-page'>
+                <header class='page-card-header'>
+                    <div class='page-title-wrapper' data-component='page-title' data-populate='language_settings'></div>
+                    <p class='page-intro' data-component='page-intro'></p>
+                </header>
+
+                <section class='usage-scenarios-main' aria-describedby='usage-scenarios-heading'>
+                    <div class='usage-scenarios-grid-wrapper'>
+                        <h2 id='usage-scenarios-heading' class='visually-hidden'>
+                            Usage scenarios
+                        </h2>
+                        <div class='usage-scenarios-grid' data-component='usage-scenario-grid' data-populate='usage_scenarios' aria-live='polite'></div>
+                    </div>
+
+                    <section class='scenario-detail-panel' data-component='scenario-detail-panel' aria-live='polite' aria-label='Scenario details'></section>
+                </section>
+            </article>
+        </main>
+    </div>
+
+    <footer class='site-footer'>
+        <div class='footer-inner'>
+            <nav class='footer-nav' aria-label='Footer navigation'>
+                <ul>
+                    <li><a href='accessibility.html'>Accessibility</a></li>
+                    <li><a href='help_faqs.html'>Help &amp; FAQs</a></li>
+                    <li><a href='coverage_overview.html'>Coverage overview</a></li>
+                    <li><a href='resources.html'>Resources</a></li>
+                    <li><a href='provider_search.html'>Find a provider</a></li>
+                </ul>
+            </nav>
+            <p class='footer-meta'>&copy; 2024 Abha Card. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <!-- SDK / business logic -->
+    <script src='business_logic.js'></script>
+
+    <!-- Page-specific UI logic -->
+    <script>
+    'use strict';
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var state = {
+            activeLanguage: 'en',
+            scenarios: [],
+            selectedScenarioKey: null,
+            loading: false,
+            error: null
+        };
+
+        var initialLanguageSettings = null;
+
+        var LABELS = {
+            en: {
+                pageTitle: 'How to use your card',
+                intro: 'Choose a situation to see how your digital health card works there.',
+                loading: 'Loading ways to use your card85',
+                empty: 'No usage scenarios are available right now.',
+                error: 'We could not load the ways to use your card. Please try again later.',
+                detailEmpty: 'Select a situation above to see details.',
+                detailError: 'Details are not available right now.',
+                clearSelection: 'Clear selection'
+            },
+            es: {
+                pageTitle: 'Cf3mo usar su tarjeta',
+                intro: 'Elija una situacif3n para ver cf3mo funciona su tarjeta de salud digital alled.',
+                loading: 'Cargando formas de usar su tarjeta85',
+                empty: 'No hay situaciones disponibles en este momento.',
+                error: 'No pudimos cargar las formas de usar su tarjeta. Inte9ntelo de nuevo me1s tarde.',
+                detailEmpty: 'Seleccione una situacif3n arriba para ver los detalles.',
+                detailError: 'Los detalles no este1n disponibles en este momento.',
+                clearSelection: 'Borrar seleccif3n'
+            }
+        };
+
+        var pageTitleContainer = document.querySelector('[data-component="page-title"]');
+        var pageIntroElement = document.querySelector('[data-component="page-intro"]');
+        var gridContainer = document.querySelector('[data-component="usage-scenario-grid"]');
+        var detailContainer = document.querySelector('[data-component="scenario-detail-panel"]');
+
+        function escapeHtml(value) {
+            if (typeof value !== 'string') {
+                return '';
+            }
+            return value.replace(/[&<>"']/g, function (ch) {
+                switch (ch) {
+                    case '&': return '&amp;';
+                    case '<': return '&lt;';
+                    case '>': return '&gt;';
+                    case '"': return '&quot;';
+                    case '\'': return '&#39;';
+                    default: return ch;
+                }
+            });
+        }
+
+        function getActiveLanguageFromParams(urlParams, languageSettings) {
+            var urlLang = urlParams.get('lang');
+            if (urlLang === 'en' || urlLang === 'es') {
+                return urlLang;
+            }
+            if (languageSettings && (languageSettings.language === 'en' || languageSettings.language === 'es')) {
+                return languageSettings.language;
+            }
+            return 'en';
+        }
+
+        function renderPageTitle(container, languageCode) {
+            if (!container) {
+                return;
+            }
+            var labels = LABELS[languageCode] || LABELS.en;
+            container.innerHTML = '';
+            var h1 = document.createElement('h1');
+            h1.id = 'page-title-heading';
+            h1.className = 'page-title';
+            h1.textContent = labels.pageTitle;
+            container.appendChild(h1);
+        }
+
+        function renderPageIntro(element, languageCode) {
+            if (!element) {
+                return;
+            }
+            var labels = LABELS[languageCode] || LABELS.en;
+            element.textContent = labels.intro;
+        }
+
+        function renderUsageScenarioGrid(container, currentState, languageCode) {
+            if (!container) {
+                return;
+            }
+            var labels = LABELS[languageCode] || LABELS.en;
+            container.innerHTML = '';
+
+            if (currentState.loading) {
+                var loadingP = document.createElement('p');
+                loadingP.className = 'usage-grid-message is-loading';
+                loadingP.textContent = labels.loading;
+                container.appendChild(loadingP);
+                return;
+            }
+
+            if (currentState.error) {
+                var errorP = document.createElement('p');
+                errorP.className = 'usage-grid-message is-error';
+                errorP.textContent = labels.error;
+                container.appendChild(errorP);
+                return;
+            }
+
+            if (!currentState.scenarios || currentState.scenarios.length === 0) {
+                var emptyP = document.createElement('p');
+                emptyP.className = 'usage-grid-message is-empty';
+                emptyP.textContent = labels.empty;
+                container.appendChild(emptyP);
+                return;
+            }
+
+            var grid = document.createElement('div');
+            grid.className = 'scenario-grid';
+
+            var i;
+            for (i = 0; i < currentState.scenarios.length; i += 1) {
+                var scenario = currentState.scenarios[i];
+                var tile = document.createElement('button');
+                tile.type = 'button';
+                tile.className = 'scenario-tile';
+                tile.dataset.action = 'select-scenario';
+                tile.dataset.scenarioKey = scenario.key;
+
+                if (scenario.key === 'pharmacy') {
+                    tile.className += ' scenario-tile--pharmacy';
+                }
+
+                var isSelected = currentState.selectedScenarioKey === scenario.key;
+                tile.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+                if (isSelected) {
+                    tile.className += ' is-selected';
+                }
+
+                var titleField = languageCode === 'es' ? 'title_es' : 'title_en';
+                var descField = languageCode === 'es' ? 'description_es' : 'description_en';
+                var titleText = scenario[titleField] || scenario.title_en || scenario.title_es || '';
+                var descText = scenario[descField] || scenario.description_en || scenario.description_es || '';
+
+                var titleEl = document.createElement('div');
+                titleEl.className = 'scenario-tile-title';
+                titleEl.textContent = titleText;
+                tile.appendChild(titleEl);
+
+                if (descText) {
+                    var descEl = document.createElement('div');
+                    descEl.className = 'scenario-tile-description';
+                    descEl.textContent = descText;
+                    tile.appendChild(descEl);
+                }
+
+                grid.appendChild(tile);
+            }
+
+            container.appendChild(grid);
+        }
+
+        function renderScenarioDetail(container, currentState, languageCode) {
+            if (!container) {
+                return;
+            }
+            var labels = LABELS[languageCode] || LABELS.en;
+            container.innerHTML = '';
+
+            if (currentState.error) {
+                var errP = document.createElement('p');
+                errP.className = 'scenario-detail-message is-error';
+                errP.textContent = labels.detailError;
+                container.appendChild(errP);
+                return;
+            }
+
+            if (!currentState.scenarios || currentState.scenarios.length === 0 || !currentState.selectedScenarioKey || currentState.selectedScenarioKey === 'pharmacy') {
+                var placeholderP = document.createElement('p');
+                placeholderP.className = 'scenario-detail-message is-placeholder';
+                placeholderP.textContent = labels.detailEmpty;
+                container.appendChild(placeholderP);
+                return;
+            }
+
+            var selectedKey = currentState.selectedScenarioKey;
+            var i;
+            var selectedScenario = null;
+            for (i = 0; i < currentState.scenarios.length; i += 1) {
+                if (currentState.scenarios[i].key === selectedKey) {
+                    selectedScenario = currentState.scenarios[i];
+                    break;
+                }
+            }
+
+            if (!selectedScenario) {
+                var noMatchP = document.createElement('p');
+                noMatchP.className = 'scenario-detail-message is-placeholder';
+                noMatchP.textContent = labels.detailEmpty;
+                container.appendChild(noMatchP);
+                return;
+            }
+
+            var titleField = languageCode === 'es' ? 'title_es' : 'title_en';
+            var descField = languageCode === 'es' ? 'description_es' : 'description_en';
+            var titleText = selectedScenario[titleField] || selectedScenario.title_en || selectedScenario.title_es || '';
+            var descText = selectedScenario[descField] || selectedScenario.description_en || selectedScenario.description_es || '';
+
+            var heading = document.createElement('h2');
+            heading.className = 'scenario-detail-title';
+            heading.textContent = titleText;
+            container.appendChild(heading);
+
+            if (descText) {
+                var bodyP = document.createElement('p');
+                bodyP.className = 'scenario-detail-body';
+                bodyP.textContent = descText;
+                container.appendChild(bodyP);
+            }
+
+            var clearBtn = document.createElement('button');
+            clearBtn.type = 'button';
+            clearBtn.className = 'link-button scenario-detail-clear';
+            clearBtn.dataset.action = 'clear-scenario-selection';
+            clearBtn.textContent = labels.clearSelection;
+            container.appendChild(clearBtn);
+        }
+
+        function applyLanguageToStaticText(languageCode) {
+            renderPageTitle(pageTitleContainer, languageCode);
+            renderPageIntro(pageIntroElement, languageCode);
+        }
+
+        function loadUsageScenariosForLanguage(languageCode, initialScenarioKey) {
+            state.loading = true;
+            state.error = null;
+            state.scenarios = [];
+            state.selectedScenarioKey = null;
+
+            renderUsageScenarioGrid(gridContainer, state, languageCode);
+            renderScenarioDetail(detailContainer, state, languageCode);
+
+            var scenarios;
+            try {
+                scenarios = WebsiteSDK.getUsageScenarios(languageCode);
+            } catch (e) {
+                console.error('getUsageScenarios failed', e);
+                state.loading = false;
+                state.error = 'load_error';
+                renderUsageScenarioGrid(gridContainer, state, languageCode);
+                renderScenarioDetail(detailContainer, state, languageCode);
+                return;
+            }
+
+            if (!Array.isArray(scenarios)) {
+                scenarios = [];
+            }
+
+            scenarios.sort(function (a, b) {
+                var ao = typeof a.display_order === 'number' ? a.display_order : Number.POSITIVE_INFINITY;
+                var bo = typeof b.display_order === 'number' ? b.display_order : Number.POSITIVE_INFINITY;
+                if (ao < bo) return -1;
+                if (ao > bo) return 1;
+                return 0;
+            });
+
+            state.scenarios = scenarios;
+            state.loading = false;
+            state.error = null;
+
+            var initialKey = typeof initialScenarioKey === 'string' ? initialScenarioKey : '';
+            if (initialKey) {
+                var found = null;
+                var i;
+                for (i = 0; i < scenarios.length; i += 1) {
+                    if (scenarios[i].key === initialKey) {
+                        found = scenarios[i];
+                        break;
+                    }
+                }
+                if (found) {
+                    if (found.key === 'pharmacy') {
+                        state.selectedScenarioKey = 'pharmacy';
+                    } else {
+                        state.selectedScenarioKey = found.key;
+                    }
+                }
+            }
+
+            renderUsageScenarioGrid(gridContainer, state, languageCode);
+            renderScenarioDetail(detailContainer, state, languageCode);
+        }
+
+        function updateUrlForScenario(selectedKey) {
+            var url = new URL(window.location.href);
+            var params = url.searchParams;
+
+            if (selectedKey) {
+                params.set('scenarioKey', selectedKey);
+            } else {
+                params.delete('scenarioKey');
+            }
+
+            params.set('lang', state.activeLanguage);
+
+            url.search = params.toString();
+            var newUrl = url.pathname + (url.search ? '?' + url.searchParams.toString() : '') + url.hash;
+            window.history.pushState({ lang: state.activeLanguage, scenarioKey: selectedKey }, '', url.toString());
+        }
+
+        function updateSelectedScenario(newKey, shouldUpdateUrl) {
+            state.selectedScenarioKey = newKey;
+            renderUsageScenarioGrid(gridContainer, state, state.activeLanguage);
+            renderScenarioDetail(detailContainer, state, state.activeLanguage);
+            if (shouldUpdateUrl) {
+                updateUrlForScenario(newKey);
+            }
+        }
+
+        function handlePharmacyNavigation() {
+            var url = new URL(window.location.href);
+            var params = url.searchParams;
+            params.set('lang', state.activeLanguage);
+            params.set('scenarioKey', 'pharmacy');
+            var target = 'pharmacy_usage.html?' + params.toString();
+            window.location.href = target;
+        }
+
+        function handleScenarioGridClick(event) {
+            var target = event.target;
+            var tile = target.closest('button[data-action="select-scenario"]');
+            if (!tile || !gridContainer.contains(tile)) {
+                return;
+            }
+            var scenarioKey = tile.dataset.scenarioKey;
+            if (!scenarioKey) {
+                return;
+            }
+
+            if (scenarioKey === 'pharmacy') {
+                handlePharmacyNavigation();
+                return;
+            }
+
+            if (state.selectedScenarioKey === scenarioKey) {
+                updateSelectedScenario(null, true);
+            } else {
+                updateSelectedScenario(scenarioKey, true);
+            }
+        }
+
+        function handleDetailPanelClick(event) {
+            var target = event.target;
+            var clearBtn = target.closest('button[data-action="clear-scenario-selection"]');
+            if (!clearBtn || !detailContainer.contains(clearBtn)) {
+                return;
+            }
+            updateSelectedScenario(null, true);
+        }
+
+        function handlePopState() {
+            var urlParams = new URLSearchParams(window.location.search);
+            var newLang = getActiveLanguageFromParams(urlParams, initialLanguageSettings);
+            var scenarioKey = urlParams.get('scenarioKey');
+
+            if (newLang !== state.activeLanguage) {
+                state.activeLanguage = newLang;
+                applyLanguageToStaticText(newLang);
+                loadUsageScenariosForLanguage(newLang, scenarioKey);
+                return;
+            }
+
+            if (!scenarioKey) {
+                updateSelectedScenario(null, false);
+                return;
+            }
+
+            if (scenarioKey === 'pharmacy') {
+                state.selectedScenarioKey = 'pharmacy';
+                renderUsageScenarioGrid(gridContainer, state, state.activeLanguage);
+                renderScenarioDetail(detailContainer, state, state.activeLanguage);
+                return;
+            }
+
+            var i;
+            var exists = false;
+            for (i = 0; i < state.scenarios.length; i += 1) {
+                if (state.scenarios[i].key === scenarioKey) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (exists) {
+                updateSelectedScenario(scenarioKey, false);
+            } else {
+                updateSelectedScenario(null, false);
+            }
+        }
+
+        function initializeLanguageAndData() {
+            try {
+                initialLanguageSettings = WebsiteSDK.getLanguageSettings();
+            } catch (e) {
+                console.error('getLanguageSettings failed', e);
+                initialLanguageSettings = null;
+            }
+
+            var urlParams = new URLSearchParams(window.location.search);
+            var resolvedLanguage = getActiveLanguageFromParams(urlParams, initialLanguageSettings);
+            state.activeLanguage = resolvedLanguage;
+            applyLanguageToStaticText(resolvedLanguage);
+
+            var initialScenarioKey = urlParams.get('scenarioKey');
+            loadUsageScenariosForLanguage(resolvedLanguage, initialScenarioKey);
+        }
+
+        if (gridContainer) {
+            gridContainer.addEventListener('click', handleScenarioGridClick);
+        }
+        if (detailContainer) {
+            detailContainer.addEventListener('click', handleDetailPanelClick);
+        }
+        window.addEventListener('popstate', handlePopState);
+
+        initializeLanguageAndData();
+    });
+    </script>
+</body>
+</html>

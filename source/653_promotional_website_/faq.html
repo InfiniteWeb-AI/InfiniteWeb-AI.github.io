@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SANROBEL, INC. &mdash; Anti-Aging Supplements</title>
+    
+    <link rel="stylesheet" href="faq.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="site-title-wrapper">
+            <h1 class="site-title">SANROBEL, INC.</h1>
+        </div>
+        <nav class="primary-nav" aria-label="Primary navigation">
+            <a href="index.html">Home</a>
+            <a href="products.html">Products</a>
+            <a href="bundles.html">Bundles</a>
+            <a href="quiz.html">Quiz</a>
+            <a href="science.html?section=clinical_studies">Science</a>
+            <a href="blog.html?categoryId=anti_aging_tips">Blog</a>
+            <a href="contact.html">Contact</a>
+        </nav>
+    </header>
+
+    <main id="content" class="page-content" role="main">
+        <section id="faq-page" data-component="faq-page-controller">
+            <h2 class="faq-heading" style="text-align:center;">Frequently Asked Questions</h2>
+
+            <section class="faq-filter" data-component="faq-filter-form" data-populate="faq-filter">
+                <!-- Filter form will be rendered here -->
+            </section>
+
+            <hr>
+
+            <div class="faq-category-strip" data-component="faq-category-list" data-populate="faq-categories">
+                <!-- FAQ categories will be rendered here -->
+            </div>
+
+            <br>
+
+            <div class="mini-cart-line" data-component="mini-cart-summary" data-populate="mini-cart-summary">
+                <!-- Mini-cart summary will be rendered here -->
+            </div>
+
+            <hr>
+
+            <section class="faq-entries" data-component="faq-question-list" data-populate="faq-list">
+                <!-- FAQ questions and answers will be rendered here -->
+            </section>
+
+            <hr>
+
+            <p class="faq-contact" data-component="faq-generic-contact-link" style="text-align:center;">
+                Still have questions?
+                <a href="javascript:void(0)" data-action="contact-generic">Contact us</a>.
+            </p>
+        </section>
+
+        <script src="business_logic.js"></script>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var urlParams = new URLSearchParams(window.location.search);
+            var initialCategoryParam = urlParams.get('category');
+
+            var faqFilterContainer = null;
+            var faqCategoriesContainer = null;
+            var faqListContainer = null;
+            var miniCartContainer = null;
+
+            var populateElements = document.querySelectorAll('[data-populate]');
+            populateElements.forEach(function(element) {
+                var dataType = element.dataset.populate;
+                if (dataType === 'faq-filter') {
+                    faqFilterContainer = element;
+                } else if (dataType === 'faq-categories') {
+                    faqCategoriesContainer = element;
+                } else if (dataType === 'faq-list') {
+                    faqListContainer = element;
+                } else if (dataType === 'mini-cart-summary') {
+                    miniCartContainer = element;
+                }
+            });
+
+            var faqPageState = {
+                faqEntries: [],
+                focusedCategoryKey: null,
+                textFilter: '',
+                expandedQuestions: {}
+            };
+
+            function escapeHtml(value) {
+                if (value === null || value === undefined) {
+                    return '';
+                }
+                return String(value)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            function normalizeCategoryKey(key) {
+                if (key === null || key === undefined) {
+                    return '';
+                }
+                return String(key).toLowerCase();
+            }
+
+            function getCategoryLabel(key) {
+                var normalized = String(key || '');
+                var label = normalized.replace(/_/g, ' ');
+                return label.charAt(0).toUpperCase() + label.slice(1);
+            }
+
+            function findCategoryEntry(entries, keyFromUrl) {
+                if (!entries || !entries.length || !keyFromUrl) {
+                    return null;
+                }
+                var target = normalizeCategoryKey(keyFromUrl);
+                for (var i = 0; i < entries.length; i += 1) {
+                    if (normalizeCategoryKey(entries[i].category) === target) {
+                        return entries[i];
+                    }
+                }
+                return null;
+            }
+
+            function isQuestionExpanded(categoryKey, index) {
+                var map = faqPageState.expandedQuestions[categoryKey];
+                if (!map) {
+                    return false;
+                }
+                return !!map[index];
+            }
+
+            function toggleQuestionExpanded(categoryKey, index) {
+                if (!faqPageState.expandedQuestions[categoryKey]) {
+                    faqPageState.expandedQuestions[categoryKey] = {};
+                }
+                var map = faqPageState.expandedQuestions[categoryKey];
+                map[index] = !map[index];
+            }
+
+            function updateUrlCategoryParam(newCategoryKey) {
+                var currentUrl = new URL(window.location.href);
+                if (!newCategoryKey) {
+                    currentUrl.searchParams.delete('category');
+                } else {
+                    currentUrl.searchParams.set('category', newCategoryKey);
+                }
+                window.history.pushState({}, '', currentUrl.toString());
+            }
+
+            function renderFaqFilter(container) {
+                var currentFilter = escapeHtml(faqPageState.textFilter);
+                container.innerHTML = '\n                    &lt;div style="text-align:center;"&gt;\n                        &lt;p&gt;Filter by topic or keyword:&lt;/p&gt;\n                        &lt;input\n                            type="text"\n                            name="faqFilter"\n                            value="' + currentFilter + '"\n                            data-action="filter-input"\n                            data-role="faq-filter-input"\n                            style="min-width: 220px;"\n                        &gt;\n                        &amp;nbsp;\n                        &lt;a href="javascript:void(0)" data-action="filter-clear"&gt;Clear filter&lt;/a&gt;\n                    &lt;/div&gt;\n                ';
+            }
+
+            function renderFaqCategories(container) {
+                var entries = faqPageState.faqEntries || [];
+                if (!entries.length) {
+                    container.innerHTML = '\n                        &lt;p style="text-align:center;"&gt;FAQ categories are not available at the moment.&lt;/p&gt;\n                    ';
+                    return;
+                }
+                var htmlParts = [];
+                htmlParts.push('&lt;p style="text-align:center;"&gt;');
+                for (var i = 0; i < entries.length; i += 1) {
+                    var key = entries[i].category;
+                    var label = getCategoryLabel(key);
+                    var isActive = key === faqPageState.focusedCategoryKey;
+                    var openTag = '&lt;a href="javascript:void(0)" data-action="category-toggle" data-category-key="' + escapeHtml(key) + '"';
+                    openTag += ' class="faq-category-link"';
+                    if (isActive) {
+                        openTag += ' data-active="true"';
+                    }
+                    openTag += '&gt;';
+                    if (isActive) {
+                        htmlParts.push(openTag + '&lt;strong&gt;' + escapeHtml(label) + '&lt;/strong&gt;&lt;/a&gt; ');
+                    } else {
+                        htmlParts.push(openTag + escapeHtml(label) + '&lt;/a&gt; ');
+                    }
+                }
+                htmlParts.push('&lt;/p&gt;');
+                container.innerHTML = htmlParts.join('');
+            }
+
+            function buildAnswerHtml(answerText, categoryKey) {
+                var base = '&lt;p style="text-align:center;"&gt;' + escapeHtml(answerText) + '&lt;/p&gt;';
+                var extraParts = [];
+                if (categoryKey === 'shipping') {
+                    extraParts.push('&lt;p style="text-align:center;"&gt;&lt;a href="javascript:void(0)" data-action="view-shipping-policy"&gt;See full shipping policy&lt;/a&gt;&lt;/p&gt;');
+                } else if (categoryKey === 'returns') {
+                    extraParts.push('&lt;p style="text-align:center;"&gt;&lt;a href="javascript:void(0)" data-action="view-returns-policy"&gt;See full returns policy&lt;/a&gt;&lt;/p&gt;');
+                } else if (categoryKey === 'ingredient_safety') {
+                    extraParts.push('&lt;p style="text-align:center;"&gt;&lt;a href="javascript:void(0)" data-action="contact-product-safety"&gt;Contact us about product safety&lt;/a&gt;&lt;/p&gt;');
+                }
+                if (extraParts.length) {
+                    return base + extraParts.join('');
+                }
+                return base;
+            }
+
+            function renderFaqList(container) {
+                var entries = faqPageState.faqEntries || [];
+                if (!entries.length) {
+                    container.innerHTML = '\n                        &lt;p style="text-align:center;"&gt;FAQ content is not available right now. Please check back later.&lt;/p&gt;\n                    ';
+                    return;
+                }
+
+                if (!faqPageState.focusedCategoryKey) {
+                    container.innerHTML = '\n                        &lt;p style="text-align:center;"&gt;Select a category above to view questions.&lt;/p&gt;\n                    ';
+                    return;
+                }
+
+                var activeCategory = null;
+                for (var i = 0; i < entries.length; i += 1) {
+                    if (entries[i].category === faqPageState.focusedCategoryKey) {
+                        activeCategory = entries[i];
+                        break;
+                    }
+                }
+
+                if (!activeCategory) {
+                    container.innerHTML = '\n                        &lt;p style="text-align:center;"&gt;The selected category could not be found. Please choose another category above.&lt;/p&gt;\n                    ';
+                    return;
+                }
+
+                var filterText = (faqPageState.textFilter || '').trim().toLowerCase();
+                var questions = activeCategory.questions || [];
+                var filtered = [];
+
+                if (filterText) {
+                    for (var q = 0; q < questions.length; q += 1) {
+                        var qItem = questions[q];
+                        var combined = (qItem.question || '') + ' ' + (qItem.answer || '');
+                        if (combined.toLowerCase().indexOf(filterText) !== -1) {
+                            filtered.push({ index: q, data: qItem });
+                        }
+                    }
+                } else {
+                    for (var j = 0; j < questions.length; j += 1) {
+                        filtered.push({ index: j, data: questions[j] });
+                    }
+                }
+
+                if (!filtered.length) {
+                    container.innerHTML = '\n                        &lt;h3 style="text-align:center;"&gt;' + escapeHtml(getCategoryLabel(activeCategory.category)) + '&lt;/h3&gt;\n                        &lt;br&gt;\n                        &lt;p style="text-align:center;"&gt;No questions match your filter in this category.&lt;/p&gt;\n                    ';
+                    return;
+                }
+
+                var htmlParts = [];
+                htmlParts.push('&lt;h3 style="text-align:center;"&gt;' + escapeHtml(getCategoryLabel(activeCategory.category)) + '&lt;/h3&gt;');
+                htmlParts.push('&lt;br&gt;');
+
+                for (var k = 0; k < filtered.length; k += 1) {
+                    var item = filtered[k];
+                    var questionIndex = item.index;
+                    var questionData = item.data;
+                    var expanded = isQuestionExpanded(activeCategory.category, questionIndex);
+
+                    htmlParts.push('&lt;div class="faq-question-block" style="text-align:center;"&gt;');
+                    htmlParts.push('\n    &lt;div&gt;&lt;a href="javascript:void(0)" data-action="question-toggle" data-category-key="' + escapeHtml(activeCategory.category) + '" data-question-index="' + String(questionIndex) + '"&gt;&lt;strong&gt;' + escapeHtml(questionData.question || '') + '&lt;/strong&gt;&lt;/a&gt;&lt;/div&gt;');
+                    if (expanded) {
+                        htmlParts.push('\n    &lt;br&gt;');
+                        htmlParts.push('\n    ' + buildAnswerHtml(questionData.answer || '', activeCategory.category));
+                    }
+                    htmlParts.push('\n&lt;/div&gt;');
+                    if (k < filtered.length - 1) {
+                        htmlParts.push('\n&lt;br&gt;');
+                    }
+                }
+
+                container.innerHTML = htmlParts.join('');
+            }
+
+            function renderMiniCart(container, summary) {
+                if (!summary) {
+                    container.innerHTML = '\n                        &lt;p style="text-align:center;"&gt;Cart information is not available at the moment.&lt;/p&gt;\n                    ';
+                    return;
+                }
+                var items = Array.isArray(summary.items_detailed) ? summary.items_detailed : [];
+                var itemCount = 0;
+                for (var i = 0; i < items.length; i += 1) {
+                    var cartItem = items[i].cart_item;
+                    if (cartItem && typeof cartItem.quantity === 'number') {
+                        itemCount += cartItem.quantity;
+                    }
+                }
+                var subtotalNumber = 0;
+                if (typeof summary.subtotal === 'number' && !isNaN(summary.subtotal)) {
+                    subtotalNumber = summary.subtotal;
+                }
+                var note = summary.note_about_shipping || '';
+                var label = 'item';
+                if (itemCount !== 1) {
+                    label = 'items';
+                }
+                var subtotalText = '$' + subtotalNumber.toFixed(2);
+                var baseHtml = 'Cart: ' + String(itemCount) + ' ' + label + ' &mdash; Subtotal: ' + subtotalText + '. ';
+                var noteHtml = note ? ' &mdash; ' + escapeHtml(note) : '';
+                container.innerHTML = '\n                    &lt;p style="text-align:center;"&gt;' + baseHtml + '&lt;a href="javascript:void(0)" data-action="view-cart"&gt;View cart&lt;/a&gt;' + noteHtml + '&lt;/p&gt;\n                ';
+            }
+
+            function renderAll() {
+                if (faqFilterContainer) {
+                    renderFaqFilter(faqFilterContainer);
+                }
+                if (faqCategoriesContainer) {
+                    renderFaqCategories(faqCategoriesContainer);
+                }
+                if (faqListContainer) {
+                    renderFaqList(faqListContainer);
+                }
+            }
+
+            var faqEntriesResult = [];
+            var cartSummaryResult = null;
+
+            try {
+                faqEntriesResult = WebsiteSDK.getFaqEntries();
+            } catch (err) {
+                faqEntriesResult = [];
+                console.error('Error loading FAQ entries', err);
+            }
+
+            try {
+                cartSummaryResult = WebsiteSDK.getCartSummary();
+            } catch (err2) {
+                cartSummaryResult = null;
+                console.error('Error loading cart summary', err2);
+            }
+
+            if (Array.isArray(faqEntriesResult)) {
+                faqPageState.faqEntries = faqEntriesResult;
+            } else {
+                faqPageState.faqEntries = [];
+            }
+
+            if (faqPageState.faqEntries.length) {
+                var matchedCategory = findCategoryEntry(faqPageState.faqEntries, initialCategoryParam);
+                if (matchedCategory) {
+                    faqPageState.focusedCategoryKey = matchedCategory.category;
+                } else {
+                    faqPageState.focusedCategoryKey = faqPageState.faqEntries[0].category;
+                }
+            } else {
+                faqPageState.focusedCategoryKey = null;
+            }
+
+            if (faqFilterContainer) {
+                renderFaqFilter(faqFilterContainer);
+            }
+            if (faqCategoriesContainer) {
+                renderFaqCategories(faqCategoriesContainer);
+            }
+            if (faqListContainer) {
+                renderFaqList(faqListContainer);
+            }
+            if (miniCartContainer) {
+                renderMiniCart(miniCartContainer, cartSummaryResult);
+            }
+
+            window.addEventListener('popstate', function() {
+                var latestParams = new URLSearchParams(window.location.search);
+                var categoryFromUrl = latestParams.get('category');
+                var updatedCategory = null;
+                if (faqPageState.faqEntries && faqPageState.faqEntries.length) {
+                    var match = findCategoryEntry(faqPageState.faqEntries, categoryFromUrl);
+                    if (match) {
+                        updatedCategory = match.category;
+                    } else {
+                        updatedCategory = faqPageState.faqEntries[0].category;
+                    }
+                }
+                faqPageState.focusedCategoryKey = updatedCategory;
+                faqPageState.expandedQuestions = {};
+                renderAll();
+            });
+
+            document.addEventListener('click', function(event) {
+                var actionElement = event.target.closest('[data-action]');
+                if (!actionElement) {
+                    return;
+                }
+                var action = actionElement.getAttribute('data-action');
+                if (!action) {
+                    return;
+                }
+
+                if (action === 'category-toggle') {
+                    event.preventDefault();
+                    var categoryKey = actionElement.getAttribute('data-category-key');
+                    if (!categoryKey) {
+                        return;
+                    }
+                    if (faqPageState.focusedCategoryKey === categoryKey) {
+                        faqPageState.focusedCategoryKey = null;
+                        faqPageState.expandedQuestions = {};
+                        updateUrlCategoryParam(null);
+                    } else {
+                        faqPageState.focusedCategoryKey = categoryKey;
+                        faqPageState.expandedQuestions = {};
+                        updateUrlCategoryParam(categoryKey);
+                    }
+                    if (faqCategoriesContainer) {
+                        renderFaqCategories(faqCategoriesContainer);
+                    }
+                    if (faqListContainer) {
+                        renderFaqList(faqListContainer);
+                    }
+                    return;
+                }
+
+                if (action === 'question-toggle') {
+                    event.preventDefault();
+                    var qCategory = actionElement.getAttribute('data-category-key');
+                    var qIndexString = actionElement.getAttribute('data-question-index');
+                    var qIndex = parseInt(qIndexString, 10);
+                    if (!qCategory || isNaN(qIndex)) {
+                        return;
+                    }
+                    toggleQuestionExpanded(qCategory, qIndex);
+                    if (faqListContainer) {
+                        renderFaqList(faqListContainer);
+                    }
+                    return;
+                }
+
+                if (action === 'filter-clear') {
+                    event.preventDefault();
+                    faqPageState.textFilter = '';
+                    if (faqFilterContainer) {
+                        renderFaqFilter(faqFilterContainer);
+                    }
+                    if (faqListContainer) {
+                        renderFaqList(faqListContainer);
+                    }
+                    if (faqCategoriesContainer) {
+                        renderFaqCategories(faqCategoriesContainer);
+                    }
+                    return;
+                }
+
+                if (action === 'view-shipping-policy') {
+                    event.preventDefault();
+                    window.location.href = 'policies.html?section=shipping';
+                    return;
+                }
+
+                if (action === 'view-returns-policy') {
+                    event.preventDefault();
+                    window.location.href = 'policies.html?section=returns';
+                    return;
+                }
+
+                if (action === 'contact-product-safety') {
+                    event.preventDefault();
+                    window.location.href = 'contact.html?topic=product_safety';
+                    return;
+                }
+
+                if (action === 'contact-generic') {
+                    event.preventDefault();
+                    window.location.href = 'contact.html';
+                    return;
+                }
+
+                if (action === 'view-cart') {
+                    event.preventDefault();
+                    window.location.href = 'cart.html';
+                    return;
+                }
+            });
+
+            document.addEventListener('input', function(event) {
+                var target = event.target;
+                if (!target || target.getAttribute('data-action') !== 'filter-input') {
+                    return;
+                }
+                faqPageState.textFilter = target.value || '';
+                if (faqListContainer) {
+                    renderFaqList(faqListContainer);
+                }
+                if (faqCategoriesContainer) {
+                    renderFaqCategories(faqCategoriesContainer);
+                }
+            });
+        });
+        </script>
+    </main>
+
+    <footer class="site-footer">
+        <hr class="footer-divider">
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <p class="footer-links">
+                <a href="about.html">About</a>
+                <span class="footer-separator">|</span>
+                <a href="faq.html">FAQ</a>
+                <span class="footer-separator">|</span>
+                <a href="contact.html">Contact Support</a>
+                <span class="footer-separator">|</span>
+                <a href="science.html?section=clinical_studies">Science  Clinical Studies</a>
+                <span class="footer-separator">|</span>
+                <a href="policies.html">Shipping &amp; Policies</a>
+                <span class="footer-separator">|</span>
+                <a href="blog.html?categoryId=anti_aging_tips">Blog: Anti-aging Tips</a>
+                <span class="footer-separator">|</span>
+                <a href="blog.html?categoryId=product_launches">Blog: Product Launches</a>
+            </p>
+        </nav>
+        <p class="footer-copy">&copy; <span class="footer-year">2026</span> SANROBEL, INC. All rights reserved.</p>
+    </footer>
+</body>
+</html>

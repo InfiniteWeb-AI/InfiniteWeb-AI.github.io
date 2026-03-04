@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Hosting Service - Collections</title>
+    
+    <link rel="stylesheet" href="collections.css">
+</head>
+<body>
+    <header class="site-header">
+        <nav class="main-nav" aria-label="Main navigation">
+            <ul class="main-nav__list">
+                <li class="main-nav__item"><a href="index.html">Dashboard</a></li>
+                <li class="main-nav__item"><a href="explore.html">Explore</a></li>
+                <li class="main-nav__item"><a href="collections.html">Collections</a></li>
+                <li class="main-nav__item"><a href="download_queue.html">Download Queue</a></li>
+                <li class="main-nav__item"><a href="settings.html">Settings</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" class="site-content" role="main">
+        <section data-component="collections-page-controller">
+            <h1>Collections</h1>
+            <p>Select a collection to view and manage its items.</p>
+        </section>
+
+        <section aria-label="Collections list">
+            <h2>Your collections</h2>
+            <p id="collectionsStatus"></p>
+            <ul data-component="collections-list-sidebar" data-populate="collections">
+                <!-- Collections will be rendered here -->
+            </ul>
+        </section>
+
+        <section data-component="collection-header" data-populate="collection-header">
+            <!-- Selected collection header will be rendered here -->
+        </section>
+
+        <section data-component="sort-control">
+            <form>
+                <label for="sortSelect">Sort items:</label>
+                <select id="sortSelect" name="sort" data-action="change-sort">
+                    <!-- Sort options will be initialized by JavaScript -->
+                </select>
+            </form>
+        </section>
+
+        <section data-component="empty-state-panel">
+            <p id="itemsStatus"></p>
+        </section>
+
+        <section aria-label="Collection items">
+            <ul data-component="collection-items-list" data-populate="collection-items">
+                <!-- Collection items will be rendered here -->
+            </ul>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p class="site-footer__copy">
+            &copy; 2010-2026 Example File Hosting Service
+        </p>
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul class="footer-nav__list">
+                <li class="footer-nav__item"><a href="about.html">About</a></li>
+                <li class="footer-nav__item"><a href="help.html">Help &amp; Support</a></li>
+                <li class="footer-nav__item"><a href="terms.html">Terms of Service</a></li>
+                <li class="footer-nav__item"><a href="privacy.html">Privacy Policy</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const SORT_OPTIONS = {
+            custom_position_asc: { field: 'custom_position', direction: 'asc', label: 'Custom order' },
+            added_at_desc: { field: 'added_at', direction: 'desc', label: 'Date added (newest first)' },
+            name_asc: { field: 'name', direction: 'asc', label: 'Name (A-Z)' },
+            size_desc: { field: 'size', direction: 'desc', label: 'Size (largest first)' }
+        };
+
+        const state = {
+            collections: [],
+            selectedCollectionId: null,
+            sortKey: 'custom_position_asc',
+            currentCollection: null,
+            currentItems: []
+        };
+
+        const containers = {
+            collectionsList: null,
+            collectionHeader: null,
+            itemsList: null,
+            collectionsStatus: document.getElementById('collectionsStatus'),
+            itemsStatus: document.getElementById('itemsStatus'),
+            sortSelect: document.getElementById('sortSelect'),
+            sortControlSection: document.querySelector('[data-component="sort-control"]'),
+            collectionHeaderSection: document.querySelector('[data-component="collection-header"]')
+        };
+
+        const populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function(element) {
+            const type = element.dataset.populate;
+            if (type === 'collections') {
+                containers.collectionsList = element;
+            } else if (type === 'collection-header') {
+                containers.collectionHeader = element;
+            } else if (type === 'collection-items') {
+                containers.itemsList = element;
+            }
+        });
+
+        initSortSelect(containers.sortSelect);
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialCollectionId = urlParams.get('collectionId');
+        const initialSortParam = urlParams.get('sort');
+
+        if (initialSortParam && SORT_OPTIONS[initialSortParam]) {
+            state.sortKey = initialSortParam;
+        } else {
+            state.sortKey = 'custom_position_asc';
+        }
+
+        if (containers.sortSelect) {
+            containers.sortSelect.value = state.sortKey;
+        }
+
+        state.selectedCollectionId = initialCollectionId;
+
+        loadCollections();
+
+        if (state.selectedCollectionId) {
+            loadCollectionItems(state.selectedCollectionId);
+        } else {
+            renderCollectionHeader(containers.collectionHeader, null, []);
+            renderCollectionItemsList(containers.itemsList, [], isReorderEnabled());
+        }
+
+        window.addEventListener('popstate', handlePopState);
+
+        document.addEventListener('click', handleDocumentClick);
+
+        if (containers.sortSelect) {
+            containers.sortSelect.addEventListener('change', handleSortChange);
+        }
+
+        function initSortSelect(selectElement) {
+            if (!selectElement) {
+                return;
+            }
+            selectElement.innerHTML = '';
+            Object.keys(SORT_OPTIONS).forEach(function(key) {
+                const option = document.createElement('option');
+                option.value = key;
+                option.textContent = SORT_OPTIONS[key].label;
+                selectElement.appendChild(option);
+            });
+        }
+
+        function isReorderEnabled() {
+            return state.sortKey === 'custom_position_asc';
+        }
+
+        function loadCollections() {
+            if (!containers.collectionsList) {
+                return;
+            }
+            if (containers.collectionsStatus) {
+                containers.collectionsStatus.textContent = 'Loading collections...';
+            }
+            try {
+                const result = WebsiteSDK.getCollections();
+                const collections = result && result.collections ? result.collections : [];
+                state.collections = collections;
+                renderCollectionsList(containers.collectionsList, collections, state.selectedCollectionId);
+                if (collections.length === 0) {
+                    if (containers.collectionsStatus) {
+                        containers.collectionsStatus.textContent = 'You do not have any collections yet.';
+                    }
+                    if (containers.collectionHeaderSection) {
+                        containers.collectionHeaderSection.innerHTML = '';
+                    }
+                    if (containers.sortControlSection) {
+                        containers.sortControlSection.style.display = 'none';
+                    }
+                    if (containers.itemsList) {
+                        containers.itemsList.innerHTML = '';
+                    }
+                    if (containers.itemsStatus) {
+                        containers.itemsStatus.textContent = '';
+                    }
+                } else if (containers.collectionsStatus) {
+                    containers.collectionsStatus.textContent = '';
+                }
+            } catch (error) {
+                if (containers.collectionsStatus) {
+                    containers.collectionsStatus.textContent = 'Error loading collections.';
+                }
+                if (window.console && console.error) {
+                    console.error(error);
+                }
+            }
+        }
+
+        function loadCollectionItems(collectionId) {
+            if (!collectionId || !containers.itemsList) {
+                return;
+            }
+            if (containers.itemsStatus) {
+                containers.itemsStatus.textContent = 'Loading collection items...';
+            }
+            try {
+                const sortConfig = SORT_OPTIONS[state.sortKey];
+                let result;
+                if (sortConfig) {
+                    result = WebsiteSDK.getCollectionItems(collectionId, { field: sortConfig.field, direction: sortConfig.direction });
+                } else {
+                    result = WebsiteSDK.getCollectionItems(collectionId);
+                }
+                const collection = result && result.collection ? result.collection : null;
+                const items = result && Array.isArray(result.items) ? result.items : [];
+                state.currentCollection = collection;
+                state.currentItems = items;
+                renderCollectionHeader(containers.collectionHeader, collection, items);
+                renderCollectionItemsList(containers.itemsList, items, isReorderEnabled());
+            } catch (error) {
+                if (containers.itemsStatus) {
+                    containers.itemsStatus.textContent = 'Error loading collection items.';
+                }
+                if (window.console && console.error) {
+                    console.error(error);
+                }
+            }
+        }
+
+        function renderCollectionsList(container, collections, selectedId) {
+            container.innerHTML = '';
+            if (!collections || collections.length === 0) {
+                return;
+            }
+            collections.forEach(function(collection) {
+                const li = document.createElement('li');
+                const link = document.createElement('a');
+                link.href = 'javascript:void(0)';
+                link.textContent = collection.name;
+                link.dataset.action = 'select-collection';
+                link.dataset.collectionId = collection.id;
+                if (collection.id === selectedId) {
+                    link.setAttribute('aria-current', 'page');
+                }
+                li.appendChild(link);
+                container.appendChild(li);
+            });
+        }
+
+        function renderCollectionHeader(container, collection, items) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+            if (!collection) {
+                const heading = document.createElement('h2');
+                heading.textContent = 'No collection selected';
+                container.appendChild(heading);
+                if (containers.sortControlSection) {
+                    containers.sortControlSection.style.display = 'none';
+                }
+                if (containers.itemsStatus) {
+                    containers.itemsStatus.textContent = 'Select a collection to view its items.';
+                }
+                return;
+            }
+
+            const heading = document.createElement('h2');
+            heading.textContent = collection.name;
+            container.appendChild(heading);
+
+            if (collection.description) {
+                const desc = document.createElement('p');
+                desc.textContent = collection.description;
+                container.appendChild(desc);
+            }
+
+            const meta = document.createElement('p');
+            const count = items ? items.length : 0;
+            meta.textContent = 'Items in this collection: ' + count;
+            container.appendChild(meta);
+
+            if (shouldShowExploreLink(collection, items)) {
+                const exploreParagraph = document.createElement('p');
+                const link = document.createElement('a');
+                link.href = 'javascript:void(0)';
+                link.dataset.action = 'explore-more';
+                link.textContent = 'Find more eBooks';
+                exploreParagraph.appendChild(link);
+                container.appendChild(exploreParagraph);
+            }
+
+            if (containers.sortControlSection) {
+                containers.sortControlSection.style.display = 'block';
+            }
+        }
+
+        function shouldShowExploreLink(collection, items) {
+            if (!collection || !collection.isSystem) {
+                return false;
+            }
+            if (!items || !items.length) {
+                return false;
+            }
+            let ebookLikeCount = 0;
+            for (let i = 0; i < items.length; i += 1) {
+                const file = items[i] && items[i].file ? items[i].file : null;
+                if (!file) {
+                    continue;
+                }
+                if (file.contentCategory === 'ebooks') {
+                    ebookLikeCount += 1;
+                    break;
+                }
+                if (Array.isArray(file.tags)) {
+                    const hasEbookTag = file.tags.some(function(tag) {
+                        return tag === 'eBook';
+                    });
+                    if (hasEbookTag) {
+                        ebookLikeCount += 1;
+                        break;
+                    }
+                }
+            }
+            return ebookLikeCount > 0;
+        }
+
+        function renderCollectionItemsList(container, items, allowReorder) {
+            container.innerHTML = '';
+            if (!state.selectedCollectionId) {
+                if (containers.itemsStatus) {
+                    containers.itemsStatus.textContent = 'Select a collection to view its items.';
+                }
+                return;
+            }
+            if (!items || items.length === 0) {
+                if (containers.itemsStatus) {
+                    containers.itemsStatus.textContent = 'This collection has no items.';
+                }
+                return;
+            }
+            if (containers.itemsStatus) {
+                containers.itemsStatus.textContent = '';
+            }
+            items.forEach(function(item, index) {
+                const collectionItem = item.collectionItem;
+                const file = item.file;
+                const li = document.createElement('li');
+                li.dataset.component = 'collection-item-row';
+                li.dataset.collectionItemId = collectionItem.id;
+                li.dataset.fileId = file.id;
+
+                const nameLink = document.createElement('a');
+                nameLink.href = 'javascript:void(0)';
+                nameLink.textContent = file.name;
+                nameLink.dataset.action = 'open-item';
+                nameLink.dataset.fileId = file.id;
+                li.appendChild(nameLink);
+
+                const metaSpan = document.createElement('span');
+                const parts = [];
+                if (file.fileType) {
+                    parts.push('type: ' + file.fileType);
+                }
+                if (typeof file.sizeBytes === 'number') {
+                    parts.push('size: ' + formatSize(file.sizeBytes));
+                }
+                if (file.contentCategory) {
+                    parts.push('category: ' + file.contentCategory);
+                }
+                if (parts.length) {
+                    metaSpan.textContent = ' (' + parts.join(', ') + ')';
+                    li.appendChild(metaSpan);
+                }
+
+                const openButton = document.createElement('button');
+                openButton.type = 'button';
+                openButton.textContent = 'Open';
+                openButton.dataset.action = 'open-item';
+                openButton.dataset.fileId = file.id;
+                li.appendChild(document.createTextNode(' '));
+                li.appendChild(openButton);
+
+                const removeButton = document.createElement('button');
+                removeButton.type = 'button';
+                removeButton.textContent = 'Remove';
+                removeButton.dataset.action = 'remove-item';
+                removeButton.dataset.collectionItemId = collectionItem.id;
+                li.appendChild(document.createTextNode(' '));
+                li.appendChild(removeButton);
+
+                if (allowReorder) {
+                    const moveUpButton = document.createElement('button');
+                    moveUpButton.type = 'button';
+                    moveUpButton.textContent = 'Move up';
+                    moveUpButton.dataset.action = 'move-up';
+                    moveUpButton.dataset.collectionItemId = collectionItem.id;
+                    if (index === 0) {
+                        moveUpButton.disabled = true;
+                    }
+                    li.appendChild(document.createTextNode(' '));
+                    li.appendChild(moveUpButton);
+
+                    const moveDownButton = document.createElement('button');
+                    moveDownButton.type = 'button';
+                    moveDownButton.textContent = 'Move down';
+                    moveDownButton.dataset.action = 'move-down';
+                    moveDownButton.dataset.collectionItemId = collectionItem.id;
+                    if (index === items.length - 1) {
+                        moveDownButton.disabled = true;
+                    }
+                    li.appendChild(document.createTextNode(' '));
+                    li.appendChild(moveDownButton);
+                }
+
+                container.appendChild(li);
+            });
+        }
+
+        function handleDocumentClick(event) {
+            const target = event.target.closest('[data-action]');
+            if (!target) {
+                return;
+            }
+            const action = target.dataset.action;
+            if (action === 'select-collection') {
+                const collectionId = target.dataset.collectionId;
+                if (!collectionId || collectionId === state.selectedCollectionId) {
+                    return;
+                }
+                state.selectedCollectionId = collectionId;
+                updateUrl(collectionId, state.sortKey, false);
+                renderCollectionsList(containers.collectionsList, state.collections, state.selectedCollectionId);
+                loadCollectionItems(collectionId);
+            } else if (action === 'open-item') {
+                const fileId = target.dataset.fileId || (target.closest('[data-collection-item-id]') && target.closest('[data-collection-item-id]').dataset.fileId);
+                if (!fileId) {
+                    return;
+                }
+                window.location.href = 'file_preview.html?fileId=' + encodeURIComponent(fileId);
+            } else if (action === 'remove-item') {
+                const collectionItemId = target.dataset.collectionItemId || (target.closest('[data-collection-item-id]') && target.closest('[data-collection-item-id]').dataset.collectionItemId);
+                if (!collectionItemId) {
+                    return;
+                }
+                removeItemFromCollection(collectionItemId);
+            } else if (action === 'move-up' || action === 'move-down') {
+                if (!isReorderEnabled()) {
+                    return;
+                }
+                const collectionItemId = target.dataset.collectionItemId || (target.closest('[data-collection-item-id]') && target.closest('[data-collection-item-id]').dataset.collectionItemId);
+                if (!collectionItemId) {
+                    return;
+                }
+                const direction = action === 'move-up' ? -1 : 1;
+                reorderItem(collectionItemId, direction);
+            } else if (action === 'explore-more') {
+                window.location.href = 'explore.html?category=ebooks&tag=eBook';
+            }
+        }
+
+        function handleSortChange(event) {
+            const select = event.target;
+            const newSortKey = select.value;
+            if (!SORT_OPTIONS[newSortKey]) {
+                return;
+            }
+            state.sortKey = newSortKey;
+            if (state.selectedCollectionId) {
+                updateUrl(state.selectedCollectionId, state.sortKey, false);
+                loadCollectionItems(state.selectedCollectionId);
+            }
+        }
+
+        function updateUrl(collectionId, sortKey, replace) {
+            const url = new URL(window.location.href);
+            if (collectionId) {
+                url.searchParams.set('collectionId', collectionId);
+            } else {
+                url.searchParams.delete('collectionId');
+            }
+            if (sortKey && collectionId) {
+                url.searchParams.set('sort', sortKey);
+            } else {
+                url.searchParams.delete('sort');
+            }
+            if (replace) {
+                window.history.replaceState({}, '', url.toString());
+            } else {
+                window.history.pushState({}, '', url.toString());
+            }
+        }
+
+        function handlePopState() {
+            const params = new URLSearchParams(window.location.search);
+            const collectionId = params.get('collectionId');
+            const sortParam = params.get('sort');
+            state.selectedCollectionId = collectionId;
+            if (sortParam && SORT_OPTIONS[sortParam]) {
+                state.sortKey = sortParam;
+            } else {
+                state.sortKey = 'custom_position_asc';
+            }
+            if (containers.sortSelect) {
+                containers.sortSelect.value = state.sortKey;
+            }
+            renderCollectionsList(containers.collectionsList, state.collections, state.selectedCollectionId);
+            if (state.selectedCollectionId) {
+                loadCollectionItems(state.selectedCollectionId);
+            } else {
+                renderCollectionHeader(containers.collectionHeader, null, []);
+                renderCollectionItemsList(containers.itemsList, [], isReorderEnabled());
+            }
+        }
+
+        function removeItemFromCollection(collectionItemId) {
+            try {
+                const result = WebsiteSDK.removeCollectionItem(collectionItemId);
+                if (!result || result.success !== true) {
+                    if (containers.itemsStatus) {
+                        containers.itemsStatus.textContent = result && result.message ? result.message : 'Unable to remove item from collection.';
+                    }
+                    return;
+                }
+                state.currentItems = state.currentItems.filter(function(item) {
+                    return item.collectionItem.id !== collectionItemId;
+                });
+                renderCollectionHeader(containers.collectionHeader, state.currentCollection, state.currentItems);
+                renderCollectionItemsList(containers.itemsList, state.currentItems, isReorderEnabled());
+            } catch (error) {
+                if (containers.itemsStatus) {
+                    containers.itemsStatus.textContent = 'Error removing item from collection.';
+                }
+                if (window.console && console.error) {
+                    console.error(error);
+                }
+            }
+        }
+
+        function reorderItem(collectionItemId, direction) {
+            const index = state.currentItems.findIndex(function(item) {
+                return item.collectionItem.id === collectionItemId;
+            });
+            if (index === -1) {
+                return;
+            }
+            const newIndex = index + direction;
+            if (newIndex < 0 || newIndex >= state.currentItems.length) {
+                return;
+            }
+            const itemsCopy = state.currentItems.slice();
+            const movedItem = itemsCopy.splice(index, 1)[0];
+            itemsCopy.splice(newIndex, 0, movedItem);
+            const orderedItemIds = itemsCopy.map(function(item) {
+                return item.collectionItem.id;
+            });
+            try {
+                const result = WebsiteSDK.reorderCollectionItems(state.selectedCollectionId, orderedItemIds);
+                if (!result || result.success !== true) {
+                    if (containers.itemsStatus) {
+                        containers.itemsStatus.textContent = result && result.message ? result.message : 'Unable to reorder items.';
+                    }
+                    loadCollectionItems(state.selectedCollectionId);
+                    return;
+                }
+                state.currentItems = itemsCopy;
+                renderCollectionItemsList(containers.itemsList, state.currentItems, isReorderEnabled());
+            } catch (error) {
+                if (containers.itemsStatus) {
+                    containers.itemsStatus.textContent = 'Error reordering items.';
+                }
+                if (window.console && console.error) {
+                    console.error(error);
+                }
+                loadCollectionItems(state.selectedCollectionId);
+            }
+        }
+
+        function formatSize(bytes) {
+            if (typeof bytes !== 'number' || !isFinite(bytes) || bytes < 0) {
+                return '';
+            }
+            if (bytes < 1024) {
+                return bytes + ' B';
+            }
+            const kb = bytes / 1024;
+            if (kb < 1024) {
+                return kb.toFixed(1) + ' KB';
+            }
+            const mb = kb / 1024;
+            if (mb < 1024) {
+                return mb.toFixed(1) + ' MB';
+            }
+            const gb = mb / 1024;
+            return gb.toFixed(1) + ' GB';
+        }
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Video Gallery - The Initiative</title>
+    
+    <link rel="stylesheet" href="media_videos.css">
+</head>
+<body>
+    <div class="page">
+        <header class="site-header">
+            <div class="site-identity">
+                <span class="site-title">The Initiative</span>
+            </div>
+            <nav class="site-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html" title="Homepage and primary entry into the ARG experience">Home</a></li>
+                    <li><a href="transmission_logs.html" title="Browse transmissions and unlock the Phase I teaser via Prelude logs">Transmission Logs</a></li>
+                    <li><a href="timeline.html" title="Chronological view of events with filters and severity controls">Timeline</a></li>
+                    <li><a href="timeline.html?view=watchlist" title="List of events the user has flagged for monitoring">Watchlist</a></li>
+                    <li><a href="characters.html" title="Directory of Initiative characters, including Project Orion profiles">Characters</a></li>
+                    <li><a href="anomaly_map.html" title="Interactive map and list of anomalous locations and case files">Anomaly Map</a></li>
+                    <li><a href="media_videos.html" title="Media gallery for teaser and briefing videos">Videos</a></li>
+                    <li><a href="incident_logs.html" title="Searchable archive of incident logs and low-threat reports">Incident Logs</a></li>
+                    <li><a href="signals.html" title="Live signal stream used as clues for theories">Signals</a></li>
+                    <li><a href="ciphers.html" title="Tools and cipher list for decoding and theory building">Ciphers</a></li>
+                    <li><a href="theory_board.html" title="Workspace for assembling clues into named theories">Theory Board</a></li>
+                    <li><a href="artifacts.html" title="Catalog of recovered artifacts and their risk levels">Artifacts</a></li>
+                    <li><a href="recruitment.html" title="Recruitment and assessment form for new operatives">Join the Initiative</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id="content" class="site-main" tabindex="-1">
+            <section id="video-player-section" aria-label="Selected video" data-component="video-player">
+                <div data-populate="video-player"></div>
+            </section>
+
+            <section id="playlist-controls-section" data-component="playlist-controls-section">
+                <div data-component="playlist-controls" data-populate="playlist-controls"></div>
+                <div data-component="playlist-status" aria-live="polite"></div>
+            </section>
+
+            <section id="video-filter-panel" data-component="video-filter-panel">
+                <div data-populate="video-filter-options"></div>
+            </section>
+
+            <section id="video-grid-section" data-component="video-grid">
+                <div data-populate="video-results"></div>
+            </section>
+
+            <nav id="video-pagination" aria-label="Video pages" data-component="video-pagination-controls">
+                <div data-populate="video-pagination"></div>
+            </nav>
+
+            <section id="comments-section" data-component="comments-section" aria-label="Video comments">
+                <h2>Comments</h2>
+                <form data-action="submit-comment">
+                    <div>
+                        <label for="commentText">New comment</label><br>
+                        <textarea id="commentText" name="commentText" rows="3"></textarea>
+                    </div>
+                    <div>
+                        <input type="submit" value="Post">
+                    </div>
+                </form>
+                <div data-populate="video-comments"></div>
+                <div data-component="comments-status" aria-live="polite"></div>
+            </section>
+
+            <div data-component="url-state-sync" hidden></div>
+        </main>
+
+        <footer class="site-footer">
+            <hr class="footer-rule">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="about.html" title="About the Initiative and the ARG universe">About</a></li>
+                    <li><a href="transmission_logs.html" title="Access the transmission archive">Transmission Logs</a></li>
+                    <li><a href="incident_logs.html" title="Access the incident log archives">Incident Logs</a></li>
+                    <li><a href="artifacts.html" title="Browse artifacts by origin and corruption risk">Artifacts Catalog</a></li>
+                    <li><a href="recruitment.html" title="Create your recruitment profile">Join the Initiative</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">The Initiative</p>
+        </footer>
+    </div>
+    <script src="business_logic.js"></script>
+    <script>
+document.addEventListener('DOMContentLoaded', function() {
+    const populateContainers = {};
+    document.querySelectorAll('[data-populate]').forEach(function(el) {
+        const key = el.getAttribute('data-populate');
+        if (key && !populateContainers[key]) {
+            populateContainers[key] = el;
+        }
+    });
+
+    const playlistStatusEl = document.querySelector('[data-component="playlist-status"]');
+    const commentsStatusEl = document.querySelector('[data-component="comments-status"]');
+    const commentForm = document.querySelector('form[data-action="submit-comment"]');
+    const commentTextarea = commentForm ? commentForm.querySelector('textarea[name="commentText"]') : null;
+
+    let filterOptions = null;
+    let defaultSortKey = null;
+    let playlistsCache = null;
+    let currentComments = [];
+    let currentState = parseUrlToState();
+    let isApplyingPopState = false;
+    const boundActionElements = new WeakSet();
+
+    try {
+        filterOptions = WebsiteSDK.getVideoFilterOptions();
+        if (filterOptions && Array.isArray(filterOptions.sort_options) && filterOptions.sort_options.length > 0) {
+            defaultSortKey = filterOptions.sort_options[0].key || null;
+        }
+    } catch (e) {
+        console.error('Failed to load video filter options', e);
+    }
+
+    currentState = normalizeState(currentState);
+
+    applyStateToUIAndData(currentState, true);
+
+    window.addEventListener('popstate', function(event) {
+        isApplyingPopState = true;
+        let stateFromHistory = event.state;
+        if (!stateFromHistory) {
+            stateFromHistory = parseUrlToState();
+        }
+        currentState = normalizeState(stateFromHistory || {});
+        applyStateToUIAndData(currentState, false);
+        isApplyingPopState = false;
+    });
+
+    bindActionHandlers();
+
+    function parseUrlToState() {
+        const params = new URLSearchParams(window.location.search);
+        const videoId = params.get('videoId') || null;
+        const tagsParam = params.get('tags') || '';
+        const tags = tagsParam ? tagsParam.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t.length > 0; }) : [];
+        const maxDurationStr = params.get('maxDurationSeconds');
+        const maxDurationSeconds = maxDurationStr ? parseInt(maxDurationStr, 10) : null;
+        const sort = params.get('sort') || null;
+        const pageStr = params.get('page');
+        const pageSizeStr = params.get('pageSize');
+        const page = pageStr ? parseInt(pageStr, 10) : 1;
+        const pageSize = pageSizeStr ? parseInt(pageSizeStr, 10) : 10;
+
+        return {
+            videoId: videoId,
+            tags: tags,
+            maxDurationSeconds: isNaN(maxDurationSeconds) ? null : maxDurationSeconds,
+            sort: sort,
+            page: isNaN(page) || page < 1 ? 1 : page,
+            pageSize: isNaN(pageSize) || pageSize < 1 ? 10 : pageSize
+        };
+    }
+
+    function normalizeState(raw) {
+        const state = raw || {};
+        let tags = Array.isArray(state.tags) ? state.tags : [];
+        tags = tags.map(function(t) { return String(t); });
+
+        let maxDurationSeconds = state.maxDurationSeconds;
+        if (typeof maxDurationSeconds !== 'number') {
+            maxDurationSeconds = null;
+        }
+
+        let sortKey = state.sort || null;
+        if (!sortKey && defaultSortKey) {
+            sortKey = defaultSortKey;
+        }
+
+        let page = typeof state.page === 'number' ? state.page : 1;
+        if (page < 1) page = 1;
+
+        let pageSize = typeof state.pageSize === 'number' ? state.pageSize : 10;
+        if (pageSize < 1) pageSize = 10;
+
+        const videoId = state.videoId ? String(state.videoId) : null;
+
+        return {
+            videoId: videoId,
+            tags: tags,
+            maxDurationSeconds: maxDurationSeconds,
+            sort: sortKey,
+            page: page,
+            pageSize: pageSize
+        };
+    }
+
+    function updateUrlFromState(state, replace) {
+        const params = new URLSearchParams();
+        if (state.videoId) {
+            params.set('videoId', state.videoId);
+        }
+        if (state.tags && state.tags.length > 0) {
+            params.set('tags', state.tags.join(','));
+        }
+        if (typeof state.maxDurationSeconds === 'number') {
+            params.set('maxDurationSeconds', String(state.maxDurationSeconds));
+        }
+        if (state.sort) {
+            params.set('sort', state.sort);
+        }
+        if (state.page && state.page !== 1) {
+            params.set('page', String(state.page));
+        }
+        if (state.pageSize && state.pageSize !== 10) {
+            params.set('pageSize', String(state.pageSize));
+        }
+
+        const queryString = params.toString();
+        const newUrl = window.location.pathname + (queryString ? '?' + queryString : '');
+        if (replace) {
+            history.replaceState(state, '', newUrl);
+        } else {
+            history.pushState(state, '', newUrl);
+        }
+    }
+
+    function applyStateToUIAndData(state, replaceUrl) {
+        if (!isApplyingPopState) {
+            updateUrlFromState(state, replaceUrl);
+        }
+
+        if (filterOptions && !state.sort && defaultSortKey) {
+            state.sort = defaultSortKey;
+        }
+
+        if (populateContainers['video-filter-options']) {
+            renderFilterPanel(populateContainers['video-filter-options'], filterOptions, state);
+        }
+
+        let searchResult = null;
+        try {
+            const filters = {};
+            if (state.tags && state.tags.length > 0) {
+                filters.tags = state.tags;
+            }
+            if (typeof state.maxDurationSeconds === 'number') {
+                filters.max_duration_seconds = state.maxDurationSeconds;
+            }
+            const sortKey = state.sort || undefined;
+            searchResult = WebsiteSDK.searchVideos(filters, sortKey, state.page, state.pageSize);
+        } catch (e) {
+            console.error('searchVideos failed', e);
+        }
+
+        if (populateContainers['video-results']) {
+            renderVideoGrid(populateContainers['video-results'], searchResult, state);
+        }
+        if (populateContainers['video-pagination']) {
+            renderPagination(populateContainers['video-pagination'], searchResult, state);
+        }
+
+        let videoDetail = null;
+        if (state.videoId) {
+            try {
+                videoDetail = WebsiteSDK.getVideoDetail(state.videoId);
+            } catch (e) {
+                console.error('getVideoDetail failed for videoId', state.videoId, e);
+            }
+        }
+
+        if (populateContainers['video-player']) {
+            renderVideoPlayer(populateContainers['video-player'], videoDetail);
+        }
+
+        if (populateContainers['playlist-controls']) {
+            renderPlaylistControls(populateContainers['playlist-controls'], playlistsCache, !!videoDetail);
+        }
+
+        currentComments = [];
+        if (state.videoId) {
+            try {
+                currentComments = WebsiteSDK.getVideoComments(state.videoId) || [];
+            } catch (e) {
+                console.error('getVideoComments failed for videoId', state.videoId, e);
+                if (commentsStatusEl) {
+                    commentsStatusEl.textContent = 'Unable to load comments for this video.';
+                }
+            }
+        }
+        if (populateContainers['video-comments']) {
+            renderComments(populateContainers['video-comments'], currentComments, state.videoId);
+        }
+
+        if (commentTextarea) {
+            commentTextarea.value = '';
+        }
+        if (commentsStatusEl) {
+            commentsStatusEl.textContent = '';
+        }
+
+        bindActionHandlers();
+    }
+
+    function updateStateAndRefresh(patch) {
+        const nextState = {
+            videoId: typeof patch.videoId !== 'undefined' ? patch.videoId : currentState.videoId,
+            tags: typeof patch.tags !== 'undefined' ? patch.tags : currentState.tags.slice(),
+            maxDurationSeconds: typeof patch.maxDurationSeconds !== 'undefined' ? patch.maxDurationSeconds : currentState.maxDurationSeconds,
+            sort: typeof patch.sort !== 'undefined' ? patch.sort : currentState.sort,
+            page: typeof patch.page !== 'undefined' ? patch.page : currentState.page,
+            pageSize: typeof patch.pageSize !== 'undefined' ? patch.pageSize : currentState.pageSize
+        };
+        currentState = normalizeState(nextState);
+        applyStateToUIAndData(currentState, false);
+    }
+
+    function bindActionHandlers() {
+        const actionElements = document.querySelectorAll('[data-action]');
+        actionElements.forEach(function(el) {
+            if (boundActionElements.has(el)) {
+                return;
+            }
+            const action = el.getAttribute('data-action');
+            if (!action) {
+                return;
+            }
+            let eventName = 'click';
+            if (el.tagName === 'SELECT' || el.tagName === 'INPUT') {
+                const type = el.getAttribute('type');
+                if (type === 'checkbox' || type === 'radio' || type === 'range' || type === 'number') {
+                    eventName = 'change';
+                }
+            }
+            if (el.tagName === 'FORM') {
+                eventName = 'submit';
+            }
+            el.addEventListener(eventName, handleActionEvent);
+            boundActionElements.add(el);
+        });
+    }
+
+    function handleActionEvent(event) {
+        const target = event.currentTarget;
+        const action = target.getAttribute('data-action');
+        if (!action) {
+            return;
+        }
+
+        if (action === 'toggle-tag') {
+            const tag = target.getAttribute('data-tag');
+            const checked = target.checked;
+            const tags = currentState.tags.slice();
+            const idx = tags.indexOf(tag);
+            if (checked && idx === -1) {
+                tags.push(tag);
+            } else if (!checked && idx !== -1) {
+                tags.splice(idx, 1);
+            }
+            updateStateAndRefresh({ tags: tags, page: 1 });
+        } else if (action === 'change-max-duration') {
+            const valueStr = target.value;
+            const val = parseInt(valueStr, 10);
+            const maxDuration = isNaN(val) ? null : val;
+            updateStateAndRefresh({ maxDurationSeconds: maxDuration, page: 1 });
+        } else if (action === 'change-sort') {
+            const newSort = target.value || null;
+            updateStateAndRefresh({ sort: newSort, page: 1 });
+        } else if (action === 'reset-filters') {
+            event.preventDefault();
+            const resetState = {
+                tags: [],
+                maxDurationSeconds: null,
+                sort: defaultSortKey || null,
+                page: 1
+            };
+            updateStateAndRefresh(resetState);
+        } else if (action === 'select-video') {
+            event.preventDefault();
+            const videoId = target.getAttribute('data-video-id');
+            if (!videoId) {
+                return;
+            }
+            updateStateAndRefresh({ videoId: videoId });
+        } else if (action === 'go-to-page') {
+            event.preventDefault();
+            const pageStr = target.getAttribute('data-page');
+            const page = parseInt(pageStr, 10);
+            if (!isNaN(page) && page >= 1 && page !== currentState.page) {
+                updateStateAndRefresh({ page: page });
+            }
+        } else if (action === 'add-to-playlist') {
+            event.preventDefault();
+            handleAddToPlaylist();
+        } else if (action === 'add-to-watch-later') {
+            event.preventDefault();
+            handleAddToWatchLater();
+        } else if (action === 'submit-comment') {
+            event.preventDefault();
+            handleSubmitComment(target);
+        }
+    }
+
+    function renderFilterPanel(container, options, state) {
+        container.innerHTML = '';
+        if (!options) {
+            const p = document.createElement('p');
+            p.textContent = 'Filter options are unavailable.';
+            container.appendChild(p);
+            return;
+        }
+
+        const intro = document.createElement('p');
+        intro.textContent = 'Filter and sort videos.';
+        container.appendChild(intro);
+
+        if (Array.isArray(options.tags) && options.tags.length > 0) {
+            const tagsLabel = document.createElement('p');
+            tagsLabel.textContent = 'Tags:';
+            container.appendChild(tagsLabel);
+
+            options.tags.forEach(function(tag) {
+                const wrapper = document.createElement('div');
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.setAttribute('data-action', 'toggle-tag');
+                input.setAttribute('data-tag', tag);
+                if (state.tags.indexOf(tag) !== -1) {
+                    input.checked = true;
+                }
+                const label = document.createElement('label');
+                label.appendChild(input);
+                label.appendChild(document.createTextNode(' ' + tag));
+                wrapper.appendChild(label);
+                container.appendChild(wrapper);
+            });
+        }
+
+        const hasDurationBounds = typeof options.min_duration_seconds === 'number' && typeof options.max_duration_seconds === 'number';
+        if (hasDurationBounds) {
+            const durationWrapper = document.createElement('div');
+            const durationLabel = document.createElement('p');
+            durationLabel.textContent = 'Maximum duration (seconds):';
+            durationWrapper.appendChild(durationLabel);
+
+            const input = document.createElement('input');
+            input.type = 'range';
+            input.min = String(options.min_duration_seconds);
+            input.max = String(options.max_duration_seconds);
+            input.step = '5';
+            input.value = String(typeof state.maxDurationSeconds === 'number' ? state.maxDurationSeconds : options.max_duration_seconds);
+            input.setAttribute('data-action', 'change-max-duration');
+            durationWrapper.appendChild(input);
+
+            const valueText = document.createElement('span');
+            const effectiveValue = typeof state.maxDurationSeconds === 'number' ? state.maxDurationSeconds : options.max_duration_seconds;
+            valueText.textContent = ' ' + effectiveValue + 's or less';
+            durationWrapper.appendChild(valueText);
+
+            container.appendChild(durationWrapper);
+        }
+
+        if (Array.isArray(options.sort_options) && options.sort_options.length > 0) {
+            const sortWrapper = document.createElement('div');
+            const sortLabel = document.createElement('p');
+            sortLabel.textContent = 'Sort by:';
+            sortWrapper.appendChild(sortLabel);
+
+            const select = document.createElement('select');
+            select.setAttribute('data-action', 'change-sort');
+            options.sort_options.forEach(function(opt) {
+                const optionEl = document.createElement('option');
+                optionEl.value = opt.key;
+                optionEl.textContent = opt.label;
+                if (state.sort && state.sort === opt.key) {
+                    optionEl.selected = true;
+                } else if (!state.sort && defaultSortKey === opt.key) {
+                    optionEl.selected = true;
+                }
+                select.appendChild(optionEl);
+            });
+            sortWrapper.appendChild(select);
+            container.appendChild(sortWrapper);
+        }
+
+        const resetWrapper = document.createElement('p');
+        const resetLink = document.createElement('a');
+        resetLink.href = 'javascript:void(0)';
+        resetLink.setAttribute('data-action', 'reset-filters');
+        resetLink.textContent = 'Reset filters';
+        resetWrapper.appendChild(resetLink);
+        container.appendChild(resetWrapper);
+    }
+
+    function renderVideoGrid(container, searchResult, state) {
+        container.innerHTML = '';
+        if (!searchResult || !Array.isArray(searchResult.items) || searchResult.items.length === 0) {
+            const p = document.createElement('p');
+            p.textContent = 'No videos found for the current filters.';
+            container.appendChild(p);
+            return;
+        }
+
+        searchResult.items.forEach(function(video) {
+            const article = document.createElement('article');
+
+            if (video.thumbnail_url) {
+                const thumbWrapper = document.createElement('div');
+                thumbWrapper.style.border = '1px solid #000';
+                thumbWrapper.style.display = 'inline-block';
+                const img = document.createElement('img');
+                img.src = video.thumbnail_url;
+                img.alt = video.title || '';
+                img.style.display = 'block';
+                thumbWrapper.appendChild(img);
+                article.appendChild(thumbWrapper);
+            } else {
+                const placeholder = document.createElement('div');
+                placeholder.style.border = '1px solid #000';
+                placeholder.style.width = '100%';
+                placeholder.style.height = '0';
+                placeholder.style.paddingBottom = '56.25%';
+                article.appendChild(placeholder);
+            }
+
+            const titleP = document.createElement('p');
+            const link = document.createElement('a');
+            link.href = 'javascript:void(0)';
+            link.textContent = video.title || '(untitled)';
+            link.setAttribute('data-action', 'select-video');
+            link.setAttribute('data-video-id', video.id);
+            titleP.appendChild(link);
+            article.appendChild(titleP);
+
+            const metaP = document.createElement('p');
+            const durationText = formatDuration(video.duration_seconds);
+            metaP.textContent = 'Duration: ' + durationText;
+            article.appendChild(metaP);
+
+            if (Array.isArray(video.tags) && video.tags.length > 0) {
+                const tagsP = document.createElement('p');
+                tagsP.textContent = 'Tags: ' + video.tags.join(', ');
+                article.appendChild(tagsP);
+            }
+
+            container.appendChild(article);
+        });
+    }
+
+    function renderPagination(container, searchResult, state) {
+        container.innerHTML = '';
+        if (!searchResult || !searchResult.total || searchResult.total <= state.pageSize) {
+            return;
+        }
+        const totalPages = Math.ceil(searchResult.total / state.pageSize);
+        if (totalPages <= 1) {
+            return;
+        }
+
+        const wrapper = document.createElement('p');
+
+        if (state.page > 1) {
+            const prevLink = document.createElement('a');
+            prevLink.href = 'javascript:void(0)';
+            prevLink.textContent = 'Previous';
+            prevLink.setAttribute('data-action', 'go-to-page');
+            prevLink.setAttribute('data-page', String(state.page - 1));
+            wrapper.appendChild(prevLink);
+            wrapper.appendChild(document.createTextNode(' '));
+        }
+
+        for (let i = 1; i <= totalPages; i += 1) {
+            if (i === state.page) {
+                const span = document.createElement('span');
+                span.textContent = '[' + i + ']';
+                wrapper.appendChild(span);
+            } else {
+                const pageLink = document.createElement('a');
+                pageLink.href = 'javascript:void(0)';
+                pageLink.textContent = String(i);
+                pageLink.setAttribute('data-action', 'go-to-page');
+                pageLink.setAttribute('data-page', String(i));
+                wrapper.appendChild(pageLink);
+            }
+            if (i < totalPages) {
+                wrapper.appendChild(document.createTextNode(' '));
+            }
+        }
+
+        if (state.page < totalPages) {
+            wrapper.appendChild(document.createTextNode(' '));
+            const nextLink = document.createElement('a');
+            nextLink.href = 'javascript:void(0)';
+            nextLink.textContent = 'Next';
+            nextLink.setAttribute('data-action', 'go-to-page');
+            nextLink.setAttribute('data-page', String(state.page + 1));
+            wrapper.appendChild(nextLink);
+        }
+
+        container.appendChild(wrapper);
+    }
+
+    function renderVideoPlayer(container, video) {
+        container.innerHTML = '';
+        const frame = document.createElement('div');
+        frame.style.border = '1px solid #000';
+        frame.style.width = '100%';
+
+        if (video && video.video_url) {
+            const videoEl = document.createElement('video');
+            videoEl.controls = true;
+            videoEl.src = video.video_url;
+            if (video.thumbnail_url) {
+                videoEl.poster = video.thumbnail_url;
+            }
+            videoEl.style.width = '100%';
+            frame.appendChild(videoEl);
+
+            const titleP = document.createElement('p');
+            titleP.textContent = video.title || '';
+            container.appendChild(frame);
+            container.appendChild(titleP);
+
+            if (video.description) {
+                const descP = document.createElement('p');
+                descP.textContent = video.description;
+                container.appendChild(descP);
+            }
+
+            if (Array.isArray(video.tags) && video.tags.length > 0) {
+                const tagsP = document.createElement('p');
+                tagsP.textContent = 'Tags: ' + video.tags.join(', ');
+                container.appendChild(tagsP);
+            }
+
+            const durationP = document.createElement('p');
+            durationP.textContent = 'Duration: ' + formatDuration(video.duration_seconds);
+            container.appendChild(durationP);
+        } else {
+            const placeholder = document.createElement('div');
+            placeholder.style.width = '100%';
+            placeholder.style.height = '0';
+            placeholder.style.paddingBottom = '56.25%';
+            frame.appendChild(placeholder);
+            container.appendChild(frame);
+
+            const infoP = document.createElement('p');
+            infoP.textContent = 'No video selected. Choose a video from the list below.';
+            container.appendChild(infoP);
+        }
+    }
+
+    function renderPlaylistControls(container, playlists, hasVideo) {
+        container.innerHTML = '';
+        if (!hasVideo) {
+            const p = document.createElement('p');
+            p.textContent = 'Playlist actions will appear when a video is selected.';
+            container.appendChild(p);
+            return;
+        }
+
+        const line = document.createElement('p');
+        line.appendChild(document.createTextNode('Add this video to '));
+
+        const select = document.createElement('select');
+        select.setAttribute('data-component', 'playlist-select');
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = 'Select playlist';
+        select.appendChild(defaultOption);
+
+        if (playlists && Array.isArray(playlists) && playlists.length > 0) {
+            playlists.forEach(function(pl) {
+                const opt = document.createElement('option');
+                opt.value = pl.id;
+                opt.textContent = pl.name;
+                select.appendChild(opt);
+            });
+        }
+
+        line.appendChild(select);
+        line.appendChild(document.createTextNode(' '));
+
+        const addLink = document.createElement('a');
+        addLink.href = 'javascript:void(0)';
+        addLink.textContent = 'Add';
+        addLink.setAttribute('data-action', 'add-to-playlist');
+        line.appendChild(addLink);
+        line.appendChild(document.createTextNode(' '));
+
+        const watchLaterLink = document.createElement('a');
+        watchLaterLink.href = 'javascript:void(0)';
+        watchLaterLink.textContent = 'Watch later';
+        watchLaterLink.setAttribute('data-action', 'add-to-watch-later');
+        line.appendChild(watchLaterLink);
+
+        container.appendChild(line);
+    }
+
+    function renderComments(container, comments, videoId) {
+        container.innerHTML = '';
+        if (!videoId) {
+            const p = document.createElement('p');
+            p.textContent = 'Select a video to read or post comments.';
+            container.appendChild(p);
+            return;
+        }
+        if (!comments || comments.length === 0) {
+            const p = document.createElement('p');
+            p.textContent = 'No comments yet.';
+            container.appendChild(p);
+            return;
+        }
+
+        comments.forEach(function(comment) {
+            const block = document.createElement('article');
+            const textP = document.createElement('p');
+            textP.textContent = comment.text;
+            block.appendChild(textP);
+
+            if (comment.created_at) {
+                const metaP = document.createElement('p');
+                metaP.textContent = String(comment.created_at);
+                block.appendChild(metaP);
+            }
+
+            container.appendChild(block);
+        });
+    }
+
+    function handleAddToPlaylist() {
+        if (!currentState.videoId) {
+            if (playlistStatusEl) {
+                playlistStatusEl.textContent = 'Select a video before adding it to a playlist.';
+            }
+            return;
+        }
+
+        ensurePlaylistsLoaded();
+
+        const select = document.querySelector('[data-component="playlist-select"]');
+        if (!select) {
+            if (playlistStatusEl) {
+                playlistStatusEl.textContent = 'No playlists are available.';
+            }
+            return;
+        }
+        const playlistId = select.value;
+        if (!playlistId) {
+            if (playlistStatusEl) {
+                playlistStatusEl.textContent = 'Choose a playlist first.';
+            }
+            return;
+        }
+
+        try {
+            WebsiteSDK.addVideoToPlaylist(playlistId, currentState.videoId);
+            if (playlistStatusEl) {
+                playlistStatusEl.textContent = 'Added to playlist.';
+            }
+        } catch (e) {
+            console.error('addVideoToPlaylist failed', e);
+            if (playlistStatusEl) {
+                playlistStatusEl.textContent = 'Could not add to playlist.';
+            }
+        }
+    }
+
+    function handleAddToWatchLater() {
+        if (!currentState.videoId) {
+            if (playlistStatusEl) {
+                playlistStatusEl.textContent = 'Select a video before adding it to Watch Later.';
+            }
+            return;
+        }
+        try {
+            WebsiteSDK.addVideoToWatchLater(currentState.videoId);
+            if (playlistStatusEl) {
+                playlistStatusEl.textContent = 'Added to Watch Later.';
+            }
+        } catch (e) {
+            console.error('addVideoToWatchLater failed', e);
+            if (playlistStatusEl) {
+                playlistStatusEl.textContent = 'Could not add to Watch Later.';
+            }
+        }
+    }
+
+    function handleSubmitComment(formEl) {
+        if (!currentState.videoId) {
+            if (commentsStatusEl) {
+                commentsStatusEl.textContent = 'Select a video before posting a comment.';
+            }
+            return;
+        }
+        if (!formEl) {
+            return;
+        }
+        const textarea = formEl.querySelector('textarea[name="commentText"]');
+        if (!textarea) {
+            return;
+        }
+        const text = textarea.value.trim();
+        if (!text) {
+            if (commentsStatusEl) {
+                commentsStatusEl.textContent = 'Enter a comment before posting.';
+            }
+            return;
+        }
+        try {
+            const newComment = WebsiteSDK.postVideoComment(currentState.videoId, text);
+            currentComments = currentComments || [];
+            currentComments.push(newComment);
+            if (populateContainers['video-comments']) {
+                renderComments(populateContainers['video-comments'], currentComments, currentState.videoId);
+            }
+            textarea.value = '';
+            if (commentsStatusEl) {
+                commentsStatusEl.textContent = 'Comment posted.';
+            }
+            bindActionHandlers();
+        } catch (e) {
+            console.error('postVideoComment failed', e);
+            if (commentsStatusEl) {
+                commentsStatusEl.textContent = 'Could not post comment.';
+            }
+        }
+    }
+
+    function ensurePlaylistsLoaded() {
+        if (playlistsCache) {
+            return;
+        }
+        try {
+            playlistsCache = WebsiteSDK.getUserPlaylists() || [];
+            if (populateContainers['playlist-controls']) {
+                renderPlaylistControls(populateContainers['playlist-controls'], playlistsCache, !!currentState.videoId);
+                bindActionHandlers();
+            }
+        } catch (e) {
+            console.error('getUserPlaylists failed', e);
+            if (playlistStatusEl) {
+                playlistStatusEl.textContent = 'Unable to load playlists.';
+            }
+        }
+    }
+
+    function formatDuration(seconds) {
+        const totalSeconds = parseInt(seconds, 10);
+        if (isNaN(totalSeconds) || totalSeconds < 0) {
+            return '';
+        }
+        const minutes = Math.floor(totalSeconds / 60);
+        const remaining = totalSeconds % 60;
+        const padded = remaining < 10 ? '0' + remaining : String(remaining);
+        return minutes + ':' + padded;
+    }
+});
+    </script>
+</body>
+</html>

@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='article_detail.css'>
+
+<script src='business_logic.js'></script>
+
+<div class='article-page-wrapper' data-component='article-page-controller' data-populate='article-detail'>
+  <div class='article-page-inner'>
+    <div class='article-back-row'>
+      <a href='javascript:void(0)' class='back-link' data-component='back-to-articles-link' data-action='back-to-articles' title='Return to the articles listing'>&larr; Back to Articles</a>
+    </div>
+
+    <section class='article-status' data-component='article-error-state' aria-live='polite'>
+      <div class='status-message status-loading' data-status='loading'>
+        <h2 class='status-title'>Loading article&hellip;</h2>
+        <p class='status-text'>Please wait while we retrieve this commentary.</p>
+      </div>
+      <div class='status-message status-error is-hidden' data-status='error'>
+        <h2 class='status-title'>Article unavailable</h2>
+        <p class='status-text' data-populate='error-message'>We could not load this article. Please try again.</p>
+        <div class='status-actions'>
+          <button type='button' class='status-retry-button' data-action='retry-load'>Retry</button>
+          <a href='javascript:void(0)' class='back-link-inline' data-action='back-to-articles'>Back to Articles</a>
+        </div>
+      </div>
+    </section>
+
+    <article class='article-shell is-hidden' data-component='article-shell'>
+      <header class='article-header' data-component='article-header'>
+        <div class='article-header-main'>
+          <p class='article-featured-flag is-hidden' data-populate='article-featured'>Featured commentary</p>
+          <h1 class='article-title' data-populate='article-title'></h1>
+          <div class='article-byline'>
+            <span class='article-author' data-populate='article-author'></span>
+            <span class='article-date-separator' aria-hidden='true'> &middot; </span>
+            <time class='article-date' data-populate='article-date' datetime=''></time>
+          </div>
+          <div class='article-topic-label'>
+            <span class='article-topic-pill' data-populate='article-primary-topic'></span>
+          </div>
+        </div>
+
+        <div class='article-header-actions'>
+          <div class='bookmark-control' data-component='bookmark-control'>
+            <button type='button' class='bookmark-toggle' data-action='toggle-bookmark' aria-pressed='false'>
+              <span class='bookmark-icon' aria-hidden='true'>&#9734;</span>
+              <span class='bookmark-label' data-populate='bookmark-label'>Save</span>
+            </button>
+            <div class='bookmark-notes'>
+              <label for='bookmark-notes-input' class='bookmark-notes-label'>Notes (optional)</label>
+              <textarea id='bookmark-notes-input' class='bookmark-notes-input' rows='2' data-action='bookmark-notes-change' placeholder='Add a note about why this article matters&hellip;'></textarea>
+              <p class='bookmark-status-message' data-populate='bookmark-status-message' aria-live='polite'></p>
+            </div>
+          </div>
+
+          <div class='share-controls' data-component='share-controls'>
+            <button type='button' class='share-toggle' data-action='open-share'>
+              <span class='share-label'>Share</span>
+            </button>
+            <div class='share-panel is-hidden'>
+              <p class='share-url-display' data-populate='share-url-display'></p>
+              <button type='button' class='share-copy' data-action='copy-share-link' disabled>Copy link</button>
+              <p class='share-status-message' data-populate='share-status-message' aria-live='polite'></p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <hr class='article-divider' />
+
+      <section class='article-body' data-component='article-body'>
+        <div class='article-summary' data-populate='article-summary'></div>
+        <div class='article-content' data-populate='article-body-html'></div>
+      </section>
+
+      <section class='article-tags-metadata' data-component='article-tags-metadata'>
+        <div class='article-tags-block'>
+          <h2 class='metadata-heading'>Topics</h2>
+          <ul class='article-tags-list' data-populate='article-tags'></ul>
+        </div>
+        <dl class='article-metadata-list'>
+          <div class='metadata-item'>
+            <dt>Primary topic</dt>
+            <dd data-populate='article-primary-topic-meta'></dd>
+          </div>
+          <div class='metadata-item'>
+            <dt>Published</dt>
+            <dd data-populate='article-publication-meta'></dd>
+          </div>
+        </dl>
+      </section>
+    </article>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const urlParams = new URLSearchParams(window.location.search);
+  let currentArticleId = urlParams.get('articleId');
+
+  const controller = document.querySelector('[data-component=article-page-controller]');
+  if (!controller) {
+    return;
+  }
+
+  const statusSection = controller.querySelector('[data-component=article-error-state]');
+  const articleShell = controller.querySelector('[data-component=article-shell]');
+  const loadingMessage = statusSection.querySelector('[data-status=loading]');
+  const errorMessageContainer = statusSection.querySelector('[data-status=error]');
+  const errorTextEl = errorMessageContainer.querySelector('[data-populate=error-message]');
+  const retryButton = errorMessageContainer.querySelector('[data-action=retry-load]');
+
+  const backLinks = controller.querySelectorAll('[data-action=back-to-articles]');
+
+  const titleEl = controller.querySelector('[data-populate=article-title]');
+  const authorEl = controller.querySelector('[data-populate=article-author]');
+  const dateEl = controller.querySelector('[data-populate=article-date]');
+  const topicPillEl = controller.querySelector('[data-populate=article-primary-topic]');
+  const featuredFlagEl = controller.querySelector('[data-populate=article-featured]');
+
+  const summaryEl = controller.querySelector('[data-populate=article-summary]');
+  const bodyEl = controller.querySelector('[data-populate=article-body-html]');
+
+  const tagsListEl = controller.querySelector('[data-populate=article-tags]');
+  const topicMetaEl = controller.querySelector('[data-populate=article-primary-topic-meta]');
+  const publicationMetaEl = controller.querySelector('[data-populate=article-publication-meta]');
+
+  const bookmarkToggleBtn = controller.querySelector('[data-action=toggle-bookmark]');
+  const bookmarkLabelEl = controller.querySelector('[data-populate=bookmark-label]');
+  const bookmarkNotesInput = controller.querySelector('[data-action=bookmark-notes-change]');
+  const bookmarkStatusMessageEl = controller.querySelector('[data-populate=bookmark-status-message]');
+
+  const shareToggleBtn = controller.querySelector('[data-action=open-share]');
+  const sharePanelEl = controller.querySelector('.share-panel');
+  const shareUrlDisplayEl = controller.querySelector('[data-populate=share-url-display]');
+  const shareCopyBtn = controller.querySelector('[data-action=copy-share-link]');
+  const shareStatusMessageEl = controller.querySelector('[data-populate=share-status-message]');
+
+  let articleState = null;
+  let bookmarkState = {
+    isBookmarked: false,
+    bookmarkId: null,
+    notes: ''
+  };
+  let shareState = {
+    url: '',
+    hasLoaded: false
+  };
+
+  function setStatusLoading() {
+    if (!statusSection) {
+      return;
+    }
+    statusSection.classList.remove('is-hidden');
+    if (articleShell) {
+      articleShell.classList.add('is-hidden');
+    }
+    if (loadingMessage) {
+      loadingMessage.classList.remove('is-hidden');
+    }
+    if (errorMessageContainer) {
+      errorMessageContainer.classList.add('is-hidden');
+    }
+  }
+
+  function setStatusError(message) {
+    if (!statusSection) {
+      return;
+    }
+    statusSection.classList.remove('is-hidden');
+    if (articleShell) {
+      articleShell.classList.add('is-hidden');
+    }
+    if (loadingMessage) {
+      loadingMessage.classList.add('is-hidden');
+    }
+    if (errorMessageContainer) {
+      errorMessageContainer.classList.remove('is-hidden');
+    }
+    if (errorTextEl) {
+      errorTextEl.textContent = message || 'We could not load this article. Please try again.';
+    }
+  }
+
+  function clearStatusToShowArticle() {
+    if (statusSection) {
+      statusSection.classList.add('is-hidden');
+    }
+    if (articleShell) {
+      articleShell.classList.remove('is-hidden');
+    }
+  }
+
+  function formatDate(isoString) {
+    if (!isoString) {
+      return '';
+    }
+    const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+    return date.toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  }
+
+  function toTitleCaseFromSlug(value) {
+    if (!value) {
+      return '';
+    }
+    return value
+      .split('_')
+      .map(function(part) {
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join(' ');
+  }
+
+  function resetShareUI() {
+    shareState.url = '';
+    shareState.hasLoaded = false;
+    if (shareUrlDisplayEl) {
+      shareUrlDisplayEl.textContent = '';
+    }
+    if (shareStatusMessageEl) {
+      shareStatusMessageEl.textContent = '';
+    }
+    if (shareCopyBtn) {
+      shareCopyBtn.disabled = true;
+    }
+    if (sharePanelEl) {
+      sharePanelEl.classList.add('is-hidden');
+    }
+  }
+
+  function updateBookmarkUI() {
+    if (!bookmarkToggleBtn || !bookmarkLabelEl) {
+      return;
+    }
+    if (bookmarkState.isBookmarked) {
+      bookmarkToggleBtn.classList.add('is-active');
+      bookmarkToggleBtn.setAttribute('aria-pressed', 'true');
+      bookmarkLabelEl.textContent = 'Saved';
+    } else {
+      bookmarkToggleBtn.classList.remove('is-active');
+      bookmarkToggleBtn.setAttribute('aria-pressed', 'false');
+      bookmarkLabelEl.textContent = 'Save';
+    }
+  }
+
+  function renderArticle() {
+    if (!articleState) {
+      return;
+    }
+
+    if (titleEl) {
+      titleEl.textContent = articleState.title || '';
+    }
+    if (authorEl) {
+      authorEl.textContent = articleState.authorName || '';
+    }
+    var formatted = formatDate(articleState.publicationDate);
+    if (dateEl) {
+      dateEl.textContent = formatted;
+      if (articleState.publicationDate) {
+        dateEl.setAttribute('datetime', articleState.publicationDate);
+      }
+    }
+
+    var topicLabel = articleState.primaryTopicLabel || toTitleCaseFromSlug(articleState.primaryTopic);
+    if (topicPillEl) {
+      topicPillEl.textContent = topicLabel || '';
+    }
+    if (featuredFlagEl) {
+      if (articleState.isFeatured) {
+        featuredFlagEl.classList.remove('is-hidden');
+      } else {
+        featuredFlagEl.classList.add('is-hidden');
+      }
+    }
+
+    if (summaryEl) {
+      if (articleState.summary) {
+        summaryEl.innerHTML = articleState.summary;
+        summaryEl.classList.remove('is-hidden');
+      } else {
+        summaryEl.innerHTML = '';
+        summaryEl.classList.add('is-hidden');
+      }
+    }
+
+    if (bodyEl) {
+      bodyEl.innerHTML = articleState.body || '';
+    }
+
+    if (tagsListEl) {
+      tagsListEl.innerHTML = '';
+      if (articleState.tags && articleState.tags.length > 0) {
+        articleState.tags.forEach(function(tag) {
+          var li = document.createElement('li');
+          li.className = 'article-tag-pill';
+          li.textContent = tag;
+          tagsListEl.appendChild(li);
+        });
+      }
+    }
+
+    if (topicMetaEl) {
+      topicMetaEl.textContent = topicLabel || '';
+    }
+    if (publicationMetaEl) {
+      publicationMetaEl.textContent = formatted || '';
+    }
+
+    updateBookmarkUI();
+    resetShareUI();
+    clearStatusToShowArticle();
+  }
+
+  function loadArticleDetail() {
+    if (!currentArticleId) {
+      setStatusError('No article was specified. Use the Articles listing to select a commentary.');
+      return;
+    }
+    try {
+      var response = WebsiteSDK.getArticleDetail(currentArticleId);
+      if (!response || !response.article) {
+        setStatusError('This article could not be found. It may have been removed.');
+        return;
+      }
+      articleState = response.article;
+
+      if (response.bookmarkStatus) {
+        bookmarkState.isBookmarked = !!response.bookmarkStatus.isBookmarked;
+        bookmarkState.bookmarkId = response.bookmarkStatus.bookmarkId || null;
+      } else {
+        bookmarkState.isBookmarked = false;
+        bookmarkState.bookmarkId = null;
+      }
+      if (bookmarkStatusMessageEl) {
+        bookmarkStatusMessageEl.textContent = '';
+      }
+      if (bookmarkNotesInput) {
+        bookmarkState.notes = bookmarkNotesInput.value || '';
+      }
+
+      shareState.url = '';
+      shareState.hasLoaded = false;
+
+      renderArticle();
+    } catch (error) {
+      console.error(error);
+      setStatusError('An unexpected error occurred while loading the article.');
+    }
+  }
+
+  backLinks.forEach(function(link) {
+    link.addEventListener('click', function(event) {
+      event.preventDefault();
+      window.location.href = 'articles.html';
+    });
+  });
+
+  if (retryButton) {
+    retryButton.addEventListener('click', function(event) {
+      event.preventDefault();
+      setStatusLoading();
+      loadArticleDetail();
+    });
+  }
+
+  if (bookmarkNotesInput) {
+    bookmarkNotesInput.addEventListener('input', function(event) {
+      bookmarkState.notes = event.target.value || '';
+      if (bookmarkStatusMessageEl) {
+        bookmarkStatusMessageEl.textContent = '';
+      }
+    });
+  }
+
+  if (bookmarkToggleBtn) {
+    bookmarkToggleBtn.addEventListener('click', function(event) {
+      event.preventDefault();
+      if (!articleState || !articleState.id) {
+        if (bookmarkStatusMessageEl) {
+          bookmarkStatusMessageEl.textContent = 'The article is still loading. Please try again in a moment.';
+        }
+        return;
+      }
+      try {
+        var notesValue = bookmarkState.notes || (bookmarkNotesInput ? bookmarkNotesInput.value : '');
+        var result = WebsiteSDK.bookmarkArticle(articleState.id, notesValue || undefined);
+        if (result && result.success) {
+          bookmarkState.isBookmarked = true;
+          bookmarkState.bookmarkId = result.bookmarkId || bookmarkState.bookmarkId || null;
+          if (bookmarkStatusMessageEl) {
+            bookmarkStatusMessageEl.textContent = result.message || 'Article saved to your bookmarks.';
+          }
+          updateBookmarkUI();
+        } else {
+          if (bookmarkStatusMessageEl) {
+            bookmarkStatusMessageEl.textContent = (result && result.message) ? result.message : 'We could not save this bookmark. Please try again.';
+          }
+        }
+      } catch (error) {
+        console.error(error);
+        if (bookmarkStatusMessageEl) {
+          bookmarkStatusMessageEl.textContent = 'An error occurred while saving this bookmark.';
+        }
+      }
+    });
+  }
+
+  if (shareToggleBtn) {
+    shareToggleBtn.addEventListener('click', function(event) {
+      event.preventDefault();
+      if (!articleState || !articleState.id) {
+        if (shareStatusMessageEl) {
+          shareStatusMessageEl.textContent = 'The article is still loading. Please try again in a moment.';
+        }
+        return;
+      }
+      if (!shareState.hasLoaded) {
+        try {
+          var shareResponse = WebsiteSDK.shareArticleLink(articleState.id);
+          if (!shareResponse || !shareResponse.success || !shareResponse.url) {
+            if (shareStatusMessageEl) {
+              shareStatusMessageEl.textContent = (shareResponse && shareResponse.message) ? shareResponse.message : 'We could not generate a shareable link.';
+            }
+            if (shareCopyBtn) {
+              shareCopyBtn.disabled = true;
+            }
+          } else {
+            shareState.url = shareResponse.url;
+            shareState.hasLoaded = true;
+            if (shareUrlDisplayEl) {
+              shareUrlDisplayEl.textContent = shareState.url;
+            }
+            if (shareCopyBtn) {
+              shareCopyBtn.disabled = false;
+            }
+            if (shareStatusMessageEl) {
+              shareStatusMessageEl.textContent = '';
+            }
+          }
+        } catch (error) {
+          console.error(error);
+          if (shareStatusMessageEl) {
+            shareStatusMessageEl.textContent = 'An error occurred while preparing the share link.';
+          }
+          if (shareCopyBtn) {
+            shareCopyBtn.disabled = true;
+          }
+        }
+      }
+      if (sharePanelEl) {
+        sharePanelEl.classList.toggle('is-hidden');
+      }
+    });
+  }
+
+  function copyTextToClipboard(text, onResult) {
+    if (!text) {
+      if (onResult) {
+        onResult(false);
+      }
+      return;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function() {
+        if (onResult) {
+          onResult(true);
+        }
+      }).catch(function() {
+        if (onResult) {
+          onResult(false);
+        }
+      });
+    } else {
+      try {
+        var tempInput = document.createElement('textarea');
+        tempInput.value = text;
+        tempInput.style.position = 'fixed';
+        tempInput.style.left = '-9999px';
+        document.body.appendChild(tempInput);
+        tempInput.focus();
+        tempInput.select();
+        var succeeded = false;
+        try {
+          succeeded = document.execCommand('copy');
+        } catch (e) {
+          succeeded = false;
+        }
+        document.body.removeChild(tempInput);
+        if (onResult) {
+          onResult(succeeded);
+        }
+      } catch (e2) {
+        if (onResult) {
+          onResult(false);
+        }
+      }
+    }
+  }
+
+  if (shareCopyBtn) {
+    shareCopyBtn.addEventListener('click', function(event) {
+      event.preventDefault();
+      if (!shareState.url) {
+        if (shareStatusMessageEl) {
+          shareStatusMessageEl.textContent = 'There is no link to copy yet.';
+        }
+        return;
+      }
+      copyTextToClipboard(shareState.url, function(success) {
+        if (shareStatusMessageEl) {
+          if (success) {
+            shareStatusMessageEl.textContent = 'Link copied to clipboard.';
+          } else {
+            shareStatusMessageEl.textContent = 'Unable to copy the link. You can copy it manually instead.';
+          }
+        }
+      });
+    });
+  }
+
+  window.addEventListener('popstate', function() {
+    var params = new URLSearchParams(window.location.search);
+    var newArticleId = params.get('articleId');
+    if (newArticleId !== currentArticleId) {
+      currentArticleId = newArticleId;
+      setStatusLoading();
+      loadArticleDetail();
+    }
+  });
+
+  var populateElements = document.querySelectorAll('[data-populate]');
+  var shouldLoadArticle = false;
+  populateElements.forEach(function(el) {
+    if (el.getAttribute('data-populate') === 'article-detail') {
+      shouldLoadArticle = true;
+    }
+  });
+  if (shouldLoadArticle) {
+    setStatusLoading();
+    loadArticleDetail();
+  }
+});
+</script>

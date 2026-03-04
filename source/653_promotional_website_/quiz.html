@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SANROBEL, INC. &mdash; Anti-Aging Supplements</title>
+    
+    <link rel="stylesheet" href="quiz.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="site-title-wrapper">
+            <h1 class="site-title">SANROBEL, INC.</h1>
+        </div>
+        <nav class="primary-nav" aria-label="Primary navigation">
+            <a href="index.html">Home</a>
+            <a href="products.html">Products</a>
+            <a href="bundles.html">Bundles</a>
+            <a href="quiz.html">Quiz</a>
+            <a href="science.html?section=clinical_studies">Science</a>
+            <a href="blog.html?categoryId=anti_aging_tips">Blog</a>
+            <a href="contact.html">Contact</a>
+        </nav>
+    </header>
+
+    <main id="content" class="page-content" role="main">
+        <section class="quiz-page" aria-label="Personalized anti-aging plan quiz">
+            <div data-component="quiz-definition-loader" data-populate="quiz-definition"></div>
+
+            <div id="quiz-content" hidden>
+                <p id="quiz-progress" data-component="quiz-progress-indicator"></p>
+                <hr>
+
+                <form id="quiz-form" data-component="quiz-question-form" action="javascript:void(0);">
+                    <p id="quiz-question-text"></p>
+                    <div id="quiz-answer-container"></div>
+
+                    <div id="quiz-validation" data-component="validation-message-list" aria-live="polite"></div>
+
+                    <div id="quiz-navigation" data-component="quiz-navigation-controls">
+                        <a href="javascript:void(0)" data-action="quiz-prev">Previous</a>
+                        <a href="javascript:void(0)" data-action="quiz-next">Next</a>
+                        <a href="javascript:void(0)" data-action="quiz-submit">See My Plan</a>
+                    </div>
+
+                    <div id="quiz-submit-error" class="quiz-submit-error" aria-live="polite"></div>
+                </form>
+
+                <hr>
+
+                <section id="mini-cart" data-component="mini-cart-summary" data-populate="cart-summary" aria-label="Mini cart summary">
+                    <!-- Mini cart content populated by JavaScript -->
+                </section>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <hr class="footer-divider">
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <p class="footer-links">
+                <a href="about.html">About</a>
+                <span class="footer-separator">|</span>
+                <a href="faq.html">FAQ</a>
+                <span class="footer-separator">|</span>
+                <a href="contact.html">Contact Support</a>
+                <span class="footer-separator">|</span>
+                <a href="science.html?section=clinical_studies">Science &#573; Clinical Studies</a>
+                <span class="footer-separator">|</span>
+                <a href="policies.html">Shipping &amp; Policies</a>
+                <span class="footer-separator">|</span>
+                <a href="blog.html?categoryId=anti_aging_tips">Blog: Anti-aging Tips</a>
+                <span class="footer-separator">|</span>
+                <a href="blog.html?categoryId=product_launches">Blog: Product Launches</a>
+            </p>
+        </nav>
+        <p class="footer-copy">&copy; <span class="footer-year">2026</span> SANROBEL, INC. All rights reserved.</p>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const state = {
+            questions: [], // [{ question: QuizQuestion, answer_options: QuizAnswerOption[] }, ...]
+            currentStepIndex: 0, // 0-based
+            answersByQuestionId: {}, // { [questionId]: { selectedAnswerOptionIds, numericAnswer, freeTextAnswer } }
+            validationErrors: {}, // { [questionId]: string[] }
+            isSubmitting: false
+        };
+
+        const quizContentEl = document.getElementById('quiz-content');
+        const progressEl = document.getElementById('quiz-progress');
+        const questionTextEl = document.getElementById('quiz-question-text');
+        const answerContainerEl = document.getElementById('quiz-answer-container');
+        const validationEl = document.getElementById('quiz-validation');
+        const submitErrorEl = document.getElementById('quiz-submit-error');
+        const prevBtn = document.querySelector('[data-action="quiz-prev"]');
+        const nextBtn = document.querySelector('[data-action="quiz-next"]');
+        const submitBtn = document.querySelector('[data-action="quiz-submit"]');
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function getUrlStep() {
+            const params = new URLSearchParams(window.location.search);
+            const stepParam = params.get('step');
+            const stepNumber = parseInt(stepParam, 10);
+            if (!stepParam || Number.isNaN(stepNumber) || stepNumber < 1) {
+                return 1;
+            }
+            return stepNumber;
+        }
+
+        function updateUrlStep(stepIndex, replace) {
+            const step = stepIndex + 1;
+            const url = new URL(window.location.href);
+            url.searchParams.set('step', String(step));
+            const method = replace ? 'replaceState' : 'pushState';
+            window.history[method]({}, '', url.toString());
+        }
+
+        function syncStepFromUrl() {
+            if (!state.questions.length) {
+                return;
+            }
+            const step = getUrlStep();
+            const maxStep = state.questions.length;
+            const normalizedStep = Math.min(Math.max(step, 1), maxStep);
+            state.currentStepIndex = normalizedStep - 1;
+            renderQuizStep();
+        }
+
+        function setAnswer(questionId, partialAnswer) {
+            const existing = state.answersByQuestionId[questionId] || {};
+            state.answersByQuestionId[questionId] = Object.assign({}, existing, partialAnswer);
+            delete state.validationErrors[questionId];
+            if (validationEl) {
+                renderValidationMessages(validationEl, []);
+            }
+        }
+
+        function renderValidationMessages(container, errors) {
+            container.innerHTML = '';
+            if (!errors || !errors.length) {
+                return;
+            }
+            const list = document.createElement('div');
+            errors.forEach(function(message) {
+                const p = document.createElement('p');
+                p.textContent = message;
+                list.appendChild(p);
+            });
+            container.appendChild(list);
+        }
+
+        function renderAnswerInputs(container, question, answerOptions) {
+            container.innerHTML = '';
+            if (!question) {
+                return;
+            }
+
+            const questionId = question.id;
+            const stored = state.answersByQuestionId[questionId] || {};
+            const inputType = question.input_type;
+
+            if (inputType === 'single_choice' || inputType === 'age_range') {
+                const name = 'q_' + questionId;
+                (answerOptions || []).forEach(function(option) {
+                    const wrapper = document.createElement('div');
+
+                    const input = document.createElement('input');
+                    input.type = 'radio';
+                    input.name = name;
+                    input.value = option.id;
+                    input.id = name + '_' + option.id;
+                    const selectedIds = stored.selectedAnswerOptionIds || [];
+                    input.checked = selectedIds.indexOf(option.id) !== -1;
+
+                    input.addEventListener('change', function() {
+                        setAnswer(questionId, {
+                            selectedAnswerOptionIds: [option.id]
+                        });
+                    });
+
+                    const label = document.createElement('label');
+                    label.setAttribute('for', input.id);
+                    label.textContent = option.text;
+
+                    wrapper.appendChild(input);
+                    wrapper.appendChild(document.createTextNode(' '));
+                    wrapper.appendChild(label);
+                    container.appendChild(wrapper);
+                });
+            } else if (inputType === 'multiple_choice') {
+                const name = 'q_' + questionId;
+                (answerOptions || []).forEach(function(option) {
+                    const wrapper = document.createElement('div');
+
+                    const input = document.createElement('input');
+                    input.type = 'checkbox';
+                    input.name = name;
+                    input.value = option.id;
+                    input.id = name + '_' + option.id;
+                    const selectedIds = stored.selectedAnswerOptionIds || [];
+                    input.checked = selectedIds.indexOf(option.id) !== -1;
+
+                    input.addEventListener('change', function() {
+                        const current = state.answersByQuestionId[questionId] && state.answersByQuestionId[questionId].selectedAnswerOptionIds
+                            ? state.answersByQuestionId[questionId].selectedAnswerOptionIds.slice()
+                            : [];
+                        const idx = current.indexOf(option.id);
+                        if (input.checked) {
+                            if (idx === -1) {
+                                current.push(option.id);
+                            }
+                        } else if (idx !== -1) {
+                            current.splice(idx, 1);
+                        }
+                        setAnswer(questionId, {
+                            selectedAnswerOptionIds: current
+                        });
+                    });
+
+                    const label = document.createElement('label');
+                    label.setAttribute('for', input.id);
+                    label.textContent = option.text;
+
+                    wrapper.appendChild(input);
+                    wrapper.appendChild(document.createTextNode(' '));
+                    wrapper.appendChild(label);
+                    container.appendChild(wrapper);
+                });
+            } else if (inputType === 'numeric') {
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.name = 'q_' + questionId;
+                input.value = (typeof stored.numericAnswer === 'number' && !Number.isNaN(stored.numericAnswer)) ? String(stored.numericAnswer) : '';
+
+                input.addEventListener('input', function() {
+                    const value = input.value;
+                    const numeric = value === '' ? undefined : Number(value);
+                    setAnswer(questionId, {
+                        numericAnswer: numeric
+                    });
+                });
+
+                container.appendChild(input);
+            } else if (inputType === 'text') {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.name = 'q_' + questionId;
+                input.value = stored.freeTextAnswer || '';
+
+                input.addEventListener('input', function() {
+                    setAnswer(questionId, {
+                        freeTextAnswer: input.value
+                    });
+                });
+
+                container.appendChild(input);
+            } else {
+                const p = document.createElement('p');
+                p.textContent = 'This question type is not supported.';
+                container.appendChild(p);
+            }
+        }
+
+        function renderQuizStep() {
+            if (!state.questions.length) {
+                return;
+            }
+            const stepIndex = state.currentStepIndex;
+            const totalSteps = state.questions.length;
+            const current = state.questions[stepIndex];
+            const question = current.question;
+            const answerOptions = current.answer_options || [];
+
+            if (progressEl) {
+                progressEl.textContent = 'Question ' + String(stepIndex + 1) + ' of ' + String(totalSteps);
+            }
+
+            if (questionTextEl) {
+                questionTextEl.textContent = question ? question.text : '';
+            }
+
+            renderAnswerInputs(answerContainerEl, question, answerOptions);
+
+            const errors = state.validationErrors[question.id] || [];
+            renderValidationMessages(validationEl, errors);
+
+            updateNavigationButtons(stepIndex, totalSteps);
+        }
+
+        function updateNavigationButtons(stepIndex, totalSteps) {
+            if (prevBtn) {
+                prevBtn.style.visibility = stepIndex === 0 ? 'hidden' : 'visible';
+            }
+            if (nextBtn && submitBtn) {
+                if (stepIndex === totalSteps - 1) {
+                    nextBtn.style.display = 'none';
+                    submitBtn.style.display = 'inline';
+                } else {
+                    nextBtn.style.display = 'inline';
+                    submitBtn.style.display = 'none';
+                }
+            }
+        }
+
+        function validateCurrentStep() {
+            if (!state.questions.length) {
+                return { valid: true, errors: [] };
+            }
+            const current = state.questions[state.currentStepIndex];
+            const question = current.question;
+            const questionId = question.id;
+            const isRequired = !!question.is_required;
+            const stored = state.answersByQuestionId[questionId];
+            const errors = [];
+
+            if (isRequired) {
+                if (question.input_type === 'single_choice' || question.input_type === 'age_range') {
+                    const ids = stored && stored.selectedAnswerOptionIds ? stored.selectedAnswerOptionIds : [];
+                    if (!ids.length) {
+                        errors.push('Please select an answer to continue.');
+                    }
+                } else if (question.input_type === 'multiple_choice') {
+                    const ids = stored && stored.selectedAnswerOptionIds ? stored.selectedAnswerOptionIds : [];
+                    if (!ids.length) {
+                        errors.push('Please select at least one option to continue.');
+                    }
+                } else if (question.input_type === 'numeric') {
+                    const numeric = stored && typeof stored.numericAnswer === 'number' && !Number.isNaN(stored.numericAnswer)
+                        ? stored.numericAnswer
+                        : undefined;
+                    if (numeric === undefined) {
+                        errors.push('Please enter a number to continue.');
+                    }
+                } else if (question.input_type === 'text') {
+                    const text = stored && typeof stored.freeTextAnswer === 'string' ? stored.freeTextAnswer.trim() : '';
+                    if (!text) {
+                        errors.push('Please enter a response to continue.');
+                    }
+                }
+            }
+
+            if (question.input_type === 'numeric') {
+                const numeric = stored && typeof stored.numericAnswer === 'number' && !Number.isNaN(stored.numericAnswer)
+                    ? stored.numericAnswer
+                    : undefined;
+                if (numeric !== undefined && numeric < 0) {
+                    errors.push('Please enter a non-negative number.');
+                }
+            }
+
+            if (errors.length) {
+                state.validationErrors[questionId] = errors;
+                renderValidationMessages(validationEl, errors);
+                return { valid: false, errors: errors };
+            }
+
+            delete state.validationErrors[questionId];
+            renderValidationMessages(validationEl, []);
+            return { valid: true, errors: [] };
+        }
+
+        function buildAnswersPayload() {
+            return state.questions.map(function(group) {
+                const question = group.question;
+                const stored = state.answersByQuestionId[question.id] || {};
+                const item = {
+                    questionId: question.id
+                };
+                if (Array.isArray(stored.selectedAnswerOptionIds) && stored.selectedAnswerOptionIds.length) {
+                    item.selectedAnswerOptionIds = stored.selectedAnswerOptionIds.slice();
+                } else {
+                    item.selectedAnswerOptionIds = [];
+                }
+                if (typeof stored.numericAnswer === 'number' && !Number.isNaN(stored.numericAnswer)) {
+                    item.numericAnswer = stored.numericAnswer;
+                }
+                if (typeof stored.freeTextAnswer === 'string') {
+                    item.freeTextAnswer = stored.freeTextAnswer;
+                }
+                return item;
+            });
+        }
+
+        function submitQuizAnswers() {
+            if (state.isSubmitting) {
+                return;
+            }
+            const validateResult = validateCurrentStep();
+            if (!validateResult.valid) {
+                return;
+            }
+
+            state.isSubmitting = true;
+            if (submitErrorEl) {
+                submitErrorEl.textContent = '';
+            }
+
+            try {
+                const answersPayload = buildAnswersPayload();
+                const result = WebsiteSDK.submitQuiz(answersPayload);
+                state.isSubmitting = false;
+
+                if (!result || !result.quiz_response || !result.quiz_response.id) {
+                    if (submitErrorEl) {
+                        submitErrorEl.textContent = 'We could not complete your quiz. Please try again in a moment.';
+                    }
+                    console.error('submitQuiz did not return a quiz_response.id');
+                    return;
+                }
+
+                const quizResponseId = result.quiz_response.id;
+
+                const miniCartContainer = document.querySelector('[data-component="mini-cart-summary"][data-populate="cart-summary"]');
+                if (miniCartContainer) {
+                    try {
+                        initializeMiniCart(miniCartContainer);
+                    } catch (cartError) {
+                        console.error('Error refreshing cart summary after quiz submission', cartError);
+                    }
+                }
+
+                window.location.href = 'quiz_results.html?quizResponseId=' + encodeURIComponent(String(quizResponseId));
+            } catch (error) {
+                state.isSubmitting = false;
+                console.error('Error submitting quiz', error);
+                if (submitErrorEl) {
+                    submitErrorEl.textContent = 'There was a problem submitting your quiz. Please check your connection and try again.';
+                }
+            }
+        }
+
+        function initializeQuizDefinition(container) {
+            container.innerHTML = '<p>Loading your quizhellip;</p>';
+            try {
+                const definition = WebsiteSDK.getQuizDefinition();
+                let questions = definition && Array.isArray(definition.questions) ? definition.questions.slice() : [];
+
+                questions.sort(function(a, b) {
+                    const ao = a && a.question && typeof a.question.order === 'number' ? a.question.order : 0;
+                    const bo = b && b.question && typeof b.question.order === 'number' ? b.question.order : 0;
+                    return ao - bo;
+                });
+
+                if (!questions.length) {
+                    container.innerHTML = '<p>The quiz is not available right now. Please check back later.</p>';
+                    return;
+                }
+
+                state.questions = questions;
+
+                const maxStep = state.questions.length;
+                let initialStep = getUrlStep();
+                if (initialStep < 1 || initialStep > maxStep) {
+                    initialStep = 1;
+                }
+                state.currentStepIndex = initialStep - 1;
+                updateUrlStep(state.currentStepIndex, true);
+
+                container.innerHTML = '';
+                container.style.display = 'none';
+
+                if (quizContentEl) {
+                    quizContentEl.hidden = false;
+                }
+
+                renderQuizStep();
+            } catch (error) {
+                console.error('Error loading quiz definition', error);
+                container.innerHTML = '<p>Sorry, something went wrong loading the quiz. Please refresh this page.</p>';
+            }
+        }
+
+        function initializeMiniCart(container) {
+            try {
+                const summary = WebsiteSDK.getCartSummary();
+                const items = summary && Array.isArray(summary.items_detailed) ? summary.items_detailed : [];
+                const itemCount = items.reduce(function(total, detail) {
+                    const cartItem = detail && detail.cart_item ? detail.cart_item : null;
+                    const quantity = cartItem && typeof cartItem.quantity === 'number' ? cartItem.quantity : 0;
+                    return total + quantity;
+                }, 0);
+                const subtotal = summary && typeof summary.subtotal === 'number' ? summary.subtotal : 0;
+                const note = summary && typeof summary.note_about_shipping === 'string' ? summary.note_about_shipping : '';
+
+                const itemText = itemCount === 1 ? '1 item' : String(itemCount) + ' items';
+                const subtotalText = '$' + subtotal.toFixed(2);
+
+                container.innerHTML = `
+<p><strong>Your Cart</strong></p>
+<p>${itemText} in cart &mdash; Subtotal: ${subtotalText}</p>
+${note ? `<p>${escapeHtml(note)}</p>` : ''}
+`;
+            } catch (error) {
+                console.error('Error loading cart summary', error);
+                container.innerHTML = `
+<p><strong>Your Cart</strong></p>
+<p>We could not load your cart right now.</p>
+`;
+            }
+        }
+
+        if (prevBtn) {
+            prevBtn.addEventListener('click', function(event) {
+                event.preventDefault();
+                if (!state.questions.length) {
+                    return;
+                }
+                if (state.currentStepIndex === 0) {
+                    return;
+                }
+                state.currentStepIndex -= 1;
+                updateUrlStep(state.currentStepIndex, false);
+                renderQuizStep();
+            });
+        }
+
+        if (nextBtn) {
+            nextBtn.addEventListener('click', function(event) {
+                event.preventDefault();
+                if (!state.questions.length) {
+                    return;
+                }
+                const validation = validateCurrentStep();
+                if (!validation.valid) {
+                    return;
+                }
+                if (state.currentStepIndex >= state.questions.length - 1) {
+                    return;
+                }
+                state.currentStepIndex += 1;
+                updateUrlStep(state.currentStepIndex, false);
+                renderQuizStep();
+            });
+        }
+
+        if (submitBtn) {
+            submitBtn.addEventListener('click', function(event) {
+                event.preventDefault();
+                if (!state.questions.length) {
+                    return;
+                }
+                submitQuizAnswers();
+            });
+        }
+
+        window.addEventListener('popstate', function() {
+            syncStepFromUrl();
+        });
+
+        const populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function(element) {
+            const dataType = element.getAttribute('data-populate');
+            if (dataType === 'quiz-definition') {
+                initializeQuizDefinition(element);
+            } else if (dataType === 'cart-summary') {
+                initializeMiniCart(element);
+            }
+        });
+    });
+    </script>
+</body>
+</html>

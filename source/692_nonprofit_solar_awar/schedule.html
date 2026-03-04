@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sun Day Solar Awareness Event</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="schedule.css">
+</head>
+<body>
+  <div class="page">
+    <header class="site-header">
+      <div class="header-inner">
+        <a href="index.html" class="brand" aria-label="Sun Day Solar Awareness home">
+          <img src="assets/logo-sunday-solar.svg" alt="Sun Day Solar Awareness logo" class="brand-mark">
+          <span class="brand-text" aria-hidden="true">
+            <span class="brand-line brand-line-primary">Sun Day</span>
+            <span class="brand-line brand-line-secondary">in DC</span>
+          </span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <ul class="nav-list">
+            <li class="nav-item"><a href="index.html" class="nav-link">Home</a></li>
+            <li class="nav-item"><a href="events.html" class="nav-link">Events</a></li>
+            <li class="nav-item"><a href="schedule.html" class="nav-link">Schedule</a></li>
+            <li class="nav-item"><a href="resources.html" class="nav-link">Learn</a></li>
+            <li class="nav-item"><a href="volunteer.html" class="nav-link">Volunteer</a></li>
+            <li class="nav-item"><a href="schools_field_trips.html" class="nav-link">Schools &amp; Groups</a></li>
+            <li class="nav-item"><a href="exhibitors.html" class="nav-link">Exhibitors</a></li>
+            <li class="nav-item"><a href="donate.html" class="nav-link nav-link-donate">Donate</a></li>
+            <li class="nav-item"><a href="contact.html" class="nav-link">Contact</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id="content" class="content" tabindex="-1">
+      <div class="schedule-page layout-column" data-component="schedule-page-controller">
+        <div class="schedule-page-inner">
+          <header class="schedule-page-header">
+            <h1 class="page-title">Schedule</h1>
+          </header>
+
+          <!-- Loading / error state handler -->
+          <div id="schedule-state" class="schedule-state" data-component="schedule-loading-and-error-handler" aria-live="polite"></div>
+
+          <!-- Filter bar -->
+          <section class="schedule-filter-bar" data-component="schedule-filter-bar" data-populate="schedule-filter-options" aria-label="Filter schedule"></section>
+
+          <!-- My Schedule summary -->
+          <section class="my-schedule-summary" data-component="my-schedule-summary-panel" data-populate="my-schedule" aria-label="My Schedule summary"></section>
+
+          <!-- Session grid -->
+          <section class="schedule-grid" data-component="schedule-session-grid" data-populate="schedule-sessions" aria-label="Program sessions"></section>
+
+          <!-- URL state sync (non-visual) -->
+          <div class="schedule-url-state-sync" data-component="schedule-url-state-sync" aria-hidden="true"></div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand-block">
+          <a href="index.html" class="footer-brand">
+            <span class="footer-logo-mark" aria-hidden="true"></span>
+            <span class="footer-brand-text">
+              <span class="footer-brand-line">Sun Day</span>
+              <span class="footer-brand-line footer-brand-line-sub">Solar Awareness in DC</span>
+            </span>
+          </a>
+          <p class="footer-copy">&copy; <span id="footer-year">2026</span> Sun Day Solar Awareness Event. All rights reserved.</p>
+        </div>
+        <nav class="footer-nav" aria-label="Footer">
+          <div class="footer-nav-column">
+            <h2 class="footer-nav-title">Participate</h2>
+            <ul class="footer-nav-list">
+              <li><a href="about.html">About</a></li>
+              <li><a href="contact.html">Contact</a></li>
+              <li><a href="donate.html">Donate</a></li>
+              <li><a href="volunteer.html">Volunteer</a></li>
+            </ul>
+          </div>
+          <div class="footer-nav-column">
+            <h2 class="footer-nav-title">Programs</h2>
+            <ul class="footer-nav-list">
+              <li><a href="schools_field_trips.html">Schools &amp; Field Trips</a></li>
+              <li><a href="exhibitors.html">Exhibitors &amp; Partners</a></li>
+              <li><a href="resources.html">Resources</a></li>
+              <li><a href="privacy.html">Privacy</a></li>
+            </ul>
+          </div>
+        </nav>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    // Keep copyright year current without adding new interactive navigation elements.
+    (function () {
+      var yearEl = document.getElementById('footer-year');
+      if (yearEl) {
+        yearEl.textContent = new Date().getFullYear();
+      }
+    })();
+  </script>
+
+  <script src="business_logic.js"></script>
+
+  <script>
+    (function () {
+      'use strict';
+
+      var filterOptions = null;
+      var scheduleViewState = { day: null, level: '', track: '', topic: '' };
+      var scheduleData = { sessions: [], conflicts: [], my_schedule_event_ids: [] };
+      var conflictIndex = {};
+      var myScheduleData = null;
+
+      var populateContainers = {};
+      var statusContainer = null;
+
+      function escapeHtml(value) {
+        if (typeof value !== 'string') {
+          return '';
+        }
+        var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return value.replace(/[&<>"']/g, function (ch) { return map[ch]; });
+      }
+
+      function formatTimeRange(startIso, endIso) {
+        if (!startIso || !endIso) {
+          return '';
+        }
+        var start = new Date(startIso);
+        var end = new Date(endIso);
+        try {
+          var opts = { hour: 'numeric', minute: '2-digit' };
+          var startLabel = new Intl.DateTimeFormat('en-US', opts).format(start);
+          var endLabel = new Intl.DateTimeFormat('en-US', opts).format(end);
+          return startLabel + ' – ' + endLabel;
+        } catch (e) {
+          return start.toLocaleTimeString() + ' – ' + end.toLocaleTimeString();
+        }
+      }
+
+      function formatDayLabel(dayIso) {
+        if (!dayIso) {
+          return '';
+        }
+        var d = new Date(dayIso);
+        try {
+          var opts = { weekday: 'short', month: 'short', day: 'numeric' };
+          return new Intl.DateTimeFormat('en-US', opts).format(d);
+        } catch (e) {
+          return d.toDateString();
+        }
+      }
+
+      function setStatus(mode, message, options) {
+        if (!statusContainer) {
+          return;
+        }
+        statusContainer.innerHTML = '';
+        if (mode === 'loading') {
+          var loadingHtml = '\n            <div class="schedule-status schedule-status--loading">\n              <span class="schedule-status-spinner" aria-hidden="true"></span>\n              <span class="schedule-status-text">' + escapeHtml(message || 'Loading schedule…') + '</span>\n            </div>\n          ';
+          statusContainer.innerHTML = loadingHtml;
+        } else if (mode === 'error') {
+          var retryLabel = (options && options.retryLabel) ? options.retryLabel : 'Try again';
+          var errorHtml = '\n            <div class="schedule-status schedule-status--error" role="alert">\n              <p class="schedule-status-text">' + escapeHtml(message || 'Something went wrong while loading the schedule.') + '</p>\n              <button type="button" class="btn btn-outline" data-action="retry-schedule-load">' + escapeHtml(retryLabel) + '</button>\n            </div>\n          ';
+          statusContainer.innerHTML = errorHtml;
+        } else {
+          statusContainer.innerHTML = '';
+        }
+      }
+
+      function readUrlState() {
+        var params = new URLSearchParams(window.location.search);
+        return {
+          day: params.get('day') || null,
+          level: params.get('level') || '',
+          track: params.get('track') || '',
+          topic: params.get('topic') || ''
+        };
+      }
+
+      function deriveStateFromUrlAndOptions() {
+        var raw = readUrlState();
+        var state = { day: null, level: '', track: '', topic: '' };
+
+        if (filterOptions && filterOptions.days && filterOptions.days.length > 0) {
+          var days = filterOptions.days;
+          var defaultDay = days[0].value;
+          var urlDay = raw.day;
+          var dayIsValid = false;
+          if (urlDay) {
+            for (var i = 0; i < days.length; i++) {
+              if (days[i].value === urlDay) {
+                dayIsValid = true;
+                break;
+              }
+            }
+          }
+          state.day = dayIsValid ? urlDay : defaultDay;
+        } else {
+          state.day = raw.day;
+        }
+
+        if (filterOptions && filterOptions.levels && filterOptions.levels.length > 0) {
+          var levels = filterOptions.levels;
+          var urlLevel = raw.level;
+          var levelValid = false;
+          if (urlLevel) {
+            for (var j = 0; j < levels.length; j++) {
+              if (levels[j].value === urlLevel) {
+                levelValid = true;
+                break;
+              }
+            }
+          }
+          state.level = levelValid ? urlLevel : '';
+        } else {
+          state.level = raw.level || '';
+        }
+
+        if (filterOptions && filterOptions.tracks && filterOptions.tracks.length > 0) {
+          var tracks = filterOptions.tracks;
+          var urlTrack = raw.track;
+          var trackValid = false;
+          if (urlTrack) {
+            for (var k = 0; k < tracks.length; k++) {
+              if (tracks[k] === urlTrack) {
+                trackValid = true;
+                break;
+              }
+            }
+          }
+          state.track = trackValid ? urlTrack : '';
+        } else {
+          state.track = raw.track || '';
+        }
+
+        if (filterOptions && filterOptions.topics && filterOptions.topics.length > 0) {
+          var topics = filterOptions.topics;
+          var urlTopic = raw.topic;
+          var topicValid = false;
+          if (urlTopic) {
+            for (var m = 0; m < topics.length; m++) {
+              if (topics[m] === urlTopic) {
+                topicValid = true;
+                break;
+              }
+            }
+          }
+          state.topic = topicValid ? urlTopic : '';
+        } else {
+          state.topic = raw.topic || '';
+        }
+
+        return state;
+      }
+
+      function writeStateToUrl(newState, replace) {
+        var params = new URLSearchParams(window.location.search);
+
+        if (newState.day) {
+          params.set('day', newState.day);
+        } else {
+          params.delete('day');
+        }
+
+        if (newState.level) {
+          params.set('level', newState.level);
+        } else {
+          params.delete('level');
+        }
+
+        if (newState.track) {
+          params.set('track', newState.track);
+        } else {
+          params.delete('track');
+        }
+
+        if (newState.topic) {
+          params.set('topic', newState.topic);
+        } else {
+          params.delete('topic');
+        }
+
+        var newQuery = params.toString();
+        var newUrl = window.location.pathname + (newQuery ? ('?' + newQuery) : '');
+
+        if (replace) {
+          window.history.replaceState(null, '', newUrl);
+        } else {
+          window.history.pushState(null, '', newUrl);
+        }
+      }
+
+      function buildFiltersForApi(state) {
+        var filters = { levels: [], tracks: [], topics: [] };
+        if (state.level) {
+          filters.levels = [state.level];
+        }
+        if (state.track) {
+          filters.tracks = [state.track];
+        }
+        if (state.topic) {
+          filters.topics = [state.topic];
+        }
+        return filters;
+      }
+
+      function buildConflictIndex(conflicts) {
+        conflictIndex = {};
+        if (!conflicts || !Array.isArray(conflicts)) {
+          return;
+        }
+        for (var i = 0; i < conflicts.length; i++) {
+          var c = conflicts[i];
+          if (!c || !c.event_id || !Array.isArray(c.conflicts_with)) {
+            continue;
+          }
+          conflictIndex[c.event_id] = c.conflicts_with.slice();
+        }
+      }
+
+      function renderFilterBar(container, options, state) {
+        container.innerHTML = '';
+        if (!options || !options.days || options.days.length === 0) {
+          container.innerHTML = '\n            <div class="schedule-filter-bar-inner">\n              <p class="schedule-filter-empty">Schedule details will be available soon.</p>\n            </div>\n          ';
+          return;
+        }
+
+        var days = options.days;
+        var levels = options.levels || [];
+        var tracks = options.tracks || [];
+        var topics = options.topics || [];
+
+        var dayOptionsHtml = '';
+        for (var i = 0; i < days.length; i++) {
+          var d = days[i];
+          var selectedAttr = (state.day === d.value) ? ' selected' : '';
+          dayOptionsHtml += '<option value="' + escapeHtml(d.value) + '"' + selectedAttr + '>' + escapeHtml(d.label || formatDayLabel(d.value)) + '</option>';
+        }
+
+        var levelOptionsHtml = '<option value="">Any level</option>';
+        for (var j = 0; j < levels.length; j++) {
+          var lvl = levels[j];
+          var levelSelected = (state.level === lvl.value) ? ' selected' : '';
+          levelOptionsHtml += '<option value="' + escapeHtml(lvl.value) + '"' + levelSelected + '>' + escapeHtml(lvl.label || lvl.value) + '</option>';
+        }
+
+        var trackOptionsHtml = '<option value="">Any track</option>';
+        for (var k = 0; k < tracks.length; k++) {
+          var tr = tracks[k];
+          var trackSelected = (state.track === tr) ? ' selected' : '';
+          trackOptionsHtml += '<option value="' + escapeHtml(tr) + '"' + trackSelected + '>' + escapeHtml(tr) + '</option>';
+        }
+
+        var topicOptionsHtml = '<option value="">Any topic</option>';
+        for (var m = 0; m < topics.length; m++) {
+          var tp = topics[m];
+          var topicSelected = (state.topic === tp) ? ' selected' : '';
+          topicOptionsHtml += '<option value="' + escapeHtml(tp) + '"' + topicSelected + '>' + escapeHtml(tp) + '</option>';
+        }
+
+        var sharedViewLabel = '';
+        var urlState = readUrlState();
+        if (urlState.day || urlState.level || urlState.track || urlState.topic) {
+          sharedViewLabel = '\n            <div class="schedule-filter-shared-view" aria-hidden="true">\n              <span class="shared-view-label">Shared view</span>\n            </div>\n          ';
+        }
+
+        var html = '\n          <div class="schedule-filter-bar-inner">\n            <div class="schedule-filter-group">\n              <label class="field-label" for="filter-day-select">Day</label>\n              <select id="filter-day-select" class="field-select" data-action="filter-day">' + dayOptionsHtml + '</select>\n            </div>\n            <div class="schedule-filter-group">\n              <label class="field-label" for="filter-level-select">Level</label>\n              <select id="filter-level-select" class="field-select" data-action="filter-level">' + levelOptionsHtml + '</select>\n            </div>\n            <div class="schedule-filter-group">\n              <label class="field-label" for="filter-track-select">Track</label>\n              <select id="filter-track-select" class="field-select" data-action="filter-track">' + trackOptionsHtml + '</select>\n            </div>\n            <div class="schedule-filter-group">\n              <label class="field-label" for="filter-topic-select">Topic</label>\n              <select id="filter-topic-select" class="field-select" data-action="filter-topic">' + topicOptionsHtml + '</select>\n            </div>\n            ' + sharedViewLabel + '\n          </div>\n        ';
+
+        container.innerHTML = html;
+        bindActionHandlers(container);
+      }
+
+      function renderSessionGrid(container, sessions, conflicts, myScheduleEventIds, state, options) {
+        container.innerHTML = '';
+
+        if (!state || !state.day) {
+          container.innerHTML = '\n            <div class="schedule-grid-empty">\n              <p>Select a day to see the program.</p>\n            </div>\n          ';
+          return;
+        }
+
+        if (!sessions || sessions.length === 0) {
+          var dayLabel = formatDayLabel(state.day);
+          container.innerHTML = '\n            <div class="schedule-grid-empty">\n              <p>No sessions are scheduled for ' + escapeHtml(dayLabel || 'this day') + ' with the current filters.</p>\n            </div>\n          ';
+          return;
+        }
+
+        var sorted = sessions.slice();
+        sorted.sort(function (a, b) {
+          var aTime = a && a.start_datetime ? new Date(a.start_datetime).getTime() : 0;
+          var bTime = b && b.start_datetime ? new Date(b.start_datetime).getTime() : 0;
+          return aTime - bTime;
+        });
+
+        var inMySchedule = {};
+        if (Array.isArray(myScheduleEventIds)) {
+          for (var i = 0; i < myScheduleEventIds.length; i++) {
+            inMySchedule[myScheduleEventIds[i]] = true;
+          }
+        }
+
+        var htmlParts = [];
+        var dayLabelVisible = formatDayLabel(state.day);
+
+        htmlParts.push('\n          <div class="schedule-grid-day">\n            <h2 class="schedule-grid-day-label">' + escapeHtml(dayLabelVisible || '') + '</h2>\n          ');
+
+        for (var j = 0; j < sorted.length; j++) {
+          var s = sorted[j];
+          if (!s) {
+            continue;
+          }
+          var eventId = s.id || '';
+          var hasConflicts = conflictIndex[eventId] && conflictIndex[eventId].length > 0;
+          var isMine = !!inMySchedule[eventId];
+
+          var timeLabel = formatTimeRange(s.start_datetime, s.end_datetime);
+          var eventUrl = 'event_detail.html?eventId=' + encodeURIComponent(eventId);
+          var levelLabel = s.level ? s.level : '';
+          var trackLabel = s.track ? s.track : '';
+          var locationLabel = s.location_name ? s.location_name : '';
+
+          var metaParts = [];
+          if (levelLabel) {
+            metaParts.push(escapeHtml(levelLabel));
+          }
+          if (trackLabel) {
+            metaParts.push(escapeHtml(trackLabel));
+          }
+          if (locationLabel) {
+            metaParts.push(escapeHtml(locationLabel));
+          }
+          var metaHtml = metaParts.join(' · ');
+
+          var statusBadge = '';
+          if (s.status === 'cancelled') {
+            statusBadge = '<span class="session-badge session-badge--cancelled">Cancelled</span>';
+          } else if (s.status === 'sold_out') {
+            statusBadge = '<span class="session-badge session-badge--sold-out">Sold out</span>';
+          }
+
+          var myBadge = '';
+          if (isMine) {
+            myBadge = '<span class="session-badge session-badge--mine" aria-label="This session is in your schedule">In My Schedule</span>';
+          }
+
+          var conflictBadge = '';
+          if (hasConflicts) {
+            conflictBadge = '\n              <button type="button" class="session-conflict-indicator" data-action="conflict-indicator" data-event-id="' + escapeHtml(eventId) + '" aria-pressed="false" aria-label="Show overlapping sessions">\n                Overlaps\n              </button>\n            ';
+          }
+
+          var rowHtml = '\n            <article class="session-row" data-session-id="' + escapeHtml(eventId) + '" data-has-conflicts="' + (hasConflicts ? 'true' : 'false') + '">\n              <div class="session-row-main">\n                <div class="session-time">' + escapeHtml(timeLabel) + '</div>\n                <div class="session-content">\n                  <h3 class="session-title">\n                    <a href="' + eventUrl + '" class="session-title-link">' + escapeHtml(s.title || '') + '</a>\n                  </h3>\n                  ' + (metaHtml ? ('<p class="session-meta">' + metaHtml + '</p>') : '') + '\n                </div>\n              </div>\n              <div class="session-row-aside">\n                ' + statusBadge + '\n                ' + myBadge + '\n                ' + conflictBadge + '\n              </div>\n            </article>\n          ';
+
+          htmlParts.push(rowHtml);
+        }
+
+        htmlParts.push('</div>');
+        container.innerHTML = htmlParts.join('');
+        bindActionHandlers(container);
+      }
+
+      function renderMyScheduleSummary(container, data, state) {
+        container.innerHTML = '';
+
+        var personalSchedule = data && data.personal_schedule ? data.personal_schedule : null;
+        var entries = data && Array.isArray(data.entries) ? data.entries.slice() : [];
+
+        if (!personalSchedule) {
+          container.innerHTML = '\n            <div class="my-schedule-card card">\n              <h2 class="my-schedule-title">My Schedule</h2>\n              <p class="my-schedule-empty">Your personal schedule is not available at the moment.</p>\n            </div>\n          ';
+          return;
+        }
+
+        entries.sort(function (a, b) {
+          var aTime = a && a.event && a.event.start_datetime ? new Date(a.event.start_datetime).getTime() : 0;
+          var bTime = b && b.event && b.event.start_datetime ? new Date(b.event.start_datetime).getTime() : 0;
+          return aTime - bTime;
+        });
+
+        if (entries.length === 0) {
+          container.innerHTML = '\n            <div class="my-schedule-card card">\n              <h2 class="my-schedule-title">My Schedule</h2>\n              <p class="my-schedule-empty">You have not added any sessions yet. Open a session to add it to your schedule.</p>\n            </div>\n          ';
+          return;
+        }
+
+        var currentDayIso = state && state.day ? state.day : null;
+        var listHtmlParts = [];
+
+        for (var i = 0; i < entries.length; i++) {
+          var entry = entries[i];
+          if (!entry || !entry.event) {
+            continue;
+          }
+          var ev = entry.event;
+          var eventId = ev.id || '';
+          var eventUrl = 'event_detail.html?eventId=' + encodeURIComponent(eventId);
+
+          var dayIsoFromEvent = '';
+          if (ev.start_datetime && typeof ev.start_datetime === 'string') {
+            dayIsoFromEvent = ev.start_datetime.slice(0, 10);
+          }
+          var isCurrentDay = currentDayIso && dayIsoFromEvent === currentDayIso;
+
+          var dayLabel = dayIsoFromEvent ? formatDayLabel(dayIsoFromEvent) : '';
+          var timeLabel = formatTimeRange(ev.start_datetime, ev.end_datetime);
+
+          listHtmlParts.push('\n            <li class="my-schedule-item' + (isCurrentDay ? ' my-schedule-item--current-day' : '') + '">\n              <a href="' + eventUrl + '" class="my-schedule-link">' + escapeHtml(ev.title || '') + '</a>\n              <div class="my-schedule-item-meta">' + escapeHtml(dayLabel) + (timeLabel ? ' · ' + escapeHtml(timeLabel) : '') + '</div>\n            </li>\n          ');
+        }
+
+        var html = '\n          <div class="my-schedule-card card">\n            <div class="my-schedule-header">\n              <h2 class="my-schedule-title">My Schedule</h2>\n              <div class="my-schedule-summary-meta">\n                <span class="my-schedule-count">' + entries.length + ' session' + (entries.length === 1 ? '' : 's') + '</span>\n              </div>\n            </div>\n            <ul class="my-schedule-list">' + listHtmlParts.join('') + '</ul>\n          </div>\n        ';
+
+        container.innerHTML = html;
+      }
+
+      function loadScheduleSessionsAndRender(replaceHistory) {
+        if (!scheduleViewState || !scheduleViewState.day) {
+          if (populateContainers['schedule-sessions']) {
+            renderSessionGrid(populateContainers['schedule-sessions'], [], [], [], scheduleViewState, filterOptions);
+          }
+          return;
+        }
+
+        var newState = {
+          day: scheduleViewState.day,
+          level: scheduleViewState.level || '',
+          track: scheduleViewState.track || '',
+          topic: scheduleViewState.topic || ''
+        };
+        writeStateToUrl(newState, replaceHistory);
+
+        var filters = buildFiltersForApi(scheduleViewState);
+        var sessionsResult = null;
+        try {
+          sessionsResult = WebsiteSDK.getScheduleSessions(scheduleViewState.day, filters);
+        } catch (e) {
+          setStatus('error', 'We could not load the sessions for this day.', { retryLabel: 'Retry loading sessions' });
+          if (populateContainers['schedule-sessions']) {
+            renderSessionGrid(populateContainers['schedule-sessions'], [], [], [], scheduleViewState, filterOptions);
+          }
+          return;
+        }
+
+        scheduleData = sessionsResult || { sessions: [], conflicts: [], my_schedule_event_ids: [] };
+        buildConflictIndex(scheduleData.conflicts || []);
+
+        if (populateContainers['schedule-sessions']) {
+          renderSessionGrid(
+            populateContainers['schedule-sessions'],
+            scheduleData.sessions || [],
+            scheduleData.conflicts || [],
+            scheduleData.my_schedule_event_ids || [],
+            scheduleViewState,
+            filterOptions
+          );
+        }
+
+        setStatus('idle');
+      }
+
+      function loadMyScheduleAndRender() {
+        var result = null;
+        try {
+          result = WebsiteSDK.getMySchedule();
+        } catch (e) {
+          if (populateContainers['my-schedule']) {
+            populateContainers['my-schedule'].innerHTML = '\n              <div class="my-schedule-card card">\n                <h2 class="my-schedule-title">My Schedule</h2>\n                <p class="my-schedule-empty">We could not load your personal schedule right now.</p>\n              </div>\n            ';
+          }
+          return;
+        }
+
+        myScheduleData = result;
+
+        if (populateContainers['my-schedule']) {
+          renderMyScheduleSummary(populateContainers['my-schedule'], myScheduleData, scheduleViewState);
+        }
+      }
+
+      function bindActionHandlers(root) {
+        var scope = root || document;
+        var actionElements = scope.querySelectorAll('[data-action]');
+        for (var i = 0; i < actionElements.length; i++) {
+          var el = actionElements[i];
+          if (el.dataset.actionBound === 'true') {
+            continue;
+          }
+          var action = el.dataset.action;
+          if (!action) {
+            continue;
+          }
+
+          if (action === 'filter-day' || action === 'filter-level' || action === 'filter-track' || action === 'filter-topic') {
+            el.addEventListener('change', onFilterChange);
+          } else if (action === 'retry-schedule-load') {
+            el.addEventListener('click', function () {
+              initializeSchedulePage(true);
+            });
+          } else if (action === 'conflict-indicator') {
+            el.addEventListener('click', onConflictIndicatorClick);
+            el.addEventListener('mouseenter', onConflictIndicatorEnter);
+            el.addEventListener('mouseleave', onConflictIndicatorLeave);
+          }
+
+          el.dataset.actionBound = 'true';
+        }
+      }
+
+      function onFilterChange(event) {
+        var target = event.target;
+        if (!target || !target.dataset || !target.dataset.action) {
+          return;
+        }
+        var action = target.dataset.action;
+        var value = target.value || '';
+
+        if (action === 'filter-day') {
+          scheduleViewState.day = value || scheduleViewState.day;
+        } else if (action === 'filter-level') {
+          scheduleViewState.level = value;
+        } else if (action === 'filter-track') {
+          scheduleViewState.track = value;
+        } else if (action === 'filter-topic') {
+          scheduleViewState.topic = value;
+        }
+
+        if (populateContainers['schedule-filter-options']) {
+          renderFilterBar(populateContainers['schedule-filter-options'], filterOptions, scheduleViewState);
+        }
+
+        loadScheduleSessionsAndRender(false);
+
+        if (myScheduleData && populateContainers['my-schedule']) {
+          renderMyScheduleSummary(populateContainers['my-schedule'], myScheduleData, scheduleViewState);
+        }
+      }
+
+      function highlightConflictsForEvent(eventId, active) {
+        if (!eventId) {
+          return;
+        }
+        var ids = [eventId];
+        var others = conflictIndex[eventId];
+        if (Array.isArray(others)) {
+          for (var i = 0; i < others.length; i++) {
+            ids.push(others[i]);
+          }
+        }
+        for (var j = 0; j < ids.length; j++) {
+          var id = ids[j];
+          var selector = '.session-row[data-session-id="' + id + '"]';
+          var row = document.querySelector(selector);
+          if (row) {
+            if (active) {
+              row.classList.add('session-row--conflict-highlight');
+            } else {
+              row.classList.remove('session-row--conflict-highlight');
+            }
+          }
+        }
+      }
+
+      function onConflictIndicatorClick(event) {
+        var el = event.currentTarget;
+        if (!el || !el.dataset) {
+          return;
+        }
+        var eventId = el.dataset.eventId;
+        var currentlyPressed = el.getAttribute('aria-pressed') === 'true';
+        var nextPressed = !currentlyPressed;
+        el.setAttribute('aria-pressed', nextPressed ? 'true' : 'false');
+        highlightConflictsForEvent(eventId, nextPressed);
+      }
+
+      function onConflictIndicatorEnter(event) {
+        var el = event.currentTarget;
+        if (!el || !el.dataset) {
+          return;
+        }
+        var eventId = el.dataset.eventId;
+        highlightConflictsForEvent(eventId, true);
+      }
+
+      function onConflictIndicatorLeave(event) {
+        var el = event.currentTarget;
+        if (!el || !el.dataset) {
+          return;
+        }
+        var eventId = el.dataset.eventId;
+        var pressed = el.getAttribute('aria-pressed') === 'true';
+        if (!pressed) {
+          highlightConflictsForEvent(eventId, false);
+        }
+      }
+
+      function initializeSchedulePage(replaceHistory) {
+        if (replaceHistory === void 0) {
+          replaceHistory = true;
+        }
+
+        setStatus('loading', 'Loading schedule…');
+
+        try {
+          filterOptions = WebsiteSDK.getScheduleFilterOptions();
+        } catch (e) {
+          setStatus('error', 'We could not load schedule filters.', { retryLabel: 'Retry loading schedule' });
+          return;
+        }
+
+        scheduleViewState = deriveStateFromUrlAndOptions();
+
+        if (populateContainers['schedule-filter-options']) {
+          renderFilterBar(populateContainers['schedule-filter-options'], filterOptions, scheduleViewState);
+        }
+
+        loadScheduleSessionsAndRender(replaceHistory);
+
+        loadMyScheduleAndRender();
+      }
+
+      document.addEventListener('DOMContentLoaded', function () {
+        statusContainer = document.getElementById('schedule-state');
+
+        var populateElements = document.querySelectorAll('[data-populate]');
+        for (var i = 0; i < populateElements.length; i++) {
+          var el = populateElements[i];
+          var type = el.dataset.populate;
+          if (!type) {
+            continue;
+          }
+          populateContainers[type] = el;
+        }
+
+        bindActionHandlers(document);
+
+        window.addEventListener('popstate', function () {
+          if (!filterOptions) {
+            return;
+          }
+          scheduleViewState = deriveStateFromUrlAndOptions();
+          if (populateContainers['schedule-filter-options']) {
+            renderFilterBar(populateContainers['schedule-filter-options'], filterOptions, scheduleViewState);
+          }
+          loadScheduleSessionsAndRender(true);
+          if (myScheduleData && populateContainers['my-schedule']) {
+            renderMyScheduleSummary(populateContainers['my-schedule'], myScheduleData, scheduleViewState);
+          }
+        });
+
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'visible') {
+            if (scheduleViewState && scheduleViewState.day) {
+              loadScheduleSessionsAndRender(true);
+            }
+            if (populateContainers['my-schedule']) {
+              loadMyScheduleAndRender();
+            }
+          }
+        });
+
+        initializeSchedulePage(true);
+      });
+    })();
+  </script>
+</body>
+</html>

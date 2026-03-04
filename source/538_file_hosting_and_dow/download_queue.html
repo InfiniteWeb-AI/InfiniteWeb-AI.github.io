@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download Queue - File Hosting Service</title>
+    <meta name="description" content="View, filter, prioritize, pause, resume, cancel, and reorder all pending and active file downloads.">
+    
+    <link rel="stylesheet" href="download_queue.css">
+</head>
+<body>
+    <header class="site-header">
+        <nav class="main-nav" aria-label="Main navigation">
+            <ul class="main-nav__list">
+                <li class="main-nav__item"><a href="index.html">Dashboard</a></li>
+                <li class="main-nav__item"><a href="explore.html">Explore</a></li>
+                <li class="main-nav__item"><a href="collections.html">Collections</a></li>
+                <li class="main-nav__item"><a href="download_queue.html">Download Queue</a></li>
+                <li class="main-nav__item"><a href="settings.html">Settings</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" class="site-content" role="main">
+        <section data-component="queue-status-filter-bar">
+            <form>
+                <label for="statusFilterSelect">Status filter:</label>
+                <select id="statusFilterSelect" name="statusFilter" data-action="change-status-filter">
+                    <option value="">All</option>
+                    <option value="active">Active</option>
+                    <option value="queued">Queued</option>
+                    <option value="in_progress">In progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="paused">Paused</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="error">Error</option>
+                </select>
+            </form>
+        </section>
+
+        <section>
+            <button type="button" data-action="refresh-queue" data-component="download-queue-refresh-control">Refresh</button>
+        </section>
+
+        <section data-component="download-queue-list">
+            <div data-populate="download-queue-items"></div>
+        </section>
+
+        <section data-component="queue-reorder-controls">
+            <p>Reorder queued items:</p>
+            <button type="button" data-action="move-up">Move up</button>
+            <button type="button" data-action="move-down">Move down</button>
+            <button type="button" data-action="apply-reorder">Apply order</button>
+            <div data-component="queue-reorder-message"></div>
+        </section>
+
+        <section>
+            <a href="settings.html?tab=downloads" data-component="queue-settings-link">Adjust download settings</a>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p class="site-footer__copy">
+            &copy; 2010&ndash;2026 Example File Hosting Service
+        </p>
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul class="footer-nav__list">
+                <li class="footer-nav__item"><a href="about.html">About</a></li>
+                <li class="footer-nav__item"><a href="help.html">Help &amp; Support</a></li>
+                <li class="footer-nav__item"><a href="terms.html">Terms of Service</a></li>
+                <li class="footer-nav__item"><a href="privacy.html">Privacy Policy</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Page-level state
+        const urlParams = new URLSearchParams(window.location.search);
+        const statusFilterParam = urlParams.get('statusFilter');
+        const initialStatusFilter = statusFilterParam && statusFilterParam.trim() !== '' ? statusFilterParam : null;
+
+        const queuePageState = {
+            statusFilter: initialStatusFilter,
+            items: [], // [{ queueItem, file }]
+            lastStableQueuedOrder: [], // [queueItemId]
+            hasPendingReorder: false,
+            selectedQueueItemId: null
+        };
+
+        // Components
+        const statusSelect = document.getElementById('statusFilterSelect');
+        if (statusSelect) {
+            statusSelect.value = initialStatusFilter || '';
+        }
+
+        const populateElements = document.querySelectorAll('[data-populate]');
+        let queueContainer = null;
+        populateElements.forEach(function(element) {
+            const dataType = element.dataset.populate;
+            if (dataType === 'download-queue-items') {
+                queueContainer = element;
+            }
+        });
+
+        const reorderSection = document.querySelector('[data-component="queue-reorder-controls"]');
+        const reorderMessageEl = reorderSection ? reorderSection.querySelector('[data-component="queue-reorder-message"]') : null;
+
+        if (queueContainer) {
+            loadQueue(queueContainer);
+        }
+
+        // Generic click handler for data-action
+        document.addEventListener('click', function(event) {
+            const actionElement = event.target.closest('[data-action]');
+            if (!actionElement) {
+                return;
+            }
+            const action = actionElement.dataset.action;
+
+            if (action === 'refresh-queue') {
+                if (queueContainer) {
+                    loadQueue(queueContainer);
+                }
+                return;
+            }
+
+            if (action === 'move-up') {
+                handleMoveSelected(-1);
+                return;
+            }
+
+            if (action === 'move-down') {
+                handleMoveSelected(1);
+                return;
+            }
+
+            if (action === 'apply-reorder') {
+                handleApplyReorder();
+                return;
+            }
+
+            if (action === 'pause-download') {
+                const queueItemId = actionElement.dataset.queueItemId;
+                if (queueItemId && queueContainer) {
+                    updateItemStatus(queueItemId, 'pause', queueContainer);
+                }
+                return;
+            }
+
+            if (action === 'resume-download') {
+                const queueItemId = actionElement.dataset.queueItemId;
+                if (queueItemId && queueContainer) {
+                    updateItemStatus(queueItemId, 'resume', queueContainer);
+                }
+                return;
+            }
+
+            if (action === 'cancel-download') {
+                const queueItemId = actionElement.dataset.queueItemId;
+                if (queueItemId && queueContainer) {
+                    updateItemStatus(queueItemId, 'cancel', queueContainer);
+                }
+                return;
+            }
+        });
+
+        // Generic change handler for data-action
+        document.addEventListener('change', function(event) {
+            const actionElement = event.target.closest('[data-action]');
+            if (!actionElement) {
+                return;
+            }
+            const action = actionElement.dataset.action;
+
+            if (action === 'change-status-filter') {
+                const newFilter = actionElement.value;
+                if (newFilter && newFilter.trim() !== '') {
+                    window.location.href = 'download_queue.html?statusFilter=' + encodeURIComponent(newFilter);
+                } else {
+                    window.location.href = 'download_queue.html';
+                }
+                return;
+            }
+
+            if (action === 'change-priority') {
+                const queueItemId = actionElement.dataset.queueItemId;
+                if (queueItemId && queueContainer) {
+                    handlePriorityChange(queueItemId, actionElement.value, actionElement, queueContainer);
+                }
+                return;
+            }
+        });
+
+        // ----- Data loading -----
+
+        function loadQueue(container) {
+            let response;
+            try {
+                if (queuePageState.statusFilter) {
+                    response = WebsiteSDK.getDownloadQueueItems(queuePageState.statusFilter);
+                } else {
+                    response = WebsiteSDK.getDownloadQueueItems();
+                }
+            } catch (error) {
+                container.innerHTML = '';
+                const errorP = document.createElement('p');
+                errorP.textContent = 'Unable to load download queue.';
+                container.appendChild(errorP);
+                updateReorderControlsState('');
+                return;
+            }
+
+            const items = response && Array.isArray(response.items) ? response.items : [];
+            queuePageState.items = items;
+            queuePageState.lastStableQueuedOrder = items
+                .filter(function(entry) { return entry.queueItem && entry.queueItem.status === 'queued'; })
+                .map(function(entry) { return entry.queueItem.id; });
+            queuePageState.hasPendingReorder = false;
+
+            // If previously selected item no longer exists, clear selection
+            if (queuePageState.selectedQueueItemId) {
+                const stillExists = items.some(function(entry) {
+                    return entry.queueItem && entry.queueItem.id === queuePageState.selectedQueueItemId;
+                });
+                if (!stillExists) {
+                    queuePageState.selectedQueueItemId = null;
+                }
+            }
+
+            renderQueueList(container, items);
+            updateReorderControlsState('');
+        }
+
+        // ----- Rendering -----
+
+        function renderQueueList(container, items) {
+            container.innerHTML = '';
+
+            if (!items || items.length === 0) {
+                const emptyP = document.createElement('p');
+                emptyP.setAttribute('data-component', 'queue-empty-state');
+                const filterLabel = queuePageState.statusFilter || 'all';
+                emptyP.textContent = 'No downloads in your queue for the current filter (' + filterLabel + ').';
+                container.appendChild(emptyP);
+                return;
+            }
+
+            const list = document.createElement('ul');
+
+            items.forEach(function(entry) {
+                const queueItem = entry.queueItem;
+                const file = entry.file;
+
+                const li = document.createElement('li');
+                li.setAttribute('data-component', 'download-queue-item-row');
+                li.setAttribute('data-queue-item-id', queueItem.id);
+                li.setAttribute('draggable', 'true');
+
+                if (queuePageState.selectedQueueItemId === queueItem.id) {
+                    li.style.fontWeight = 'bold';
+                } else {
+                    li.style.fontWeight = '';
+                }
+
+                // File name (click-through to preview)
+                const nameLink = document.createElement('a');
+                nameLink.href = 'file_preview.html?fileId=' + encodeURIComponent(file.id);
+                nameLink.textContent = file.name;
+                li.appendChild(nameLink);
+
+                // File size
+                const sizeSpan = document.createElement('span');
+                sizeSpan.textContent = ' (' + formatBytes(file.sizeBytes) + ')';
+                li.appendChild(sizeSpan);
+
+                // Source location
+                const originSpan = document.createElement('span');
+                originSpan.textContent = ' [From: ' + formatSourceLocation(queueItem.sourceLocation) + ']';
+                li.appendChild(originSpan);
+
+                // Status
+                const statusSpan = document.createElement('span');
+                statusSpan.textContent = ' Status: ' + formatStatus(queueItem.status);
+                li.appendChild(statusSpan);
+
+                // Progress
+                const progressText = formatProgress(queueItem);
+                if (progressText) {
+                    const progressSpan = document.createElement('span');
+                    progressSpan.textContent = ' Progress: ' + progressText;
+                    li.appendChild(progressSpan);
+                }
+
+                // Priority selector
+                const priorityLabel = document.createElement('label');
+                priorityLabel.textContent = ' Priority: ';
+                const prioritySelect = document.createElement('select');
+                prioritySelect.setAttribute('data-action', 'change-priority');
+                prioritySelect.setAttribute('data-queue-item-id', queueItem.id);
+                ['high', 'normal', 'low'].forEach(function(priorityValue) {
+                    const opt = document.createElement('option');
+                    opt.value = priorityValue;
+                    opt.textContent = capitalize(priorityValue);
+                    if (queueItem.priority === priorityValue) {
+                        opt.selected = true;
+                    }
+                    prioritySelect.appendChild(opt);
+                });
+                priorityLabel.appendChild(prioritySelect);
+                li.appendChild(priorityLabel);
+
+                // Actions
+                const actions = [];
+                if (queueItem.status === 'in_progress') {
+                    const pauseBtn = document.createElement('button');
+                    pauseBtn.type = 'button';
+                    pauseBtn.textContent = 'Pause';
+                    pauseBtn.setAttribute('data-action', 'pause-download');
+                    pauseBtn.setAttribute('data-queue-item-id', queueItem.id);
+                    actions.push(pauseBtn);
+
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.type = 'button';
+                    cancelBtn.textContent = 'Cancel';
+                    cancelBtn.setAttribute('data-action', 'cancel-download');
+                    cancelBtn.setAttribute('data-queue-item-id', queueItem.id);
+                    actions.push(cancelBtn);
+                } else if (queueItem.status === 'queued') {
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.type = 'button';
+                    cancelBtn.textContent = 'Cancel';
+                    cancelBtn.setAttribute('data-action', 'cancel-download');
+                    cancelBtn.setAttribute('data-queue-item-id', queueItem.id);
+                    actions.push(cancelBtn);
+                } else if (queueItem.status === 'paused') {
+                    const resumeBtn = document.createElement('button');
+                    resumeBtn.type = 'button';
+                    resumeBtn.textContent = 'Resume';
+                    resumeBtn.setAttribute('data-action', 'resume-download');
+                    resumeBtn.setAttribute('data-queue-item-id', queueItem.id);
+                    actions.push(resumeBtn);
+
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.type = 'button';
+                    cancelBtn.textContent = 'Cancel';
+                    cancelBtn.setAttribute('data-action', 'cancel-download');
+                    cancelBtn.setAttribute('data-queue-item-id', queueItem.id);
+                    actions.push(cancelBtn);
+                }
+
+                if (actions.length > 0) {
+                    const actionsLabel = document.createElement('span');
+                    actionsLabel.textContent = ' Actions: ';
+                    li.appendChild(actionsLabel);
+                    actions.forEach(function(button) { li.appendChild(button); });
+                }
+
+                // Inline error placeholder
+                const errorSpan = document.createElement('span');
+                errorSpan.setAttribute('data-role', 'item-error');
+                errorSpan.style.marginLeft = '4px';
+                li.appendChild(errorSpan);
+
+                // Selecting an item for reorder (click on row background)
+                li.addEventListener('click', function(event) {
+                    const tag = event.target && event.target.tagName ? event.target.tagName.toLowerCase() : '';
+                    if (tag === 'button' || tag === 'select' || tag === 'option' || tag === 'a') {
+                        return;
+                    }
+                    queuePageState.selectedQueueItemId = queueItem.id;
+                    renderQueueList(container, queuePageState.items);
+                    updateReorderControlsState('');
+                });
+
+                // Drag-and-drop handlers
+                li.addEventListener('dragstart', onItemDragStart);
+                li.addEventListener('dragover', onItemDragOver);
+                li.addEventListener('drop', onItemDrop);
+                li.addEventListener('dragend', onItemDragEnd);
+
+                list.appendChild(li);
+            });
+
+            container.appendChild(list);
+        }
+
+        // ----- Drag-and-drop reordering -----
+
+        let dragSourceId = null;
+
+        function onItemDragStart(event) {
+            const li = event.currentTarget;
+            dragSourceId = li.getAttribute('data-queue-item-id');
+            if (event.dataTransfer) {
+                event.dataTransfer.effectAllowed = 'move';
+                try {
+                    event.dataTransfer.setData('text/plain', dragSourceId);
+                } catch (e) {
+                    // Some browsers may disable setData in dragstart for non-text; ignore
+                }
+            }
+        }
+
+        function onItemDragOver(event) {
+            if (dragSourceId) {
+                event.preventDefault();
+                if (event.dataTransfer) {
+                    event.dataTransfer.dropEffect = 'move';
+                }
+            }
+        }
+
+        function onItemDrop(event) {
+            event.preventDefault();
+            const targetLi = event.currentTarget;
+            const targetId = targetLi.getAttribute('data-queue-item-id');
+            if (!dragSourceId || !targetId || dragSourceId === targetId) {
+                return;
+            }
+            const items = queuePageState.items.slice();
+            const fromIndex = items.findIndex(function(entry) { return entry.queueItem.id === dragSourceId; });
+            const toIndex = items.findIndex(function(entry) { return entry.queueItem.id === targetId; });
+            if (fromIndex === -1 || toIndex === -1) {
+                return;
+            }
+            const moved = items.splice(fromIndex, 1)[0];
+            items.splice(toIndex, 0, moved);
+            queuePageState.items = items;
+            queuePageState.hasPendingReorder = true;
+            if (queueContainer) {
+                renderQueueList(queueContainer, items);
+            }
+            updateReorderControlsState('Order changed. Click "Apply order" to save.');
+        }
+
+        function onItemDragEnd() {
+            dragSourceId = null;
+        }
+
+        // ----- Priority updates -----
+
+        function handlePriorityChange(queueItemId, newPriority, selectElement, container) {
+            const existingEntry = queuePageState.items.find(function(entry) {
+                return entry.queueItem && entry.queueItem.id === queueItemId;
+            });
+            const previousPriority = existingEntry && existingEntry.queueItem ? existingEntry.queueItem.priority : null;
+
+            let response;
+            try {
+                response = WebsiteSDK.updateDownloadQueueItemPriority(queueItemId, newPriority);
+            } catch (error) {
+                if (previousPriority !== null) {
+                    selectElement.value = previousPriority;
+                }
+                showInlineError(queueItemId, 'Unable to update priority.', container);
+                return;
+            }
+
+            if (!response || !response.success || !response.queueItem) {
+                if (previousPriority !== null) {
+                    selectElement.value = previousPriority;
+                }
+                const message = response && response.message ? response.message : 'Unable to update priority.';
+                showInlineError(queueItemId, message, container);
+                return;
+            }
+
+            const updatedQueueItem = response.queueItem;
+            queuePageState.items = queuePageState.items.map(function(entry) {
+                if (entry.queueItem && entry.queueItem.id === updatedQueueItem.id) {
+                    return { queueItem: updatedQueueItem, file: entry.file };
+                }
+                return entry;
+            });
+
+            if (container) {
+                renderQueueList(container, queuePageState.items);
+            }
+            updateReorderControlsState('');
+        }
+
+        // ----- Status updates (pause/resume/cancel) -----
+
+        function updateItemStatus(queueItemId, action, container) {
+            let response;
+            try {
+                response = WebsiteSDK.updateDownloadQueueItemStatus(queueItemId, action);
+            } catch (error) {
+                showInlineError(queueItemId, 'Unable to update download status.', container);
+                return;
+            }
+
+            if (!response || !response.success || !response.queueItem) {
+                const message = response && response.message ? response.message : 'Unable to update download status.';
+                showInlineError(queueItemId, message, container);
+                return;
+            }
+
+            // After status change, re-sync from backend to respect filters
+            loadQueue(container);
+        }
+
+        // ----- Reorder controls (move up/down, apply) -----
+
+        function handleMoveSelected(direction) {
+            if (!queuePageState.selectedQueueItemId) {
+                updateReorderControlsState('Select an item in the list to reorder it.');
+                return;
+            }
+            const items = queuePageState.items.slice();
+            const currentIndex = items.findIndex(function(entry) { return entry.queueItem.id === queuePageState.selectedQueueItemId; });
+            if (currentIndex === -1) {
+                updateReorderControlsState('Selected item is no longer in the list.');
+                return;
+            }
+            const newIndex = currentIndex + direction;
+            if (newIndex < 0 || newIndex >= items.length) {
+                updateReorderControlsState('Cannot move item further in that direction.');
+                return;
+            }
+            const moved = items.splice(currentIndex, 1)[0];
+            items.splice(newIndex, 0, moved);
+            queuePageState.items = items;
+            queuePageState.hasPendingReorder = true;
+            if (queueContainer) {
+                renderQueueList(queueContainer, items);
+            }
+            updateReorderControlsState('Order changed. Click "Apply order" to save.');
+        }
+
+        function handleApplyReorder() {
+            if (!queuePageState.hasPendingReorder) {
+                updateReorderControlsState('No order changes to apply.');
+                return;
+            }
+
+            const orderedQueuedIds = queuePageState.items
+                .filter(function(entry) { return entry.queueItem.status === 'queued'; })
+                .map(function(entry) { return entry.queueItem.id; });
+
+            const previousQueuedOrder = queuePageState.lastStableQueuedOrder.slice();
+
+            let response;
+            try {
+                response = WebsiteSDK.reorderDownloadQueueItems(orderedQueuedIds);
+            } catch (error) {
+                // Revert queued items order
+                revertQueuedOrder(previousQueuedOrder);
+                updateReorderControlsState('Unable to apply new order. Changes were reverted.');
+                return;
+            }
+
+            if (!response || !response.success) {
+                revertQueuedOrder(previousQueuedOrder);
+                const message = response && response.message ? response.message : 'Unable to apply new order. Changes were reverted.';
+                updateReorderControlsState(message);
+                return;
+            }
+
+            queuePageState.lastStableQueuedOrder = orderedQueuedIds;
+            queuePageState.hasPendingReorder = false;
+            updateReorderControlsState('Order saved.');
+        }
+
+        function revertQueuedOrder(previousQueuedIds) {
+            if (!previousQueuedIds || previousQueuedIds.length === 0) {
+                return;
+            }
+            const queuedMap = {};
+            queuePageState.items.forEach(function(entry) {
+                if (entry.queueItem.status === 'queued') {
+                    queuedMap[entry.queueItem.id] = entry;
+                }
+            });
+
+            const newItems = [];
+            // First, queued items in their previous order
+            previousQueuedIds.forEach(function(id) {
+                if (queuedMap[id]) {
+                    newItems.push(queuedMap[id]);
+                    delete queuedMap[id];
+                }
+            });
+            // Any remaining queued items that were not in previousQueuedIds
+            Object.keys(queuedMap).forEach(function(id) {
+                newItems.push(queuedMap[id]);
+            });
+
+            // Non-queued items keep their relative order
+            const nonQueuedItems = queuePageState.items.filter(function(entry) {
+                return entry.queueItem.status !== 'queued';
+            });
+
+            queuePageState.items = newItems.concat(nonQueuedItems);
+            if (queueContainer) {
+                renderQueueList(queueContainer, queuePageState.items);
+            }
+        }
+
+        // ----- Helpers -----
+
+        function updateReorderControlsState(message) {
+            if (!reorderSection) {
+                return;
+            }
+
+            const queuedCount = queuePageState.items.filter(function(entry) {
+                return entry.queueItem.status === 'queued';
+            }).length;
+
+            reorderSection.style.display = queuedCount > 1 ? '' : 'none';
+
+            const moveUpBtn = reorderSection.querySelector('[data-action="move-up"]');
+            const moveDownBtn = reorderSection.querySelector('[data-action="move-down"]');
+            const applyBtn = reorderSection.querySelector('[data-action="apply-reorder"]');
+
+            if (moveUpBtn) {
+                moveUpBtn.disabled = !queuePageState.selectedQueueItemId;
+            }
+            if (moveDownBtn) {
+                moveDownBtn.disabled = !queuePageState.selectedQueueItemId;
+            }
+            if (applyBtn) {
+                applyBtn.disabled = !queuePageState.hasPendingReorder;
+            }
+
+            if (reorderMessageEl) {
+                if (message) {
+                    reorderMessageEl.textContent = message;
+                } else if (queuePageState.hasPendingReorder) {
+                    reorderMessageEl.textContent = 'Order changed. Click "Apply order" to save.';
+                } else {
+                    reorderMessageEl.textContent = '';
+                }
+            }
+        }
+
+        function showInlineError(queueItemId, message, container) {
+            if (!container) {
+                return;
+            }
+            const row = container.querySelector('[data-queue-item-id="' + queueItemId.replace(/"/g, '\\"') + '"]');
+            if (!row) {
+                return;
+            }
+            const errorSpan = row.querySelector('[data-role="item-error"]');
+            if (errorSpan) {
+                errorSpan.textContent = ' ' + message;
+            }
+        }
+
+        function formatBytes(bytes) {
+            if (typeof bytes !== 'number' || isNaN(bytes) || bytes < 0) {
+                return 'Unknown size';
+            }
+            if (bytes === 0) {
+                return '0 B';
+            }
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let index = 0;
+            let value = bytes;
+            while (value >= 1024 && index < units.length - 1) {
+                value = value / 1024;
+                index += 1;
+            }
+            return value.toFixed(value >= 10 || index === 0 ? 0 : 1) + ' ' + units[index];
+        }
+
+        function formatSourceLocation(source) {
+            switch (source) {
+                case 'my_files':
+                    return 'My Files';
+                case 'shared_with_me':
+                    return 'Shared with Me';
+                case 'explore_catalog':
+                    return 'Explore';
+                case 'trash':
+                    return 'Trash';
+                default:
+                    return source || 'Unknown';
+            }
+        }
+
+        function formatStatus(status) {
+            switch (status) {
+                case 'queued':
+                    return 'Queued';
+                case 'in_progress':
+                    return 'In progress';
+                case 'completed':
+                    return 'Completed';
+                case 'paused':
+                    return 'Paused';
+                case 'cancelled':
+                    return 'Cancelled';
+                case 'error':
+                    return 'Error';
+                default:
+                    return status || 'Unknown';
+            }
+        }
+
+        function formatProgress(queueItem) {
+            if (typeof queueItem.bytesTotal === 'number' && typeof queueItem.bytesDownloaded === 'number' && queueItem.bytesTotal > 0) {
+                const percent = Math.floor((queueItem.bytesDownloaded / queueItem.bytesTotal) * 100);
+                return percent + '% (' + formatBytes(queueItem.bytesDownloaded) + ' / ' + formatBytes(queueItem.bytesTotal) + ')';
+            }
+            return '';
+        }
+
+        function capitalize(text) {
+            if (!text) {
+                return '';
+            }
+            return text.charAt(0).toUpperCase() + text.slice(1);
+        }
+    });
+    </script>
+</body>
+</html>

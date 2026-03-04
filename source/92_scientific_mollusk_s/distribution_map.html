@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Mollusk Species Information</title>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='distribution_map.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <div class='header-inner'>
+            <div class='logo-title-row'>
+                <div class='logo'>
+                    <img src='slug_logo.svg' alt='Stylized slug illustration' width='180' height='40'>
+                </div>
+                <div class='site-title-wrapper'>
+                    <a href='index.html' class='site-title-link'>Mollusk Species Information</a>
+                </div>
+            </div>
+
+            <div class='site-intro'>
+                <p class='intro-main-link'>
+                    <a href='index.html'>Web pages of mollusk species and malacological resources</a>
+                </p>
+                <p class='intro-subtitle'>Scientific information on species traits, taxonomy, and distributions</p>
+            </div>
+
+            <hr class='header-separator'>
+
+            <nav class='primary-nav' aria-label='Primary'>
+                <p>
+                    <a href='index.html' title='Homepage with global search and quick access to main tools'>Home</a>
+                    | <a href='species_search.html' title='Basic species search and results listing'>Species Search</a>
+                    | <a href='species_search.html?mode=advanced' title='Advanced species filters for habitat, depth, size, region, status, and more'>Advanced Search</a>
+                    | <a href='species_search.html?mode=taxa' title='Browse species by higher taxonomic groups and families (e.g., cephalopods, Muricidae)'>Taxa / Browse by Group</a>
+                    | <a href='species_search.html?mode=traits' title='Search species using trait filters such as radula type and other morphological traits'>Traits / Morphology</a>
+                    | <a href='distribution_map.html' title='Interactive map of species distributions by region and country'>Distribution Map</a>
+                    | <a href='teaching_resources.html' title='Educational materials and classroom resources'>Teaching Resources</a>
+                    | <a href='collections.html' title='View and manage species collections and thematic lists'>Collections</a>
+                    | <a href='comparisons.html' title='View and manage species comparison lists'>Comparisons</a>
+                    | <a href='favorites.html' title='List of favorited teaching resources'>Favorites</a>
+                    | <a href='bookmarks.html' title='List of bookmarked species'>Bookmarks</a>
+                    | <a href='help.html' title='How-to guides and FAQs for using the site'>Help</a>
+                </p>
+            </nav>
+        </div>
+    </header>
+
+    <main id='content' role='main'>
+        <div class='content-panel distribution-map-panel' data-component='page-state-manager'>
+            <p class='breadcrumb'>
+                <a href='index.html'>Home</a> &gt; Distribution map
+            </p>
+
+            <h1>Distribution map</h1>
+            <p class='page-intro'>Select geographic regions and presence mode to list mollusk species whose recorded distributions match those criteria.</p>
+
+            <div class='region-filter-panel' data-component='region-filter-panel' data-populate='region-filters'>
+                <!-- Region filter controls populated by JavaScript -->
+            </div>
+
+            <div class='distribution-map-view' data-component='distribution-map-view'>
+                <div class='map-frame' data-populate='map-view'>
+                    <!-- Interactive map representation populated by JavaScript -->
+                </div>
+            </div>
+
+            <p class='species-results-summary' data-component='species-results-summary' data-populate='species-summary'>
+                <!-- Summary populated by JavaScript -->
+            </p>
+
+            <div class='comparison-selection-panel' data-component='comparison-selection-panel' data-populate='comparison-panel'>
+                <!-- Comparison selection controls populated by JavaScript -->
+            </div>
+
+            <div class='species-list-panel' data-component='species-list-panel'>
+                <div class='species-list-controls'>
+                    <!-- Sort and paging controls populated by JavaScript -->
+                </div>
+                <div class='species-list-container' data-populate='species-list'>
+                    <!-- Species list populated by JavaScript -->
+                </div>
+            </div>
+
+            <div class='species-focus-panel' data-component='species-focus-panel' data-populate='species-focus' style='display:none;'>
+                <!-- Species focus information populated by JavaScript -->
+            </div>
+        </div>
+    </main>
+
+    <footer class='site-footer'>
+        <hr class='footer-separator'>
+        <div class='footer-inner'>
+            <nav class='footer-nav' aria-label='Footer'>
+                <a href='about.html' title='Information about the site, data sources, and purpose'>About</a>
+                | <a href='help.html' title='Guidance on searching, collections, comparisons, and other tools'>Help / How to Use</a>
+                | <a href='teaching_resources.html' title='Browse educational and teaching materials'>Teaching Resources</a>
+                | <a href='index.html' title='Return to homepage'>Home</a>
+            </nav>
+            <p class='footer-note'>Mollusk Species Information &ndash; academic reference site for malacology.</p>
+        </div>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        'use strict';
+
+        // --- Page state manager ---
+        const pageState = {
+            selectedRegionIds: [],
+            excludedRegionIds: [],
+            presenceMode: 'present_in_any', // URL value: 'present_in_any' or 'present_in_all'
+            speciesId: null,
+            regions: [],
+            regionById: {},
+            speciesResults: [],
+            focusedSpeciesDistribution: null,
+            comparisonSelection: new Set(),
+            comparisonName: '',
+            currentSort: 'scientific_name',
+            regionFilterSearch: ''
+        };
+
+        const containers = {
+            regionFilters: document.querySelector('[data-populate="region-filters"]'),
+            mapView: document.querySelector('[data-populate="map-view"]'),
+            speciesSummary: document.querySelector('[data-populate="species-summary"]'),
+            comparisonPanel: document.querySelector('[data-populate="comparison-panel"]'),
+            speciesList: document.querySelector('[data-populate="species-list"]'),
+            speciesFocus: document.querySelector('[data-populate="species-focus"]')
+        };
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function parseCsvParam(raw) {
+            if (!raw) return [];
+            return raw.split(',').map(function(item) { return item.trim(); }).filter(function(item) { return item.length > 0; });
+        }
+
+        function parseUrlState() {
+            const params = new URLSearchParams(window.location.search);
+            pageState.selectedRegionIds = parseCsvParam(params.get('selectedRegionIds'));
+            pageState.excludedRegionIds = parseCsvParam(params.get('excludedRegionIds'));
+
+            const mode = params.get('presence_mode');
+            if (mode === 'present_in_all' || mode === 'present_in_any') {
+                pageState.presenceMode = mode;
+            } else {
+                pageState.presenceMode = 'present_in_any';
+            }
+
+            const speciesId = params.get('speciesId');
+            pageState.speciesId = speciesId ? speciesId : null;
+        }
+
+        function updateUrlState() {
+            const params = new URLSearchParams();
+            if (pageState.selectedRegionIds.length > 0) {
+                params.set('selectedRegionIds', pageState.selectedRegionIds.join(','));
+            }
+            if (pageState.excludedRegionIds.length > 0) {
+                params.set('excludedRegionIds', pageState.excludedRegionIds.join(','));
+            }
+            if (pageState.presenceMode) {
+                params.set('presence_mode', pageState.presenceMode);
+            }
+            if (pageState.speciesId) {
+                params.set('speciesId', pageState.speciesId);
+            }
+
+            const query = params.toString();
+            const newUrl = query ? (window.location.pathname + '?' + query) : window.location.pathname;
+            window.history.replaceState(null, '', newUrl);
+        }
+
+        function loadRegions() {
+            try {
+                const regions = WebsiteSDK.getDistributionRegionsFilterOptions() || [];
+                pageState.regions = regions;
+                pageState.regionById = {};
+                regions.forEach(function(region) {
+                    pageState.regionById[region.id] = region;
+                });
+            } catch (e) {
+                console.error('Error loading regions', e);
+                pageState.regions = [];
+                pageState.regionById = {};
+            }
+        }
+
+        function loadFocusedSpeciesDistribution() {
+            if (!pageState.speciesId) {
+                pageState.focusedSpeciesDistribution = null;
+                return;
+            }
+            try {
+                const dist = WebsiteSDK.getSpeciesDistributionForMap(pageState.speciesId) || [];
+                pageState.focusedSpeciesDistribution = dist;
+
+                // If no regions were pre-selected, initialize from presence regions
+                if (pageState.selectedRegionIds.length === 0 && dist.length > 0) {
+                    const presentRegionIds = [];
+                    dist.forEach(function(entry) {
+                        if (entry.is_present && entry.region_id) {
+                            if (presentRegionIds.indexOf(entry.region_id) === -1) {
+                                presentRegionIds.push(entry.region_id);
+                            }
+                        }
+                    });
+                    if (presentRegionIds.length > 0) {
+                        pageState.selectedRegionIds = presentRegionIds;
+                    }
+                }
+            } catch (e) {
+                console.error('Error loading species distribution for map', e);
+                pageState.focusedSpeciesDistribution = null;
+            }
+        }
+
+        function presenceModeForSdk() {
+            // Map URL presence_mode to SDK parameter names
+            if (pageState.presenceMode === 'present_in_all') {
+                return 'all_selected';
+            }
+            return 'any_selected';
+        }
+
+        function loadSpeciesResults() {
+            if (!pageState.selectedRegionIds || pageState.selectedRegionIds.length === 0) {
+                pageState.speciesResults = [];
+                return;
+            }
+            try {
+                const response = WebsiteSDK.getSpeciesForDistributionMap(
+                    pageState.selectedRegionIds,
+                    presenceModeForSdk(),
+                    pageState.excludedRegionIds
+                );
+                const speciesArray = response && response.species ? response.species : [];
+                pageState.speciesResults = speciesArray;
+            } catch (e) {
+                console.error('Error loading species for distribution map', e);
+                pageState.speciesResults = [];
+            }
+        }
+
+        function computeIntersectionSpeciesIds() {
+            const result = new Set();
+            if (!pageState.selectedRegionIds || pageState.selectedRegionIds.length === 0) {
+                return result;
+            }
+            const requiredIds = pageState.selectedRegionIds.slice();
+            pageState.speciesResults.forEach(function(sp) {
+                const present = sp.present_in_region_ids || [];
+                const coversAll = requiredIds.every(function(regionId) {
+                    return present.indexOf(regionId) !== -1;
+                });
+                if (coversAll) {
+                    result.add(sp.species_id);
+                }
+            });
+            return result;
+        }
+
+        // --- Renderers ---
+
+        function renderRegionFilters(container) {
+            if (!container) return;
+            const searchValue = pageState.regionFilterSearch || '';
+            const searchLower = searchValue.toLowerCase();
+
+            let filteredRegions = pageState.regions.slice();
+            if (searchLower) {
+                filteredRegions = filteredRegions.filter(function(region) {
+                    const text = (region.name || '') + ' ' + (region.code || '') + ' ' + (region.type || '');
+                    return text.toLowerCase().indexOf(searchLower) !== -1;
+                });
+            }
+
+            filteredRegions.sort(function(a, b) {
+                const nameA = (a.name || '').toLowerCase();
+                const nameB = (b.name || '').toLowerCase();
+                if (nameA < nameB) return -1;
+                if (nameA > nameB) return 1;
+                return 0;
+            });
+
+            let regionItemsHtml = '';
+            filteredRegions.forEach(function(region) {
+                const id = region.id;
+                const checked = pageState.selectedRegionIds.indexOf(id) !== -1 ? ' checked' : '';
+                const isExcluded = pageState.excludedRegionIds.indexOf(id) !== -1;
+                const excludeLabel = isExcluded ? 'Un-exclude' : 'Exclude';
+                const excludedText = isExcluded ? ' (excluded)' : '';
+                regionItemsHtml += `
+                    <li>
+                        <label>
+                            <input type='checkbox' data-action='region-include-toggle' data-region-id='${escapeHtml(id)}'${checked}>
+                            ${escapeHtml(region.name)}
+                        </label>
+                        <span class='region-type'> [${escapeHtml(region.type)}]</span>
+                        <a href='javascript:void(0)' data-action='region-exclude' data-region-id='${escapeHtml(id)}'>${excludeLabel}</a>
+                        <span class='region-excluded-flag'>${excludedText}</span>
+                    </li>
+                `;
+            });
+
+            if (!regionItemsHtml) {
+                regionItemsHtml = '<li>No regions available. Data may not be loaded.</li>';
+            }
+
+            const anyModeChecked = pageState.presenceMode === 'present_in_any' ? ' checked' : '';
+            const allModeChecked = pageState.presenceMode === 'present_in_all' ? ' checked' : '';
+
+            container.innerHTML = `
+                <h2>Region filters</h2>
+                <p>
+                    <label>Search regions:
+                        <input type='text' value='${escapeHtml(searchValue)}' data-action='region-filter-search'>
+                    </label>
+                </p>
+                <p class='presence-mode-row'>
+                    Presence mode:
+                    <label>
+                        <input type='radio' name='presence_mode' value='present_in_any' data-action='presence-mode-change'${anyModeChecked}>
+                        Present in any selected region
+                    </label>
+                    <label>
+                        <input type='radio' name='presence_mode' value='present_in_all' data-action='presence-mode-change'${allModeChecked}>
+                        Present in all selected regions
+                    </label>
+                </p>
+                <p>
+                    <a href='javascript:void(0)' data-action='clear-included-regions'>Clear included regions</a>
+                    | <a href='javascript:void(0)' data-action='clear-excluded-regions'>Clear excluded regions</a>
+                </p>
+                <ul class='region-list'>
+                    ${regionItemsHtml}
+                </ul>
+            `;
+        }
+
+        function renderMapView(container) {
+            if (!container) return;
+
+            let regionSpans = '';
+            if (pageState.regions.length > 0) {
+                pageState.regions.forEach(function(region) {
+                    const id = region.id;
+                    const isSelected = pageState.selectedRegionIds.indexOf(id) !== -1;
+                    const isExcluded = pageState.excludedRegionIds.indexOf(id) !== -1;
+                    const classes = [];
+                    if (isSelected) classes.push('map-region-selected');
+                    if (isExcluded) classes.push('map-region-excluded');
+                    const classAttr = classes.length > 0 ? (' ' + classes.join(' ')) : '';
+                    regionSpans += `
+                        <span class='map-region-chip${classAttr}' data-action='map-region-toggle' data-region-id='${escapeHtml(id)}'>
+                            ${escapeHtml(region.name)}
+                        </span>
+                    `;
+                });
+            } else {
+                regionSpans = '<p>No regions available to display on the map.</p>';
+            }
+
+            const focusNote = pageState.speciesId ? '<p class="map-focus-note">Map is centered on regions recorded for the focused species. You can still adjust region filters below.</p>' : '';
+
+            container.innerHTML = `
+                <p class='map-instruction'>
+                    Interactive distribution map (schematic). Click a region name to toggle inclusion; Shift+click to toggle exclusion.
+                </p>
+                ${focusNote}
+                <div class='map-region-cloud'>
+                    ${regionSpans}
+                </div>
+            `;
+        }
+
+        function renderSpeciesSummary(container) {
+            if (!container) return;
+
+            const selectedCount = pageState.selectedRegionIds.length;
+            const excludedCount = pageState.excludedRegionIds.length;
+            const totalSpecies = pageState.speciesResults.length;
+            const intersectionIds = computeIntersectionSpeciesIds();
+            const intersectionCount = intersectionIds.size;
+
+            if (selectedCount === 0) {
+                container.textContent = 'No regions are currently selected. Choose one or more regions above to list matching species.';
+                return;
+            }
+
+            const modeText = pageState.presenceMode === 'present_in_all' ? 'present in all selected regions' : 'present in at least one selected region';
+            let text = totalSpecies + ' species match the current filters (' + modeText + '). ';
+            text += intersectionCount + ' species are recorded in all of the selected regions.';
+            if (excludedCount > 0) {
+                text += ' ' + excludedCount + ' region(s) are marked as excluded.';
+            }
+            container.textContent = text;
+        }
+
+        function renderSpeciesList(container) {
+            if (!container) return;
+
+            const intersectionIds = computeIntersectionSpeciesIds();
+
+            const speciesArray = pageState.speciesResults.slice();
+            if (pageState.currentSort === 'common_name') {
+                speciesArray.sort(function(a, b) {
+                    const aName = (a.common_name || '').toLowerCase();
+                    const bName = (b.common_name || '').toLowerCase();
+                    if (aName < bName) return -1;
+                    if (aName > bName) return 1;
+                    return 0;
+                });
+            } else {
+                speciesArray.sort(function(a, b) {
+                    const aName = (a.scientific_name || '').toLowerCase();
+                    const bName = (b.scientific_name || '').toLowerCase();
+                    if (aName < bName) return -1;
+                    if (aName > bName) return 1;
+                    return 0;
+                });
+            }
+
+            const selectedRegionCount = pageState.selectedRegionIds.length;
+
+            let rowsHtml = '';
+            if (speciesArray.length === 0) {
+                if (selectedRegionCount === 0) {
+                    rowsHtml = '<tr><td colspan="4">Select one or more regions to see matching species.</td></tr>';
+                } else {
+                    rowsHtml = '<tr><td colspan="4">No species match the current region selection and presence mode.</td></tr>';
+                }
+            } else {
+                speciesArray.forEach(function(sp) {
+                    const presentIds = sp.present_in_region_ids || [];
+                    const presentInSelectedCount = selectedRegionCount === 0 ? 0 : presentIds.filter(function(regionId) {
+                        return pageState.selectedRegionIds.indexOf(regionId) !== -1;
+                    }).length;
+                    const isIntersection = intersectionIds.has(sp.species_id);
+                    const intersectionLabel = isIntersection ? ' <span class="intersection-flag">[all selected regions]</span>' : '';
+
+                    const presentNames = presentIds.slice(0, 4).map(function(regionId) {
+                        const region = pageState.regionById[regionId];
+                        return region ? region.name : regionId;
+                    });
+                    const moreCount = presentIds.length > 4 ? (presentIds.length - 4) : 0;
+                    const moreLabel = moreCount > 0 ? (' and ' + moreCount + ' more region(s)') : '';
+                    const distributionText = (presentNames.length > 0 ? presentNames.join(', ') : 'No regions listed in this view') + moreLabel;
+
+                    const selected = pageState.comparisonSelection.has(sp.species_id) ? ' checked' : '';
+
+                    rowsHtml += `
+                        <tr>
+                            <td class='species-compare-cell'>
+                                <input type='checkbox' data-action='toggle-comparison' data-species-id='${escapeHtml(sp.species_id)}'${selected}>
+                            </td>
+                            <td class='species-name-cell'>
+                                <a href='javascript:void(0)' data-action='species-detail' data-species-id='${escapeHtml(sp.species_id)}'>
+                                    <i>${escapeHtml(sp.scientific_name)}</i>
+                                </a>
+                                ${sp.common_name ? (' &ndash; ' + escapeHtml(sp.common_name)) : ''}
+                                ${intersectionLabel}
+                            </td>
+                            <td class='species-regions-cell'>
+                                Present in ${presentInSelectedCount} of ${selectedRegionCount} selected region(s)
+                            </td>
+                            <td class='species-notes-cell'>
+                                ${escapeHtml(sp.key_distribution_summary || '')}
+                                <div class='species-regions-list'>Regions in this dataset: ${escapeHtml(distributionText)}</div>
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+
+            const sortSelectScientific = pageState.currentSort === 'scientific_name' ? ' selected' : '';
+            const sortSelectCommon = pageState.currentSort === 'common_name' ? ' selected' : '';
+
+            const tableHtml = `
+                <div class='species-list-controls-inner'>
+                    <label>Sort by:
+                        <select data-action='sort-change'>
+                            <option value='scientific_name'${sortSelectScientific}>Scientific name (A-Z)</option>
+                            <option value='common_name'${sortSelectCommon}>Common name (A-Z)</option>
+                        </select>
+                    </label>
+                </div>
+                <table class='species-list-table'>
+                    <thead>
+                        <tr>
+                            <th scope='col'>Compare</th>
+                            <th scope='col'>Species</th>
+                            <th scope='col'>Selected-region presence</th>
+                            <th scope='col'>Distribution notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rowsHtml}
+                    </tbody>
+                </table>
+            `;
+
+            container.innerHTML = tableHtml;
+        }
+
+        function renderComparisonPanel(container) {
+            if (!container) return;
+
+            const selectedIds = Array.from(pageState.comparisonSelection);
+            const selectedSpecies = pageState.speciesResults.filter(function(sp) {
+                return pageState.comparisonSelection.has(sp.species_id);
+            });
+
+            let selectedListHtml = '';
+            if (selectedSpecies.length === 0) {
+                selectedListHtml = '<p>No species selected for comparison yet. Use the checkboxes in the list above.</p>';
+            } else {
+                selectedListHtml = '<ul class="comparison-selected-species">';
+                selectedSpecies.forEach(function(sp) {
+                    selectedListHtml += `
+                        <li>
+                            <a href='javascript:void(0)' data-action='species-detail' data-species-id='${escapeHtml(sp.species_id)}'>
+                                <i>${escapeHtml(sp.scientific_name)}</i>
+                            </a>
+                            <a href='javascript:void(0)' data-action='comparison-remove-species' data-species-id='${escapeHtml(sp.species_id)}'>[remove]</a>
+                        </li>
+                    `;
+                });
+                selectedListHtml += '</ul>';
+            }
+
+            let hiddenInputsHtml = '';
+            selectedIds.forEach(function(id) {
+                hiddenInputsHtml += `<input type='hidden' name='speciesId' value='${escapeHtml(id)}'>`;
+            });
+
+            const comparisonNameValue = pageState.comparisonName || '';
+
+            container.innerHTML = `
+                <form action='comparisons.html' method='get' data-action='comparison-form'>
+                    <p>
+                        Comparison selection: <strong>${selectedIds.length}</strong> species selected.
+                        <label>
+                            Name this comparison:
+                            <input type='text' name='comparisonName' value='${escapeHtml(comparisonNameValue)}' data-action='comparison-name-change'>
+                        </label>
+                        <button type='submit' data-action='comparison-submit'>Create / view comparison</button>
+                    </p>
+                    ${hiddenInputsHtml}
+                    <!-- comparisonSetId will be provided by server-side logic after creation -->
+                </form>
+                ${selectedListHtml}
+            `;
+        }
+
+        function renderSpeciesFocus(container) {
+            if (!container) return;
+
+            if (!pageState.speciesId || !pageState.focusedSpeciesDistribution || pageState.focusedSpeciesDistribution.length === 0) {
+                container.innerHTML = '';
+                container.style.display = 'none';
+                return;
+            }
+
+            const dist = pageState.focusedSpeciesDistribution;
+            const presentRegions = [];
+            const nativeRegions = [];
+            const introducedRegions = [];
+            const invasiveRegions = [];
+
+            dist.forEach(function(entry) {
+                const name = entry.region_name || entry.region_id || '';
+                if (entry.is_present) {
+                    presentRegions.push(name);
+                }
+                if (entry.is_native) {
+                    nativeRegions.push(name);
+                }
+                if (entry.is_introduced) {
+                    introducedRegions.push(name);
+                }
+                if (entry.is_invasive) {
+                    invasiveRegions.push(name);
+                }
+            });
+
+            const speciesFromList = pageState.speciesResults.find(function(sp) { return sp.species_id === pageState.speciesId; });
+            const speciesLabel = speciesFromList ? speciesFromList.scientific_name : ('Species ID ' + pageState.speciesId);
+
+            function joinList(list) {
+                if (!list || list.length === 0) return 'none recorded in this dataset';
+                return list.join(', ');
+            }
+
+            container.innerHTML = `
+                <hr>
+                <h2>Species focus</h2>
+                <p>
+                    Map focus is currently set to: <strong><i>${escapeHtml(speciesLabel)}</i></strong>.
+                    Regions where this species is recorded as present are highlighted above.
+                </p>
+                <p><strong>Present regions:</strong> ${escapeHtml(joinList(presentRegions))}</p>
+                <p><strong>Native regions:</strong> ${escapeHtml(joinList(nativeRegions))}</p>
+                <p><strong>Introduced regions:</strong> ${escapeHtml(joinList(introducedRegions))}</p>
+                <p><strong>Invasive regions:</strong> ${escapeHtml(joinList(invasiveRegions))}</p>
+                <p>
+                    <a href='javascript:void(0)' data-action='clear-species-focus'>Clear species focus and keep current region selection</a>
+                </p>
+            `;
+            container.style.display = '';
+        }
+
+        function renderAll() {
+            renderRegionFilters(containers.regionFilters);
+            renderMapView(containers.mapView);
+            renderSpeciesSummary(containers.speciesSummary);
+            renderSpeciesList(containers.speciesList);
+            renderComparisonPanel(containers.comparisonPanel);
+            renderSpeciesFocus(containers.speciesFocus);
+        }
+
+        // --- State mutators / event handlers ---
+
+        function setSelectedRegionIds(newIds) {
+            const unique = [];
+            newIds.forEach(function(id) {
+                if (unique.indexOf(id) === -1) unique.push(id);
+            });
+            pageState.selectedRegionIds = unique;
+        }
+
+        function setExcludedRegionIds(newIds) {
+            const unique = [];
+            newIds.forEach(function(id) {
+                if (unique.indexOf(id) === -1) unique.push(id);
+            });
+            pageState.excludedRegionIds = unique;
+        }
+
+        function handleRegionIncludeToggle(regionId, isIncluded) {
+            const current = pageState.selectedRegionIds.slice();
+            const idx = current.indexOf(regionId);
+            if (isIncluded) {
+                if (idx === -1) current.push(regionId);
+            } else if (idx !== -1) {
+                current.splice(idx, 1);
+            }
+            setSelectedRegionIds(current);
+            updateUrlState();
+            loadSpeciesResults();
+            renderAll();
+        }
+
+        function handleRegionExcludeToggle(regionId) {
+            const current = pageState.excludedRegionIds.slice();
+            const idx = current.indexOf(regionId);
+            if (idx === -1) {
+                current.push(regionId);
+            } else {
+                current.splice(idx, 1);
+            }
+            setExcludedRegionIds(current);
+            updateUrlState();
+            loadSpeciesResults();
+            renderAll();
+        }
+
+        function handleClearIncludedRegions() {
+            pageState.selectedRegionIds = [];
+            updateUrlState();
+            loadSpeciesResults();
+            renderAll();
+        }
+
+        function handleClearExcludedRegions() {
+            pageState.excludedRegionIds = [];
+            updateUrlState();
+            loadSpeciesResults();
+            renderAll();
+        }
+
+        function handlePresenceModeChange(newMode) {
+            if (newMode !== 'present_in_any' && newMode !== 'present_in_all') {
+                return;
+            }
+            pageState.presenceMode = newMode;
+            updateUrlState();
+            loadSpeciesResults();
+            renderAll();
+        }
+
+        function handleMapRegionToggle(regionId, isShiftKey) {
+            if (!regionId) return;
+            if (isShiftKey) {
+                // Shift+click toggles exclusion
+                handleRegionExcludeToggle(regionId);
+                return;
+            }
+            const isIncluded = pageState.selectedRegionIds.indexOf(regionId) === -1;
+            handleRegionIncludeToggle(regionId, isIncluded);
+        }
+
+        function handleSpeciesDetailNavigation(speciesId) {
+            if (!speciesId) return;
+            const url = 'species_detail.html?speciesId=' + encodeURIComponent(speciesId);
+            window.open(url, '_blank');
+        }
+
+        function handleToggleComparison(speciesId, isSelected) {
+            if (!speciesId) return;
+            if (isSelected) {
+                pageState.comparisonSelection.add(speciesId);
+            } else {
+                pageState.comparisonSelection.delete(speciesId);
+            }
+            renderComparisonPanel(containers.comparisonPanel);
+        }
+
+        function handleComparisonRemoveSpecies(speciesId) {
+            if (!speciesId) return;
+            pageState.comparisonSelection.delete(speciesId);
+            renderSpeciesList(containers.speciesList);
+            renderComparisonPanel(containers.comparisonPanel);
+        }
+
+        function handleClearSpeciesFocus() {
+            pageState.speciesId = null;
+            pageState.focusedSpeciesDistribution = null;
+            updateUrlState();
+            renderSpeciesFocus(containers.speciesFocus);
+            renderMapView(containers.mapView);
+        }
+
+        function handleSortChange(newSort) {
+            if (newSort !== 'scientific_name' && newSort !== 'common_name') return;
+            pageState.currentSort = newSort;
+            renderSpeciesList(containers.speciesList);
+        }
+
+        function handleRegionFilterSearchChange(value) {
+            pageState.regionFilterSearch = value || '';
+            renderRegionFilters(containers.regionFilters);
+            renderMapView(containers.mapView);
+        }
+
+        function handleComparisonNameChange(value) {
+            pageState.comparisonName = value || '';
+        }
+
+        function setupEventHandlers() {
+            document.addEventListener('click', function(event) {
+                const actionEl = event.target.closest('[data-action]');
+                if (!actionEl) return;
+                const action = actionEl.getAttribute('data-action');
+
+                if (action === 'region-exclude') {
+                    event.preventDefault();
+                    const regionId = actionEl.getAttribute('data-region-id');
+                    handleRegionExcludeToggle(regionId);
+                } else if (action === 'clear-included-regions') {
+                    event.preventDefault();
+                    handleClearIncludedRegions();
+                } else if (action === 'clear-excluded-regions') {
+                    event.preventDefault();
+                    handleClearExcludedRegions();
+                } else if (action === 'map-region-toggle') {
+                    event.preventDefault();
+                    const regionId = actionEl.getAttribute('data-region-id');
+                    handleMapRegionToggle(regionId, event.shiftKey === true);
+                } else if (action === 'species-detail') {
+                    event.preventDefault();
+                    const speciesId = actionEl.getAttribute('data-species-id');
+                    handleSpeciesDetailNavigation(speciesId);
+                } else if (action === 'comparison-remove-species') {
+                    event.preventDefault();
+                    const speciesId = actionEl.getAttribute('data-species-id');
+                    handleComparisonRemoveSpecies(speciesId);
+                } else if (action === 'clear-species-focus') {
+                    event.preventDefault();
+                    handleClearSpeciesFocus();
+                } else if (action === 'comparison-submit') {
+                    // Let the form submit, but ensure there is at least one species selected
+                    const count = pageState.comparisonSelection.size;
+                    if (count === 0) {
+                        event.preventDefault();
+                        window.alert('Select at least one species to create a comparison.');
+                    }
+                }
+            });
+
+            document.addEventListener('change', function(event) {
+                const actionEl = event.target.closest('[data-action]');
+                if (!actionEl) return;
+                const action = actionEl.getAttribute('data-action');
+
+                if (action === 'region-include-toggle') {
+                    const regionId = actionEl.getAttribute('data-region-id');
+                    const isIncluded = actionEl.checked;
+                    handleRegionIncludeToggle(regionId, isIncluded);
+                } else if (action === 'presence-mode-change') {
+                    const newMode = actionEl.value;
+                    handlePresenceModeChange(newMode);
+                } else if (action === 'toggle-comparison') {
+                    const speciesId = actionEl.getAttribute('data-species-id');
+                    const isSelected = actionEl.checked;
+                    handleToggleComparison(speciesId, isSelected);
+                } else if (action === 'sort-change') {
+                    const newSort = actionEl.value;
+                    handleSortChange(newSort);
+                }
+            });
+
+            document.addEventListener('input', function(event) {
+                const action = event.target.getAttribute('data-action');
+                if (action === 'region-filter-search') {
+                    handleRegionFilterSearchChange(event.target.value);
+                } else if (action === 'comparison-name-change') {
+                    handleComparisonNameChange(event.target.value);
+                }
+            });
+        }
+
+        // --- Initialization ---
+
+        parseUrlState();
+        loadRegions();
+        loadFocusedSpeciesDistribution();
+        loadSpeciesResults();
+        renderAll();
+        setupEventHandlers();
+        // Ensure URL reflects any defaulted presence_mode or species-derived regions
+        updateUrlState();
+    });
+    </script>
+</body>
+</html>

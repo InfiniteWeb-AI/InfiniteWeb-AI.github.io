@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Domain Registrar Portal</title>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='privacy.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <nav class='primary-nav' aria-label='Primary navigation'>
+            <ul class='nav-list'>
+                <li class='nav-item'><a href='index.html'>Dashboard</a></li>
+                <li class='nav-item'><a href='my_domains.html'>My Domains</a></li>
+                <li class='nav-item'><a href='contact_verification_center.html'>Contact Verification</a></li>
+                <li class='nav-item'><a href='account_settings.html'>Account Settings</a></li>
+                <li class='nav-item'><a href='help.html'>Help</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id='content' class='site-main' role='main'>
+        <div id='privacy-page' class='privacy-page'>
+            <!-- Non-visual loader/url-state components -->
+            <div data-component='privacy-static-content-loader' aria-hidden='true' hidden></div>
+            <div data-component='policy-url-state-manager' aria-hidden='true' hidden></div>
+
+            <!-- Loading and error states -->
+            <div id='policy-loading' data-component='policy-loading' hidden>
+                <p>Loading...</p>
+            </div>
+
+            <div id='policy-error' data-component='policy-error' hidden>
+                <p>There was a problem loading this page.</p>
+                <button type='button' data-action='retry-load-policy'>Retry</button>
+            </div>
+
+            <!-- Policy header: title + last updated (from API only) -->
+            <header class='policy-header'>
+                <h1 data-component='policy-title-header'>
+                    <span data-populate='policy-title'></span>
+                </h1>
+                <p data-populate='policy-last-updated' class='policy-last-updated' hidden></p>
+            </header>
+
+            <!-- Inline in-page navigation line (table of contents) -->
+            <p id='policy-section-nav-line' data-component='policy-section-nav' hidden></p>
+
+            <!-- Policy body renderer (rich HTML from API) -->
+            <article id='policy-body' data-component='policy-body-renderer'>
+                <div data-populate='policy-body'></div>
+            </article>
+        </div>
+    </main>
+
+    <footer class='site-footer'>
+        <nav class='footer-nav' aria-label='Footer navigation'>
+            <ul class='footer-nav-list'>
+                <li class='footer-nav-item'><a href='about.html'>About</a></li>
+                <li class='footer-nav-item'><a href='help.html'>Help &amp; Support</a></li>
+                <li class='footer-nav-item'><a href='contact.html'>Contact Us</a></li>
+                <li class='footer-nav-item'><a href='privacy.html'>Privacy Policy</a></li>
+                <li class='footer-nav-item'><a href='terms.html'>Terms of Service</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var defaultPageKey = 'privacy_policy';
+        var currentPageKey = null;
+        var currentSectionId = null;
+        var pendingSectionId = null;
+        var sections = [];
+        var sectionObserver = null;
+        var contentLoaded = false;
+
+        // Core elements, located via data attributes
+        var loadingContainer = document.getElementById('policy-loading');
+        var errorContainer = document.getElementById('policy-error');
+        var titleContainer = document.querySelector('[data-populate="policy-title"]');
+        var lastUpdatedContainer = document.querySelector('[data-populate="policy-last-updated"]');
+        var bodyContainer = document.querySelector('[data-populate="policy-body"]');
+        var sectionNavContainer = document.getElementById('policy-section-nav-line');
+
+        function parseUrlParams() {
+            var search = window.location.search || '';
+            var params = new URLSearchParams(search);
+            return {
+                pageKey: params.get('pageKey'),
+                section: params.get('section')
+            };
+        }
+
+        function setUrlParams(updates, options) {
+            var opts = options || {};
+            var url = new URL(window.location.href);
+            Object.keys(updates).forEach(function(key) {
+                var value = updates[key];
+                if (value === null || value === undefined || value === '') {
+                    url.searchParams.delete(key);
+                } else {
+                    url.searchParams.set(key, value);
+                }
+            });
+            if (opts.replace) {
+                window.history.replaceState({}, '', url.toString());
+            } else {
+                window.history.pushState({}, '', url.toString());
+            }
+        }
+
+        function showLoading() {
+            if (loadingContainer) {
+                loadingContainer.hidden = false;
+            }
+            if (errorContainer) {
+                errorContainer.hidden = true;
+            }
+            if (sectionNavContainer) {
+                sectionNavContainer.hidden = true;
+            }
+            if (titleContainer) {
+                titleContainer.textContent = '';
+            }
+            if (lastUpdatedContainer) {
+                lastUpdatedContainer.textContent = '';
+                lastUpdatedContainer.hidden = true;
+            }
+            if (bodyContainer) {
+                bodyContainer.innerHTML = '';
+            }
+        }
+
+        function showError() {
+            contentLoaded = false;
+            if (loadingContainer) {
+                loadingContainer.hidden = true;
+            }
+            if (errorContainer) {
+                errorContainer.hidden = false;
+            }
+        }
+
+        function renderPolicyTitle(container, data) {
+            if (!container) return;
+            container.textContent = data && data.title ? data.title : '';
+        }
+
+        function renderLastUpdated(container, data) {
+            if (!container) return;
+            if (data && data.lastUpdatedAt) {
+                var raw = data.lastUpdatedAt;
+                var parsed = new Date(raw);
+                var value = isNaN(parsed.getTime()) ? raw : parsed.toLocaleString();
+                container.textContent = value;
+                container.hidden = false;
+            } else {
+                container.textContent = '';
+                container.hidden = true;
+            }
+        }
+
+        function renderPolicyBody(container, data) {
+            if (!container) return;
+            var html = data && data.bodyHtml ? data.bodyHtml : '';
+            container.innerHTML = html;
+        }
+
+        function collectSections() {
+            sections = [];
+            if (!bodyContainer) return;
+            var selector = 'h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]';
+            var headingNodes = bodyContainer.querySelectorAll(selector);
+            headingNodes.forEach(function(node) {
+                var id = node.id;
+                var title = (node.textContent || '').trim();
+                if (!id || !title) return;
+                sections.push({
+                    id: id,
+                    title: title,
+                    level: node.tagName.toLowerCase(),
+                    element: node
+                });
+            });
+        }
+
+        function renderSectionNav(container, sectionList) {
+            if (!container) return;
+            container.innerHTML = '';
+            if (!sectionList || !sectionList.length) {
+                container.hidden = true;
+                return;
+            }
+            container.hidden = false;
+            var prefix = document.createElement('span');
+            prefix.textContent = 'Jump to: ';
+            container.appendChild(prefix);
+
+            sectionList.forEach(function(section, index) {
+                var link = document.createElement('a');
+                link.href = 'javascript:void(0)';
+                link.textContent = section.title;
+                link.setAttribute('data-action', 'jump-to-section');
+                link.setAttribute('data-section-id', section.id);
+                container.appendChild(link);
+                if (index < sectionList.length - 1) {
+                    container.appendChild(document.createTextNode(' · '));
+                }
+            });
+
+            attachActionHandlers(container);
+        }
+
+        function highlightActiveSectionInNav(activeId) {
+            if (!sectionNavContainer || !sectionNavContainer.children.length) return;
+            var links = sectionNavContainer.querySelectorAll('a[data-section-id]');
+            links.forEach(function(link) {
+                if (link.getAttribute('data-section-id') === activeId) {
+                    link.classList.add('is-active-section-link');
+                } else {
+                    link.classList.remove('is-active-section-link');
+                }
+            });
+        }
+
+        function highlightActiveSectionInBody(activeId) {
+            if (!bodyContainer) return;
+            var allHeadings = bodyContainer.querySelectorAll('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]');
+            allHeadings.forEach(function(h) {
+                if (h.id === activeId) {
+                    h.classList.add('is-active-section');
+                } else {
+                    h.classList.remove('is-active-section');
+                }
+            });
+        }
+
+        function scrollToSection(sectionId, options) {
+            var opts = options || {};
+            if (!sectionId) return;
+            var section = sections.find(function(s) { return s.id === sectionId; });
+            if (!section || !section.element) return;
+            try {
+                section.element.scrollIntoView({ behavior: opts.smooth ? 'smooth' : 'auto', block: 'start' });
+            } catch (e) {
+                section.element.scrollIntoView(true);
+            }
+        }
+
+        function updateActiveSection(sectionId, source) {
+            if (!sectionId) return;
+            if (sectionId === currentSectionId) return;
+            currentSectionId = sectionId;
+            highlightActiveSectionInNav(sectionId);
+            highlightActiveSectionInBody(sectionId);
+
+            var fromScroll = source === 'scroll';
+            var updates = { section: sectionId };
+            setUrlParams(updates, { replace: fromScroll });
+        }
+
+        function setupSectionObserver() {
+            if (sectionObserver) {
+                sectionObserver.disconnect();
+                sectionObserver = null;
+            }
+            if (!sections.length) return;
+
+            sectionObserver = new IntersectionObserver(function(entries) {
+                var bestEntry = null;
+                entries.forEach(function(entry) {
+                    if (!entry.isIntersecting) return;
+                    if (!bestEntry || entry.intersectionRatio > bestEntry.intersectionRatio) {
+                        bestEntry = entry;
+                    }
+                });
+                if (bestEntry && bestEntry.target && bestEntry.target.id) {
+                    updateActiveSection(bestEntry.target.id, 'scroll');
+                }
+            }, {
+                root: null,
+                rootMargin: '0px 0px -70% 0px',
+                threshold: [0.1, 0.25, 0.5]
+            });
+
+            sections.forEach(function(section) {
+                if (section.element) {
+                    sectionObserver.observe(section.element);
+                }
+            });
+        }
+
+        function setupSupportLink() {
+            if (!bodyContainer) return;
+            var supportLink = bodyContainer.querySelector('[data-component="policy-support-link"]');
+            if (!supportLink) return;
+            supportLink.href = 'javascript:void(0)';
+            supportLink.setAttribute('data-action', 'policy-support-link');
+            attachActionHandlers(supportLink.parentNode || bodyContainer);
+        }
+
+        function navigateToSupport() {
+            var params = new URLSearchParams();
+            params.set('topic', 'general');
+            params.set('from', 'privacy');
+            if (currentSectionId) {
+                params.set('section', currentSectionId);
+            }
+            window.location.href = 'contact.html?' + params.toString();
+        }
+
+        function attachActionHandlers(root) {
+            var scope = root || document;
+            var actionElements = scope.querySelectorAll('[data-action]');
+            actionElements.forEach(function(element) {
+                var action = element.getAttribute('data-action');
+                if (!action) return;
+
+                if (action === 'retry-load-policy') {
+                    element.addEventListener('click', function() {
+                        var params = parseUrlParams();
+                        var pageKey = params.pageKey || defaultPageKey;
+                        loadPolicyContent(pageKey);
+                    });
+                } else if (action === 'jump-to-section') {
+                    element.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        var sectionId = element.getAttribute('data-section-id');
+                        if (!sectionId) return;
+                        scrollToSection(sectionId, { smooth: true });
+                        updateActiveSection(sectionId, 'nav');
+                    });
+                } else if (action === 'policy-support-link') {
+                    element.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        navigateToSupport();
+                    });
+                }
+            });
+        }
+
+        function loadPolicyContent(pageKey) {
+            currentPageKey = pageKey;
+            pendingSectionId = parseUrlParams().section || pendingSectionId;
+            showLoading();
+
+            try {
+                var data = WebsiteSDK.getStaticPageContent(pageKey);
+                contentLoaded = true;
+                if (loadingContainer) {
+                    loadingContainer.hidden = true;
+                }
+                if (errorContainer) {
+                    errorContainer.hidden = true;
+                }
+
+                renderPolicyTitle(titleContainer, data);
+                renderLastUpdated(lastUpdatedContainer, data);
+                renderPolicyBody(bodyContainer, data);
+
+                collectSections();
+                renderSectionNav(sectionNavContainer, sections);
+                setupSectionObserver();
+                setupSupportLink();
+
+                var initialSection = parseUrlParams().section || pendingSectionId;
+                if (initialSection) {
+                    scrollToSection(initialSection, { smooth: false });
+                    highlightActiveSectionInNav(initialSection);
+                    highlightActiveSectionInBody(initialSection);
+                    currentSectionId = initialSection;
+                } else if (sections.length) {
+                    currentSectionId = sections[0].id;
+                    highlightActiveSectionInNav(currentSectionId);
+                    highlightActiveSectionInBody(currentSectionId);
+                }
+            } catch (e) {
+                showError();
+                // eslint-disable-next-line no-console
+                console && console.error && console.error('Failed to load static page content:', e);
+            }
+        }
+
+        window.addEventListener('popstate', function() {
+            var params = parseUrlParams();
+            var pageKey = params.pageKey || defaultPageKey;
+            var section = params.section;
+
+            if (pageKey !== currentPageKey) {
+                pendingSectionId = section;
+                loadPolicyContent(pageKey);
+            } else if (contentLoaded) {
+                if (section) {
+                    scrollToSection(section, { smooth: false });
+                    highlightActiveSectionInNav(section);
+                    highlightActiveSectionInBody(section);
+                    currentSectionId = section;
+                }
+            } else {
+                pendingSectionId = section;
+            }
+        });
+
+        // Initial wiring for static actions (e.g., retry button before any content loads)
+        attachActionHandlers(document);
+
+        // Initial load
+        var initialParams = parseUrlParams();
+        var initialPageKey = initialParams.pageKey || defaultPageKey;
+        currentSectionId = initialParams.section;
+        pendingSectionId = currentSectionId;
+        loadPolicyContent(initialPageKey);
+    });
+    </script>
+</body>
+</html>

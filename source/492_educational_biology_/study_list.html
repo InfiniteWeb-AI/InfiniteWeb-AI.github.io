@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Aquatic Insects Educational Site</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='study_list.css'>
+</head>
+<body>
+  <header class='site-header' role='banner'>
+    <div class='site-header-inner'>
+      <div class='site-identity'>
+        <h1 class='site-title'>Aquatic Insects</h1>
+      </div>
+      <nav class='site-nav' aria-label='Primary navigation'>
+        <a href='index.html' title='Homepage and overview'>Home</a>
+        <a href='species.html' title='Browse and filter aquatic insect species'>Species</a>
+        <a href='compare.html' title='Compare insect orders and their life cycles'>Compare</a>
+        <a href='quizzes.html' title='Browse quizzes and build custom quizzes'>Quizzes</a>
+        <a href='lesson_builder.html' title='Create lesson plans and manage reading paths'>Lesson Builder</a>
+        <a href='articles.html' title='Browse learning articles and resources'>Articles</a>
+        <a href='maps.html' title='Explore species distribution maps'>Maps</a>
+        <a href='glossary.html' title='Search and filter glossary terms'>Glossary</a>
+        <a href='taxonomy.html' title='Browse insect orders and build metamorphosis charts'>Taxonomy</a>
+        <a href='study_list.html' title='View and manage your species study list'>My Study List</a>
+        <a href='collections.html' title='View and manage your species collections'>Collections</a>
+        <a href='map_notes.html' title='Access your saved distribution maps'>Map Notes</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-content' role='main'>
+    <div id='study-list-page' data-component='study-list-page-controller'>
+      <section data-component='study-list-notification-center' aria-live='polite'></section>
+
+      <header data-component='study-list-header'>
+        <h1>My Study List</h1>
+        <p>Review and manage the aquatic insect species you are currently studying.</p>
+        <p>
+          <span>List name: </span>
+          <strong data-populate='study-list-name'></strong>
+        </p>
+        <p>
+          <span>Species in this list: </span>
+          <strong data-populate='study-list-count'></strong>
+        </p>
+      </header>
+
+      <section data-component='study-list-sort-controls' aria-label='Sort study list'>
+        <label for='sortModeSelect'>Sort by:</label>
+        <select id='sortModeSelect' name='sortMode' data-action='change-sort'>
+          <option value='manual'>Manual (my order)</option>
+          <option value='alphabetical_species_name'>Alphabetical by species name</option>
+        </select>
+      </section>
+
+      <section data-component='study-list-grouping-controls' aria-label='Group species for study'>
+        <p>Group for study:</p>
+        <div>
+          <label>
+            <input type='radio' name='groupBy' value='none' data-action='change-group'>
+            No grouping
+          </label>
+        </div>
+        <div>
+          <label>
+            <input type='radio' name='groupBy' value='difficulty' data-action='change-group'>
+            By difficulty
+          </label>
+        </div>
+        <div>
+          <label>
+            <input type='radio' name='groupBy' value='habitat' data-action='change-group'>
+            By habitat
+          </label>
+        </div>
+        <div>
+          <label>
+            <input type='radio' name='groupBy' value='region' data-action='change-group'>
+            By region
+          </label>
+        </div>
+      </section>
+
+      <section data-component='study-list-view'>
+        <div data-populate='study-list-items'></div>
+        <div data-component='study-list-empty-state' hidden>
+          <h2>Your study list is empty</h2>
+          <p>There are currently no species in your study list. You can add species from the Species page.</p>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class='site-footer' role='contentinfo'>
+    <nav class='footer-nav' aria-label='Footer navigation'>
+      <a href='about.html' title='About this educational biology website'>About</a>
+    </nav>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var allowedSortModes = ['manual', 'alphabetical_species_name'];
+    var allowedGroupBy = ['none', 'difficulty', 'habitat', 'region'];
+
+    var currentStudyList = null;
+    var currentItems = [];
+    var currentSortMode = 'manual';
+    var currentGroupBy = 'none';
+    var currentFocusSpeciesId = null;
+    var focusTimeoutId = null;
+
+    function getUrlState() {
+      var params = new URLSearchParams(window.location.search);
+      var sort = params.get('sort');
+      if (!allowedSortModes.includes(sort)) sort = null;
+      var groupBy = params.get('groupBy');
+      if (!allowedGroupBy.includes(groupBy)) groupBy = 'none';
+      var focusSpeciesId = params.get('focusSpeciesId');
+      return { sort: sort, groupBy: groupBy, focusSpeciesId: focusSpeciesId };
+    }
+
+    function setUrlState(newState, options) {
+      var params = new URLSearchParams(window.location.search);
+      if (newState.sort !== undefined) {
+        if (newState.sort && allowedSortModes.includes(newState.sort)) {
+          params.set('sort', newState.sort);
+        } else {
+          params.delete('sort');
+        }
+      }
+      if (newState.groupBy !== undefined) {
+        if (newState.groupBy && allowedGroupBy.includes(newState.groupBy) && newState.groupBy !== 'none') {
+          params.set('groupBy', newState.groupBy);
+        } else {
+          params.delete('groupBy');
+        }
+      }
+      if (newState.focusSpeciesId !== undefined) {
+        if (newState.focusSpeciesId) {
+          params.set('focusSpeciesId', newState.focusSpeciesId);
+        } else {
+          params.delete('focusSpeciesId');
+        }
+      }
+      var query = params.toString();
+      var newUrl = window.location.pathname + (query ? '?' + query : '');
+      if (options && options.replace) {
+        window.history.replaceState({}, '', newUrl);
+      } else {
+        window.history.pushState({}, '', newUrl);
+      }
+    }
+
+    var notificationContainer = document.querySelector('[data-component="study-list-notification-center"]');
+
+    function showNotification(message, type) {
+      if (!notificationContainer) return;
+      var safeType = type === 'error' ? 'Error' : 'Notice';
+      notificationContainer.innerHTML = '';
+      var p = document.createElement('p');
+      p.textContent = safeType + ': ' + message;
+      notificationContainer.appendChild(p);
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Dismiss';
+      btn.setAttribute('data-action', 'dismiss-notification');
+      notificationContainer.appendChild(btn);
+    }
+
+    function clearNotification() {
+      if (!notificationContainer) return;
+      notificationContainer.innerHTML = '';
+    }
+
+    if (notificationContainer) {
+      notificationContainer.addEventListener('click', function(event) {
+        if (event.target && event.target.dataset.action === 'dismiss-notification') {
+          clearNotification();
+        }
+      });
+    }
+
+    function humanizeEnumValue(value) {
+      if (!value) return '';
+      return value.replace(/_/g, ' ').replace(/\b\w/g, function(match) {
+        return match.toUpperCase();
+      });
+    }
+
+    function renderStudyListName(container, studyList) {
+      if (!container) return;
+      container.textContent = studyList && studyList.name ? studyList.name : 'My Study List';
+    }
+
+    function renderStudyListCount(container, items) {
+      if (!container) return;
+      var count = Array.isArray(items) ? items.length : 0;
+      container.textContent = String(count);
+    }
+
+    function createItemElement(item, focusSpeciesId) {
+      var article = document.createElement('article');
+      article.setAttribute('data-component', 'study-list-item');
+      article.setAttribute('data-species-id', item.speciesId);
+      article.style.cursor = 'pointer';
+
+      var title = document.createElement('h2');
+      title.textContent = item.scientificName || '';
+      article.appendChild(title);
+
+      if (item.commonName) {
+        var common = document.createElement('p');
+        common.textContent = 'Common name: ' + item.commonName;
+        article.appendChild(common);
+      }
+
+      var metaBits = [];
+      if (item.position !== undefined && item.position !== null) {
+        metaBits.push('List position: ' + item.position);
+      }
+      if (item.difficulty) {
+        metaBits.push('Difficulty: ' + humanizeEnumValue(item.difficulty));
+      }
+      if (Array.isArray(item.habitats) && item.habitats.length) {
+        metaBits.push('Habitats: ' + item.habitats.map(humanizeEnumValue).join(', '));
+      }
+      if (Array.isArray(item.regions) && item.regions.length) {
+        metaBits.push('Regions: ' + item.regions.map(humanizeEnumValue).join(', '));
+      }
+      if (metaBits.length) {
+        var meta = document.createElement('p');
+        meta.textContent = metaBits.join(' | ');
+        article.appendChild(meta);
+      }
+
+      if (item.thumbnailImageUrl) {
+        var img = document.createElement('img');
+        img.src = item.thumbnailImageUrl;
+        img.alt = (item.commonName || item.scientificName || 'Species thumbnail') + ' thumbnail';
+        img.loading = 'lazy';
+        article.appendChild(img);
+      }
+
+      var actions = document.createElement('p');
+
+      var openButton = document.createElement('button');
+      openButton.type = 'button';
+      openButton.textContent = 'Open details';
+      openButton.setAttribute('data-action', 'open-species');
+      openButton.setAttribute('data-species-id', item.speciesId);
+      actions.appendChild(openButton);
+
+      var removeButton = document.createElement('button');
+      removeButton.type = 'button';
+      removeButton.textContent = 'Remove from study list';
+      removeButton.setAttribute('data-action', 'remove-species');
+      removeButton.setAttribute('data-species-id', item.speciesId);
+      removeButton.setAttribute('data-species-name', item.scientificName || '');
+      actions.appendChild(removeButton);
+
+      article.appendChild(actions);
+
+      if (focusSpeciesId && item.speciesId === focusSpeciesId) {
+        article.setAttribute('data-focus', 'true');
+      }
+
+      return article;
+    }
+
+    function groupItems(items, groupBy) {
+      var grouped = [];
+      if (!Array.isArray(items) || groupBy === 'none') {
+        return grouped;
+      }
+      var groupMap = new Map();
+
+      items.forEach(function(item) {
+        if (groupBy === 'difficulty') {
+          var keyDiff = item.difficulty || 'unknown';
+          if (!groupMap.has(keyDiff)) groupMap.set(keyDiff, []);
+          groupMap.get(keyDiff).push(item);
+        } else if (groupBy === 'habitat') {
+          if (Array.isArray(item.habitats) && item.habitats.length) {
+            item.habitats.forEach(function(hab) {
+              var keyHab = hab || 'unknown';
+              if (!groupMap.has(keyHab)) groupMap.set(keyHab, []);
+              groupMap.get(keyHab).push(item);
+            });
+          } else {
+            var keyHabUnknown = 'unknown';
+            if (!groupMap.has(keyHabUnknown)) groupMap.set(keyHabUnknown, []);
+            groupMap.get(keyHabUnknown).push(item);
+          }
+        } else if (groupBy === 'region') {
+          if (Array.isArray(item.regions) && item.regions.length) {
+            item.regions.forEach(function(reg) {
+              var keyReg = reg || 'unknown';
+              if (!groupMap.has(keyReg)) groupMap.set(keyReg, []);
+              groupMap.get(keyReg).push(item);
+            });
+          } else {
+            var keyRegUnknown = 'unknown';
+            if (!groupMap.has(keyRegUnknown)) groupMap.set(keyRegUnknown, []);
+            groupMap.get(keyRegUnknown).push(item);
+          }
+        }
+      });
+
+      groupMap.forEach(function(value, key) {
+        grouped.push({ key: key, items: value });
+      });
+
+      grouped.sort(function(a, b) {
+        var ka = String(a.key).toLowerCase();
+        var kb = String(b.key).toLowerCase();
+        if (ka < kb) return -1;
+        if (ka > kb) return 1;
+        return 0;
+      });
+
+      return grouped;
+    }
+
+    function renderStudyListItems(container, items, groupBy, focusSpeciesId) {
+      if (!container) return;
+      container.innerHTML = '';
+
+      var emptyState = document.querySelector('[data-component="study-list-empty-state"]');
+      var hasItems = Array.isArray(items) && items.length > 0;
+
+      if (!hasItems) {
+        if (emptyState) {
+          emptyState.hidden = false;
+        }
+        return;
+      }
+
+      if (emptyState) {
+        emptyState.hidden = true;
+      }
+
+      if (groupBy && groupBy !== 'none') {
+        var grouped = groupItems(items, groupBy);
+        if (!grouped.length) {
+          items.forEach(function(item) {
+            var elFlat = createItemElement(item, focusSpeciesId);
+            container.appendChild(elFlat);
+          });
+        } else {
+          grouped.forEach(function(group) {
+            var section = document.createElement('section');
+            var heading = document.createElement('h2');
+            var prefix = groupBy === 'difficulty' ? 'Difficulty: ' : (groupBy === 'habitat' ? 'Habitat: ' : 'Region: ');
+            heading.textContent = prefix + humanizeEnumValue(group.key);
+            section.appendChild(heading);
+
+            group.items.forEach(function(item) {
+              var el = createItemElement(item, focusSpeciesId);
+              section.appendChild(el);
+            });
+
+            container.appendChild(section);
+          });
+        }
+      } else {
+        items.forEach(function(item) {
+          var elFlatItem = createItemElement(item, focusSpeciesId);
+          container.appendChild(elFlatItem);
+        });
+      }
+
+      if (focusSpeciesId) {
+        requestAnimationFrame(function() {
+          var target = container.querySelector('[data-species-id="' + focusSpeciesId + '"]');
+          if (target) {
+            target.classList.add('focus-highlight');
+            try {
+              target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } catch (e) {
+              target.scrollIntoView(true);
+            }
+            if (focusTimeoutId) {
+              clearTimeout(focusTimeoutId);
+            }
+            focusTimeoutId = window.setTimeout(function() {
+              target.classList.remove('focus-highlight');
+            }, 4000);
+          }
+        });
+      }
+    }
+
+    function updateDomFromState() {
+      var nameEl = document.querySelector('[data-populate="study-list-name"]');
+      var countEl = document.querySelector('[data-populate="study-list-count"]');
+      var itemsContainer = document.querySelector('[data-populate="study-list-items"]');
+
+      renderStudyListName(nameEl, currentStudyList);
+      renderStudyListCount(countEl, currentItems);
+      renderStudyListItems(itemsContainer, currentItems, currentGroupBy, currentFocusSpeciesId);
+
+      var sortSelect = document.getElementById('sortModeSelect');
+      if (sortSelect && currentSortMode) {
+        sortSelect.value = currentSortMode;
+      }
+
+      var groupInputs = document.querySelectorAll('[data-action="change-group"]');
+      groupInputs.forEach(function(input) {
+        input.checked = input.value === currentGroupBy;
+      });
+    }
+
+    function loadStudyList(initial) {
+      var urlState = getUrlState();
+      currentGroupBy = urlState.groupBy || 'none';
+      currentFocusSpeciesId = urlState.focusSpeciesId || null;
+
+      try {
+        var response;
+        if (urlState.sort) {
+          response = WebsiteSDK.setStudyListSortMode(urlState.sort);
+        } else {
+          response = WebsiteSDK.getStudyList();
+        }
+        if (!response) {
+          throw new Error('No response from study list API.');
+        }
+
+        currentStudyList = response.studyList || null;
+        currentItems = Array.isArray(response.items) ? response.items : [];
+        currentSortMode = currentStudyList && currentStudyList.sortMode ? currentStudyList.sortMode : (urlState.sort || 'manual');
+
+        if (initial) {
+          setUrlState({
+            sort: currentSortMode,
+            groupBy: currentGroupBy,
+            focusSpeciesId: currentFocusSpeciesId
+          }, { replace: true });
+        }
+
+        updateDomFromState();
+      } catch (error) {
+        showNotification('Unable to load your study list. Please try again.', 'error');
+        console.error(error);
+      }
+    }
+
+    function changeSortMode(newSortMode) {
+      if (!allowedSortModes.includes(newSortMode)) {
+        return;
+      }
+
+      try {
+        var response = WebsiteSDK.setStudyListSortMode(newSortMode);
+        if (!response) {
+          throw new Error('No response from setStudyListSortMode.');
+        }
+        currentStudyList = response.studyList || null;
+        currentItems = Array.isArray(response.items) ? response.items : [];
+        currentSortMode = currentStudyList && currentStudyList.sortMode ? currentStudyList.sortMode : newSortMode;
+
+        setUrlState({
+          sort: currentSortMode,
+          groupBy: currentGroupBy,
+          focusSpeciesId: currentFocusSpeciesId
+        });
+
+        updateDomFromState();
+        showNotification('Sort order updated for your study list.', 'notice');
+      } catch (error) {
+        showNotification('Could not update the sort order. Please try again.', 'error');
+        console.error(error);
+      }
+    }
+
+    function changeGroupBy(newGroupBy) {
+      if (!allowedGroupBy.includes(newGroupBy)) {
+        newGroupBy = 'none';
+      }
+      currentGroupBy = newGroupBy;
+      setUrlState({ groupBy: currentGroupBy });
+      updateDomFromState();
+    }
+
+    function removeSpecies(speciesId, speciesName) {
+      if (!speciesId) return;
+      var label = speciesName || 'this species';
+      var confirmed = window.confirm('Remove ' + label + ' from your study list?');
+      if (!confirmed) return;
+
+      try {
+        var response = WebsiteSDK.removeSpeciesFromStudyList(speciesId);
+        if (!response || !response.success) {
+          showNotification('The species could not be removed. Please try again.', 'error');
+          return;
+        }
+
+        var updated = WebsiteSDK.getStudyList();
+        currentStudyList = updated.studyList || null;
+        currentItems = Array.isArray(updated.items) ? updated.items : [];
+        currentSortMode = currentStudyList && currentStudyList.sortMode ? currentStudyList.sortMode : currentSortMode;
+
+        if (response.studyListItemCount !== undefined && response.studyListItemCount !== null && response.studyListItemCount === 0) {
+          currentFocusSpeciesId = null;
+          setUrlState({ focusSpeciesId: null }, { replace: true });
+        }
+
+        updateDomFromState();
+
+        var remaining = Array.isArray(currentItems) ? currentItems.length : 0;
+        var msg = 'Species removed from your study list.';
+        if (typeof remaining === 'number') {
+          msg += ' Remaining: ' + remaining + '.';
+        }
+        showNotification(msg, 'notice');
+      } catch (error) {
+        showNotification('The species could not be removed. Please try again.', 'error');
+        console.error(error);
+      }
+    }
+
+    function navigateToSpeciesDetail(speciesId) {
+      if (!speciesId) return;
+      var url = 'species_detail.html?speciesId=' + encodeURIComponent(speciesId);
+      window.location.href = url;
+    }
+
+    var sortSelect = document.getElementById('sortModeSelect');
+    if (sortSelect) {
+      sortSelect.addEventListener('change', function(event) {
+        var value = event.target.value;
+        changeSortMode(value);
+      });
+    }
+
+    var groupInputs = document.querySelectorAll('[data-action="change-group"]');
+    groupInputs.forEach(function(input) {
+      input.addEventListener('change', function(event) {
+        if (event.target.checked) {
+          changeGroupBy(event.target.value);
+        }
+      });
+    });
+
+    var itemsContainer = document.querySelector('[data-populate="study-list-items"]');
+    if (itemsContainer) {
+      itemsContainer.addEventListener('click', function(event) {
+        var actionElement = event.target.closest('[data-action]');
+        if (!actionElement) return;
+        var action = actionElement.dataset.action;
+        if (action === 'open-species') {
+          var speciesId = actionElement.getAttribute('data-species-id');
+          navigateToSpeciesDetail(speciesId);
+        } else if (action === 'remove-species') {
+          var speciesIdRemove = actionElement.getAttribute('data-species-id');
+          var speciesNameRemove = actionElement.getAttribute('data-species-name');
+          removeSpecies(speciesIdRemove, speciesNameRemove);
+        }
+      });
+    }
+
+    window.addEventListener('popstate', function() {
+      var previousSort = currentSortMode;
+      var previousGroup = currentGroupBy;
+      var previousFocus = currentFocusSpeciesId;
+
+      var state = getUrlState();
+
+      var sortChanged = state.sort && state.sort !== previousSort;
+      var groupChanged = state.groupBy && state.groupBy !== previousGroup;
+      var focusChanged = state.focusSpeciesId !== previousFocus;
+
+      if (sortChanged) {
+        loadStudyList(false);
+      } else {
+        if (groupChanged) {
+          currentGroupBy = state.groupBy || 'none';
+        }
+        if (focusChanged) {
+          currentFocusSpeciesId = state.focusSpeciesId || null;
+        }
+        updateDomFromState();
+      }
+    });
+
+    document.addEventListener('click', function() {
+      var focused = document.querySelector('.focus-highlight');
+      if (focused) {
+        focused.classList.remove('focus-highlight');
+      }
+      if (focusTimeoutId) {
+        clearTimeout(focusTimeoutId);
+        focusTimeoutId = null;
+      }
+    }, { once: true });
+
+    loadStudyList(true);
+  });
+  </script>
+</body>
+</html>

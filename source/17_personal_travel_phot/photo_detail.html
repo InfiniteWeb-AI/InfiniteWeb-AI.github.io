@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Travel Photo Gallery - Photo Detail</title>
+  <meta name="description" content="View a single travel photo with full metadata and tags." />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="photo_detail.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header" role="banner">
+      <nav class="site-nav" aria-label="Primary">
+        <a href="index.html" title="Homepage and dashboard">Home</a>
+        <a href="photos.html" title="Browse and filter all photos">All Photos</a>
+        <a href="albums.html" title="View and manage photo albums">Albums</a>
+        <a href="collections.html" title="Smart and custom photo collections">Collections</a>
+        <a href="trips.html" title="Travel stories and trip timelines">Trips</a>
+      </nav>
+    </header>
+
+    <main id="content" role="main">
+      <div class="photo-detail-page" data-component="photo-detail-init" data-populate="photo-detail">
+        <div class="photo-detail-loading" data-populate="photo-loading" aria-live="polite">
+          <div class="photo-loading-indicator">Loading photo&hellip;</div>
+        </div>
+
+        <section class="photo-detail-nav" data-component="photo-navigation-controls" aria-label="Photo navigation">
+          <!-- Navigation will be rendered here by JavaScript -->
+        </section>
+
+        <section class="photo-detail-body">
+          <div class="photo-detail-center">
+            <section class="photo-display-section">
+              <figure class="photo-frame" data-component="photo-display">
+                <!-- Large photo rendered here -->
+              </figure>
+            </section>
+
+            <section class="photo-metadata-section" data-component="photo-metadata-panel" aria-label="Photo metadata">
+              <!-- Metadata rendered here -->
+            </section>
+
+            <section class="photo-caption-section" data-component="photo-caption-editor" aria-label="Edit caption">
+              <!-- Caption editor rendered here -->
+            </section>
+
+            <section class="photo-like-favorite-section" data-component="photo-like-favorite-controls" aria-label="Like and favorite controls">
+              <!-- Like / favorite controls rendered here -->
+            </section>
+
+            <section class="photo-to-print-section" data-component="photo-to-print-toggle" aria-label="To Print flag">
+              <!-- To Print toggle rendered here -->
+            </section>
+
+            <section class="photo-people-tags-section" data-component="photo-people-tag-editor" aria-label="People tags">
+              <!-- People tag editor rendered here -->
+            </section>
+
+            <section class="photo-keyword-tags-section" data-component="photo-keyword-tag-editor" aria-label="Keyword tags">
+              <!-- Keyword tag editor rendered here -->
+            </section>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+      <nav class="footer-nav" aria-label="Footer">
+        <a href="about.html" title="About this travel photo gallery">About</a>
+        <span class="footer-separator">&middot;</span>
+        <a href="help.html" title="Help and usage guide">Help</a>
+      </nav>
+      <p class="footer-meta">&copy; 2024 Travel Photo Gallery</p>
+    </footer>
+  </div>
+
+  <script src="business_logic.js"></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const pageRoot = document.querySelector('[data-populate="photo-detail"]');
+    if (!pageRoot) {
+      return;
+    }
+
+    const searchParams = new URLSearchParams(window.location.search);
+    const photoId = searchParams.get('id');
+    const contextParam = searchParams.get('context');
+
+    const state = {
+      photoDetail: null,
+      photoId: photoId,
+      context: contextParam,
+      peopleTags: [],
+      lastPeopleSearchResults: [],
+      keywordTags: [],
+      allTags: [],
+      peopleTagsListEl: null,
+      peopleSuggestionsEl: null,
+      keywordTagsListEl: null,
+      keywordSelectEl: null,
+      containers: {
+        nav: pageRoot.querySelector('[data-component="photo-navigation-controls"]'),
+        display: pageRoot.querySelector('[data-component="photo-display"]'),
+        metadata: pageRoot.querySelector('[data-component="photo-metadata-panel"]'),
+        caption: pageRoot.querySelector('[data-component="photo-caption-editor"]'),
+        likeFavorite: pageRoot.querySelector('[data-component="photo-like-favorite-controls"]'),
+        toPrint: pageRoot.querySelector('[data-component="photo-to-print-toggle"]'),
+        peopleTags: pageRoot.querySelector('[data-component="photo-people-tag-editor"]'),
+        keywordTags: pageRoot.querySelector('[data-component="photo-keyword-tag-editor"]'),
+        loader: pageRoot.querySelector('[data-populate="photo-loading"]')
+      }
+    };
+
+    try {
+      state.allTags = JSON.parse(localStorage.getItem('tags') || '[]');
+    } catch (e) {
+      state.allTags = [];
+    }
+
+    if (!state.photoId) {
+      renderNoPhoto(pageRoot);
+      return;
+    }
+
+    loadPhotoDetail(pageRoot, state);
+    setupGlobalClickHandler(state);
+    setupGlobalInputHandler(state);
+    setupKeyboardNavigation(state);
+  });
+
+  function setLoading(state, isLoading) {
+    if (!state || !state.containers || !state.containers.loader) {
+      return;
+    }
+    state.containers.loader.style.display = isLoading ? 'flex' : 'none';
+  }
+
+  function renderNoPhoto(root) {
+    root.innerHTML = '';
+    const message = document.createElement('div');
+    message.className = 'photo-detail-message';
+    message.innerHTML = '<p>No photo selected.</p><p><a href="photos.html">Back to All Photos</a></p>';
+    root.appendChild(message);
+  }
+
+  function renderLoadError(root) {
+    root.innerHTML = '';
+    const message = document.createElement('div');
+    message.className = 'photo-detail-message';
+    message.innerHTML = '<p>Unable to load this photo.</p><p><a href="photos.html">Back to All Photos</a></p>';
+    root.appendChild(message);
+  }
+
+  function loadPhotoDetail(root, state) {
+    try {
+      setLoading(state, true);
+      const detail = WebsiteSDK.getPhotoDetail(state.photoId, state.context);
+      state.photoDetail = detail;
+      state.peopleTags = detail && detail.peopleTags ? detail.peopleTags.slice() : [];
+      state.keywordTags = detail && detail.keywordTags ? detail.keywordTags.slice() : [];
+      renderPhotoDetail(state);
+    } catch (error) {
+      renderLoadError(root);
+    } finally {
+      setLoading(state, false);
+    }
+  }
+
+  function renderPhotoDetail(state) {
+    if (!state || !state.photoDetail || !state.photoDetail.photo) {
+      return;
+    }
+    const detail = state.photoDetail;
+    const photo = detail.photo;
+    const albums = detail.albums || [];
+    const collections = detail.collections || [];
+    const exif = detail.exif || {};
+    const location = detail.location || {};
+    renderNav(state.containers.nav, state);
+    renderPhotoDisplay(state.containers.display, photo);
+    renderMetadata(state.containers.metadata, photo, albums, collections, exif, location);
+    renderCaptionEditor(state.containers.caption, photo);
+    renderLikeFavoriteBar(state.containers.likeFavorite, photo);
+    renderToPrintToggle(state.containers.toPrint, photo);
+    renderPeopleTagEditor(state.containers.peopleTags, state);
+    renderKeywordTagEditor(state.containers.keywordTags, state);
+  }
+
+  function isAllPhotosContext(context) {
+    if (!context) {
+      return false;
+    }
+    const ctx = String(context);
+    return ctx === 'all_photos' || ctx === 'allPhotos' || ctx.indexOf('all_photos') === 0 || ctx.indexOf('allPhotos') === 0;
+  }
+
+  function renderNav(container, state) {
+    if (!container || !state || !state.photoDetail) {
+      return;
+    }
+    const navigation = state.photoDetail.navigation || {};
+    container.innerHTML = '';
+    const navRow = document.createElement('div');
+    navRow.className = 'photo-detail-nav-row';
+
+    if (isAllPhotosContext(state.context)) {
+      const backLink = document.createElement('a');
+      backLink.href = 'javascript:void(0)';
+      backLink.className = 'photo-nav-link photo-nav-back';
+      backLink.dataset.action = 'back-to-all';
+      backLink.textContent = 'Back to All Photos';
+      navRow.appendChild(backLink);
+    }
+
+    const prevLink = document.createElement('a');
+    prevLink.href = 'javascript:void(0)';
+    prevLink.className = 'photo-nav-link photo-nav-prev';
+    prevLink.dataset.action = 'prev-photo';
+    prevLink.textContent = '\u2039 Previous';
+    if (!navigation.previousPhotoId) {
+      prevLink.classList.add('is-disabled');
+      prevLink.setAttribute('aria-disabled', 'true');
+    }
+    navRow.appendChild(prevLink);
+
+    const infoSpan = document.createElement('span');
+    infoSpan.className = 'photo-nav-current-title';
+    infoSpan.textContent = state.photoDetail.photo && state.photoDetail.photo.title ? state.photoDetail.photo.title : 'Current Photo';
+    navRow.appendChild(infoSpan);
+
+    const nextLink = document.createElement('a');
+    nextLink.href = 'javascript:void(0)';
+    nextLink.className = 'photo-nav-link photo-nav-next';
+    nextLink.dataset.action = 'next-photo';
+    nextLink.textContent = 'Next \u203a';
+    if (!navigation.nextPhotoId) {
+      nextLink.classList.add('is-disabled');
+      nextLink.setAttribute('aria-disabled', 'true');
+    }
+    navRow.appendChild(nextLink);
+
+    container.appendChild(navRow);
+  }
+
+  function renderPhotoDisplay(container, photo) {
+    if (!container || !photo) {
+      return;
+    }
+    container.innerHTML = '';
+    const img = document.createElement('img');
+    img.className = 'photo-detail-image';
+    img.src = photo.fileUrl;
+    img.alt = photo.title || photo.caption || 'Travel photo';
+    container.appendChild(img);
+
+    if (photo.width && photo.height) {
+      const dims = document.createElement('figcaption');
+      dims.className = 'photo-detail-dimensions';
+      dims.textContent = photo.width + ' d7 ' + photo.height + ' px';
+      container.appendChild(dims);
+    }
+  }
+
+  function formatDate(value) {
+    if (!value) {
+      return '';
+    }
+    const d = new Date(value);
+    if (isNaN(d.getTime())) {
+      return '';
+    }
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  function buildLocationString(photo, location) {
+    const loc = location || {};
+    const parts = [];
+    if (loc.city || photo.city) {
+      parts.push(loc.city || photo.city);
+    }
+    if (loc.stateOrProvince || photo.stateOrProvince) {
+      parts.push(loc.stateOrProvince || photo.stateOrProvince);
+    }
+    if (loc.country || photo.country) {
+      parts.push(loc.country || photo.country);
+    }
+    if (loc.placeName || photo.placeName) {
+      parts.push(loc.placeName || photo.placeName);
+    }
+    return parts.join(', ');
+  }
+
+  function renderMetadata(container, photo, albums, collections, exif, location) {
+    if (!container || !photo) {
+      return;
+    }
+    container.innerHTML = '';
+    const metaBlock = document.createElement('div');
+    metaBlock.className = 'photo-meta-block';
+
+    const primaryLine = document.createElement('p');
+    primaryLine.className = 'photo-meta-line primary';
+    const dateStr = formatDate(photo.captureDate);
+    const dateSpan = document.createElement('span');
+    dateSpan.className = 'photo-meta-date';
+    dateSpan.textContent = dateStr ? dateStr : '';
+    primaryLine.appendChild(dateSpan);
+
+    const locStr = buildLocationString(photo, location);
+    if (locStr) {
+      const sep = document.createElement('span');
+      sep.textContent = ' b7 ';
+      primaryLine.appendChild(sep);
+      const locSpan = document.createElement('span');
+      locSpan.className = 'photo-meta-location';
+      locSpan.textContent = locStr;
+      primaryLine.appendChild(locSpan);
+    }
+    metaBlock.appendChild(primaryLine);
+
+    const secondaryLine = document.createElement('p');
+    secondaryLine.className = 'photo-meta-line secondary';
+    const cameraParts = [];
+    if (exif.cameraMake || photo.cameraMake) {
+      cameraParts.push(exif.cameraMake || photo.cameraMake);
+    }
+    if (exif.cameraModel || photo.cameraModel) {
+      cameraParts.push(exif.cameraModel || photo.cameraModel);
+    }
+    if (cameraParts.length > 0) {
+      const camSpan = document.createElement('span');
+      camSpan.textContent = cameraParts.join(' ');
+      secondaryLine.appendChild(camSpan);
+    }
+    const techParts = [];
+    if (exif.lens || photo.lens) {
+      techParts.push(exif.lens || photo.lens);
+    }
+    if (exif.focalLength || photo.focalLength) {
+      techParts.push(exif.focalLength || photo.focalLength);
+    }
+    if (exif.exposureTime || photo.exposureTime) {
+      techParts.push(exif.exposureTime || photo.exposureTime);
+    }
+    if (exif.aperture || photo.aperture) {
+      techParts.push(exif.aperture || photo.aperture);
+    }
+    if (exif.iso || photo.iso) {
+      techParts.push('ISO ' + (exif.iso || photo.iso));
+    }
+    if (techParts.length > 0) {
+      if (secondaryLine.childNodes.length > 0) {
+        const sep2 = document.createElement('span');
+        sep2.textContent = ' b7 ';
+        secondaryLine.appendChild(sep2);
+      }
+      const techSpan = document.createElement('span');
+      techSpan.textContent = techParts.join(', ');
+      secondaryLine.appendChild(techSpan);
+    }
+    if (photo.rating) {
+      const ratingSpan = document.createElement('span');
+      ratingSpan.className = 'photo-meta-rating';
+      const stars = '★★★★★'.slice(0, Math.max(0, Math.min(5, photo.rating)));
+      ratingSpan.textContent = ' b7 ' + stars;
+      secondaryLine.appendChild(ratingSpan);
+    }
+    metaBlock.appendChild(secondaryLine);
+
+    const statsLine = document.createElement('p');
+    statsLine.className = 'photo-meta-line stats';
+    const likesSpan = document.createElement('span');
+    likesSpan.className = 'photo-meta-likes';
+    likesSpan.textContent = photo.likesCount + (photo.likesCount === 1 ? ' like' : ' likes');
+    statsLine.appendChild(likesSpan);
+
+    const uploadDateStr = formatDate(photo.uploadDate);
+    if (uploadDateStr) {
+      const sep3 = document.createElement('span');
+      sep3.textContent = ' b7 ';
+      statsLine.appendChild(sep3);
+      const uploadedSpan = document.createElement('span');
+      uploadedSpan.textContent = 'Uploaded ' + uploadDateStr;
+      statsLine.appendChild(uploadedSpan);
+    }
+    metaBlock.appendChild(statsLine);
+
+    if (albums && albums.length > 0) {
+      const albumsLine = document.createElement('p');
+      albumsLine.className = 'photo-meta-line associations';
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = 'Albums: ';
+      albumsLine.appendChild(labelSpan);
+      albums.forEach(function(album, index) {
+        const link = document.createElement('a');
+        link.href = 'javascript:void(0)';
+        link.className = 'photo-meta-link';
+        link.dataset.action = 'open-album';
+        link.dataset.albumId = album.id;
+        link.textContent = album.title;
+        albumsLine.appendChild(link);
+        if (index < albums.length - 1) {
+          const comma = document.createElement('span');
+          comma.textContent = ', ';
+          albumsLine.appendChild(comma);
+        }
+      });
+      metaBlock.appendChild(albumsLine);
+    }
+
+    if (collections && collections.length > 0) {
+      const collectionsLine = document.createElement('p');
+      collectionsLine.className = 'photo-meta-line associations';
+      const labelSpan2 = document.createElement('span');
+      labelSpan2.textContent = 'Collections: ';
+      collectionsLine.appendChild(labelSpan2);
+      collections.forEach(function(collection, index) {
+        const link = document.createElement('a');
+        link.href = 'javascript:void(0)';
+        link.className = 'photo-meta-link';
+        link.dataset.action = 'open-collection';
+        link.dataset.collectionId = collection.id;
+        link.textContent = collection.name;
+        collectionsLine.appendChild(link);
+        if (index < collections.length - 1) {
+          const comma = document.createElement('span');
+          comma.textContent = ', ';
+          collectionsLine.appendChild(comma);
+        }
+      });
+      metaBlock.appendChild(collectionsLine);
+    }
+
+    container.appendChild(metaBlock);
+  }
+
+  function renderCaptionEditor(container, photo) {
+    if (!container || !photo) {
+      return;
+    }
+    container.innerHTML = '';
+    const form = document.createElement('form');
+    form.className = 'photo-caption-form';
+
+    const label = document.createElement('label');
+    label.setAttribute('for', 'photo-caption-input');
+    label.textContent = 'Caption';
+    form.appendChild(label);
+
+    const textarea = document.createElement('textarea');
+    textarea.id = 'photo-caption-input';
+    textarea.name = 'caption';
+    textarea.rows = 3;
+    textarea.value = photo.caption || '';
+    form.appendChild(textarea);
+
+    const actionsRow = document.createElement('div');
+    actionsRow.className = 'photo-caption-actions';
+
+    const saveButton = document.createElement('button');
+    saveButton.type = 'submit';
+    saveButton.className = 'btn caption-save';
+    saveButton.dataset.action = 'caption-save';
+    saveButton.textContent = 'Save';
+    actionsRow.appendChild(saveButton);
+
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'btn caption-cancel';
+    cancelButton.dataset.action = 'caption-cancel';
+    cancelButton.textContent = 'Cancel';
+    actionsRow.appendChild(cancelButton);
+
+    const statusSpan = document.createElement('span');
+    statusSpan.className = 'caption-status';
+    statusSpan.id = 'photo-caption-status';
+    actionsRow.appendChild(statusSpan);
+
+    form.appendChild(actionsRow);
+    container.appendChild(form);
+  }
+
+  function renderLikeFavoriteBar(container, photo) {
+    if (!container || !photo) {
+      return;
+    }
+    container.innerHTML = '';
+    const bar = document.createElement('div');
+    bar.className = 'photo-like-favorite-bar';
+
+    const likeButton = document.createElement('button');
+    likeButton.type = 'button';
+    likeButton.className = 'btn like-toggle';
+    likeButton.dataset.action = 'toggle-like';
+    const isLiked = !!photo.isLiked;
+    likeButton.textContent = isLiked ? 'Unlike' : 'Like';
+    bar.appendChild(likeButton);
+
+    const likesText = document.createElement('span');
+    likesText.className = 'photo-like-count';
+    likesText.textContent = photo.likesCount + (photo.likesCount === 1 ? ' like' : ' likes');
+    bar.appendChild(likesText);
+
+    const favoriteButton = document.createElement('button');
+    favoriteButton.type = 'button';
+    favoriteButton.className = 'btn favorite-toggle';
+    favoriteButton.dataset.action = 'toggle-favorite';
+    favoriteButton.textContent = photo.isFavorite ? 'Unfavorite' : 'Favorite';
+    bar.appendChild(favoriteButton);
+
+    container.appendChild(bar);
+  }
+
+  function renderToPrintToggle(container, photo) {
+    if (!container || !photo) {
+      return;
+    }
+    container.innerHTML = '';
+    const row = document.createElement('div');
+    row.className = 'photo-to-print-row';
+
+    const label = document.createElement('span');
+    label.textContent = 'To Print: ';
+    row.appendChild(label);
+
+    const stateSpan = document.createElement('span');
+    stateSpan.className = 'to-print-state';
+    stateSpan.textContent = photo.toPrint ? 'Yes' : 'No';
+    row.appendChild(stateSpan);
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn to-print-toggle';
+    button.dataset.action = 'to-print-toggle';
+    button.textContent = photo.toPrint ? 'Unmark' : 'Mark';
+    row.appendChild(button);
+
+    container.appendChild(row);
+  }
+
+  function renderPeopleTagEditor(container, state) {
+    if (!container || !state) {
+      return;
+    }
+    container.innerHTML = '';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'photo-people-tag-editor-inner';
+
+    const label = document.createElement('div');
+    label.className = 'tag-editor-label';
+    label.textContent = 'People';
+    wrapper.appendChild(label);
+
+    const tagsList = document.createElement('div');
+    tagsList.className = 'tag-list people-tag-list';
+    wrapper.appendChild(tagsList);
+    state.peopleTagsListEl = tagsList;
+
+    refreshPeopleTagsList(state);
+
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.className = 'tag-search-input';
+    searchInput.placeholder = 'Search people to tag';
+    searchInput.autocomplete = 'off';
+    searchInput.dataset.action = 'people-search-input';
+    wrapper.appendChild(searchInput);
+
+    const suggestions = document.createElement('div');
+    suggestions.className = 'tag-suggestions people-tag-suggestions';
+    state.peopleSuggestionsEl = suggestions;
+    wrapper.appendChild(suggestions);
+
+    const actionsRow = document.createElement('div');
+    actionsRow.className = 'tag-editor-actions';
+
+    const saveButton = document.createElement('button');
+    saveButton.type = 'button';
+    saveButton.className = 'btn';
+    saveButton.dataset.action = 'save-people-tags';
+    saveButton.textContent = 'Apply People Tags';
+    actionsRow.appendChild(saveButton);
+
+    wrapper.appendChild(actionsRow);
+    container.appendChild(wrapper);
+  }
+
+  function refreshPeopleTagsList(state) {
+    if (!state.peopleTagsListEl) {
+      return;
+    }
+    const listEl = state.peopleTagsListEl;
+    listEl.innerHTML = '';
+    (state.peopleTags || []).forEach(function(person) {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip person-tag-chip';
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = person.displayName || person.name || 'Unnamed';
+      chip.appendChild(nameSpan);
+      const removeButton = document.createElement('button');
+      removeButton.type = 'button';
+      removeButton.className = 'tag-remove';
+      removeButton.dataset.action = 'remove-person-tag';
+      removeButton.dataset.personId = person.id;
+      removeButton.textContent = '\u00d7';
+      chip.appendChild(removeButton);
+      listEl.appendChild(chip);
+    });
+  }
+
+  function renderKeywordTagEditor(container, state) {
+    if (!container || !state) {
+      return;
+    }
+    container.innerHTML = '';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'photo-keyword-tag-editor-inner';
+
+    const label = document.createElement('div');
+    label.className = 'tag-editor-label';
+    label.textContent = 'Keywords';
+    wrapper.appendChild(label);
+
+    const tagsList = document.createElement('div');
+    tagsList.className = 'tag-list keyword-tag-list';
+    wrapper.appendChild(tagsList);
+    state.keywordTagsListEl = tagsList;
+    refreshKeywordTagsList(state);
+
+    const controlsRow = document.createElement('div');
+    controlsRow.className = 'keyword-controls-row';
+
+    const select = document.createElement('select');
+    select.className = 'keyword-select';
+    select.dataset.role = 'keyword-select';
+    state.keywordSelectEl = select;
+
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Add keyword tag';
+    select.appendChild(defaultOption);
+
+    (state.allTags || []).forEach(function(tag) {
+      const option = document.createElement('option');
+      option.value = tag.id;
+      option.textContent = tag.name;
+      select.appendChild(option);
+    });
+
+    controlsRow.appendChild(select);
+
+    const addButton = document.createElement('button');
+    addButton.type = 'button';
+    addButton.className = 'btn';
+    addButton.dataset.action = 'add-keyword-tag';
+    addButton.textContent = 'Add';
+    controlsRow.appendChild(addButton);
+
+    const saveButton = document.createElement('button');
+    saveButton.type = 'button';
+    saveButton.className = 'btn';
+    saveButton.dataset.action = 'save-keyword-tags';
+    saveButton.textContent = 'Apply Keyword Tags';
+    controlsRow.appendChild(saveButton);
+
+    wrapper.appendChild(controlsRow);
+    container.appendChild(wrapper);
+  }
+
+  function refreshKeywordTagsList(state) {
+    if (!state.keywordTagsListEl) {
+      return;
+    }
+    const listEl = state.keywordTagsListEl;
+    listEl.innerHTML = '';
+    (state.keywordTags || []).forEach(function(tag) {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip keyword-tag-chip';
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = tag.name || 'Tag';
+      chip.appendChild(nameSpan);
+      const removeButton = document.createElement('button');
+      removeButton.type = 'button';
+      removeButton.className = 'tag-remove';
+      removeButton.dataset.action = 'remove-keyword-tag';
+      removeButton.dataset.tagId = tag.id;
+      removeButton.textContent = '\u00d7';
+      chip.appendChild(removeButton);
+      listEl.appendChild(chip);
+    });
+  }
+
+  function setupGlobalClickHandler(state) {
+    document.addEventListener('click', function(event) {
+      const target = event.target.closest('[data-action]');
+      if (!target) {
+        return;
+      }
+      const action = target.dataset.action;
+      if (!action) {
+        return;
+      }
+      if (!state || !state.photoDetail || !state.photoDetail.photo) {
+        if (action === 'back-to-all') {
+          event.preventDefault();
+          window.location.href = 'photos.html';
+        }
+        return;
+      }
+      switch (action) {
+        case 'back-to-all':
+          event.preventDefault();
+          window.location.href = 'photos.html';
+          break;
+        case 'prev-photo':
+          event.preventDefault();
+          handlePrevPhoto(state);
+          break;
+        case 'next-photo':
+          event.preventDefault();
+          handleNextPhoto(state);
+          break;
+        case 'toggle-like':
+          event.preventDefault();
+          handleToggleLike(state);
+          break;
+        case 'toggle-favorite':
+          event.preventDefault();
+          handleToggleFavorite(state);
+          break;
+        case 'caption-save':
+          event.preventDefault();
+          handleCaptionSave(target, state);
+          break;
+        case 'caption-cancel':
+          event.preventDefault();
+          handleCaptionCancel(state);
+          break;
+        case 'to-print-toggle':
+          event.preventDefault();
+          handleToggleToPrint(state);
+          break;
+        case 'open-album':
+          event.preventDefault();
+          handleOpenAlbum(target);
+          break;
+        case 'open-collection':
+          event.preventDefault();
+          handleOpenCollection(target);
+          break;
+        case 'remove-person-tag':
+          event.preventDefault();
+          handleRemovePersonTag(target, state);
+          break;
+        case 'add-person-suggestion':
+          event.preventDefault();
+          handleAddPersonSuggestion(target, state);
+          break;
+        case 'save-people-tags':
+          event.preventDefault();
+          handleSavePeopleTags(state);
+          break;
+        case 'add-keyword-tag':
+          event.preventDefault();
+          handleAddKeywordTag(state);
+          break;
+        case 'remove-keyword-tag':
+          event.preventDefault();
+          handleRemoveKeywordTag(target, state);
+          break;
+        case 'save-keyword-tags':
+          event.preventDefault();
+          handleSaveKeywordTags(state);
+          break;
+        default:
+          break;
+      }
+    });
+  }
+
+  function setupGlobalInputHandler(state) {
+    document.addEventListener('input', function(event) {
+      const target = event.target;
+      if (!target || !target.dataset) {
+        return;
+      }
+      const action = target.dataset.action;
+      if (action === 'people-search-input') {
+        handlePeopleSearchInput(target, state);
+      }
+    });
+  }
+
+  function setupKeyboardNavigation(state) {
+    document.addEventListener('keydown', function(event) {
+      if (!state || !state.photoDetail || !state.photoDetail.navigation) {
+        return;
+      }
+      if (event.key === 'ArrowLeft') {
+        if (state.photoDetail.navigation.previousPhotoId) {
+          event.preventDefault();
+          navigateToPhoto(state, state.photoDetail.navigation.previousPhotoId);
+        }
+      } else if (event.key === 'ArrowRight') {
+        if (state.photoDetail.navigation.nextPhotoId) {
+          event.preventDefault();
+          navigateToPhoto(state, state.photoDetail.navigation.nextPhotoId);
+        }
+      }
+    });
+  }
+
+  function navigateToPhoto(state, newPhotoId) {
+    if (!newPhotoId) {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    params.set('id', newPhotoId);
+    if (state && state.context) {
+      params.set('context', state.context);
+    } else {
+      params.delete('context');
+    }
+    window.location.href = 'photo_detail.html?' + params.toString();
+  }
+
+  function handlePrevPhoto(state) {
+    if (!state.photoDetail || !state.photoDetail.navigation || !state.photoDetail.navigation.previousPhotoId) {
+      return;
+    }
+    navigateToPhoto(state, state.photoDetail.navigation.previousPhotoId);
+  }
+
+  function handleNextPhoto(state) {
+    if (!state.photoDetail || !state.photoDetail.navigation || !state.photoDetail.navigation.nextPhotoId) {
+      return;
+    }
+    navigateToPhoto(state, state.photoDetail.navigation.nextPhotoId);
+  }
+
+  function handleToggleLike(state) {
+    const photo = state.photoDetail.photo;
+    const currentLiked = !!photo.isLiked;
+    const newLiked = !currentLiked;
+    try {
+      const result = WebsiteSDK.togglePhotoLike(photo.id, newLiked);
+      if (result && result.success && result.photo) {
+        state.photoDetail.photo = result.photo;
+        renderLikeFavoriteBar(state.containers.likeFavorite, result.photo);
+        renderMetadata(state.containers.metadata, result.photo, state.photoDetail.albums || [], state.photoDetail.collections || [], state.photoDetail.exif || {}, state.photoDetail.location || {});
+      }
+    } catch (e) {
+      alert('Unable to update like for this photo.');
+    }
+  }
+
+  function handleToggleFavorite(state) {
+    const photo = state.photoDetail.photo;
+    const newFavorite = !photo.isFavorite;
+    try {
+      const result = WebsiteSDK.togglePhotoFavorite(photo.id, newFavorite);
+      if (result && result.success && result.photo) {
+        state.photoDetail.photo = result.photo;
+        renderLikeFavoriteBar(state.containers.likeFavorite, result.photo);
+      }
+    } catch (e) {
+      alert('Unable to update favorite for this photo.');
+    }
+  }
+
+  function handleCaptionSave(target, state) {
+    const form = target.closest('form');
+    if (!form) {
+      return;
+    }
+    const textarea = form.querySelector('textarea[name="caption"]');
+    if (!textarea) {
+      return;
+    }
+    const newCaption = textarea.value || '';
+    const photo = state.photoDetail.photo;
+    try {
+      const result = WebsiteSDK.updatePhotoCaption(photo.id, newCaption);
+      if (result && result.success && result.photo) {
+        state.photoDetail.photo = result.photo;
+        renderCaptionEditor(state.containers.caption, result.photo);
+        const status = document.getElementById('photo-caption-status');
+        if (status) {
+          status.textContent = 'Saved';
+        }
+      } else {
+        const status = document.getElementById('photo-caption-status');
+        if (status) {
+          status.textContent = 'Unable to save caption.';
+        }
+      }
+    } catch (e) {
+      const status = document.getElementById('photo-caption-status');
+      if (status) {
+        status.textContent = 'Error saving caption.';
+      }
+    }
+  }
+
+  function handleCaptionCancel(state) {
+    const photo = state.photoDetail.photo;
+    renderCaptionEditor(state.containers.caption, photo);
+  }
+
+  function handleToggleToPrint(state) {
+    const photo = state.photoDetail.photo;
+    const newToPrint = !photo.toPrint;
+    try {
+      const result = WebsiteSDK.togglePhotoToPrintFlag(photo.id, newToPrint);
+      if (result && result.success && result.photo) {
+        state.photoDetail.photo = result.photo;
+        renderToPrintToggle(state.containers.toPrint, result.photo);
+      }
+    } catch (e) {
+      alert('Unable to update print flag.');
+    }
+  }
+
+  function handleOpenAlbum(target) {
+    const albumId = target.dataset.albumId;
+    if (!albumId) {
+      return;
+    }
+    window.location.href = 'album_detail.html?id=' + encodeURIComponent(albumId);
+  }
+
+  function handleOpenCollection(target) {
+    const collectionId = target.dataset.collectionId;
+    if (!collectionId) {
+      return;
+    }
+    window.location.href = 'collection_detail.html?id=' + encodeURIComponent(collectionId);
+  }
+
+  function handlePeopleSearchInput(inputEl, state) {
+    const query = inputEl.value.trim();
+    if (!query) {
+      state.lastPeopleSearchResults = [];
+      if (state.peopleSuggestionsEl) {
+        state.peopleSuggestionsEl.innerHTML = '';
+      }
+      return;
+    }
+    try {
+      const results = WebsiteSDK.getPeopleOptions(query);
+      state.lastPeopleSearchResults = results || [];
+      if (!state.peopleSuggestionsEl) {
+        return;
+      }
+      const container = state.peopleSuggestionsEl;
+      container.innerHTML = '';
+      (results || []).forEach(function(person) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tag-suggestion';
+        btn.dataset.action = 'add-person-suggestion';
+        btn.dataset.personId = person.id;
+        btn.textContent = person.displayName || person.name || 'Unnamed';
+        container.appendChild(btn);
+      });
+    } catch (e) {
+      if (state.peopleSuggestionsEl) {
+        state.peopleSuggestionsEl.innerHTML = '';
+      }
+    }
+  }
+
+  function handleAddPersonSuggestion(target, state) {
+    const personId = target.dataset.personId;
+    if (!personId) {
+      return;
+    }
+    const results = state.lastPeopleSearchResults || [];
+    const person = results.find(function(p) { return p.id === personId; });
+    if (!person) {
+      return;
+    }
+    const exists = (state.peopleTags || []).some(function(p) { return p.id === person.id; });
+    if (!exists) {
+      state.peopleTags.push(person);
+      refreshPeopleTagsList(state);
+    }
+    if (state.peopleSuggestionsEl) {
+      state.peopleSuggestionsEl.innerHTML = '';
+    }
+  }
+
+  function handleRemovePersonTag(target, state) {
+    const personId = target.dataset.personId;
+    if (!personId) {
+      return;
+    }
+    state.peopleTags = (state.peopleTags || []).filter(function(person) {
+      return person.id !== personId;
+    });
+    refreshPeopleTagsList(state);
+  }
+
+  function handleSavePeopleTags(state) {
+    const photo = state.photoDetail.photo;
+    const personIds = (state.peopleTags || []).map(function(person) { return person.id; });
+    try {
+      const result = WebsiteSDK.updatePhotoPeopleTags(photo.id, personIds);
+      if (result && result.success && result.peopleTags) {
+        state.peopleTags = result.peopleTags;
+        state.photoDetail.peopleTags = result.peopleTags;
+        refreshPeopleTagsList(state);
+      }
+    } catch (e) {
+      alert('Unable to update people tags.');
+    }
+  }
+
+  function handleAddKeywordTag(state) {
+    if (!state.keywordSelectEl) {
+      return;
+    }
+    const tagId = state.keywordSelectEl.value;
+    if (!tagId) {
+      return;
+    }
+    const exists = (state.keywordTags || []).some(function(tag) { return tag.id === tagId; });
+    if (exists) {
+      return;
+    }
+    const allTags = state.allTags || [];
+    const tagEntity = allTags.find(function(tag) { return tag.id === tagId; });
+    if (!tagEntity) {
+      return;
+    }
+    state.keywordTags = (state.keywordTags || []).concat([tagEntity]);
+    refreshKeywordTagsList(state);
+    state.keywordSelectEl.value = '';
+  }
+
+  function handleRemoveKeywordTag(target, state) {
+    const tagId = target.dataset.tagId;
+    if (!tagId) {
+      return;
+    }
+    state.keywordTags = (state.keywordTags || []).filter(function(tag) {
+      return tag.id !== tagId;
+    });
+    refreshKeywordTagsList(state);
+  }
+
+  function handleSaveKeywordTags(state) {
+    const photo = state.photoDetail.photo;
+    const tagIds = (state.keywordTags || []).map(function(tag) { return tag.id; });
+    try {
+      const result = WebsiteSDK.updatePhotoKeywordTags(photo.id, tagIds);
+      if (result && result.success && result.keywordTags) {
+        state.keywordTags = result.keywordTags;
+        state.photoDetail.keywordTags = result.keywordTags;
+        renderKeywordTagEditor(state.containers.keywordTags, state);
+      }
+    } catch (e) {
+      alert('Unable to update keyword tags.');
+    }
+  }
+  </script>
+</body>
+</html>

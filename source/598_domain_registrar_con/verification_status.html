@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Domain Registrar Portal - Verification Status Detail</title>
+    
+    <link rel="stylesheet" href="verification_status.css">
+</head>
+<body>
+    <header class="site-header">
+        <nav class="primary-nav" aria-label="Primary navigation">
+            <ul class="nav-list">
+                <li class="nav-item"><a href="index.html">Dashboard</a></li>
+                <li class="nav-item"><a href="my_domains.html">My Domains</a></li>
+                <li class="nav-item"><a href="contact_verification_center.html">Contact Verification</a></li>
+                <li class="nav-item"><a href="account_settings.html">Account Settings</a></li>
+                <li class="nav-item"><a href="help.html">Help</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" class="site-main" role="main">
+        <article data-component="verification-status-page-init">
+            <h1 data-populate="page-title">Verification status</h1>
+
+            <div data-component="status-notification-banner" data-populate="notification-banner"></div>
+
+            <div data-component="loading-and-error-state-handler" data-populate="loading-state"></div>
+
+            <p data-component="verification-breadcrumb"></p>
+
+            <p data-component="verification-tab-switcher" data-populate="tab-switcher"></p>
+
+            <section data-component="verification-overview-panel" data-populate="overview-panel"></section>
+
+            <section data-component="verification-history-panel" data-populate="history-panel"></section>
+
+            <div data-component="resend-confirmation-modal" id="resendModal" role="dialog" aria-modal="true" hidden></div>
+        </article>
+    </main>
+
+    <footer class="site-footer">
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul class="footer-nav-list">
+                <li class="footer-nav-item"><a href="about.html">About</a></li>
+                <li class="footer-nav-item"><a href="help.html">Help &amp; Support</a></li>
+                <li class="footer-nav-item"><a href="contact.html">Contact Us</a></li>
+                <li class="footer-nav-item"><a href="privacy.html">Privacy Policy</a></li>
+                <li class="footer-nav-item"><a href="terms.html">Terms of Service</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const pageState = {
+            domainId: null,
+            domain: null,
+            contactProfile: null,
+            overview: null,
+            history: [],
+            historySorted: [],
+            loading: false,
+            loadError: null,
+            activeTab: 'overview',
+            notification: null,
+            notificationTimeoutId: null,
+            modalOpen: false,
+            modalError: null,
+            resendLoading: false,
+            sendMode: 'current_email_only',
+            confirmSevenDaysChecked: false,
+            urlModalRequested: null
+        };
+
+        const containers = {
+            pageTitle: null,
+            loadingState: null,
+            notificationBanner: null,
+            tabSwitcher: null,
+            overviewPanel: null,
+            historyPanel: null,
+            breadcrumb: null,
+            resendModal: null
+        };
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function formatDateTime(isoString) {
+            if (!isoString) {
+                return 'Not available';
+            }
+            const d = new Date(isoString);
+            if (isNaN(d.getTime())) {
+                return isoString;
+            }
+            return d.toLocaleString();
+        }
+
+        function readUrlState() {
+            const params = new URLSearchParams(window.location.search);
+            const domainId = params.get('domainId');
+            const tabParam = params.get('tab');
+            const modalParam = params.get('modal');
+            const tab = tabParam === 'history' ? 'history' : 'overview';
+            return {
+                domainId: domainId,
+                tab: tab,
+                modal: modalParam
+            };
+        }
+
+        function updateUrlParam(key, value) {
+            const url = new URL(window.location.href);
+            const params = url.searchParams;
+            if (value === null || value === undefined || value === '') {
+                params.delete(key);
+            } else {
+                params.set(key, value);
+            }
+            url.search = params.toString();
+            window.history.replaceState({}, '', url.toString());
+        }
+
+        function updateUrlTabParam(tab) {
+            if (tab === 'overview') {
+                updateUrlParam('tab', null);
+            } else {
+                updateUrlParam('tab', tab);
+            }
+        }
+
+        function updateUrlModalParam(modal) {
+            if (!modal) {
+                updateUrlParam('modal', null);
+            } else {
+                updateUrlParam('modal', modal);
+            }
+        }
+
+        function getLastVerificationEmailEvent() {
+            const list = pageState.historySorted || [];
+            for (let i = 0; i < list.length; i += 1) {
+                if (list[i] && list[i].eventType === 'verification_email_sent') {
+                    return list[i];
+                }
+            }
+            return null;
+        }
+
+        function isResendEnabled() {
+            if (!pageState.domain || !pageState.overview) {
+                return false;
+            }
+            const status = pageState.domain.contactVerificationStatus;
+            const contactStatus = pageState.contactProfile ? pageState.contactProfile.verificationStatus : null;
+            if (status === 'verified' || status === 'suspended') {
+                return false;
+            }
+            if (contactStatus === 'verified' || contactStatus === 'suspended') {
+                return false;
+            }
+            if (!pageState.contactProfile) {
+                return false;
+            }
+            return true;
+        }
+
+        function showNotification(type, message) {
+            pageState.notification = {
+                type: type,
+                message: message || ''
+            };
+            if (pageState.notificationTimeoutId) {
+                window.clearTimeout(pageState.notificationTimeoutId);
+                pageState.notificationTimeoutId = null;
+            }
+            renderNotificationBanner(containers.notificationBanner);
+            pageState.notificationTimeoutId = window.setTimeout(function() {
+                pageState.notification = null;
+                renderNotificationBanner(containers.notificationBanner);
+            }, 5000);
+        }
+
+        function renderPageTitle(container) {
+            if (!container) {
+                return;
+            }
+            if (pageState.domain && pageState.domain.name) {
+                container.textContent = 'Verification status for ' + pageState.domain.name;
+            } else {
+                container.textContent = 'Verification status';
+            }
+        }
+
+        function renderLoadingState(container) {
+            if (!container) {
+                return;
+            }
+            let html = '';
+            if (pageState.loading) {
+                html = `<p>Loading verification status
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+.</p>';
+            } else if (pageState.loadError) {
+                html = '<p>' + escapeHtml(pageState.loadError) + '</p>';
+            }
+            container.innerHTML = html;
+        }
+
+        function renderNotificationBanner(container) {
+            if (!container) {
+                return;
+            }
+            if (!pageState.notification) {
+                container.innerHTML = '';
+                return;
+            }
+            const type = pageState.notification.type === 'success' ? 'Success' : 'Error';
+            const message = pageState.notification.message || '';
+            container.innerHTML = '<p><strong>' + escapeHtml(type) + ':</strong> ' + escapeHtml(message) + ' <a href="#" data-action="dismiss-notification">Dismiss</a></p>';
+        }
+
+        function renderBreadcrumb(container) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+            if (!pageState.domain || !pageState.domain.name) {
+                return;
+            }
+            const link = document.createElement('a');
+            link.href = 'javascript:void(0)';
+            link.dataset.action = 'back-to-center';
+            link.textContent = 'Back to Verification Center';
+
+            const separatorText = document.createTextNode(' b7 ');
+            const domainText = document.createTextNode(pageState.domain.name + ' b7 Verification status detail');
+
+            container.appendChild(link);
+            container.appendChild(separatorText);
+            container.appendChild(domainText);
+        }
+
+        function renderTabSwitcher(container) {
+            if (!container) {
+                return;
+            }
+            if (pageState.activeTab === 'overview') {
+                container.innerHTML = `Overview | <a href="javascript:void(0)" data-action="tab-history">History</a>`;
+            } else {
+                container.innerHTML = `<a href="javascript:void(0)" data-action="tab-overview">Overview</a> | History`;
+            }
+        }
+
+        function renderOverviewPanel(container) {
+            if (!container) {
+                return;
+            }
+            if (!pageState.domain || !pageState.overview) {
+                if (pageState.loadError || pageState.loading) {
+                    container.innerHTML = '';
+                } else {
+                    container.innerHTML = '<h2>Overview</h2><p>No verification information is available.</p>';
+                }
+                return;
+            }
+
+            const domain = pageState.domain;
+            const cp = pageState.contactProfile;
+            const ov = pageState.overview;
+
+            const contactLabel = cp && cp.displayName ? cp.displayName : 'No contact profile assigned';
+            const emailLabel = cp && cp.email ? cp.email : 'Not available';
+            const domainStatus = domain.contactVerificationStatus || '';
+            const contactStatus = cp && cp.verificationStatus ? cp.verificationStatus : '';
+            const currentStatus = ov.currentStatus || '';
+
+            const lastEmail = ov.lastVerificationEmailSentAt || domain.lastVerificationEmailSentAt || null;
+            const lastReminder = ov.lastVerificationReminderSentAt || domain.lastVerificationReminderSentAt || null;
+
+            const resendEnabled = isResendEnabled();
+            const disabledAttr = resendEnabled ? '' : ' disabled';
+
+            container.innerHTML = `
+                <h2>Overview</h2>
+                <p>Domain: ${escapeHtml(domain.name)}</p>
+                <p>Contact: ${escapeHtml(contactLabel)}</p>
+                <p>Email: ${escapeHtml(emailLabel)}</p>
+                <p>Domain verification status: ${escapeHtml(domainStatus)}</p>
+                <p>Contact profile status: ${escapeHtml(contactStatus)}</p>
+                <p>Current status: ${escapeHtml(currentStatus)}</p>
+                <p>Last verification email: ${escapeHtml(formatDateTime(lastEmail))}</p>
+                <p>Last verification reminder: ${escapeHtml(formatDateTime(lastReminder))}</p>
+                <p><a href="javascript:void(0)" data-action="go-to-notice">Edit contact details / Go to notice</a></p>
+                <p><button type="button" data-component="resend-verification-button" data-action="open-resend-modal"${disabledAttr}>Resend verification email</button></p>
+                <p>Use this if you believe the previous verification email did not arrive. The last attempt should be at least 7 days ago.</p>
+            `;
+        }
+
+        function renderHistoryPanel(container) {
+            if (!container) {
+                return;
+            }
+            if (!pageState.domain) {
+                if (pageState.loadError || pageState.loading) {
+                    container.innerHTML = '';
+                } else {
+                    container.innerHTML = '<h2>History</h2><p>No verification history is available.</p>';
+                }
+                return;
+            }
+
+            let html = '<h2>History</h2>';
+            if (!pageState.historySorted || pageState.historySorted.length === 0) {
+                html += '<p>No verification history is available for this domain.</p>';
+            } else {
+                const lastEmailEvent = getLastVerificationEmailEvent();
+                for (let i = 0; i < pageState.historySorted.length; i += 1) {
+                    const ev = pageState.historySorted[i];
+                    if (!ev) {
+                        continue;
+                    }
+                    const isLastEmail = lastEmailEvent && ev.id === lastEmailEvent.id;
+                    const created = formatDateTime(ev.createdAt);
+                    const eventType = ev.eventType || '';
+                    const channel = ev.channel || '';
+                    const description = ev.description || '';
+                    const channelPart = channel ? ' via ' + channel : '';
+                    const descPart = description ? ' b7 ' + description : '';
+                    const marker = isLastEmail ? ' (most recent verification_email_sent)' : '';
+
+                    let metadataHtml = '';
+                    if (ev.metadata) {
+                        metadataHtml = `
+                            <p><a href="javascript:void(0)" data-action="toggle-history-metadata" data-event-id="${escapeHtml(ev.id)}">Show details</a></p>
+                            <p data-role="history-metadata" data-event-id="${escapeHtml(ev.id)}" hidden>${escapeHtml(ev.metadata)}</p>
+                        `;
+                    }
+
+                    html += `
+                        <div data-event-id="${escapeHtml(ev.id)}">
+                            <p>${escapeHtml(created)} b7 ${escapeHtml(eventType)}${escapeHtml(channelPart)}${escapeHtml(descPart)}${escapeHtml(marker)}</p>
+                            ${metadataHtml}
+                        </div>
+                    `;
+                }
+            }
+            container.innerHTML = html;
+        }
+
+        function renderResendModal(container) {
+            if (!container) {
+                return;
+            }
+            if (!pageState.modalOpen) {
+                container.hidden = true;
+                container.innerHTML = '';
+                return;
+            }
+            const ov = pageState.overview;
+            const cp = pageState.contactProfile;
+            const fromOverview = ov && ov.lastVerificationEmailSentAt ? ov.lastVerificationEmailSentAt : null;
+            const lastEmailEvent = getLastVerificationEmailEvent();
+            const fromHistory = lastEmailEvent ? lastEmailEvent.createdAt : null;
+            const effectiveLast = fromOverview || fromHistory || null;
+            const lastDisplay = effectiveLast ? formatDateTime(effectiveLast) : 'No previous attempts found.';
+
+            const confirmDisabled = !pageState.confirmSevenDaysChecked || pageState.resendLoading;
+            const cancelDisabled = pageState.resendLoading ? ' disabled' : '';
+            const confirmDisabledAttr = confirmDisabled ? ' disabled' : '';
+
+            const sendModeChecked = pageState.sendMode === 'current_email_only' ? ' checked' : '';
+            const emailLabel = cp && cp.email ? ' (' + escapeHtml(cp.email) + ')' : '';
+
+            const errorText = pageState.modalError ? `<p>${escapeHtml(pageState.modalError)}</p>` : '';
+            const loadingText = pageState.resendLoading ? '<p>Sendinga0a0a0a0a0.</p>' : '';
+
+            container.hidden = false;
+            container.innerHTML = `
+                <div>
+                    <h2>Resend verification email</h2>
+                    <p>Last verification email attempt: ${escapeHtml(lastDisplay)}</p>
+                    <p>Select how you would like to resend the verification notice and confirm that at least 7 days have passed since the last attempt.</p>
+                    <p>
+                        <label>
+                            <input type="radio" name="sendMode" value="current_email_only" data-action="change-send-mode"${sendModeChecked}>
+                            Send to current email only${emailLabel}
+                        </label>
+                    </p>
+                    <p>
+                        <label>
+                            <input type="checkbox" data-action="toggle-confirm-seven-days"${pageState.confirmSevenDaysChecked ? ' checked' : ''}>
+                            I confirm the last verification email attempt was at least 7 days ago.
+                        </label>
+                    </p>
+                    ${errorText}
+                    <p>
+                        <button type="button" data-action="modal-confirm-send"${confirmDisabledAttr}>Confirm &amp; Send</button>
+                        <button type="button" data-action="modal-cancel"${cancelDisabled}>Cancel</button>
+                    </p>
+                    ${loadingText}
+                </div>
+            `;
+        }
+
+        function updatePanelVisibility() {
+            if (containers.overviewPanel) {
+                containers.overviewPanel.hidden = pageState.activeTab !== 'overview';
+            }
+            if (containers.historyPanel) {
+                containers.historyPanel.hidden = pageState.activeTab !== 'history';
+            }
+        }
+
+        function renderAll() {
+            renderPageTitle(containers.pageTitle);
+            renderLoadingState(containers.loadingState);
+            renderNotificationBanner(containers.notificationBanner);
+            renderBreadcrumb(containers.breadcrumb);
+            renderTabSwitcher(containers.tabSwitcher);
+            renderOverviewPanel(containers.overviewPanel);
+            renderHistoryPanel(containers.historyPanel);
+            renderResendModal(containers.resendModal);
+            updatePanelVisibility();
+        }
+
+        function openResendModal(fromUrl) {
+            if (!isResendEnabled()) {
+                return;
+            }
+            pageState.modalOpen = true;
+            pageState.modalError = null;
+            pageState.resendLoading = false;
+            pageState.confirmSevenDaysChecked = false;
+            if (!pageState.sendMode) {
+                pageState.sendMode = 'current_email_only';
+            }
+            if (!fromUrl) {
+                updateUrlModalParam('resend');
+            }
+            renderResendModal(containers.resendModal);
+        }
+
+        function closeResendModal() {
+            pageState.modalOpen = false;
+            pageState.modalError = null;
+            pageState.resendLoading = false;
+            pageState.confirmSevenDaysChecked = false;
+            updateUrlModalParam(null);
+            renderResendModal(containers.resendModal);
+        }
+
+        function setActiveTab(tab) {
+            if (tab !== 'overview' && tab !== 'history') {
+                tab = 'overview';
+            }
+            if (pageState.activeTab === tab) {
+                return;
+            }
+            pageState.activeTab = tab;
+            updateUrlTabParam(tab);
+            renderTabSwitcher(containers.tabSwitcher);
+            updatePanelVisibility();
+        }
+
+        function toggleHistoryMetadata(triggerEl) {
+            if (!triggerEl) {
+                return;
+            }
+            const eventId = triggerEl.getAttribute('data-event-id');
+            if (!eventId) {
+                return;
+            }
+            const container = triggerEl.closest('[data-event-id]');
+            if (!container) {
+                return;
+            }
+            const meta = container.querySelector('[data-role="history-metadata"]');
+            if (!meta) {
+                return;
+            }
+            const currentlyHidden = meta.hidden === true || meta.hasAttribute('hidden');
+            if (currentlyHidden) {
+                meta.hidden = false;
+                triggerEl.textContent = 'Hide details';
+            } else {
+                meta.hidden = true;
+                triggerEl.textContent = 'Show details';
+            }
+        }
+
+        function handleConfirmSend() {
+            if (pageState.resendLoading) {
+                return;
+            }
+            if (!pageState.confirmSevenDaysChecked) {
+                pageState.modalError = 'Please confirm that the last attempt was at least 7 days ago.';
+                renderResendModal(containers.resendModal);
+                return;
+            }
+            if (!pageState.domainId) {
+                pageState.modalError = 'Missing domain identifier.';
+                renderResendModal(containers.resendModal);
+                return;
+            }
+
+            const sendMode = pageState.sendMode || 'current_email_only';
+            pageState.resendLoading = true;
+            pageState.modalError = null;
+            renderResendModal(containers.resendModal);
+
+            try {
+                const response = WebsiteSDK.resendVerificationNotice(pageState.domainId, sendMode);
+
+                if (!response || response.allowed === false) {
+                    const message = response && response.message ? response.message : 'Resend is not allowed at this time.';
+                    pageState.modalError = message;
+                    pageState.resendLoading = false;
+                    renderResendModal(containers.resendModal);
+                    showNotification('error', message);
+                    return;
+                }
+
+                if (response.success) {
+                    if (response.verificationEmailSentAt) {
+                        if (!pageState.overview) {
+                            pageState.overview = {};
+                        }
+                        pageState.overview.lastVerificationEmailSentAt = response.verificationEmailSentAt;
+                    }
+                    if (response.newHistoryEvent) {
+                        pageState.history.push(response.newHistoryEvent);
+                        pageState.historySorted = pageState.history.slice().sort(function(a, b) {
+                            const da = new Date(a.createdAt || 0).getTime();
+                            const db = new Date(b.createdAt || 0).getTime();
+                            return db - da;
+                        });
+                    }
+                    const msg = response.message || 'Verification email resent.';
+                    pageState.resendLoading = false;
+                    pageState.modalOpen = false;
+                    pageState.confirmSevenDaysChecked = false;
+                    pageState.modalError = null;
+                    updateUrlModalParam(null);
+                    renderAll();
+                    showNotification('success', msg);
+                } else {
+                    const message = response && response.message ? response.message : 'Unable to resend verification notice.';
+                    pageState.modalError = message;
+                    pageState.resendLoading = false;
+                    renderResendModal(containers.resendModal);
+                    showNotification('error', message);
+                }
+            } catch (e) {
+                const message = e && e.message ? e.message : 'An unexpected error occurred while resending the verification notice.';
+                pageState.modalError = message;
+                pageState.resendLoading = false;
+                renderResendModal(containers.resendModal);
+                showNotification('error', message);
+            }
+        }
+
+        function loadVerificationStatus(domainId) {
+            if (!domainId) {
+                pageState.loading = false;
+                pageState.loadError = 'A domainId URL parameter is required to view verification status.';
+                renderAll();
+                return;
+            }
+            pageState.loading = true;
+            pageState.loadError = null;
+            pageState.domain = null;
+            pageState.contactProfile = null;
+            pageState.overview = null;
+            pageState.history = [];
+            pageState.historySorted = [];
+            renderAll();
+
+            try {
+                const result = WebsiteSDK.getVerificationStatusDetail(domainId);
+                pageState.domain = result && result.domain ? result.domain : null;
+                pageState.contactProfile = result && result.contactProfile ? result.contactProfile : null;
+                pageState.overview = result && result.overview ? result.overview : null;
+                pageState.history = result && result.history ? result.history.slice() : [];
+                pageState.historySorted = pageState.history.slice().sort(function(a, b) {
+                    const da = new Date(a.createdAt || 0).getTime();
+                    const db = new Date(b.createdAt || 0).getTime();
+                    return db - da;
+                });
+                pageState.loading = false;
+                pageState.loadError = null;
+                renderAll();
+
+                if (pageState.urlModalRequested === 'resend' && isResendEnabled()) {
+                    openResendModal(true);
+                }
+            } catch (e) {
+                pageState.loading = false;
+                pageState.loadError = e && e.message ? e.message : 'Unable to load verification status detail.';
+                renderAll();
+                showNotification('error', pageState.loadError);
+            }
+        }
+
+        function handleLocationChange() {
+            const state = readUrlState();
+            const newDomainId = state.domainId;
+            const newTab = state.tab;
+            const newModal = state.modal;
+
+            if (newDomainId !== pageState.domainId) {
+                pageState.domainId = newDomainId;
+                pageState.urlModalRequested = newModal;
+                loadVerificationStatus(newDomainId);
+            } else {
+                if (newTab !== pageState.activeTab) {
+                    pageState.activeTab = newTab;
+                    renderTabSwitcher(containers.tabSwitcher);
+                    updatePanelVisibility();
+                }
+                if (newModal === 'resend') {
+                    if (!pageState.modalOpen && isResendEnabled()) {
+                        openResendModal(true);
+                    }
+                } else {
+                    if (pageState.modalOpen) {
+                        closeResendModal();
+                    }
+                }
+            }
+        }
+
+        function initContainers() {
+            const populateElements = document.querySelectorAll('[data-populate]');
+            for (let i = 0; i < populateElements.length; i += 1) {
+                const el = populateElements[i];
+                const key = el.getAttribute('data-populate');
+                if (key === 'page-title') {
+                    containers.pageTitle = el;
+                } else if (key === 'loading-state') {
+                    containers.loadingState = el;
+                } else if (key === 'notification-banner') {
+                    containers.notificationBanner = el;
+                } else if (key === 'tab-switcher') {
+                    containers.tabSwitcher = el;
+                } else if (key === 'overview-panel') {
+                    containers.overviewPanel = el;
+                } else if (key === 'history-panel') {
+                    containers.historyPanel = el;
+                }
+            }
+            containers.breadcrumb = document.querySelector('[data-component="verification-breadcrumb"]');
+            containers.resendModal = document.querySelector('[data-component="resend-confirmation-modal"]');
+        }
+
+        document.addEventListener('click', function(event) {
+            const target = event.target.closest('[data-action]');
+            if (!target) {
+                return;
+            }
+            const action = target.getAttribute('data-action');
+            if (action === 'back-to-center') {
+                event.preventDefault();
+                if (pageState.domain && pageState.domain.name) {
+                    const query = encodeURIComponent(pageState.domain.name);
+                    window.location.href = 'contact_verification_center.html?searchQuery=' + query;
+                }
+            } else if (action === 'tab-overview') {
+                event.preventDefault();
+                setActiveTab('overview');
+            } else if (action === 'tab-history') {
+                event.preventDefault();
+                setActiveTab('history');
+            } else if (action === 'go-to-notice') {
+                event.preventDefault();
+                if (pageState.domainId) {
+                    const id = encodeURIComponent(pageState.domainId);
+                    window.location.href = 'contact_verification_notice.html?domainId=' + id;
+                }
+            } else if (action === 'open-resend-modal') {
+                event.preventDefault();
+                openResendModal(false);
+            } else if (action === 'modal-cancel') {
+                event.preventDefault();
+                closeResendModal();
+            } else if (action === 'modal-confirm-send') {
+                event.preventDefault();
+                handleConfirmSend();
+            } else if (action === 'toggle-history-metadata') {
+                event.preventDefault();
+                toggleHistoryMetadata(target);
+            } else if (action === 'dismiss-notification') {
+                event.preventDefault();
+                if (pageState.notificationTimeoutId) {
+                    window.clearTimeout(pageState.notificationTimeoutId);
+                    pageState.notificationTimeoutId = null;
+                }
+                pageState.notification = null;
+                renderNotificationBanner(containers.notificationBanner);
+            }
+        });
+
+        document.addEventListener('change', function(event) {
+            const target = event.target;
+            const action = target.getAttribute('data-action');
+            if (!action) {
+                return;
+            }
+            if (action === 'change-send-mode') {
+                pageState.sendMode = target.value || 'current_email_only';
+                renderResendModal(containers.resendModal);
+            } else if (action === 'toggle-confirm-seven-days') {
+                pageState.confirmSevenDaysChecked = target.checked;
+                renderResendModal(containers.resendModal);
+            }
+        });
+
+        window.addEventListener('popstate', function() {
+            handleLocationChange();
+        });
+
+        (function init() {
+            initContainers();
+            const urlState = readUrlState();
+            pageState.domainId = urlState.domainId;
+            pageState.activeTab = urlState.tab;
+            pageState.urlModalRequested = urlState.modal;
+            renderAll();
+            if (!pageState.domainId) {
+                pageState.loading = false;
+                pageState.loadError = 'A domainId URL parameter is required to view verification status.';
+                renderAll();
+                return;
+            }
+            loadVerificationStatus(pageState.domainId);
+        })();
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='compare.css'>
+
+<div class='compare-page'>
+  <div class='container compare-page__inner' data-component='compare-page-controller'>
+    <!-- Back to results link -->
+    <div class='compare-page__back-link-wrapper'>
+      <a href='javascript:void(0)' class='back-link' data-component='back-to-results-link' data-action='back-to-results'>
+        <span class='back-link__icon' aria-hidden='true'>&larr;</span>
+        <span class='back-link__label'>Back to results</span>
+      </a>
+    </div>
+
+    <!-- Page header / controller block -->
+    <section class='compare-page__header-block'>
+      <h1 class='compare-page__title'>Product comparison</h1>
+      <p class='compare-page__subtitle'>Selected products are listed below for side-by-side technical comparison.</p>
+    </section>
+
+    <!-- Comparison tabs -->
+    <nav class='comparison-tabs' data-component='comparison-tabs' aria-label='Comparison attribute groups'>
+      <button type='button' class='comparison-tabs__tab comparison-tabs__tab--active' data-action='change-tab' data-tab='overview'>Overview</button>
+      <button type='button' class='comparison-tabs__tab' data-action='change-tab' data-tab='efficiency'>Efficiency</button>
+      <button type='button' class='comparison-tabs__tab' data-action='change-tab' data-tab='capacity_dimensions'>Capacity &amp; dimensions</button>
+    </nav>
+
+    <!-- Comparison area -->
+    <section class='comparison-area'>
+      <!-- Table view -->
+      <div class='comparison-table-wrapper' data-component='comparison-table-wrapper'>
+        <div class='comparison-table-scroll'>
+          <table class='comparison-table' aria-label='Product comparison table'>
+            <thead>
+              <tr data-component='comparison-product-header-row' data-populate='comparison-product-header-row'>
+                <!-- Product header columns will be rendered here via JS -->
+              </tr>
+            </thead>
+            <tbody data-component='comparison-attribute-rows' data-populate='comparison-attribute-rows'>
+              <!-- Attribute rows will be rendered here via JS based on active tab -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Empty state -->
+      <section class='compare-empty-state' data-component='compare-empty-state' hidden>
+        <div class='compare-empty-state__inner'>
+          <h2 class='compare-empty-state__title'>No products to compare</h2>
+          <p class='compare-empty-state__text'>Add products to your comparison from a product listing or detail page, then return here to view them side by side.</p>
+          <a href='javascript:void(0)' class='btn btn-primary compare-empty-state__cta' data-component='back-to-results-link' data-action='back-to-results'>Back to results</a>
+        </div>
+      </section>
+
+      <!-- Error messaging -->
+      <div class='compare-error' data-component='compare-error' role='alert' aria-live='polite' hidden></div>
+    </section>
+  </div>
+</div>
+
+<script src='business_logic.js'></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var state = {
+      compareList: null,
+      products: [],
+      orderedProducts: [],
+      activeTab: 'overview',
+      originUrl: null
+    };
+
+    var ALLOWED_TABS = ['overview', 'efficiency', 'capacity_dimensions'];
+
+    function parseInitialUrlState() {
+      var url = new URL(window.location.href);
+      var params = url.searchParams;
+
+      var originParam = params.get('origin_url');
+      if (originParam) {
+        try {
+          state.originUrl = decodeURIComponent(originParam);
+        } catch (e) {
+          state.originUrl = originParam;
+        }
+      }
+
+      var tabParam = params.get('tab');
+      if (ALLOWED_TABS.indexOf(tabParam) !== -1) {
+        state.activeTab = tabParam;
+      } else {
+        state.activeTab = 'overview';
+      }
+    }
+
+    function updateUrlTab(tab) {
+      var url = new URL(window.location.href);
+      if (tab === 'overview') {
+        url.searchParams['delete']('tab');
+      } else {
+        url.searchParams.set('tab', tab);
+      }
+      history.pushState({ tab: tab }, '', url.toString());
+    }
+
+    function showError(message) {
+      var errorEl = document.querySelector('[data-component="compare-error"]');
+      if (!errorEl) return;
+      if (!message) {
+        errorEl.textContent = '';
+        errorEl.hidden = true;
+        return;
+      }
+      errorEl.textContent = message;
+      errorEl.hidden = false;
+    }
+
+    function getOrderedProducts(compareList, products) {
+      if (!compareList || !Array.isArray(compareList.productIds)) {
+        return [];
+      }
+      var map = new Map();
+      (products || []).forEach(function(p) {
+        if (p && typeof p.id === 'string') {
+          map.set(p.id, p);
+        }
+      });
+      var ordered = [];
+      compareList.productIds.forEach(function(id) {
+        var p = map.get(id);
+        if (p) {
+          ordered.push(p);
+        }
+      });
+      return ordered;
+    }
+
+    function formatMoney(value, currency) {
+      if (typeof value !== 'number') return '';
+      var code = currency || 'usd';
+      if (code === 'usd') {
+        try {
+          return value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+        } catch (e) {
+          return '$' + value.toFixed(0);
+        }
+      }
+      return value.toFixed(0) + ' ' + code.toUpperCase();
+    }
+
+    function humanizeSlug(slug) {
+      if (!slug) return '';
+      return slug.replace(/_/g, ' ').replace(/\b\w/g, function(ch) { return ch.toUpperCase(); });
+    }
+
+    function formatBoolean(value) {
+      if (value === true) return 'Yes';
+      if (value === false) return 'No';
+      return '';
+    }
+
+    function setInitialViewVisibility() {
+      var tableWrapper = document.querySelector('[data-component="comparison-table-wrapper"]');
+      var emptyState = document.querySelector('[data-component="compare-empty-state"]');
+
+      var hasProducts = state.orderedProducts && state.orderedProducts.length > 0;
+
+      if (tableWrapper) {
+        tableWrapper.style.display = hasProducts ? '' : 'none';
+      }
+      if (emptyState) {
+        emptyState.hidden = hasProducts;
+      }
+    }
+
+    function renderProductHeaderRow(container) {
+      container.innerHTML = '';
+
+      if (!state.orderedProducts || state.orderedProducts.length === 0) {
+        return;
+      }
+
+      var attrTh = document.createElement('th');
+      attrTh.className = 'comparison-table__column comparison-table__column--attribute-header';
+      attrTh.scope = 'col';
+      attrTh.textContent = 'Attributes';
+      container.appendChild(attrTh);
+
+      state.orderedProducts.forEach(function(product) {
+        var th = document.createElement('th');
+        th.className = 'comparison-table__column comparison-table__column--product-header';
+        th.scope = 'col';
+        th.dataset.productId = product.id;
+
+        var wrapper = document.createElement('div');
+        wrapper.className = 'product-header';
+
+        if (product.image_url) {
+          var imgLink = document.createElement('a');
+          imgLink.href = 'javascript:void(0)';
+          imgLink.className = 'product-header__image-link';
+          imgLink.dataset.action = 'open-product-detail';
+          imgLink.dataset.productId = product.id;
+
+          var img = document.createElement('img');
+          img.className = 'product-header__image';
+          img.src = product.image_url;
+          img.alt = product.name || 'Product image';
+
+          imgLink.appendChild(img);
+          wrapper.appendChild(imgLink);
+        }
+
+        var nameLink = document.createElement('a');
+        nameLink.href = 'javascript:void(0)';
+        nameLink.className = 'product-header__name-link';
+        nameLink.dataset.action = 'open-product-detail';
+        nameLink.dataset.productId = product.id;
+        nameLink.textContent = product.name || '';
+        wrapper.appendChild(nameLink);
+
+        var meta = document.createElement('div');
+        meta.className = 'product-header__meta';
+        var metaParts = [];
+        if (product.subcategorySlug) {
+          metaParts.push(humanizeSlug(product.subcategorySlug));
+        }
+        if (typeof product.capacity_gallons === 'number') {
+          metaParts.push(product.capacity_gallons + ' gal');
+        }
+        if (product.fuel_type) {
+          metaParts.push(humanizeSlug(product.fuel_type));
+        }
+        meta.textContent = metaParts.join(' b7 ');
+        wrapper.appendChild(meta);
+
+        var price = document.createElement('div');
+        price.className = 'product-header__price';
+        price.textContent = formatMoney(product.price, product.currency);
+        wrapper.appendChild(price);
+
+        var removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'product-header__remove';
+        removeBtn.dataset.action = 'remove-from-compare';
+        removeBtn.dataset.productId = product.id;
+        removeBtn.textContent = 'Remove';
+        wrapper.appendChild(removeBtn);
+
+        th.appendChild(wrapper);
+        container.appendChild(th);
+      });
+    }
+
+    function getAttributesForTab(tab) {
+      if (tab === 'efficiency') {
+        return [
+          {
+            key: 'efficiency_rating_percent',
+            label: 'Efficiency rating (%)',
+            accessor: function(p) {
+              return typeof p.efficiency_rating_percent === 'number' ? p.efficiency_rating_percent.toFixed(1) : '';
+            }
+          },
+          {
+            key: 'energy_efficiency_class',
+            label: 'Energy efficiency class',
+            accessor: function(p) { return p.energy_efficiency_class || ''; }
+          },
+          {
+            key: 'power_output',
+            label: 'Power output (W)',
+            accessor: function(p) {
+              var min = typeof p.power_output_watts_min === 'number' ? p.power_output_watts_min : null;
+              var max = typeof p.power_output_watts_max === 'number' ? p.power_output_watts_max : null;
+              if (min != null && max != null) return min + ' b7 ' + max;
+              if (min != null) return String(min);
+              if (max != null) return String(max);
+              return '';
+            }
+          },
+          {
+            key: 'max_floor_area_m2',
+            label: 'Max floor area (mb2)',
+            accessor: function(p) {
+              return typeof p.max_floor_area_m2 === 'number' ? String(p.max_floor_area_m2) : '';
+            }
+          },
+          {
+            key: 'min_floor_area_m2',
+            label: 'Min floor area (mb2)',
+            accessor: function(p) {
+              return typeof p.min_floor_area_m2 === 'number' ? String(p.min_floor_area_m2) : '';
+            }
+          },
+          {
+            key: 'average_customer_rating',
+            label: 'Average customer rating',
+            accessor: function(p) {
+              return typeof p.average_customer_rating === 'number' ? p.average_customer_rating.toFixed(1) : '';
+            }
+          },
+          {
+            key: 'review_count',
+            label: 'Number of reviews',
+            accessor: function(p) {
+              return typeof p.review_count === 'number' ? String(p.review_count) : '';
+            }
+          }
+        ];
+      }
+
+      if (tab === 'capacity_dimensions') {
+        return [
+          {
+            key: 'capacity_gallons',
+            label: 'Storage capacity (gal)',
+            accessor: function(p) {
+              return typeof p.capacity_gallons === 'number' ? String(p.capacity_gallons) : '';
+            }
+          },
+          {
+            key: 'mounting_type',
+            label: 'Mounting type',
+            accessor: function(p) { return p.mounting_type ? humanizeSlug(p.mounting_type) : ''; }
+          },
+          {
+            key: 'application_type',
+            label: 'Application',
+            accessor: function(p) { return p.application_type ? humanizeSlug(p.application_type) : ''; }
+          },
+          {
+            key: 'power_output_cap',
+            label: 'Power output range (W)',
+            accessor: function(p) {
+              var min = typeof p.power_output_watts_min === 'number' ? p.power_output_watts_min : null;
+              var max = typeof p.power_output_watts_max === 'number' ? p.power_output_watts_max : null;
+              if (min != null && max != null) return min + ' b7 ' + max;
+              if (min != null) return String(min);
+              if (max != null) return String(max);
+              return '';
+            }
+          },
+          {
+            key: 'max_floor_area_m2_cap',
+            label: 'Recommended max floor area (mb2)',
+            accessor: function(p) {
+              return typeof p.max_floor_area_m2 === 'number' ? String(p.max_floor_area_m2) : '';
+            }
+          }
+        ];
+      }
+
+      return [
+        {
+          key: 'product_type',
+          label: 'Product type',
+          accessor: function(p) { return p.subcategorySlug ? humanizeSlug(p.subcategorySlug) : ''; }
+        },
+        {
+          key: 'categorySlug',
+          label: 'Category',
+          accessor: function(p) { return p.categorySlug ? humanizeSlug(p.categorySlug) : ''; }
+        },
+        {
+          key: 'model_code',
+          label: 'Model code',
+          accessor: function(p) { return p.model_code || ''; }
+        },
+        {
+          key: 'sku',
+          label: 'SKU',
+          accessor: function(p) { return p.sku || ''; }
+        },
+        {
+          key: 'fuel_type',
+          label: 'Fuel type',
+          accessor: function(p) { return p.fuel_type ? humanizeSlug(p.fuel_type) : ''; }
+        },
+        {
+          key: 'technology',
+          label: 'Technology',
+          accessor: function(p) { return p.technology ? humanizeSlug(p.technology) : ''; }
+        },
+        {
+          key: 'application_type',
+          label: 'Application',
+          accessor: function(p) { return p.application_type ? humanizeSlug(p.application_type) : ''; }
+        },
+        {
+          key: 'thermostat_type',
+          label: 'Thermostat type',
+          accessor: function(p) { return p.thermostat_type ? humanizeSlug(p.thermostat_type) : ''; }
+        },
+        {
+          key: 'is_wifi_enabled',
+          label: 'Wi-Fi enabled',
+          accessor: function(p) { return formatBoolean(p.is_wifi_enabled); }
+        },
+        {
+          key: 'datasheet_url',
+          label: 'Datasheet',
+          accessor: function(p) { return p.datasheet_url || ''; },
+          isLink: true,
+          linkLabel: 'View datasheet'
+        },
+        {
+          key: 'manual_url',
+          label: 'Installation / user manual',
+          accessor: function(p) { return p.manual_url || ''; },
+          isLink: true,
+          linkLabel: 'View manual'
+        }
+      ];
+    }
+
+    function renderAttributeRows(container) {
+      container.innerHTML = '';
+
+      if (!state.orderedProducts || state.orderedProducts.length === 0) {
+        return;
+      }
+
+      var attributes = getAttributesForTab(state.activeTab);
+
+      attributes.forEach(function(attr) {
+        var tr = document.createElement('tr');
+        tr.className = 'comparison-table__row';
+
+        var labelTh = document.createElement('th');
+        labelTh.className = 'comparison-table__cell comparison-table__cell--attribute-label';
+        labelTh.scope = 'row';
+        labelTh.textContent = attr.label;
+        tr.appendChild(labelTh);
+
+        state.orderedProducts.forEach(function(product) {
+          var td = document.createElement('td');
+          td.className = 'comparison-table__cell comparison-table__cell--value';
+          var value = attr.accessor(product);
+
+          if (attr.isLink && value) {
+            var link = document.createElement('a');
+            link.href = value;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.textContent = attr.linkLabel || 'Open';
+            td.appendChild(link);
+          } else if (value !== null && value !== undefined && value !== '') {
+            td.textContent = value;
+          }
+
+          tr.appendChild(td);
+        });
+
+        container.appendChild(tr);
+      });
+    }
+
+    function updateTabsVisual() {
+      var tabs = document.querySelectorAll('[data-action="change-tab"]');
+      tabs.forEach(function(tabEl) {
+        var t = tabEl.dataset.tab;
+        if (t === state.activeTab) {
+          tabEl.classList.add('comparison-tabs__tab--active');
+        } else {
+          tabEl.classList.remove('comparison-tabs__tab--active');
+        }
+      });
+    }
+
+    function setActiveTab(tab, updateUrl) {
+      if (ALLOWED_TABS.indexOf(tab) === -1) {
+        tab = 'overview';
+      }
+      if (state.activeTab === tab) {
+        return;
+      }
+      state.activeTab = tab;
+      updateTabsVisual();
+      var attrBody = document.querySelector('[data-populate="comparison-attribute-rows"]');
+      if (attrBody) {
+        renderAttributeRows(attrBody);
+      }
+      if (updateUrl) {
+        updateUrlTab(tab);
+      }
+    }
+
+    function handleBackToResults(event) {
+      event.preventDefault();
+      var target = state.originUrl || 'products.html';
+      window.location.href = target;
+    }
+
+    function handleOpenProductDetail(event, productId) {
+      event.preventDefault();
+      if (!productId) return;
+      window.location.href = 'product.html?id=' + encodeURIComponent(productId);
+    }
+
+    function handleRemoveFromCompare(event, productId) {
+      event.preventDefault();
+      if (!productId) return;
+
+      var response;
+      try {
+        response = WebsiteSDK.removeFromCompareList(productId);
+      } catch (e) {
+        showError('Unable to update comparison at the moment. Please try again.');
+        return;
+      }
+
+      if (!response || !response.compare_list) {
+        showError('Unable to update comparison at the moment. Please try again.');
+        return;
+      }
+
+      state.compareList = response.compare_list;
+      state.orderedProducts = getOrderedProducts(state.compareList, state.products);
+
+      var tableWrapper = document.querySelector('[data-component="comparison-table-wrapper"]');
+      var emptyState = document.querySelector('[data-component="compare-empty-state"]');
+
+      var hasProducts = state.orderedProducts && state.orderedProducts.length > 0;
+
+      if (!hasProducts) {
+        if (tableWrapper) tableWrapper.style.display = 'none';
+        if (emptyState) emptyState.hidden = false;
+        showError('');
+        return;
+      }
+
+      if (tableWrapper) tableWrapper.style.display = '';
+      if (emptyState) emptyState.hidden = true;
+
+      var headerRow = document.querySelector('[data-populate="comparison-product-header-row"]');
+      var attrBody = document.querySelector('[data-populate="comparison-attribute-rows"]');
+      if (headerRow) {
+        renderProductHeaderRow(headerRow);
+      }
+      if (attrBody) {
+        renderAttributeRows(attrBody);
+      }
+      showError('');
+    }
+
+    function handleChangeTab(event, tab) {
+      event.preventDefault();
+      if (!tab) return;
+      setActiveTab(tab, true);
+    }
+
+    function setupActionHandlers() {
+      document.addEventListener('click', function(evt) {
+        var target = evt.target.closest('[data-action]');
+        if (!target) return;
+        var action = target.dataset.action;
+
+        if (action === 'back-to-results') {
+          handleBackToResults(evt);
+        } else if (action === 'open-product-detail') {
+          handleOpenProductDetail(evt, target.dataset.productId);
+        } else if (action === 'remove-from-compare') {
+          handleRemoveFromCompare(evt, target.dataset.productId);
+        } else if (action === 'change-tab') {
+          handleChangeTab(evt, target.dataset.tab);
+        }
+      });
+    }
+
+    function handlePopState() {
+      var params = new URLSearchParams(window.location.search);
+      var tabParam = params.get('tab');
+      var tab = ALLOWED_TABS.indexOf(tabParam) !== -1 ? tabParam : 'overview';
+      if (tab !== state.activeTab) {
+        state.activeTab = tab;
+        updateTabsVisual();
+        var attrBody = document.querySelector('[data-populate="comparison-attribute-rows"]');
+        if (attrBody) {
+          renderAttributeRows(attrBody);
+        }
+      }
+    }
+
+    function populateData() {
+      var compareData;
+      try {
+        compareData = WebsiteSDK.getCompareListDetails();
+      } catch (e) {
+        showError('Unable to load comparison data. Please refresh the page.');
+        return;
+      }
+
+      if (!compareData || !compareData.compare_list) {
+        showError('Unable to load comparison data. Please refresh the page.');
+        return;
+      }
+
+      state.compareList = compareData.compare_list;
+      state.products = Array.isArray(compareData.products) ? compareData.products : [];
+      state.orderedProducts = getOrderedProducts(state.compareList, state.products);
+
+      setInitialViewVisibility();
+
+      var populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function(el) {
+        var type = el.dataset.populate;
+        if (type === 'comparison-product-header-row') {
+          renderProductHeaderRow(el);
+        } else if (type === 'comparison-attribute-rows') {
+          renderAttributeRows(el);
+        }
+      });
+
+      updateTabsVisual();
+      showError('');
+    }
+
+    parseInitialUrlState();
+    setupActionHandlers();
+    window.addEventListener('popstate', handlePopState);
+    populateData();
+  });
+</script>

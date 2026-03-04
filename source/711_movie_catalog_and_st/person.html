@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Movie Catalog</title>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='person.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='header-inner'>
+      <a href='index.html' class='brand'>Movie Catalog</a>
+      <nav class='main-nav' aria-label='Primary navigation'>
+        <ul>
+          <li><a href='index.html'>Home</a></li>
+          <li><a href='genre.html?genreId=all'>Genres</a></li>
+          <li><a href='genre.html?genreId=action'>Action</a></li>
+          <li><a href='genre.html?genreId=comedy'>Comedy</a></li>
+          <li><a href='genre.html?genreId=family'>Family</a></li>
+          <li><a href='watchlist.html'>Watchlist</a></li>
+          <li><a href='lists.html'>Lists</a></li>
+          <li><a href='settings.html'>Settings</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-content' tabindex='-1'>
+    <div class='page person-page'>
+      <!-- Person header -->
+      <section class='person-header-section' data-component='person-header' data-populate='person-header'>
+        <div class='person-header-skeleton'>
+          <div class='skeleton-line skeleton-title'></div>
+          <div class='skeleton-line'></div>
+          <div class='skeleton-line skeleton-short'></div>
+        </div>
+      </section>
+
+      <!-- Filter + sort control band -->
+      <section class='person-controls-section'>
+        <div class='control-band'>
+          <div class='control-band-left' data-component='filmography-filter-controls' data-populate='filmography-filters'>
+            <div class='filter-skeleton-row'>
+              <span class='filter-skeleton-pill'></span>
+              <span class='filter-skeleton-pill'></span>
+              <span class='filter-skeleton-pill'></span>
+              <span class='filter-skeleton-pill'></span>
+            </div>
+          </div>
+          <div class='control-band-right' data-component='filmography-sort-controls' data-populate='filmography-sort-controls'>
+            <!-- Sort controls rendered via JS -->
+          </div>
+        </div>
+      </section>
+
+      <!-- Filmography area -->
+      <section class='filmography-section'>
+        <div class='filmography-list-container' data-component='filmography-list' data-populate='filmography-list'>
+          <div class='filmography-skeleton two-column-layout'>
+            <div class='filmography-skeleton-column'>
+              <div class='skeleton-section-header'></div>
+              <div class='skeleton-section-count'></div>
+              <div class='skeleton-section-divider'></div>
+              <div class='skeleton-row'></div>
+              <div class='skeleton-row'></div>
+              <div class='skeleton-row'></div>
+              <div class='skeleton-row'></div>
+            </div>
+            <div class='filmography-skeleton-column'>
+              <div class='skeleton-section-header'></div>
+              <div class='skeleton-section-count'></div>
+              <div class='skeleton-section-divider'></div>
+              <div class='skeleton-row'></div>
+              <div class='skeleton-row'></div>
+              <div class='skeleton-row'></div>
+              <div class='skeleton-row'></div>
+            </div>
+          </div>
+        </div>
+
+        <div class='filmography-empty-container' data-component='filmography-empty-state' data-populate='filmography-empty-state' hidden>
+          <!-- Empty state rendered via JS -->
+        </div>
+
+        <nav class='filmography-pagination' data-component='filmography-pagination' data-populate='filmography-pagination' aria-label='Filmography pagination'>
+          <!-- Pagination rendered via JS -->
+        </nav>
+      </section>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner'>
+      <nav class='footer-nav' aria-label='Footer navigation'>
+        <ul>
+          <li><a href='about.html'>About</a></li>
+          <li><a href='help.html'>Help</a></li>
+          <li><a href='contact.html'>Contact</a></li>
+          <li><a href='privacy.html'>Privacy Policy</a></li>
+          <li><a href='terms.html'>Terms of Service</a></li>
+        </ul>
+      </nav>
+      <p class='footer-meta'>&copy; 2026 Movie Catalog. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var PAGE_SIZE = 50;
+    var DEFAULT_SORT_ORDER = 'release_date_new_to_old';
+
+    var filterOptionsCache = null;
+    var currentFilmography = null;
+
+    function escapeHtml(value) {
+      if (value === null || value === undefined) {
+        return '';
+      }
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function getStateFromUrl() {
+      var url = new URL(window.location.href);
+      var params = url.searchParams;
+
+      var personId = params.get('id');
+      var pageParam = params.get('page');
+      var pageNum = parseInt(pageParam || '1', 10);
+      if (!Number.isFinite(pageNum) || pageNum < 1) {
+        pageNum = 1;
+      }
+
+      var sortOrderParam = params.get('sortOrder');
+      var sortOrder = sortOrderParam || null;
+
+      var urlFiltersRaw = {
+        language: params.get('language') || '',
+        yearFrom: params.get('yearFrom') || '',
+        yearTo: params.get('yearTo') || '',
+        userRatingMin: params.get('userRatingMin') || '',
+        contentRatings: params.get('contentRatings') || '',
+        providers: params.get('providers') || '',
+        availabilityTypes: params.get('availabilityTypes') || ''
+      };
+
+      var filters = {};
+
+      if (urlFiltersRaw.language) {
+        filters.primary_languages = [urlFiltersRaw.language];
+      }
+
+      if (urlFiltersRaw.yearFrom) {
+        var yFrom = parseInt(urlFiltersRaw.yearFrom, 10);
+        if (Number.isFinite(yFrom)) {
+          filters.release_year_min = yFrom;
+        }
+      }
+
+      if (urlFiltersRaw.yearTo) {
+        var yTo = parseInt(urlFiltersRaw.yearTo, 10);
+        if (Number.isFinite(yTo)) {
+          filters.release_year_max = yTo;
+        }
+      }
+
+      if (urlFiltersRaw.userRatingMin) {
+        var rMin = parseFloat(urlFiltersRaw.userRatingMin);
+        if (Number.isFinite(rMin)) {
+          filters.user_rating_min = rMin;
+        }
+      }
+
+      if (urlFiltersRaw.contentRatings) {
+        var cr = urlFiltersRaw.contentRatings.split(',').filter(function(v) { return v; });
+        if (cr.length) {
+          filters.content_ratings = cr;
+        }
+      }
+
+      if (urlFiltersRaw.providers) {
+        var prov = urlFiltersRaw.providers.split(',').filter(function(v) { return v; });
+        if (prov.length) {
+          filters.streaming_provider_codes = prov;
+        }
+      }
+
+      if (urlFiltersRaw.availabilityTypes) {
+        var av = urlFiltersRaw.availabilityTypes.split(',').filter(function(v) { return v; });
+        if (av.length) {
+          filters.availability_types = av;
+        }
+      }
+
+      return {
+        personId: personId,
+        page: pageNum,
+        sortOrder: sortOrder,
+        filters: filters,
+        urlFiltersRaw: urlFiltersRaw
+      };
+    }
+
+    function loadFilterOptionsOnce() {
+      if (filterOptionsCache) {
+        return filterOptionsCache;
+      }
+      try {
+        filterOptionsCache = WebsiteSDK.getTitleFilterOptions('person_filmography');
+      } catch (err) {
+        console.error('Failed to load filter options', err);
+        filterOptionsCache = null;
+      }
+      return filterOptionsCache;
+    }
+
+    function renderPersonHeader(container, person) {
+      if (!container) return;
+      if (!person) {
+        container.innerHTML = '\n          <div class=\'person-header-inner\'>\n            <h1 class=\'person-name\'>Person not found</h1>\n            <p class=\'person-meta\'>The requested person could not be loaded. Check the link and try again.</p>\n          </div>\n        ';
+        return;
+      }
+      var roles = Array.isArray(person.primary_roles) ? person.primary_roles : [];
+      var rolesLabel = roles.length ? roles.join(', ') : '';
+      var bio = person.biography || '';
+      var photo = person.photo_url || '';
+
+      var html = '';
+      html += "<div class='person-header-inner'>";
+      if (photo) {
+        html += "<div class='person-photo'><img src='" + escapeHtml(photo) + "' alt='" + escapeHtml(person.name) + "'></div>";
+      }
+      html += "<div class='person-summary'>";
+      html += "<h1 class='person-name'>" + escapeHtml(person.name || 'Unknown person') + "</h1>";
+      if (rolesLabel) {
+        html += "<div class='person-roles'>" + escapeHtml(rolesLabel) + "</div>";
+      }
+      if (typeof person.popularity_score === 'number') {
+        html += "<div class='person-popularity'>Popularity score: " + escapeHtml(person.popularity_score) + "</div>";
+      }
+      if (bio) {
+        html += "<p class='person-biography'>" + escapeHtml(bio) + "</p>";
+      }
+      html += "</div></div>";
+
+      container.innerHTML = html;
+    }
+
+    function renderFilters(container, filterOptions, urlFiltersRaw) {
+      if (!container) return;
+      if (!filterOptions) {
+        container.innerHTML = '\n          <div class=\'filter-error\'>Unable to load filters.</div>\n        ';
+        return;
+      }
+
+      var selectedContentRatings = urlFiltersRaw.contentRatings ? urlFiltersRaw.contentRatings.split(',').filter(function(v) { return v; }) : [];
+      var selectedProviders = urlFiltersRaw.providers ? urlFiltersRaw.providers.split(',').filter(function(v) { return v; }) : [];
+      var selectedAvailability = urlFiltersRaw.availabilityTypes ? urlFiltersRaw.availabilityTypes.split(',').filter(function(v) { return v; }) : [];
+
+      var yearRange = filterOptions.release_year_range || null;
+      var ratingRange = filterOptions.user_rating_range || null;
+
+      var html = '';
+      html += "<form class='filter-form' aria-label='Filter filmography' onsubmit='return false'>";
+
+      // Language
+      html += "<div class='filter-group'>";
+      html += "<label class='filter-field'>";
+      html += "<span class='filter-label'>Language</span>";
+      html += "<select class='filter-select' data-action='change-language-filter'>";
+      html += "<option value=''>All languages</option>";
+      if (Array.isArray(filterOptions.languages)) {
+        filterOptions.languages.forEach(function(lang) {
+          var code = lang && lang.code ? String(lang.code) : '';
+          var name = lang && lang.name ? lang.name : code;
+          var selected = urlFiltersRaw.language && urlFiltersRaw.language === code ? ' selected' : '';
+          html += "<option value='" + escapeHtml(code) + "'" + selected + ">" + escapeHtml(name) + "</option>";
+        });
+      }
+      html += "</select>";
+      html += "</label>";
+      html += "</div>";
+
+      // Release year range
+      html += "<div class='filter-group'>";
+      html += "<div class='filter-field range-field'>";
+      html += "<span class='filter-label'>Release year</span>";
+      var yearMin = yearRange && typeof yearRange.min === 'number' ? yearRange.min : '';
+      var yearMax = yearRange && typeof yearRange.max === 'number' ? yearRange.max : '';
+      html += "<div class='filter-range-inputs'>";
+      html += "<input type='number' class='filter-input filter-input-year' placeholder='From' min='" + escapeHtml(yearMin) + "' max='" + escapeHtml(yearMax) + "' value='" + escapeHtml(urlFiltersRaw.yearFrom) + "' data-action='change-year-from'>";
+      html += "<span class='range-separator'>to</span>";
+      html += "<input type='number' class='filter-input filter-input-year' placeholder='To' min='" + escapeHtml(yearMin) + "' max='" + escapeHtml(yearMax) + "' value='" + escapeHtml(urlFiltersRaw.yearTo) + "' data-action='change-year-to'>";
+      html += "</div>";
+      html += "</div>";
+      html += "</div>";
+
+      // User rating min
+      html += "<div class='filter-group'>";
+      html += "<label class='filter-field'>";
+      html += "<span class='filter-label'>Minimum user rating</span>";
+      var ratingMin = ratingRange && typeof ratingRange.min === 'number' ? ratingRange.min : 0;
+      var ratingMax = ratingRange && typeof ratingRange.max === 'number' ? ratingRange.max : 10;
+      var ratingStep = ratingRange && typeof ratingRange.step === 'number' ? ratingRange.step : 0.1;
+      html += "<input type='number' class='filter-input filter-input-rating' min='" + escapeHtml(ratingMin) + "' max='" + escapeHtml(ratingMax) + "' step='" + escapeHtml(ratingStep) + "' placeholder='Any' value='" + escapeHtml(urlFiltersRaw.userRatingMin) + "' data-action='change-user-rating-min'>";
+      html += "</label>";
+      html += "</div>";
+
+      // Content ratings
+      html += "<div class='filter-group'>";
+      html += "<fieldset class='filter-field'>";
+      html += "<legend class='filter-label'>Content rating</legend>";
+      html += "<div class='filter-chip-group'>";
+      if (Array.isArray(filterOptions.content_ratings)) {
+        filterOptions.content_ratings.forEach(function(cr) {
+          var val = cr && cr.value ? String(cr.value) : '';
+          var label = cr && cr.label ? cr.label : val;
+          var checked = selectedContentRatings.indexOf(val) !== -1 ? ' checked' : '';
+          html += "<label class='filter-chip'><input type='checkbox' class='filter-checkbox' value='" + escapeHtml(val) + "' data-action='toggle-content-rating'" + checked + "><span>" + escapeHtml(label) + "</span></label>";
+        });
+      }
+      html += "</div>";
+      html += "</fieldset>";
+      html += "</div>";
+
+      // Providers
+      html += "<div class='filter-group'>";
+      html += "<fieldset class='filter-field'>";
+      html += "<legend class='filter-label'>Streaming providers</legend>";
+      html += "<div class='filter-chip-group'>";
+      if (Array.isArray(filterOptions.streaming_providers)) {
+        filterOptions.streaming_providers.forEach(function(provider) {
+          var code = provider && provider.code ? String(provider.code) : '';
+          var label = provider && provider.name ? provider.name : code;
+          var checked = selectedProviders.indexOf(code) !== -1 ? ' checked' : '';
+          html += "<label class='filter-chip'><input type='checkbox' class='filter-checkbox' value='" + escapeHtml(code) + "' data-action='toggle-provider'" + checked + "><span>" + escapeHtml(label) + "</span></label>";
+        });
+      }
+      html += "</div>";
+      html += "</fieldset>";
+      html += "</div>";
+
+      // Availability types
+      html += "<div class='filter-group'>";
+      html += "<fieldset class='filter-field'>";
+      html += "<legend class='filter-label'>Availability</legend>";
+      html += "<div class='filter-chip-group'>";
+      if (Array.isArray(filterOptions.availability_types)) {
+        filterOptions.availability_types.forEach(function(av) {
+          var val = av && av.value ? String(av.value) : '';
+          var label = av && av.label ? av.label : val;
+          var checked = selectedAvailability.indexOf(val) !== -1 ? ' checked' : '';
+          html += "<label class='filter-chip'><input type='checkbox' class='filter-checkbox' value='" + escapeHtml(val) + "' data-action='toggle-availability-type'" + checked + "><span>" + escapeHtml(label) + "</span></label>";
+        });
+      }
+      html += "</div>";
+      html += "</fieldset>";
+      html += "</div>";
+
+      // Clear button
+      html += "<div class='filter-group filter-group-actions'>";
+      html += "<button type='button' class='filter-clear-button' data-action='clear-filters'>Clear filters</button>";
+      html += "</div>";
+
+      html += "</form>";
+
+      container.innerHTML = html;
+    }
+
+    function renderSortControls(container, sortOrder) {
+      if (!container) return;
+      var effectiveSort = sortOrder || DEFAULT_SORT_ORDER;
+      var options = [
+        { value: 'user_rating_high_to_low', label: 'User rating (high to low)' },
+        { value: 'release_date_new_to_old', label: 'Release date (new to old)' },
+        { value: 'popularity', label: 'Popularity' }
+      ];
+      var html = '';
+      html += "<div class='sort-controls'>";
+      html += "<label class='sort-label'>Sort by ";
+      html += "<select class='sort-select' data-action='change-sort-order'>";
+      options.forEach(function(opt) {
+        var selected = opt.value === effectiveSort ? ' selected' : '';
+        html += "<option value='" + escapeHtml(opt.value) + "'" + selected + ">" + escapeHtml(opt.label) + "</option>";
+      });
+      html += "</select>";
+      html += "</label>";
+      html += "</div>";
+      container.innerHTML = html;
+    }
+
+    function buildAvailabilityLabelMap(filterOptions) {
+      var map = {};
+      if (filterOptions && Array.isArray(filterOptions.availability_types)) {
+        filterOptions.availability_types.forEach(function(av) {
+          if (av && av.value) {
+            map[String(av.value)] = av.label || av.value;
+          }
+        });
+      }
+      return map;
+    }
+
+    function buildRoleLabel(roleType) {
+      if (!roleType) return '';
+      var mapping = {
+        actor: 'Actor',
+        director: 'Director',
+        writer: 'Writer',
+        producer: 'Producer',
+        cast: 'Cast',
+        crew: 'Crew'
+      };
+      return mapping[roleType] || roleType;
+    }
+
+    function buildColumnHtml(groups, availabilityLabels) {
+      var html = '';
+      groups.forEach(function(group) {
+        html += "<section class='filmography-section-group'>";
+        html += "<header class='section-header'>";
+        html += "<h2 class='section-title'>" + escapeHtml(group.label) + "</h2>";
+        html += "<span class='section-count'>" + escapeHtml(group.credits.length) + " title" + (group.credits.length === 1 ? '' : 's') + "</span>";
+        html += "</header>";
+        html += "<hr class='section-divider'>";
+        html += "<ul class='text-link-list'>";
+        group.credits.forEach(function(item) {
+          var movie = item.movie || {};
+          var pc = item.person_credit || {};
+          var roleType = pc.role_type || '';
+          var roleLabel = buildRoleLabel(roleType);
+          var character = pc.character_name || '';
+          var primaryGenreName = item.primary_genre_name || '';
+          var year = typeof movie.release_year === 'number' ? String(movie.release_year) : '';
+          var rating = typeof movie.user_rating === 'number' ? movie.user_rating.toFixed(1) : '';
+          var movieId = movie.id || '';
+          var watchStatus = item.watch_status || null;
+          var isWatched = watchStatus && watchStatus.is_watched === true;
+          var offerInfo = '';
+          if (item.best_offer && item.best_offer.offer && item.best_offer.provider) {
+            var offer = item.best_offer.offer;
+            var provider = item.best_offer.provider;
+            var providerName = provider && provider.name ? provider.name : '';
+            var availabilityType = offer && offer.availability_type ? String(offer.availability_type) : '';
+            var availabilityLabel = availabilityLabels[availabilityType] || availabilityType;
+            if (providerName || availabilityLabel) {
+              offerInfo = (providerName ? providerName : '') + (providerName && availabilityLabel ? ' • ' : '') + (availabilityLabel ? availabilityLabel : '');
+            }
+          }
+
+          html += "<li class='filmography-row' data-movie-id='" + escapeHtml(movieId) + "'>";
+          html += "<button type='button' class='filmography-row-main' data-action='open-movie' data-movie-id='" + escapeHtml(movieId) + "'>";
+          html += "<span class='film-title'>" + escapeHtml(movie.title || '') + "</span>";
+          html += "<span class='film-meta'>";
+          if (year) {
+            html += "<span class='film-year'>" + escapeHtml(year) + "</span>";
+          }
+          if (primaryGenreName) {
+            html += "<span class='film-dot'>&bull;</span><span class='film-genre'>" + escapeHtml(primaryGenreName) + "</span>";
+          }
+          if (rating) {
+            html += "<span class='film-dot'>&bull;</span><span class='film-rating'>★ " + escapeHtml(rating) + "</span>";
+          }
+          if (roleLabel) {
+            html += "<span class='film-dot'>&bull;</span><span class='film-role'>" + escapeHtml(roleLabel);
+            if (character) {
+              html += " as " + escapeHtml(character);
+            }
+            html += "</span>";
+          }
+          html += "</span>";
+          html += "</button>";
+
+          html += "<div class='filmography-row-actions'>";
+          if (offerInfo) {
+            html += "<span class='offer-pill'>" + escapeHtml(offerInfo) + "</span>";
+          }
+          var ariaPressed = isWatched ? 'true' : 'false';
+          var watchLabel = isWatched ? 'Watched' : 'Mark watched';
+          html += "<button type='button' class='watch-toggle' data-action='toggle-watch' data-movie-id='" + escapeHtml(movieId) + "' aria-pressed='" + ariaPressed + "'>";
+          html += "<span class='watch-toggle-icon'>" + (isWatched ? '&#9679;' : '&#9675;') + "</span>";
+          html += "<span class='watch-toggle-label'>" + escapeHtml(watchLabel) + "</span>";
+          html += "</button>";
+          html += "</div>";
+
+          html += "</li>";
+        });
+        html += "</ul>";
+        html += "</section>";
+      });
+      return html;
+    }
+
+    function renderFilmography(container, filmographyResponse, filterOptions) {
+      if (!container) return;
+      if (!filmographyResponse || !Array.isArray(filmographyResponse.credits)) {
+        container.innerHTML = '';
+        return;
+      }
+
+      var credits = filmographyResponse.credits;
+      if (!credits.length) {
+        container.innerHTML = '';
+        return;
+      }
+
+      var availabilityLabels = buildAvailabilityLabelMap(filterOptions || {});
+
+      var groupsMap = {};
+      credits.forEach(function(item) {
+        var pc = item.person_credit || {};
+        var roleType = pc.role_type || 'cast';
+        if (!groupsMap[roleType]) {
+          groupsMap[roleType] = [];
+        }
+        groupsMap[roleType].push(item);
+      });
+
+      var roleOrder = ['actor', 'director', 'writer', 'producer', 'cast', 'crew'];
+      var groupKeys = Object.keys(groupsMap);
+      groupKeys.sort(function(a, b) {
+        var ia = roleOrder.indexOf(a);
+        var ib = roleOrder.indexOf(b);
+        if (ia === -1 && ib === -1) return a.localeCompare(b);
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+
+      var groupList = groupKeys.map(function(key) {
+        return {
+          roleType: key,
+          label: buildRoleLabel(key),
+          credits: groupsMap[key]
+        };
+      });
+
+      var splitIndex = Math.ceil(groupList.length / 2);
+      var leftGroups = groupList.slice(0, splitIndex);
+      var rightGroups = groupList.slice(splitIndex);
+
+      var html = '';
+      html += "<div class='filmography-header-row'>";
+      html += "<div class='filmography-total'>" + escapeHtml(filmographyResponse.total_credits || credits.length) + " title" + ((filmographyResponse.total_credits || credits.length) === 1 ? '' : 's') + " in filmography</div>";
+      html += "</div>";
+
+      html += "<div class='filmography-columns two-column-layout'>";
+      html += "<div class='filmography-column filmography-column-left'>" + buildColumnHtml(leftGroups, availabilityLabels) + "</div>";
+      html += "<div class='filmography-column filmography-column-right'>" + buildColumnHtml(rightGroups, availabilityLabels) + "</div>";
+      html += "</div>";
+
+      html += "<div class='filmography-ad-banner' data-component='filmography-ad'>";
+      html += "<button type='button' class='ad-close-button' data-action='close-ad'>tutup</button>";
+      html += "<div class='ad-banner-inner'>";
+      html += "<div class='ad-banner-text'>Advertisement</div>";
+      html += "</div>";
+      html += "</div>";
+
+      container.innerHTML = html;
+    }
+
+    function renderPagination(container, page, totalPages, totalCredits) {
+      if (!container) return;
+      var p = typeof page === 'number' && page > 0 ? page : 1;
+      var tp = typeof totalPages === 'number' && totalPages > 0 ? totalPages : 1;
+
+      if (tp <= 1) {
+        container.innerHTML = '';
+        return;
+      }
+
+      var prevDisabled = p <= 1;
+      var nextDisabled = p >= tp;
+
+      var html = '';
+      html += "<div class='pagination-inner'>";
+      html += "<button type='button' class='page-button page-prev" + (prevDisabled ? " is-disabled" : "") + "' data-action='change-page' data-page='" + escapeHtml(p - 1) + "'" + (prevDisabled ? " disabled" : "") + ">Prev</button>";
+      html += "<span class='page-status'>Page " + escapeHtml(p) + " of " + escapeHtml(tp) + "</span>";
+      html += "<button type='button' class='page-button page-next" + (nextDisabled ? " is-disabled" : "") + "' data-action='change-page' data-page='" + escapeHtml(p + 1) + "'" + (nextDisabled ? " disabled" : "") + ">Next</button>";
+      html += "</div>";
+
+      container.innerHTML = html;
+    }
+
+    function renderEmptyState(container, show) {
+      if (!container) return;
+      if (!show) {
+        container.hidden = true;
+        container.innerHTML = '';
+        return;
+      }
+      var html = '';
+      html += "<div class='empty-state'>";
+      html += "<h2 class='empty-title'>No titles match your filters</h2>";
+      html += "<p class='empty-body'>Try adjusting or clearing filters to see more of this person's filmography.</p>";
+      html += "<button type='button' class='empty-clear-button' data-action='clear-filters-empty'>Clear all filters</button>";
+      html += "</div>";
+      container.innerHTML = html;
+      container.hidden = false;
+    }
+
+    function updateUrlAndReload(partialParams, resetPage) {
+      var url = new URL(window.location.href);
+      var params = url.searchParams;
+
+      Object.keys(partialParams).forEach(function(key) {
+        var val = partialParams[key];
+        if (val === null || val === undefined || val === '') {
+          params.delete(key);
+        } else if (Array.isArray(val)) {
+          if (!val.length) {
+            params.delete(key);
+          } else {
+            params.set(key, val.join(','));
+          }
+        } else {
+          params.set(key, String(val));
+        }
+      });
+
+      if (resetPage) {
+        params.set('page', '1');
+      }
+
+      var newUrl = url.pathname + '?' + params.toString();
+      window.history.pushState({}, '', newUrl);
+      loadPageState();
+    }
+
+    function clearAllFiltersAndReload() {
+      var url = new URL(window.location.href);
+      var params = url.searchParams;
+      var keys = ['language', 'yearFrom', 'yearTo', 'userRatingMin', 'contentRatings', 'providers', 'availabilityTypes'];
+      keys.forEach(function(k) { params.delete(k); });
+      params.set('page', '1');
+      var newUrl = url.pathname + '?' + params.toString();
+      window.history.pushState({}, '', newUrl);
+      loadPageState();
+    }
+
+    function loadPageState() {
+      var state = getStateFromUrl();
+      var personId = state.personId;
+      var page = state.page;
+      var sortOrder = state.sortOrder || DEFAULT_SORT_ORDER;
+      var filters = state.filters;
+      var urlFiltersRaw = state.urlFiltersRaw;
+
+      var headerContainer = document.querySelector('[data-populate=person-header]');
+      var filtersContainer = document.querySelector('[data-populate=filmography-filters]');
+      var sortContainer = document.querySelector('[data-populate=filmography-sort-controls]');
+      var filmographyContainer = document.querySelector('[data-populate=filmography-list]');
+      var paginationContainer = document.querySelector('[data-populate=filmography-pagination]');
+      var emptyStateContainer = document.querySelector('[data-populate=filmography-empty-state]');
+
+      if (!personId) {
+        if (headerContainer) {
+          headerContainer.innerHTML = '\n            <div class=\'person-header-inner\'>\n              <h1 class=\'person-name\'>Person not specified</h1>\n              <p class=\'person-meta\'>This page requires a person id parameter, for example: <code>person.html?id=person_123</code>.</p>\n            </div>\n          ';
+        }
+        if (filtersContainer) {
+          filtersContainer.innerHTML = '';
+        }
+        if (sortContainer) {
+          sortContainer.innerHTML = '';
+        }
+        if (filmographyContainer) {
+          filmographyContainer.innerHTML = '';
+        }
+        if (paginationContainer) {
+          paginationContainer.innerHTML = '';
+        }
+        if (emptyStateContainer) {
+          renderEmptyState(emptyStateContainer, false);
+        }
+        return;
+      }
+
+      var person = null;
+      try {
+        person = WebsiteSDK.getPersonDetail(personId);
+      } catch (err) {
+        console.error('Failed to load person detail', err);
+      }
+
+      var filterOptions = loadFilterOptionsOnce();
+
+      var filmographyResponse = null;
+      try {
+        filmographyResponse = WebsiteSDK.getPersonFilmography(personId, page, PAGE_SIZE, sortOrder, filters);
+      } catch (err2) {
+        console.error('Failed to load filmography', err2);
+      }
+
+      if (filmographyResponse && filmographyResponse.person && !person) {
+        person = filmographyResponse.person;
+      }
+
+      if (headerContainer) {
+        renderPersonHeader(headerContainer, person);
+      }
+
+      if (filtersContainer) {
+        renderFilters(filtersContainer, filterOptions, urlFiltersRaw);
+      }
+
+      if (sortContainer) {
+        renderSortControls(sortContainer, state.sortOrder);
+      }
+
+      currentFilmography = filmographyResponse ? {
+        credits: filmographyResponse.credits || [],
+        total_credits: filmographyResponse.total_credits || 0,
+        page: filmographyResponse.page || page,
+        total_pages: filmographyResponse.total_pages || 1,
+        person: filmographyResponse.person || person
+      } : null;
+
+      if (filmographyResponse && Array.isArray(filmographyResponse.credits) && filmographyResponse.credits.length) {
+        if (filmographyContainer) {
+          renderFilmography(filmographyContainer, filmographyResponse, filterOptions);
+        }
+        if (paginationContainer) {
+          renderPagination(paginationContainer, filmographyResponse.page, filmographyResponse.total_pages, filmographyResponse.total_credits);
+        }
+        if (emptyStateContainer) {
+          renderEmptyState(emptyStateContainer, false);
+        }
+      } else {
+        if (filmographyContainer) {
+          filmographyContainer.innerHTML = '';
+        }
+        if (paginationContainer) {
+          renderPagination(paginationContainer, 1, 1, 0);
+        }
+        if (emptyStateContainer) {
+          renderEmptyState(emptyStateContainer, true);
+        }
+      }
+    }
+
+    function handleClick(event) {
+      var target = event.target.closest('[data-action]');
+      if (!target) return;
+      var action = target.getAttribute('data-action');
+      if (!action) return;
+
+      if (action === 'open-movie') {
+        var movieId = target.getAttribute('data-movie-id');
+        if (movieId) {
+          window.location.href = 'movie.html?id=' + encodeURIComponent(movieId);
+        }
+        return;
+      }
+
+      if (action === 'toggle-watch') {
+        var movieId2 = target.getAttribute('data-movie-id');
+        if (!movieId2) return;
+        var currentPressed = target.getAttribute('aria-pressed') === 'true';
+        var newIsWatched = !currentPressed;
+        var updatedStatus = null;
+        try {
+          updatedStatus = WebsiteSDK.setMovieWatchStatus(movieId2, newIsWatched);
+        } catch (err) {
+          console.error('Failed to update watch status', err);
+          return;
+        }
+        if (currentFilmography && Array.isArray(currentFilmography.credits)) {
+          currentFilmography.credits = currentFilmography.credits.map(function(credit) {
+            if (credit && credit.movie && credit.movie.id === movieId2) {
+              var updated = {};
+              Object.keys(credit).forEach(function(k) { updated[k] = credit[k]; });
+              updated.watch_status = updatedStatus;
+              return updated;
+            }
+            return credit;
+          });
+        }
+        var filmographyContainer = document.querySelector('[data-populate=filmography-list]');
+        if (filmographyContainer && currentFilmography) {
+          renderFilmography(filmographyContainer, {
+            credits: currentFilmography.credits,
+            total_credits: currentFilmography.total_credits,
+            page: currentFilmography.page,
+            total_pages: currentFilmography.total_pages,
+            person: currentFilmography.person
+          }, filterOptionsCache);
+        }
+        return;
+      }
+
+      if (action === 'clear-filters' || action === 'clear-filters-empty') {
+        clearAllFiltersAndReload();
+        return;
+      }
+
+      if (action === 'change-page') {
+        var pageStr = target.getAttribute('data-page');
+        var pageNum = parseInt(pageStr || '1', 10);
+        if (!Number.isFinite(pageNum) || pageNum < 1) return;
+        var url = new URL(window.location.href);
+        var params = url.searchParams;
+        params.set('page', String(pageNum));
+        var newUrl = url.pathname + '?' + params.toString();
+        window.history.pushState({}, '', newUrl);
+        loadPageState();
+        return;
+      }
+
+      if (action === 'close-ad') {
+        var ad = target.closest('.filmography-ad-banner');
+        if (ad) {
+          ad.style.display = 'none';
+        }
+        return;
+      }
+    }
+
+    function handleChange(event) {
+      var target = event.target.closest('[data-action]');
+      if (!target) return;
+      var action = target.getAttribute('data-action');
+      if (!action) return;
+
+      if (action === 'change-language-filter') {
+        var lang = target.value || null;
+        updateUrlAndReload({ language: lang }, true);
+        return;
+      }
+
+      if (action === 'change-year-from' || action === 'change-year-to') {
+        var filtersContainer = document.querySelector('[data-populate=filmography-filters]');
+        var fromInput = filtersContainer ? filtersContainer.querySelector('input[data-action=change-year-from]') : null;
+        var toInput = filtersContainer ? filtersContainer.querySelector('input[data-action=change-year-to]') : null;
+        var fromVal = fromInput && fromInput.value ? fromInput.value : '';
+        var toVal = toInput && toInput.value ? toInput.value : '';
+        updateUrlAndReload({ yearFrom: fromVal || null, yearTo: toVal || null }, true);
+        return;
+      }
+
+      if (action === 'change-user-rating-min') {
+        var ratingVal = target.value ? target.value : null;
+        updateUrlAndReload({ userRatingMin: ratingVal }, true);
+        return;
+      }
+
+      if (action === 'toggle-content-rating') {
+        var filtersContainer2 = document.querySelector('[data-populate=filmography-filters]');
+        var checked = filtersContainer2 ? filtersContainer2.querySelectorAll('input[data-action=toggle-content-rating]:checked') : [];
+        var values = [];
+        if (checked && checked.length !== undefined) {
+          for (var i = 0; i < checked.length; i++) {
+            values.push(checked[i].value);
+          }
+        }
+        updateUrlAndReload({ contentRatings: values }, true);
+        return;
+      }
+
+      if (action === 'toggle-provider') {
+        var filtersContainer3 = document.querySelector('[data-populate=filmography-filters]');
+        var checked2 = filtersContainer3 ? filtersContainer3.querySelectorAll('input[data-action=toggle-provider]:checked') : [];
+        var values2 = [];
+        if (checked2 && checked2.length !== undefined) {
+          for (var j = 0; j < checked2.length; j++) {
+            values2.push(checked2[j].value);
+          }
+        }
+        updateUrlAndReload({ providers: values2 }, true);
+        return;
+      }
+
+      if (action === 'toggle-availability-type') {
+        var filtersContainer4 = document.querySelector('[data-populate=filmography-filters]');
+        var checked3 = filtersContainer4 ? filtersContainer4.querySelectorAll('input[data-action=toggle-availability-type]:checked') : [];
+        var values3 = [];
+        if (checked3 && checked3.length !== undefined) {
+          for (var k = 0; k < checked3.length; k++) {
+            values3.push(checked3[k].value);
+          }
+        }
+        updateUrlAndReload({ availabilityTypes: values3 }, true);
+        return;
+      }
+
+      if (action === 'change-sort-order') {
+        var sortVal = target.value || null;
+        updateUrlAndReload({ sortOrder: sortVal }, true);
+        return;
+      }
+    }
+
+    window.addEventListener('popstate', function() {
+      loadPageState();
+    });
+
+    document.addEventListener('click', handleClick);
+    document.addEventListener('change', handleChange);
+
+    loadPageState();
+  });
+  </script>
+</body>
+</html>

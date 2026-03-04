@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Aquatic Insects Educational Site</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='compare.css'>
+</head>
+<body>
+  <header class='site-header' role='banner'>
+    <div class='site-header-inner'>
+      <div class='site-identity'>
+        <h1 class='site-title'>Aquatic Insects</h1>
+      </div>
+      <nav class='site-nav' aria-label='Primary navigation'>
+        <a href='index.html' title='Homepage and overview'>Home</a>
+        <a href='species.html' title='Browse and filter aquatic insect species'>Species</a>
+        <a href='compare.html' title='Compare insect orders and their life cycles'>Compare</a>
+        <a href='quizzes.html' title='Browse quizzes and build custom quizzes'>Quizzes</a>
+        <a href='lesson_builder.html' title='Create lesson plans and manage reading paths'>Lesson Builder</a>
+        <a href='articles.html' title='Browse learning articles and resources'>Articles</a>
+        <a href='maps.html' title='Explore species distribution maps'>Maps</a>
+        <a href='glossary.html' title='Search and filter glossary terms'>Glossary</a>
+        <a href='taxonomy.html' title='Browse insect orders and build metamorphosis charts'>Taxonomy</a>
+        <a href='study_list.html' title='View and manage your species study list'>My Study List</a>
+        <a href='collections.html' title='View and manage your species collections'>Collections</a>
+        <a href='map_notes.html' title='Access your saved distribution maps'>Map Notes</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-content' role='main'>
+    <a href='javascript:void(0)' data-component='taxonomy-navigation-link' data-action='navigate-taxonomy'>Explore these orders in Taxonomy</a>
+
+    <section data-component='comparison-title'>
+      <h1>Order Comparison</h1>
+      <p>Compare aquatic insect orders side by side by life-cycle traits.</p>
+      <p>Current comparison: <span data-populate='comparison-name'>(none)</span></p>
+    </section>
+
+    <section data-component='order-search-form'>
+      <form data-action='search-orders'>
+        <p>
+          <label for='orderSearchQuery'>Search insect orders by name</label><br>
+          <input type='search' id='orderSearchQuery' name='query'>
+        </p>
+        <p>
+          <label for='metamorphosisFilter'>Metamorphosis type</label><br>
+          <select id='metamorphosisFilter' name='metamorphosisType'>
+            <option value=''>Any</option>
+            <option value='complete_holometabolous'>Complete (holometabolous)</option>
+            <option value='incomplete_hemimetabolous'>Incomplete (hemimetabolous)</option>
+          </select>
+        </p>
+        <p>
+          <label>
+            <input type='checkbox' id='aquaticOnlyFilter' name='isAquaticOnly' checked>
+            Aquatic orders only
+          </label>
+        </p>
+        <p>
+          <button type='submit'>Search</button>
+        </p>
+      </form>
+      <div>
+        <h2>Search results</h2>
+        <ul data-populate='search-results'></ul>
+        <p data-populate='search-empty-message'>Type a name and click Search to find insect orders.</p>
+      </div>
+    </section>
+
+    <section data-component='selected-orders-panel'>
+      <h2>Selected orders</h2>
+      <ul data-populate='selected-orders'></ul>
+      <p data-populate='selected-orders-empty'>No orders selected yet. Add orders from the search results above.</p>
+    </section>
+
+    <section data-component='pinned-focus-toggle' hidden>
+      <p>
+        <label>
+          <input type='checkbox' data-action='toggle-focus'>
+          Show pinned order as focus
+        </label>
+      </p>
+      <p data-populate='pinned-order-label'></p>
+    </section>
+
+    <section data-component='comparison-config-toolbar'>
+      <h2>Comparison settings</h2>
+      <p>
+        <label for='comparisonNameInput'>Comparison name</label><br>
+        <input type='text' id='comparisonNameInput' name='comparisonName'>
+        <button type='button' data-action='save-comparison'>Save comparison</button>
+      </p>
+      <p>
+        <button type='button' data-action='reset-comparison'>Reset comparison</button>
+      </p>
+      <p>
+        <label for='shareLinkInput'>Shareable link</label><br>
+        <input type='text' id='shareLinkInput' data-populate='share-link' readonly>
+        <button type='button' data-action='copy-share-link'>Copy link</button>
+      </p>
+    </section>
+
+    <section data-component='comparison-table'>
+      <h2>Life-cycle trait comparison</h2>
+      <div data-populate='comparison-table-container'>
+        <p>No orders selected. Use the search above to add orders to the comparison.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class='site-footer' role='contentinfo'>
+    <nav class='footer-nav' aria-label='Footer navigation'>
+      <a href='about.html' title='About this educational biology website'>About</a>
+    </nav>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const state = {
+      config: null,
+      orders: [],
+      comparisonRows: [],
+      searchResults: []
+    };
+
+    const content = document.getElementById('content');
+
+    const populateMap = {};
+    const populateElements = content.querySelectorAll('[data-populate]');
+    populateElements.forEach(function(el) {
+      const key = el.dataset.populate;
+      if (key) {
+        populateMap[key] = el;
+      }
+    });
+
+    const pinnedToggleSection = content.querySelector('[data-component="pinned-focus-toggle"]');
+    const comparisonNameInput = document.getElementById('comparisonNameInput');
+    const searchForm = content.querySelector('form[data-action="search-orders"]');
+    const taxonomyLink = content.querySelector('[data-action="navigate-taxonomy"]');
+    const shareLinkInput = populateMap['share-link'];
+
+    function renderComparisonName(container, config) {
+      if (!container) return;
+      if (config && config.name) {
+        container.textContent = config.name;
+      } else {
+        container.textContent = '(none)';
+      }
+    }
+
+    function renderShareLink(container) {
+      if (!container) return;
+      container.value = window.location.href;
+    }
+
+    function renderSearchResults(container, results) {
+      if (!container) return;
+      container.innerHTML = '';
+      const emptyMsgEl = populateMap['search-empty-message'];
+      if (!results || results.length === 0) {
+        if (emptyMsgEl) {
+          emptyMsgEl.style.display = 'block';
+        }
+        return;
+      }
+      if (emptyMsgEl) {
+        emptyMsgEl.style.display = 'block';
+        emptyMsgEl.textContent = 'Click "Add to comparison" to include an order.';
+      }
+      results.forEach(function(order) {
+        const li = document.createElement('li');
+        const name = order.commonName ? order.commonName + ' (' + order.scientificName + ')' : order.scientificName;
+        li.appendChild(document.createTextNode(name + ' '));
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Add to comparison';
+        button.dataset.action = 'add-order-to-comparison';
+        button.dataset.orderId = order.id;
+        li.appendChild(button);
+        container.appendChild(li);
+      });
+    }
+
+    function renderSelectedOrders(container, currentState) {
+      if (!container) return;
+      container.innerHTML = '';
+      const emptyEl = populateMap['selected-orders-empty'];
+      const config = currentState.config;
+      const orders = currentState.orders;
+      if (!config || !config.selectedOrderIds || config.selectedOrderIds.length === 0) {
+        if (emptyEl) {
+          emptyEl.style.display = 'block';
+        }
+        return;
+      }
+      if (emptyEl) {
+        emptyEl.style.display = 'none';
+      }
+      const ordersById = {};
+      orders.forEach(function(o) {
+        ordersById[o.id] = o;
+      });
+      config.selectedOrderIds.forEach(function(orderId) {
+        const o = ordersById[orderId];
+        const li = document.createElement('li');
+        const orderName = o ? (o.commonName ? o.commonName + ' (' + o.scientificName + ')' : o.scientificName) : orderId;
+        li.appendChild(document.createTextNode(orderName + ' '));
+        if (config.pinnedOrderId === orderId) {
+          const pinnedSpan = document.createElement('span');
+          pinnedSpan.textContent = '[pinned] ';
+          li.appendChild(pinnedSpan);
+        }
+        const pinBtn = document.createElement('button');
+        pinBtn.type = 'button';
+        pinBtn.textContent = 'Pin';
+        pinBtn.dataset.action = 'pin-order';
+        pinBtn.dataset.orderId = orderId;
+        li.appendChild(pinBtn);
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.textContent = 'Remove';
+        removeBtn.dataset.action = 'remove-order';
+        removeBtn.dataset.orderId = orderId;
+        li.appendChild(removeBtn);
+        container.appendChild(li);
+      });
+    }
+
+    function renderPinnedFocusToggle(container, config, orders) {
+      if (!container) return;
+      if (!config || !config.pinnedOrderId) {
+        container.hidden = true;
+        return;
+      }
+      container.hidden = false;
+      const checkbox = container.querySelector('input[type="checkbox"][data-action="toggle-focus"]');
+      if (checkbox) {
+        checkbox.checked = !!config.showPinnedAsFocus;
+      }
+      const labelEl = container.querySelector('[data-populate="pinned-order-label"]');
+      if (labelEl) {
+        const order = orders.find(function(o) { return o.id === config.pinnedOrderId; });
+        if (order) {
+          const name = order.commonName ? order.commonName + ' (' + order.scientificName + ')' : order.scientificName;
+          labelEl.textContent = 'Pinned order: ' + name;
+        } else {
+          labelEl.textContent = 'Pinned order: ' + config.pinnedOrderId;
+        }
+      }
+    }
+
+    function renderComparisonTable(container, currentState) {
+      if (!container) return;
+      const config = currentState.config;
+      const orders = currentState.orders;
+      const comparisonRows = currentState.comparisonRows || [];
+      container.innerHTML = '';
+      if (!config || !config.selectedOrderIds || config.selectedOrderIds.length === 0) {
+        const p = document.createElement('p');
+        p.textContent = 'No orders selected. Use the search above to add orders to the comparison.';
+        container.appendChild(p);
+        return;
+      }
+      const ordersById = {};
+      orders.forEach(function(o) { ordersById[o.id] = o; });
+      const selectedIds = config.selectedOrderIds.slice();
+      if (config.pinnedOrderId && config.showPinnedAsFocus) {
+        const idx = selectedIds.indexOf(config.pinnedOrderId);
+        if (idx > 0) {
+          selectedIds.splice(idx, 1);
+          selectedIds.unshift(config.pinnedOrderId);
+        }
+      }
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      const traitTh = document.createElement('th');
+      traitTh.textContent = 'Trait';
+      headerRow.appendChild(traitTh);
+      selectedIds.forEach(function(orderId) {
+        const th = document.createElement('th');
+        const order = ordersById[orderId];
+        const name = order ? (order.commonName ? order.commonName + ' (' + order.scientificName + ')' : order.scientificName) : orderId;
+        th.appendChild(document.createTextNode(name + ' '));
+        if (config.pinnedOrderId === orderId) {
+          const pinLabel = document.createElement('span');
+          pinLabel.textContent = '[pinned] ';
+          th.appendChild(pinLabel);
+        }
+        const pinBtn = document.createElement('button');
+        pinBtn.type = 'button';
+        pinBtn.textContent = 'Pin';
+        pinBtn.dataset.action = 'pin-order';
+        pinBtn.dataset.orderId = orderId;
+        th.appendChild(pinBtn);
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.textContent = 'Remove';
+        removeBtn.dataset.action = 'remove-order';
+        removeBtn.dataset.orderId = orderId;
+        th.appendChild(removeBtn);
+        headerRow.appendChild(th);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      comparisonRows.forEach(function(row) {
+        const tr = document.createElement('tr');
+        const labelTd = document.createElement('td');
+        labelTd.textContent = row.label || row.key;
+        tr.appendChild(labelTd);
+        selectedIds.forEach(function(orderId) {
+          const td = document.createElement('td');
+          const ov = (row.orderValues || []).find(function(v) { return v.orderId === orderId; });
+          td.textContent = ov && ov.value ? ov.value : 'N/A';
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+
+    function updateUrlFromConfig(config) {
+      const url = new URL(window.location.href);
+      if (config && Array.isArray(config.selectedOrderIds) && config.selectedOrderIds.length > 0) {
+        url.searchParams.set('orderIds', config.selectedOrderIds.join(','));
+      } else {
+        url.searchParams.delete('orderIds');
+      }
+      if (config && config.name && config.name.trim() !== '') {
+        url.searchParams.set('name', config.name);
+      } else {
+        url.searchParams.delete('name');
+      }
+      window.history.replaceState({}, '', url.toString());
+      if (shareLinkInput) {
+        renderShareLink(shareLinkInput);
+      }
+    }
+
+    function applyComparisonResponse(response) {
+      if (!response) return;
+      state.config = response.config || { selectedOrderIds: [], showPinnedAsFocus: false };
+      state.orders = response.orders || [];
+      state.comparisonRows = response.comparisonRows || [];
+      if (populateMap['comparison-name']) {
+        renderComparisonName(populateMap['comparison-name'], state.config);
+      }
+      if (comparisonNameInput) {
+        comparisonNameInput.value = state.config.name || '';
+      }
+      if (populateMap['selected-orders']) {
+        renderSelectedOrders(populateMap['selected-orders'], state);
+      }
+      if (pinnedToggleSection) {
+        renderPinnedFocusToggle(pinnedToggleSection, state.config, state.orders);
+      }
+      if (populateMap['comparison-table-container']) {
+        renderComparisonTable(populateMap['comparison-table-container'], state);
+      }
+      updateUrlFromConfig(state.config);
+    }
+
+    function initComparisonFromUrl() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const orderIdsParam = urlParams.get('orderIds');
+      const nameParam = urlParams.get('name');
+      try {
+        if (orderIdsParam && orderIdsParam.trim() !== '') {
+          const ids = orderIdsParam.split(',').map(function(id) { return id.trim(); }).filter(function(id) { return id; });
+          const response = WebsiteSDK.createOrUpdateOrderComparison(ids, nameParam || undefined);
+          applyComparisonResponse(response);
+        } else {
+          const response = WebsiteSDK.getCurrentOrderComparison();
+          if (response) {
+            if (nameParam && (!response.config || !response.config.name)) {
+              const cfg = response.config || { selectedOrderIds: [], showPinnedAsFocus: false };
+              cfg.name = nameParam;
+              response.config = cfg;
+            }
+            applyComparisonResponse(response);
+          } else {
+            updateUrlFromConfig(null);
+          }
+        }
+      } catch (err) {
+        console.error('Error initializing comparison', err);
+        window.alert('There was a problem loading the order comparison.');
+      }
+    }
+
+    initComparisonFromUrl();
+    if (shareLinkInput) {
+      renderShareLink(shareLinkInput);
+    }
+
+    if (searchForm) {
+      searchForm.addEventListener('submit', function(evt) {
+        evt.preventDefault();
+        const queryInput = document.getElementById('orderSearchQuery');
+        const metamorphosisSelect = document.getElementById('metamorphosisFilter');
+        const aquaticCheckbox = document.getElementById('aquaticOnlyFilter');
+        const query = queryInput ? queryInput.value.trim() : '';
+        const metamorphosisType = metamorphosisSelect && metamorphosisSelect.value ? metamorphosisSelect.value : undefined;
+        const isAquaticOnly = aquaticCheckbox ? aquaticCheckbox.checked : true;
+        try {
+          const results = WebsiteSDK.searchInsectOrders(query || undefined, metamorphosisType, isAquaticOnly);
+          state.searchResults = Array.isArray(results) ? results : [];
+          if (populateMap['search-results']) {
+            renderSearchResults(populateMap['search-results'], state.searchResults);
+          }
+        } catch (err) {
+          console.error('Error searching orders', err);
+          window.alert('There was a problem searching for insect orders.');
+        }
+      });
+    }
+
+    content.addEventListener('click', function(evt) {
+      const target = evt.target;
+      if (!target || !target.dataset || !target.dataset.action) return;
+      const action = target.dataset.action;
+
+      if (action === 'add-order-to-comparison') {
+        const orderId = target.dataset.orderId;
+        if (!orderId) return;
+        const existingIds = state.config && Array.isArray(state.config.selectedOrderIds) ? state.config.selectedOrderIds.slice() : [];
+        if (existingIds.indexOf(orderId) === -1) {
+          existingIds.push(orderId);
+        }
+        try {
+          const response = WebsiteSDK.createOrUpdateOrderComparison(existingIds, state.config ? state.config.name : undefined);
+          applyComparisonResponse(response);
+        } catch (err) {
+          console.error('Error adding order to comparison', err);
+          window.alert('Could not add that order to the comparison.');
+        }
+      } else if (action === 'remove-order') {
+        const orderId = target.dataset.orderId;
+        if (!orderId || !state.config || !Array.isArray(state.config.selectedOrderIds)) return;
+        const newIds = state.config.selectedOrderIds.filter(function(id) { return id !== orderId; });
+        try {
+          const response = WebsiteSDK.createOrUpdateOrderComparison(newIds, state.config.name);
+          applyComparisonResponse(response);
+        } catch (err) {
+          console.error('Error removing order from comparison', err);
+          window.alert('Could not remove that order from the comparison.');
+        }
+      } else if (action === 'pin-order') {
+        const orderId = target.dataset.orderId;
+        if (!orderId) return;
+        try {
+          const pinResponse = WebsiteSDK.pinOrderInComparison(orderId);
+          if (pinResponse && pinResponse.config) {
+            const response = WebsiteSDK.getCurrentOrderComparison();
+            applyComparisonResponse(response);
+          }
+        } catch (err) {
+          console.error('Error pinning order', err);
+          window.alert('Could not pin that order.');
+        }
+      } else if (action === 'save-comparison') {
+        const nameValue = comparisonNameInput ? comparisonNameInput.value.trim() : '';
+        const selectedIds = state.config && Array.isArray(state.config.selectedOrderIds) ? state.config.selectedOrderIds : [];
+        try {
+          const response = WebsiteSDK.createOrUpdateOrderComparison(selectedIds, nameValue || undefined);
+          applyComparisonResponse(response);
+        } catch (err) {
+          console.error('Error saving comparison', err);
+          window.alert('Could not save the comparison.');
+        }
+      } else if (action === 'reset-comparison') {
+        try {
+          const result = WebsiteSDK.resetOrderComparison();
+          if (result && result.success) {
+            state.config = { selectedOrderIds: [], showPinnedAsFocus: false };
+            state.orders = [];
+            state.comparisonRows = [];
+            if (comparisonNameInput) {
+              comparisonNameInput.value = '';
+            }
+            if (populateMap['comparison-name']) {
+              renderComparisonName(populateMap['comparison-name'], state.config);
+            }
+            if (populateMap['selected-orders']) {
+              renderSelectedOrders(populateMap['selected-orders'], state);
+            }
+            if (pinnedToggleSection) {
+              renderPinnedFocusToggle(pinnedToggleSection, state.config, state.orders);
+            }
+            if (populateMap['comparison-table-container']) {
+              renderComparisonTable(populateMap['comparison-table-container'], state);
+            }
+            if (populateMap['search-results']) {
+              renderSearchResults(populateMap['search-results'], []);
+            }
+            const emptySearchMsg = populateMap['search-empty-message'];
+            if (emptySearchMsg) {
+              emptySearchMsg.style.display = 'block';
+              emptySearchMsg.textContent = 'Type a name and click Search to find insect orders.';
+            }
+            updateUrlFromConfig(null);
+          }
+        } catch (err) {
+          console.error('Error resetting comparison', err);
+          window.alert('Could not reset the comparison.');
+        }
+      } else if (action === 'copy-share-link') {
+        if (!shareLinkInput) return;
+        const text = shareLinkInput.value;
+        if (!text) return;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function() {
+            window.alert('Link copied to clipboard.');
+          }).catch(function() {
+            window.alert('Unable to copy link.');
+          });
+        } else {
+          shareLinkInput.select();
+          try {
+            const successful = document.execCommand('copy');
+            window.getSelection().removeAllRanges();
+            if (successful) {
+              window.alert('Link copied to clipboard.');
+            } else {
+              window.alert('Unable to copy link.');
+            }
+          } catch (err) {
+            window.alert('Unable to copy link.');
+          }
+        }
+      } else if (action === 'navigate-taxonomy') {
+        if (!state.config || !Array.isArray(state.config.selectedOrderIds) || state.config.selectedOrderIds.length === 0) {
+          window.location.href = 'taxonomy.html';
+        } else {
+          const param = encodeURIComponent(state.config.selectedOrderIds.join(','));
+          window.location.href = 'taxonomy.html?orderIds=' + param;
+        }
+      }
+    });
+
+    if (pinnedToggleSection) {
+      const focusCheckbox = pinnedToggleSection.querySelector('input[type="checkbox"][data-action="toggle-focus"]');
+      if (focusCheckbox) {
+        focusCheckbox.addEventListener('change', function() {
+          if (!state.config) return;
+          try {
+            const wrapper = WebsiteSDK.setOrderComparisonFocusMode(!!focusCheckbox.checked);
+            if (wrapper && wrapper.config) {
+              const response = WebsiteSDK.getCurrentOrderComparison();
+              applyComparisonResponse(response);
+            }
+          } catch (err) {
+            console.error('Error toggling focus mode', err);
+            window.alert('Could not update focus mode.');
+          }
+        });
+      }
+    }
+
+    if (taxonomyLink) {
+      // Click is handled by the delegated listener above.
+    }
+  });
+  </script>
+</body>
+</html>

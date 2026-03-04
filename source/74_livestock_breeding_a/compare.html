@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<link rel="stylesheet" href="compare.css">
+
+<div class="comparison-page">
+  <section class="comparison-main-section">
+    <div class="container comparison-container">
+      <!-- Comparison Toolbar -->
+      <section class="comparison-toolbar" data-component="comparison-toolbar">
+        <div class="comparison-toolbar-header">
+          <h1 class="comparison-title">Bull Comparison</h1>
+          <div class="comparison-toolbar-meta">
+            <span class="comparison-counts">
+              <span data-populate="visible-count">0</span>
+              <span> of </span>
+              <span data-populate="total-count">0</span>
+              <span> bulls shown</span>
+            </span>
+            <button type="button" class="btn-link comparison-clear-filters" data-action="clear-filters">Clear filters</button>
+            <button type="button" class="btn-secondary comparison-back-to-catalog" data-action="back-to-catalog">Back to Catalog</button>
+          </div>
+        </div>
+        <form class="comparison-filters" data-component="url-state-manager" novalidate>
+          <div class="form-group comparison-filter-group">
+            <label for="breedFilter" class="form-label">Breed</label>
+            <select id="breedFilter" name="breed" class="form-select" data-action="change-breed-filter">
+              <option value="">All breeds</option>
+              <!-- Options populated from data -->
+            </select>
+          </div>
+          <div class="form-group comparison-filter-group">
+            <span class="form-label">Horn status</span>
+            <div class="checkbox-group" data-populate="hornstatus-options">
+              <!-- Horn status checkboxes populated from data -->
+            </div>
+          </div>
+          <div class="form-group comparison-filter-group">
+            <label for="maxPriceFilter" class="form-label">Max price per straw</label>
+            <div class="input-with-unit">
+              <input type="number" id="maxPriceFilter" class="form-input" min="0" step="1" placeholder="No max" data-action="change-max-price" />
+              <span class="input-unit">USD</span>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <!-- Trait Highlight Controller -->
+      <section class="trait-highlight-strip" data-component="trait-highlight-controller">
+        <div class="trait-highlight-controls">
+          <span class="trait-highlight-label">Highlight by</span>
+          <label class="trait-toggle">
+            <input type="radio" name="highlightTrait" value="docility" data-action="change-highlight-trait" />
+            <span>Docility first</span>
+          </label>
+          <label class="trait-toggle">
+            <input type="radio" name="highlightTrait" value="weaning_weight" data-action="change-highlight-trait" />
+            <span>Weaning weight first</span>
+          </label>
+        </div>
+        <div class="trait-highlight-legend">
+          <span class="legend-swatch legend-swatch--primary" aria-hidden="true"></span>
+          <span class="legend-text">Highlighted rows show the biggest differences between your focus bulls.</span>
+        </div>
+      </section>
+
+      <!-- Main comparison layout: table left, helper right -->
+      <div class="comparison-layout">
+        <div class="comparison-table-column">
+          <div class="comparison-table-wrapper" data-component="comparison-table" data-populate="comparison-table">
+            <!-- Comparison table rendered here -->
+          </div>
+        </div>
+        <aside class="comparison-helper-column">
+          <article class="card helper-card" data-component="hereford-budget-helper">
+            <!-- Hereford polled/horned budget helper content rendered here -->
+          </article>
+        </aside>
+      </div>
+
+      <!-- Empty comparison state -->
+      <section class="comparison-empty-state" data-component="empty-comparison-state" hidden>
+        <div class="empty-card">
+          <div class="empty-icon" aria-hidden="true"></div>
+          <h2 class="empty-title">No bulls in your comparison yet</h2>
+          <p class="empty-text">Browse the semen catalog and add bulls to your comparison list to see their key traits side by side.</p>
+          <button type="button" class="btn-primary" data-action="empty-back-to-catalog">Browse semen catalog</button>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <!-- Comparison data loader overlay -->
+  <div class="comparison-loader-overlay" data-component="comparison-data-loader" hidden>
+    <div class="loader-panel" role="status" aria-live="polite">
+      <div class="loader-spinner" aria-hidden="true"></div>
+      <p class="loader-text" data-populate="loader-text">Loading comparison...</p>
+    </div>
+  </div>
+</div>
+
+<script src="business_logic.js"></script>
+<script>
+(function() {
+  'use strict';
+
+  const ENUM_LABELS = {
+    breed: {
+      angus: 'Angus',
+      holstein: 'Holstein',
+      hereford: 'Hereford',
+      wagyu: 'Wagyu',
+      other: 'Other'
+    },
+    productionType: {
+      beef: 'Beef',
+      dairy: 'Dairy',
+      dual_purpose: 'Dual purpose'
+    },
+    hornStatus: {
+      polled: 'Polled',
+      horned: 'Horned',
+      scurred: 'Scurred',
+      unknown: 'Unknown'
+    }
+  };
+
+  let comparisonState = {
+    comparisonList: null,
+    bulls: [] // entries from getComparisonView
+  };
+
+  let urlState = {
+    breed: '',
+    hornStatus: [],
+    maxPrice: null,
+    highlightTrait: 'docility',
+    focusBullIds: []
+  };
+
+  // Cached DOM references
+  let loaderOverlay;
+  let loaderTextEl;
+  let emptyStateEl;
+  let traitControllerEl;
+  let helperEl;
+  let tableContainer;
+  let hornStatusContainer;
+  let breedFilterSelect;
+  let maxPriceInput;
+  let highlightTraitRadios;
+  let visibleCountEl;
+  let totalCountEl;
+
+  document.addEventListener('DOMContentLoaded', function() {
+    loaderOverlay = document.querySelector('[data-component="comparison-data-loader"]');
+    loaderTextEl = document.querySelector('[data-populate="loader-text"]');
+    emptyStateEl = document.querySelector('[data-component="empty-comparison-state"]');
+    traitControllerEl = document.querySelector('[data-component="trait-highlight-controller"]');
+    helperEl = document.querySelector('[data-component="hereford-budget-helper"]');
+    tableContainer = document.querySelector('[data-populate="comparison-table"]');
+    hornStatusContainer = document.querySelector('[data-populate="hornstatus-options"]');
+    breedFilterSelect = document.getElementById('breedFilter');
+    maxPriceInput = document.getElementById('maxPriceFilter');
+    highlightTraitRadios = document.querySelectorAll('input[name="highlightTrait"]');
+    visibleCountEl = document.querySelector('[data-populate="visible-count"]');
+    totalCountEl = document.querySelector('[data-populate="total-count"]');
+
+    attachEventHandlers();
+    urlState = readUrlStateFromUrl();
+    applyUrlStateToControls();
+    initializeComparison();
+  });
+
+  function attachEventHandlers() {
+    if (breedFilterSelect) {
+      breedFilterSelect.addEventListener('change', function() {
+        const value = breedFilterSelect.value || '';
+        urlState.breed = value;
+        writeUrlStateToUrl();
+        updateAndRenderAll();
+      });
+    }
+
+    if (maxPriceInput) {
+      maxPriceInput.addEventListener('input', function() {
+        const raw = maxPriceInput.value.trim();
+        urlState.maxPrice = raw === '' ? null : Number(raw);
+        if (Number.isNaN(urlState.maxPrice)) {
+          urlState.maxPrice = null;
+        }
+        writeUrlStateToUrl();
+        updateAndRenderAll();
+        // Hereford helper reacts to max price change internally when re-rendered
+      });
+    }
+
+    if (highlightTraitRadios && highlightTraitRadios.length) {
+      highlightTraitRadios.forEach(function(radio) {
+        radio.addEventListener('change', function() {
+          if (!radio.checked) return;
+          urlState.highlightTrait = radio.value === 'weaning_weight' ? 'weaning_weight' : 'docility';
+          writeUrlStateToUrl();
+          updateAndRenderAll();
+        });
+      });
+    }
+
+    const clearFiltersBtn = document.querySelector('[data-action="clear-filters"]');
+    if (clearFiltersBtn) {
+      clearFiltersBtn.addEventListener('click', function() {
+        urlState.breed = '';
+        urlState.hornStatus = [];
+        urlState.maxPrice = null;
+        urlState.focusBullIds = [];
+        writeUrlStateToUrl();
+        applyUrlStateToControls();
+        updateAndRenderAll();
+      });
+    }
+
+    const backToCatalogBtn = document.querySelector('[data-action="back-to-catalog"]');
+    if (backToCatalogBtn) {
+      backToCatalogBtn.addEventListener('click', function() {
+        window.location.href = 'semen_catalog.html';
+      });
+    }
+
+    const backToCatalogEmptyBtn = document.querySelector('[data-action="empty-back-to-catalog"]');
+    if (backToCatalogEmptyBtn) {
+      backToCatalogEmptyBtn.addEventListener('click', function() {
+        window.location.href = 'semen_catalog.html';
+      });
+    }
+
+    // Global delegated handler for dynamic actions
+    document.addEventListener('click', function(event) {
+      const actionEl = event.target.closest('[data-action]');
+      if (!actionEl) return;
+      const action = actionEl.getAttribute('data-action');
+
+      if (action === 'toggle-horn-filter') {
+        handleHornStatusToggle(actionEl);
+      } else if (action === 'view-bull-details') {
+        const bullId = actionEl.getAttribute('data-bull-id');
+        if (bullId) {
+          window.location.href = 'bull_detail.html?id=' + encodeURIComponent(bullId);
+        }
+      } else if (action === 'toggle-favorite') {
+        handleToggleFavorite(actionEl);
+      } else if (action === 'remove-from-comparison') {
+        handleRemoveFromComparison(actionEl);
+      } else if (action === 'toggle-focus') {
+        handleToggleFocus(actionEl);
+      } else if (action === 'apply-hereford-horn-filters') {
+        applyHerefordHornFilters();
+      } else if (action === 'set-suggested-focus-pair') {
+        setSuggestedFocusPair(actionEl);
+      }
+    });
+  }
+
+  function initializeComparison() {
+    showLoader(true, 'Loading comparison...');
+    try {
+      const result = WebsiteSDK.getComparisonView();
+      comparisonState.comparisonList = result && result.comparisonList ? result.comparisonList : null;
+      comparisonState.bulls = result && Array.isArray(result.bulls) ? result.bulls : [];
+      populateBreedFilterOptions();
+      updateAndRenderAll();
+    } catch (err) {
+      showLoader(true, 'Unable to load comparison. Please refresh the page.');
+    } finally {
+      showLoader(false);
+    }
+  }
+
+  function readUrlStateFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const state = {
+      breed: '',
+      hornStatus: [],
+      maxPrice: null,
+      highlightTrait: 'docility',
+      focusBullIds: []
+    };
+
+    const breed = params.get('breed');
+    state.breed = breed ? breed : '';
+
+    const hornStatus = params.get('hornStatus');
+    if (hornStatus) {
+      state.hornStatus = hornStatus.split(',').map(function(x) { return x.trim(); }).filter(Boolean);
+    }
+
+    const maxPriceStr = params.get('maxPrice');
+    if (maxPriceStr !== null && maxPriceStr !== '') {
+      const parsed = Number(maxPriceStr);
+      state.maxPrice = Number.isNaN(parsed) ? null : parsed;
+    }
+
+    const highlightTrait = params.get('highlightTrait');
+    if (highlightTrait === 'weaning_weight') {
+      state.highlightTrait = 'weaning_weight';
+    } else if (highlightTrait === 'docility') {
+      state.highlightTrait = 'docility';
+    }
+
+    const focusBullIds = params.get('focusBullIds');
+    if (focusBullIds) {
+      state.focusBullIds = focusBullIds.split(',').map(function(x) { return x.trim(); }).filter(Boolean).slice(0, 2);
+    }
+
+    return state;
+  }
+
+  function writeUrlStateToUrl() {
+    const params = new URLSearchParams(window.location.search);
+
+    if (urlState.breed) {
+      params.set('breed', urlState.breed);
+    } else {
+      params.delete('breed');
+    }
+
+    if (urlState.hornStatus && urlState.hornStatus.length) {
+      params.set('hornStatus', urlState.hornStatus.join(','));
+    } else {
+      params.delete('hornStatus');
+    }
+
+    if (urlState.maxPrice != null && !Number.isNaN(urlState.maxPrice)) {
+      params.set('maxPrice', String(urlState.maxPrice));
+    } else {
+      params.delete('maxPrice');
+    }
+
+    if (urlState.highlightTrait === 'weaning_weight') {
+      params.set('highlightTrait', 'weaning_weight');
+    } else {
+      params.set('highlightTrait', 'docility');
+    }
+
+    if (urlState.focusBullIds && urlState.focusBullIds.length) {
+      params.set('focusBullIds', urlState.focusBullIds.slice(0, 2).join(','));
+    } else {
+      params.delete('focusBullIds');
+    }
+
+    const newRelativePathQuery = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+    window.history.replaceState(null, '', newRelativePathQuery);
+  }
+
+  function applyUrlStateToControls() {
+    if (breedFilterSelect) {
+      breedFilterSelect.value = urlState.breed || '';
+    }
+
+    if (maxPriceInput) {
+      maxPriceInput.value = urlState.maxPrice != null ? String(urlState.maxPrice) : '';
+    }
+
+    if (highlightTraitRadios && highlightTraitRadios.length) {
+      highlightTraitRadios.forEach(function(r) {
+        if (urlState.highlightTrait === 'weaning_weight') {
+          r.checked = r.value === 'weaning_weight';
+        } else {
+          r.checked = r.value === 'docility';
+        }
+      });
+    }
+  }
+
+  function populateBreedFilterOptions() {
+    if (!breedFilterSelect) return;
+    const seen = new Set();
+    // Preserve the first option "All breeds"
+    while (breedFilterSelect.options.length > 1) {
+      breedFilterSelect.remove(1);
+    }
+    comparisonState.bulls.forEach(function(entry) {
+      const bull = entry && entry.bull ? entry.bull : null;
+      if (!bull || !bull.breed) return;
+      const value = bull.breed; // enum value
+      if (seen.has(value)) return;
+      seen.add(value);
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = ENUM_LABELS.breed[value] || value;
+      breedFilterSelect.appendChild(opt);
+    });
+    // After repopulating, re-apply current state
+    breedFilterSelect.value = urlState.breed || '';
+  }
+
+  function handleHornStatusToggle(checkboxEl) {
+    const value = checkboxEl.getAttribute('data-horn-value');
+    if (!value) return;
+    const checked = checkboxEl.checked;
+    const current = urlState.hornStatus.slice();
+    const idx = current.indexOf(value);
+    if (checked && idx === -1) {
+      current.push(value);
+    } else if (!checked && idx !== -1) {
+      current.splice(idx, 1);
+    }
+    urlState.hornStatus = current;
+    writeUrlStateToUrl();
+    updateAndRenderAll();
+  }
+
+  function handleToggleFavorite(buttonEl) {
+    const bullId = buttonEl.getAttribute('data-bull-id');
+    if (!bullId) return;
+    const currentlyFavorite = buttonEl.getAttribute('data-is-favorite') === 'true';
+    const nextFavorite = !currentlyFavorite;
+    try {
+      const result = WebsiteSDK.toggleFavoriteBull(bullId, nextFavorite);
+      const isFavorite = !!(result && result.isFavorite);
+      // Update local state
+      comparisonState.bulls.forEach(function(entry) {
+        if (entry && entry.bull && entry.bull.id === bullId) {
+          entry.isFavorite = isFavorite;
+        }
+      });
+      // Re-render to reflect updated favorite state
+      updateAndRenderAll();
+    } catch (err) {
+      alert('Unable to update favorite. Please try again.');
+    }
+  }
+
+  function handleRemoveFromComparison(buttonEl) {
+    const comparisonItemId = buttonEl.getAttribute('data-comparison-item-id');
+    if (!comparisonItemId) return;
+    try {
+      showLoader(true, 'Updating comparison...');
+      WebsiteSDK.removeBullFromComparison(comparisonItemId);
+      const result = WebsiteSDK.getComparisonView();
+      comparisonState.comparisonList = result && result.comparisonList ? result.comparisonList : null;
+      comparisonState.bulls = result && Array.isArray(result.bulls) ? result.bulls : [];
+      populateBreedFilterOptions();
+      updateAndRenderAll();
+    } catch (err) {
+      alert('Unable to remove bull from comparison. Please try again.');
+    } finally {
+      showLoader(false);
+    }
+  }
+
+  function handleToggleFocus(checkboxEl) {
+    const bullId = checkboxEl.getAttribute('data-bull-id');
+    if (!bullId) return;
+    const isChecked = checkboxEl.checked;
+    const current = urlState.focusBullIds.slice();
+    const idx = current.indexOf(bullId);
+
+    if (isChecked) {
+      if (current.length >= 2 && idx === -1) {
+        // Limit to 2; undo check
+        checkboxEl.checked = false;
+        return;
+      }
+      if (idx === -1) {
+        current.push(bullId);
+      }
+    } else {
+      if (idx !== -1) {
+        current.splice(idx, 1);
+      }
+    }
+
+    urlState.focusBullIds = current.slice(0, 2);
+    writeUrlStateToUrl();
+    updateAndRenderAll();
+  }
+
+  function applyHerefordHornFilters() {
+    urlState.breed = 'hereford';
+    urlState.hornStatus = ['polled', 'horned'];
+    writeUrlStateToUrl();
+    applyUrlStateToControls();
+    updateAndRenderAll();
+  }
+
+  function setSuggestedFocusPair(buttonEl) {
+    const idsAttr = buttonEl.getAttribute('data-suggested-ids');
+    if (!idsAttr) return;
+    const ids = idsAttr.split(',').map(function(x) { return x.trim(); }).filter(Boolean).slice(0, 2);
+    if (!ids.length) return;
+    urlState.focusBullIds = ids;
+    writeUrlStateToUrl();
+    updateAndRenderAll();
+  }
+
+  function showLoader(show, message) {
+    if (!loaderOverlay) return;
+    if (show) {
+      loaderOverlay.removeAttribute('hidden');
+      if (message && loaderTextEl) {
+        loaderTextEl.textContent = message;
+      }
+    } else {
+      loaderOverlay.setAttribute('hidden', 'hidden');
+    }
+  }
+
+  function updateAndRenderAll() {
+    if (!tableContainer || !hornStatusContainer || !helperEl) return;
+
+    const baseBulls = comparisonState.bulls || [];
+    const filteredBulls = filterBulls(baseBulls, urlState);
+
+    const totalCount = baseBulls.length;
+    const visibleCount = filteredBulls.length;
+    renderCounts(visibleCountEl, totalCountEl, visibleCount, totalCount);
+
+    if (totalCount === 0) {
+      // No bulls at all in comparison list
+      showEmptyState(true);
+      // Clear table and helper
+      renderComparisonTable(tableContainer, [], urlState, baseBulls);
+      renderHornStatusOptions(hornStatusContainer, baseBulls, urlState);
+      renderHerefordHelper(helperEl, baseBulls, urlState, filteredBulls);
+      return;
+    }
+
+    showEmptyState(false);
+    renderHornStatusOptions(hornStatusContainer, baseBulls, urlState);
+    renderComparisonTable(tableContainer, filteredBulls, urlState, baseBulls);
+    renderHerefordHelper(helperEl, baseBulls, urlState, filteredBulls);
+  }
+
+  function showEmptyState(show) {
+    if (!emptyStateEl || !traitControllerEl) return;
+    if (show) {
+      emptyStateEl.removeAttribute('hidden');
+      traitControllerEl.setAttribute('hidden', 'hidden');
+    } else {
+      emptyStateEl.setAttribute('hidden', 'hidden');
+      traitControllerEl.removeAttribute('hidden');
+    }
+  }
+
+  function filterBulls(bulls, state) {
+    return bulls.filter(function(entry) {
+      if (!entry || !entry.bull) return false;
+      const bull = entry.bull;
+
+      if (state.breed && bull.breed !== state.breed) {
+        return false;
+      }
+
+      if (state.hornStatus && state.hornStatus.length) {
+        const hornVal = bull.hornStatus || '';
+        if (state.hornStatus.indexOf(hornVal) === -1) {
+          return false;
+        }
+      }
+
+      const price = typeof entry.pricePerStraw === 'number' ? entry.pricePerStraw : bull.pricePerStraw;
+      if (state.maxPrice != null && !Number.isNaN(state.maxPrice)) {
+        if (typeof price === 'number' && price > state.maxPrice) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }
+
+  function renderCounts(visibleContainer, totalContainer, visible, total) {
+    if (visibleContainer) {
+      visibleContainer.textContent = String(visible || 0);
+    }
+    if (totalContainer) {
+      totalContainer.textContent = String(total || 0);
+    }
+  }
+
+  function renderHornStatusOptions(container, allBulls, state) {
+    container.innerHTML = '';
+    const seen = new Set();
+    const hornValues = [];
+    allBulls.forEach(function(entry) {
+      const bull = entry && entry.bull ? entry.bull : null;
+      if (!bull || !bull.hornStatus) return;
+      if (seen.has(bull.hornStatus)) return;
+      seen.add(bull.hornStatus);
+      hornValues.push(bull.hornStatus);
+    });
+
+    if (!hornValues.length) {
+      const span = document.createElement('span');
+      span.className = 'form-helper-text';
+      span.textContent = 'No horn status data in this comparison.';
+      container.appendChild(span);
+      return;
+    }
+
+    hornValues.forEach(function(value) {
+      const label = document.createElement('label');
+      label.className = 'checkbox-inline';
+
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.setAttribute('data-action', 'toggle-horn-filter');
+      input.setAttribute('data-horn-value', value);
+      input.checked = state.hornStatus.indexOf(value) !== -1;
+
+      const span = document.createElement('span');
+      span.textContent = ENUM_LABELS.hornStatus[value] || value;
+
+      label.appendChild(input);
+      label.appendChild(span);
+      container.appendChild(label);
+    });
+  }
+
+  function renderComparisonTable(container, filteredBulls, state, baseBulls) {
+    container.innerHTML = '';
+
+    if (!baseBulls || baseBulls.length === 0) {
+      const p = document.createElement('p');
+      p.className = 'comparison-table-message';
+      p.textContent = 'There are no bulls in your comparison list.';
+      container.appendChild(p);
+      return;
+    }
+
+    if (!filteredBulls || filteredBulls.length === 0) {
+      const p = document.createElement('p');
+      p.className = 'comparison-table-message';
+      p.textContent = 'No bulls match the current filters. Adjust your filters to see bulls.';
+      container.appendChild(p);
+      return;
+    }
+
+    const highlightInfo = computeHighlightInfo(filteredBulls, state);
+
+    const grid = document.createElement('div');
+    grid.className = 'comparison-grid';
+
+    // Header row
+    const headerRow = document.createElement('div');
+    headerRow.className = 'comparison-grid-header';
+
+    const traitHeader = document.createElement('div');
+    traitHeader.className = 'comparison-grid-trait-header';
+    traitHeader.textContent = 'Trait';
+    headerRow.appendChild(traitHeader);
+
+    filteredBulls.forEach(function(entry) {
+      const bull = entry.bull;
+      const headerCell = document.createElement('article');
+      headerCell.className = 'comparison-bull-header';
+
+      const headerTop = document.createElement('div');
+      headerTop.className = 'comparison-bull-header-top';
+
+      const nameButton = document.createElement('button');
+      nameButton.type = 'button';
+      nameButton.className = 'bull-name-button';
+      nameButton.setAttribute('data-action', 'view-bull-details');
+      nameButton.setAttribute('data-bull-id', bull.id);
+      nameButton.textContent = bull.name || 'Unnamed bull';
+      headerTop.appendChild(nameButton);
+
+      const headerActions = document.createElement('div');
+      headerActions.className = 'comparison-bull-actions';
+
+      const focusLabel = document.createElement('label');
+      focusLabel.className = 'focus-checkbox-label';
+      const focusInput = document.createElement('input');
+      focusInput.type = 'checkbox';
+      focusInput.setAttribute('data-action', 'toggle-focus');
+      focusInput.setAttribute('data-bull-id', bull.id);
+      focusInput.checked = state.focusBullIds.indexOf(bull.id) !== -1;
+      const focusSpan = document.createElement('span');
+      focusSpan.textContent = 'Focus';
+      focusLabel.appendChild(focusInput);
+      focusLabel.appendChild(focusSpan);
+      headerActions.appendChild(focusLabel);
+
+      const favBtn = document.createElement('button');
+      favBtn.type = 'button';
+      favBtn.className = 'icon-button favorite-toggle' + (entry.isFavorite ? ' is-favorite' : '');
+      favBtn.setAttribute('data-action', 'toggle-favorite');
+      favBtn.setAttribute('data-bull-id', bull.id);
+      favBtn.setAttribute('data-is-favorite', entry.isFavorite ? 'true' : 'false');
+      favBtn.textContent = entry.isFavorite ? 'Favorited' : 'Favorite';
+      headerActions.appendChild(favBtn);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'icon-button remove-from-comparison';
+      removeBtn.setAttribute('data-action', 'remove-from-comparison');
+      if (entry.comparisonItem && entry.comparisonItem.id) {
+        removeBtn.setAttribute('data-comparison-item-id', entry.comparisonItem.id);
+      }
+      removeBtn.textContent = 'Remove';
+      headerActions.appendChild(removeBtn);
+
+      headerTop.appendChild(headerActions);
+      headerCell.appendChild(headerTop);
+
+      const meta = document.createElement('div');
+      meta.className = 'comparison-bull-meta';
+
+      const breedSpan = document.createElement('span');
+      breedSpan.className = 'bull-meta-pill';
+      const breedEnum = bull.breed || '';
+      breedSpan.textContent = ENUM_LABELS.breed[breedEnum] || (entry.breedLabel || breedEnum || '');
+      meta.appendChild(breedSpan);
+
+      if (bull.productionType) {
+        const prodSpan = document.createElement('span');
+        prodSpan.className = 'bull-meta-pill';
+        prodSpan.textContent = ENUM_LABELS.productionType[bull.productionType] || bull.productionType;
+        meta.appendChild(prodSpan);
+      }
+
+      if (entry.hornStatusLabel || bull.hornStatus) {
+        const hornSpan = document.createElement('span');
+        hornSpan.className = 'bull-meta-pill';
+        hornSpan.textContent = entry.hornStatusLabel || (ENUM_LABELS.hornStatus[bull.hornStatus] || bull.hornStatus);
+        meta.appendChild(hornSpan);
+      }
+
+      headerCell.appendChild(meta);
+
+      const price = typeof entry.pricePerStraw === 'number' ? entry.pricePerStraw : bull.pricePerStraw;
+      if (typeof price === 'number') {
+        const priceEl = document.createElement('div');
+        priceEl.className = 'bull-price-summary';
+        priceEl.textContent = formatCurrency(price) + ' / straw';
+        headerCell.appendChild(priceEl);
+      }
+
+      const viewDetailsLink = document.createElement('button');
+      viewDetailsLink.type = 'button';
+      viewDetailsLink.className = 'btn-link view-details-link';
+      viewDetailsLink.setAttribute('data-action', 'view-bull-details');
+      viewDetailsLink.setAttribute('data-bull-id', bull.id);
+      viewDetailsLink.textContent = 'View details';
+      headerCell.appendChild(viewDetailsLink);
+
+      headerRow.appendChild(headerCell);
+    });
+
+    grid.appendChild(headerRow);
+
+    const body = document.createElement('div');
+    body.className = 'comparison-grid-body';
+
+    const traits = buildTraitDefinitions();
+
+    traits.forEach(function(trait) {
+      const row = document.createElement('div');
+      row.className = 'comparison-grid-row';
+
+      if (highlightInfo.primaryRowKey === trait.key) {
+        row.className += ' comparison-row-highlight';
+      }
+
+      const labelCell = document.createElement('div');
+      labelCell.className = 'comparison-grid-trait-label';
+      labelCell.textContent = trait.label;
+      row.appendChild(labelCell);
+
+      filteredBulls.forEach(function(entry) {
+        const cell = document.createElement('div');
+        cell.className = 'comparison-grid-cell';
+        const value = trait.getValue(entry);
+        if (value === null || value === undefined || value === '') {
+          cell.textContent = '—';
+        } else {
+          if (trait.format === 'currency') {
+            cell.textContent = formatCurrency(value);
+          } else if (trait.format === 'number') {
+            cell.textContent = String(value);
+          } else {
+            cell.textContent = String(value);
+          }
+        }
+        if (highlightInfo.primaryRowKey === trait.key && highlightInfo.focusIds.indexOf(entry.bull.id) !== -1) {
+          cell.className += ' comparison-cell-highlight';
+        }
+        row.appendChild(cell);
+      });
+
+      // Skip rows where all values are missing for the filtered bulls, except always keep key traits
+      const keepAlways = trait.key === 'breed' || trait.key === 'pricePerStraw' || trait.key === 'docilityScore' || trait.key === 'weaningWeightIndex' || trait.key === 'geneticMeritIndex';
+      if (!keepAlways) {
+        let allMissing = true;
+        for (let i = 0; i < filteredBulls.length; i += 1) {
+          const v = trait.getValue(filteredBulls[i]);
+          if (!(v === null || v === undefined || v === '')) {
+            allMissing = false;
+            break;
+          }
+        }
+        if (allMissing) {
+          return; // skip appending this row
+        }
+      }
+
+      body.appendChild(row);
+    });
+
+    grid.appendChild(body);
+    container.appendChild(grid);
+  }
+
+  function buildTraitDefinitions() {
+    return [
+      {
+        key: 'breed',
+        label: 'Breed',
+        format: 'text',
+        getValue: function(entry) {
+          const bull = entry.bull;
+          const breedEnum = bull.breed || '';
+          return ENUM_LABELS.breed[breedEnum] || (entry.breedLabel || breedEnum || '');
+        }
+      },
+      {
+        key: 'hornStatus',
+        label: 'Horn status',
+        format: 'text',
+        getValue: function(entry) {
+          const bull = entry.bull;
+          return entry.hornStatusLabel || (bull.hornStatus ? (ENUM_LABELS.hornStatus[bull.hornStatus] || bull.hornStatus) : 'Unknown');
+        }
+      },
+      {
+        key: 'pricePerStraw',
+        label: 'Price per straw',
+        format: 'currency',
+        getValue: function(entry) {
+          if (typeof entry.pricePerStraw === 'number') return entry.pricePerStraw;
+          if (entry.bull && typeof entry.bull.pricePerStraw === 'number') return entry.bull.pricePerStraw;
+          return null;
+        }
+      },
+      {
+        key: 'docilityScore',
+        label: 'Docility score',
+        format: 'number',
+        getValue: function(entry) {
+          if (typeof entry.docilityScore === 'number') return entry.docilityScore;
+          if (entry.bull && typeof entry.bull.docilityScore === 'number') return entry.bull.docilityScore;
+          return null;
+        }
+      },
+      {
+        key: 'weaningWeightIndex',
+        label: 'Weaning weight index',
+        format: 'number',
+        getValue: function(entry) {
+          if (typeof entry.weaningWeightIndex === 'number') return entry.weaningWeightIndex;
+          if (entry.bull && typeof entry.bull.weaningWeightIndex === 'number') return entry.bull.weaningWeightIndex;
+          return null;
+        }
+      },
+      {
+        key: 'geneticMeritIndex',
+        label: 'Genetic merit index',
+        format: 'number',
+        getValue: function(entry) {
+          if (entry.bull && typeof entry.bull.geneticMeritIndex === 'number') return entry.bull.geneticMeritIndex;
+          return null;
+        }
+      },
+      {
+        key: 'calvingEaseScore',
+        label: 'Calving ease score',
+        format: 'number',
+        getValue: function(entry) {
+          if (entry.bull && typeof entry.bull.calvingEaseScore === 'number') return entry.bull.calvingEaseScore;
+          return null;
+        }
+      },
+      {
+        key: 'milkYieldIndex',
+        label: 'Milk yield index',
+        format: 'number',
+        getValue: function(entry) {
+          if (entry.bull && typeof entry.bull.milkYieldIndex === 'number') return entry.bull.milkYieldIndex;
+          return null;
+        }
+      },
+      {
+        key: 'somaticCellScore',
+        label: 'Somatic cell score',
+        format: 'number',
+        getValue: function(entry) {
+          if (entry.bull && typeof entry.bull.somaticCellScore === 'number') return entry.bull.somaticCellScore;
+          return null;
+        }
+      },
+      {
+        key: 'heiferSafe',
+        label: 'Heifer safe',
+        format: 'text',
+        getValue: function(entry) {
+          if (!entry.bull || typeof entry.bull.heiferSafe !== 'boolean') return null;
+          return entry.bull.heiferSafe ? 'Yes' : 'No';
+        }
+      },
+      {
+        key: 'productionType',
+        label: 'Production type',
+        format: 'text',
+        getValue: function(entry) {
+          if (!entry.bull || !entry.bull.productionType) return null;
+          return ENUM_LABELS.productionType[entry.bull.productionType] || entry.bull.productionType;
+        }
+      }
+    ];
+  }
+
+  function computeHighlightInfo(filteredBulls, state) {
+    const info = {
+      primaryRowKey: null,
+      focusIds: []
+    };
+    if (!filteredBulls || filteredBulls.length < 2) {
+      return info;
+    }
+
+    let focusIds = state.focusBullIds && state.focusBullIds.length ? state.focusBullIds.slice(0, 2) : [];
+    if (focusIds.length < 2) {
+      // Default focus pair: first two visible bulls
+      focusIds = [filteredBulls[0].bull.id, filteredBulls[1].bull.id];
+    }
+
+    const focusEntries = [];
+    focusIds.forEach(function(id) {
+      const entry = filteredBulls.find(function(e) { return e.bull && e.bull.id === id; });
+      if (entry) focusEntries.push(entry);
+    });
+
+    if (focusEntries.length < 2) {
+      info.focusIds = focusIds;
+      return info;
+    }
+
+    const doc1 = getDocility(focusEntries[0]);
+    const doc2 = getDocility(focusEntries[1]);
+    const wean1 = getWeaning(focusEntries[0]);
+    const wean2 = getWeaning(focusEntries[1]);
+
+    if (state.highlightTrait === 'weaning_weight') {
+      if (wean1 != null && wean2 != null && wean1 !== wean2) {
+        info.primaryRowKey = 'weaningWeightIndex';
+      } else if (doc1 != null && doc2 != null && doc1 !== doc2) {
+        info.primaryRowKey = 'docilityScore';
+      }
+    } else {
+      if (doc1 != null && doc2 != null && doc1 !== doc2) {
+        info.primaryRowKey = 'docilityScore';
+      } else if (wean1 != null && wean2 != null && wean1 !== wean2) {
+        info.primaryRowKey = 'weaningWeightIndex';
+      }
+    }
+
+    info.focusIds = focusIds;
+    return info;
+  }
+
+  function getDocility(entry) {
+    if (typeof entry.docilityScore === 'number') return entry.docilityScore;
+    if (entry.bull && typeof entry.bull.docilityScore === 'number') return entry.bull.docilityScore;
+    return null;
+  }
+
+  function getWeaning(entry) {
+    if (typeof entry.weaningWeightIndex === 'number') return entry.weaningWeightIndex;
+    if (entry.bull && typeof entry.bull.weaningWeightIndex === 'number') return entry.bull.weaningWeightIndex;
+    return null;
+  }
+
+  function renderHerefordHelper(container, allBulls, state, filteredBulls) {
+    container.innerHTML = '';
+
+    const cardInner = document.createElement('div');
+    cardInner.className = 'helper-card-inner';
+
+    const title = document.createElement('h2');
+    title.className = 'helper-title';
+    title.textContent = 'Hereford polled vs horned under a budget';
+    cardInner.appendChild(title);
+
+    const description = document.createElement('p');
+    description.className = 'helper-text';
+
+    const hasHerefordFilter = state.breed === 'hereford';
+    const hornIncludesPolled = state.hornStatus.indexOf('polled') !== -1;
+    const hornIncludesHorned = state.hornStatus.indexOf('horned') !== -1;
+
+    if (!hasHerefordFilter || !hornIncludesPolled || !hornIncludesHorned) {
+      description.textContent = 'To quickly compare a polled and a horned Hereford bull, apply recommended filters and then set your budget.';
+      cardInner.appendChild(description);
+
+      const applyBtn = document.createElement('button');
+      applyBtn.type = 'button';
+      applyBtn.className = 'btn-primary helper-action';
+      applyBtn.setAttribute('data-action', 'apply-hereford-horn-filters');
+      applyBtn.textContent = 'Apply Hereford polled + horned filters';
+      cardInner.appendChild(applyBtn);
+
+      const note = document.createElement('p');
+      note.className = 'helper-note';
+      note.textContent = 'Once filters are applied, enter a maximum price per straw and we will highlight suitable pairs.';
+      cardInner.appendChild(note);
+      container.appendChild(cardInner);
+      return;
+    }
+
+    // We have appropriate breed and horn filters
+    if (state.maxPrice == null || Number.isNaN(state.maxPrice)) {
+      description.textContent = 'You are viewing Hereford bulls with both polled and horned options. Enter a maximum price per straw to focus on bulls within your budget.';
+      cardInner.appendChild(description);
+      container.appendChild(cardInner);
+      return;
+    }
+
+    // Within current filters and max price, find at least one polled and one horned Hereford bull
+    const withinBudget = filteredBulls.filter(function(entry) {
+      const price = typeof entry.pricePerStraw === 'number' ? entry.pricePerStraw : entry.bull.pricePerStraw;
+      return typeof price === 'number' && price <= state.maxPrice && entry.bull && entry.bull.breed === 'hereford';
+    });
+
+    const polledCandidates = withinBudget.filter(function(entry) {
+      return entry.bull && entry.bull.hornStatus === 'polled';
+    });
+    const hornedCandidates = withinBudget.filter(function(entry) {
+      return entry.bull && entry.bull.hornStatus === 'horned';
+    });
+
+    if (!polledCandidates.length || !hornedCandidates.length) {
+      description.textContent = 'No polled and horned Hereford pair is available under the current maximum price. Try increasing your max price or adjusting filters.';
+      cardInner.appendChild(description);
+      container.appendChild(cardInner);
+      return;
+    }
+
+    // Pick the cheapest polled and horned bulls as suggested pair
+    polledCandidates.sort(function(a, b) {
+      const pa = typeof a.pricePerStraw === 'number' ? a.pricePerStraw : a.bull.pricePerStraw;
+      const pb = typeof b.pricePerStraw === 'number' ? b.pricePerStraw : b.bull.pricePerStraw;
+      return (pa || 0) - (pb || 0);
+    });
+    hornedCandidates.sort(function(a, b) {
+      const pa = typeof a.pricePerStraw === 'number' ? a.pricePerStraw : a.bull.pricePerStraw;
+      const pb = typeof b.pricePerStraw === 'number' ? b.pricePerStraw : b.bull.pricePerStraw;
+      return (pa || 0) - (pb || 0);
+    });
+
+    const suggestedPolled = polledCandidates[0];
+    const suggestedHorned = hornedCandidates[0];
+
+    description.textContent = 'We found at least one polled and one horned Hereford bull under your budget. You can set them as your focus pair for clearer docility and weaning weight highlighting.';
+    cardInner.appendChild(description);
+
+    const pairList = document.createElement('ul');
+    pairList.className = 'helper-pair-list';
+
+    const polledItem = document.createElement('li');
+    polledItem.className = 'helper-pair-item';
+    polledItem.textContent = (suggestedPolled.bull.name || 'Polled Hereford') + ' (polled, ' + formatCurrency(typeof suggestedPolled.pricePerStraw === 'number' ? suggestedPolled.pricePerStraw : suggestedPolled.bull.pricePerStraw) + ' / straw)';
+    pairList.appendChild(polledItem);
+
+    const hornedItem = document.createElement('li');
+    hornedItem.className = 'helper-pair-item';
+    hornedItem.textContent = (suggestedHorned.bull.name || 'Horned Hereford') + ' (horned, ' + formatCurrency(typeof suggestedHorned.pricePerStraw === 'number' ? suggestedHorned.pricePerStraw : suggestedHorned.bull.pricePerStraw) + ' / straw)';
+    pairList.appendChild(hornedItem);
+
+    cardInner.appendChild(pairList);
+
+    const focusBtn = document.createElement('button');
+    focusBtn.type = 'button';
+    focusBtn.className = 'btn-primary helper-action';
+    focusBtn.setAttribute('data-action', 'set-suggested-focus-pair');
+    focusBtn.setAttribute('data-suggested-ids', suggestedPolled.bull.id + ',' + suggestedHorned.bull.id);
+    focusBtn.textContent = 'Set these as focus bulls';
+    cardInner.appendChild(focusBtn);
+
+    const note = document.createElement('p');
+    note.className = 'helper-note';
+    note.textContent = 'Focus bulls drive the highlighted rows in the comparison table, prioritizing docility and then weaning weight.';
+    cardInner.appendChild(note);
+
+    container.appendChild(cardInner);
+  }
+
+  function formatCurrency(value) {
+    const num = Number(value);
+    if (Number.isNaN(num)) return '';
+    return '$' + num.toFixed(2);
+  }
+
+})();
+</script>

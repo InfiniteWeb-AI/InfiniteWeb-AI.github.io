@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <title>Algorithms Catalog - Digital Pathology Image Analysis Platform</title>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <link rel='stylesheet' href='framework.css'>
+    <link rel='stylesheet' href='algorithms.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <div class='header-inner'>
+            <div class='site-branding'>
+                <span class='site-title'>Digital Pathology Image Analysis</span>
+            </div>
+            <nav class='site-nav' aria-label='Primary navigation'>
+                <ul>
+                    <li><a href='index.html'>Dashboard</a></li>
+                    <li><a href='projects.html'>Projects</a></li>
+                    <li><a href='slide_library.html'>Slide Library</a></li>
+                    <li><a href='analytics_biomarker_browser.html'>Analytics</a></li>
+                    <li><a href='collections.html'>Collections</a></li>
+                    <li><a href='cohorts.html'>Cohorts</a></li>
+                    <li><a href='algorithms.html'>Algorithms</a></li>
+                    <li><a href='qc_dashboard.html'>QC</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id='content' class='site-content' role='main'>
+        <section class='algorithms-page' data-component='algorithm-catalog-init'>
+            <section class='algorithms-controls'>
+                <section class='algorithms-search-block' data-component='algorithm-search-form'>
+                    <form id='algorithmSearchForm'>
+                        <label for='algorithmSearchInput'>Search algorithms by name</label>
+                        <input type='search' id='algorithmSearchInput' name='search' autocomplete='off'>
+                        <button type='submit' data-action='search-submit'>Search</button>
+                        <button type='button' id='algorithmSearchClear' data-action='search-clear'>Clear</button>
+                    </form>
+                </section>
+
+                <div class='algorithms-filter-bar' data-component='algorithm-filter-bar'>
+                    <label for='algorithmTypeSelect'>Algorithm type</label>
+                    <select id='algorithmTypeSelect' name='algorithmType'>
+                        <option value=''>All types</option>
+                    </select>
+
+                    <label for='organScopeSelect'>Organ scope</label>
+                    <select id='organScopeSelect' name='organScope'>
+                        <option value=''>All organs</option>
+                    </select>
+
+                    <span id='algorithmFilterLoading' data-component='algorithm-filter-loading-indicator' hidden>Loading filter options...</span>
+                </div>
+            </section>
+
+            <section class='algorithms-main'>
+                <div class='algorithm-list-region'>
+                    <div id='algorithmListLoading' data-component='algorithm-list-loading-indicator' hidden>Loading algorithms...</div>
+                    <div id='algorithmListError' class='algorithm-list-error' role='alert' hidden></div>
+                    <div id='algorithmListEmpty' data-component='algorithm-list-empty-state' hidden>No algorithms match the current search and filters.</div>
+
+                    <div id='algorithmListContainer' data-component='algorithm-list' data-populate='algorithms-list'></div>
+                </div>
+
+                <div class='algorithm-list-footer'>
+                    <div class='algorithm-pagination-meta'>
+                        <label for='pageSizeSelect'>Algorithms per page</label>
+                        <select id='pageSizeSelect' name='pageSize'>
+                            <option value='10'>10</option>
+                            <option value='25' selected>25</option>
+                            <option value='50'>50</option>
+                        </select>
+                    </div>
+                    <nav id='algorithmPagination' data-component='algorithm-pagination-controls' aria-label='Algorithms pagination'></nav>
+                </div>
+            </section>
+        </section>
+    </main>
+
+    <footer class='site-footer'>
+        <div class='footer-inner'>
+            <nav class='footer-nav' aria-label='Footer navigation'>
+                <ul>
+                    <li><a href='about.html'>About</a></li>
+                    <li><a href='help.html'>Help &amp; User Guide</a></li>
+                </ul>
+            </nav>
+            <p class='footer-meta'>Digital pathology image analysis platform</p>
+        </div>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        'use strict';
+
+        // Grab DOM elements
+        var searchForm = document.getElementById('algorithmSearchForm');
+        var searchInput = document.getElementById('algorithmSearchInput');
+        var searchClearBtn = document.getElementById('algorithmSearchClear');
+        var algorithmTypeSelect = document.getElementById('algorithmTypeSelect');
+        var organScopeSelect = document.getElementById('organScopeSelect');
+        var filterLoadingEl = document.getElementById('algorithmFilterLoading');
+        var listContainer = document.getElementById('algorithmListContainer');
+        var listLoadingEl = document.getElementById('algorithmListLoading');
+        var emptyStateEl = document.getElementById('algorithmListEmpty');
+        var errorEl = document.getElementById('algorithmListError');
+        var paginationEl = document.getElementById('algorithmPagination');
+        var pageSizeSelect = document.getElementById('pageSizeSelect');
+
+        function getUrlState() {
+            var params = new URLSearchParams(window.location.search);
+            var search = params.get('search') || '';
+            var algorithmType = params.get('algorithmType') || '';
+            var organScope = params.get('organScope') || '';
+
+            var page = parseInt(params.get('page') || '1', 10);
+            if (!Number.isFinite(page) || page < 1) {
+                page = 1;
+            }
+
+            var pageSize = parseInt(params.get('pageSize') || '25', 10);
+            if (!Number.isFinite(pageSize) || pageSize <= 0) {
+                pageSize = 25;
+            }
+
+            return {
+                search: search,
+                algorithmType: algorithmType,
+                organScope: organScope,
+                page: page,
+                pageSize: pageSize
+            };
+        }
+
+        function updateUrl(partial, options) {
+            var opts = options || {};
+            var replace = !!opts.replace;
+            var params = new URLSearchParams(window.location.search);
+
+            Object.keys(partial).forEach(function (key) {
+                var value = partial[key];
+                if (value === undefined || value === null || value === '') {
+                    params.delete(key);
+                } else {
+                    params.set(key, String(value));
+                }
+            });
+
+            var newSearch = params.toString();
+            var newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '');
+
+            if (replace) {
+                window.history.replaceState(null, '', newUrl);
+            } else {
+                window.history.pushState(null, '', newUrl);
+            }
+        }
+
+        function applyUrlToControls() {
+            var state = getUrlState();
+            if (searchInput) {
+                searchInput.value = state.search;
+            }
+            if (algorithmTypeSelect) {
+                algorithmTypeSelect.value = state.algorithmType || '';
+            }
+            if (organScopeSelect) {
+                organScopeSelect.value = state.organScope || '';
+            }
+            if (pageSizeSelect) {
+                pageSizeSelect.value = String(state.pageSize);
+            }
+        }
+
+        function buildFiltersFromUrlState(state) {
+            var filters = {};
+            if (state.search) {
+                filters.searchQuery = state.search;
+            }
+            if (state.algorithmType) {
+                filters.algorithmType = state.algorithmType;
+            }
+            if (state.organScope) {
+                filters.organScope = state.organScope;
+            }
+            return filters;
+        }
+
+        function renderFilterOptions() {
+            if (!algorithmTypeSelect || !organScopeSelect) {
+                return;
+            }
+
+            filterLoadingEl.hidden = false;
+
+            try {
+                var result = WebsiteSDK.getAlgorithmFilterOptions();
+                var algorithmTypes = Array.isArray(result && result.algorithmTypes) ? result.algorithmTypes : [];
+                var organScopes = Array.isArray(result && result.organScopes) ? result.organScopes : [];
+
+                // Preserve URL-selected values if present
+                var state = getUrlState();
+                var selectedType = state.algorithmType || '';
+                var selectedOrgan = state.organScope || '';
+
+                // Algorithm types
+                while (algorithmTypeSelect.options.length > 1) {
+                    algorithmTypeSelect.remove(1);
+                }
+                algorithmTypes.forEach(function (typeObj) {
+                    if (!typeObj || typeof typeObj.value !== 'string') {
+                        return;
+                    }
+                    var opt = document.createElement('option');
+                    opt.value = typeObj.value;
+                    opt.textContent = typeObj.label || typeObj.value;
+                    algorithmTypeSelect.appendChild(opt);
+                });
+                algorithmTypeSelect.value = selectedType || '';
+
+                // Organ scopes
+                while (organScopeSelect.options.length > 1) {
+                    organScopeSelect.remove(1);
+                }
+                organScopes.forEach(function (scope) {
+                    if (typeof scope !== 'string') {
+                        return;
+                    }
+                    var opt = document.createElement('option');
+                    opt.value = scope;
+                    // Simple label: capitalize first letter
+                    opt.textContent = scope.charAt(0).toUpperCase() + scope.slice(1);
+                    organScopeSelect.appendChild(opt);
+                });
+                organScopeSelect.value = selectedOrgan || '';
+            } catch (err) {
+                // Minimal inline error; keep controls usable
+                console.error('Failed to load algorithm filter options', err);
+            } finally {
+                filterLoadingEl.hidden = true;
+            }
+        }
+
+        function renderAlgorithmList(container, items) {
+            container.innerHTML = '';
+
+            if (!items || !items.length) {
+                return;
+            }
+
+            var table = document.createElement('table');
+            table.className = 'algorithm-table';
+
+            var thead = document.createElement('thead');
+            var headRow = document.createElement('tr');
+
+            ['Name', 'Type', 'Organ scope', 'Version', 'Description'].forEach(function (heading) {
+                var th = document.createElement('th');
+                th.textContent = heading;
+                headRow.appendChild(th);
+            });
+
+            thead.appendChild(headRow);
+            table.appendChild(thead);
+
+            var tbody = document.createElement('tbody');
+
+            items.forEach(function (alg) {
+                var tr = document.createElement('tr');
+
+                // Name (clickable)
+                var nameTd = document.createElement('td');
+                var nameLink = document.createElement('a');
+                nameLink.href = 'javascript:void(0)';
+                nameLink.textContent = alg && alg.name ? alg.name : '(Unnamed algorithm)';
+                nameLink.dataset.action = 'open-algorithm';
+                if (alg && alg.id) {
+                    nameLink.dataset.algorithmId = alg.id;
+                }
+                nameTd.appendChild(nameLink);
+                tr.appendChild(nameTd);
+
+                // Type
+                var typeTd = document.createElement('td');
+                var typeValue = alg && alg.algorithmType ? alg.algorithmType : '';
+                typeTd.textContent = typeValue;
+                tr.appendChild(typeTd);
+
+                // Organ scope
+                var organTd = document.createElement('td');
+                var organValue = alg && alg.organScope ? alg.organScope : '';
+                organTd.textContent = organValue;
+                tr.appendChild(organTd);
+
+                // Version
+                var versionTd = document.createElement('td');
+                versionTd.textContent = alg && alg.version ? alg.version : '';
+                tr.appendChild(versionTd);
+
+                // Description
+                var descTd = document.createElement('td');
+                descTd.textContent = alg && alg.description ? alg.description : '';
+                tr.appendChild(descTd);
+
+                tbody.appendChild(tr);
+            });
+
+            table.appendChild(tbody);
+            container.appendChild(table);
+        }
+
+        function renderPagination(container, totalCount, page, pageSize) {
+            container.innerHTML = '';
+
+            if (!totalCount || totalCount <= 0) {
+                return;
+            }
+
+            var totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+            if (totalPages === 1) {
+                return;
+            }
+
+            var wrapper = document.createElement('div');
+            wrapper.className = 'pagination-inner';
+
+            // Previous
+            if (page > 1) {
+                var prevBtn = document.createElement('button');
+                prevBtn.type = 'button';
+                prevBtn.textContent = 'Previous';
+                prevBtn.dataset.action = 'change-page';
+                prevBtn.dataset.page = String(page - 1);
+                wrapper.appendChild(prevBtn);
+            }
+
+            // Page numbers
+            for (var p = 1; p <= totalPages; p += 1) {
+                var pageBtn = document.createElement('button');
+                pageBtn.type = 'button';
+                pageBtn.textContent = String(p);
+                pageBtn.dataset.action = 'change-page';
+                pageBtn.dataset.page = String(p);
+                if (p === page) {
+                    pageBtn.disabled = true;
+                }
+                wrapper.appendChild(pageBtn);
+            }
+
+            // Next
+            if (page < totalPages) {
+                var nextBtn = document.createElement('button');
+                nextBtn.type = 'button';
+                nextBtn.textContent = 'Next';
+                nextBtn.dataset.action = 'change-page';
+                nextBtn.dataset.page = String(page + 1);
+                wrapper.appendChild(nextBtn);
+            }
+
+            container.appendChild(wrapper);
+        }
+
+        function loadAlgorithms() {
+            if (!listContainer) {
+                return;
+            }
+
+            var state = getUrlState();
+            var filters = buildFiltersFromUrlState(state);
+
+            listLoadingEl.hidden = false;
+            emptyStateEl.hidden = true;
+            errorEl.hidden = true;
+            listContainer.innerHTML = '';
+            paginationEl.innerHTML = '';
+
+            try {
+                var result = WebsiteSDK.getAlgorithmsCatalog(filters, state.page, state.pageSize);
+                var items = Array.isArray(result && result.items) ? result.items : [];
+                var totalCount = typeof result && result.totalCount === 'number' ? result.totalCount : (result.totalCount || (items ? items.length : 0));
+
+                if (!items.length) {
+                    emptyStateEl.hidden = false;
+                    return;
+                }
+
+                renderAlgorithmList(listContainer, items);
+                renderPagination(paginationEl, totalCount, state.page, state.pageSize);
+            } catch (err) {
+                console.error('Failed to load algorithms catalog', err);
+                errorEl.textContent = 'Unable to load algorithms at this time.';
+                errorEl.hidden = false;
+            } finally {
+                listLoadingEl.hidden = true;
+            }
+        }
+
+        // Event handlers
+        if (searchForm) {
+            searchForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+                var term = searchInput ? searchInput.value.trim() : '';
+                updateUrl({ search: term || null, page: 1 });
+                loadAlgorithms();
+            });
+        }
+
+        if (searchClearBtn) {
+            searchClearBtn.addEventListener('click', function () {
+                if (searchInput) {
+                    searchInput.value = '';
+                }
+                updateUrl({ search: null, page: 1 });
+                loadAlgorithms();
+            });
+        }
+
+        if (algorithmTypeSelect) {
+            algorithmTypeSelect.addEventListener('change', function () {
+                var value = algorithmTypeSelect.value;
+                updateUrl({ algorithmType: value || null, page: 1 });
+                loadAlgorithms();
+            });
+        }
+
+        if (organScopeSelect) {
+            organScopeSelect.addEventListener('change', function () {
+                var value = organScopeSelect.value;
+                updateUrl({ organScope: value || null, page: 1 });
+                loadAlgorithms();
+            });
+        }
+
+        if (pageSizeSelect) {
+            pageSizeSelect.addEventListener('change', function () {
+                var value = parseInt(pageSizeSelect.value, 10);
+                if (!Number.isFinite(value) || value <= 0) {
+                    value = 25;
+                }
+                updateUrl({ pageSize: value, page: 1 });
+                loadAlgorithms();
+            });
+        }
+
+        if (paginationEl) {
+            paginationEl.addEventListener('click', function (event) {
+                var target = event.target;
+                if (!target || !target.dataset) {
+                    return;
+                }
+                if (target.dataset.action === 'change-page') {
+                    var pageValue = parseInt(target.dataset.page, 10);
+                    if (!Number.isFinite(pageValue) || pageValue < 1) {
+                        return;
+                    }
+                    updateUrl({ page: pageValue });
+                    loadAlgorithms();
+                }
+            });
+        }
+
+        if (listContainer) {
+            listContainer.addEventListener('click', function (event) {
+                var target = event.target;
+                if (!target) {
+                    return;
+                }
+
+                var actionEl = target.closest ? target.closest('[data-action]') : target;
+                if (!actionEl || !actionEl.dataset) {
+                    return;
+                }
+
+                if (actionEl.dataset.action === 'open-algorithm') {
+                    var algorithmId = actionEl.dataset.algorithmId;
+                    if (algorithmId) {
+                        var url = 'algorithm_detail.html?algorithmId=' + encodeURIComponent(algorithmId);
+                        window.location.href = url;
+                    }
+                }
+            });
+        }
+
+        window.addEventListener('popstate', function () {
+            applyUrlToControls();
+            loadAlgorithms();
+        });
+
+        // Initial load
+        renderFilterOptions();
+        applyUrlToControls();
+        loadAlgorithms();
+    });
+    </script>
+</body>
+</html>

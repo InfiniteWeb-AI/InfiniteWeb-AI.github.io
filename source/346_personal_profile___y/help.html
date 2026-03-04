@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Profile Link Hub - Help &amp; Guide</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='help.css'>
+</head>
+<body class='page'>
+  <header class='site-header'>
+    <div class='header-inner'>
+      <a href='index.html' class='brand' aria-label='Home'>
+        <span class='brand-mark'>doi.bio</span>
+      </a>
+      <nav class='primary-nav' aria-label='Primary navigation'>
+        <ul class='nav-list'>
+          <li class='nav-item'>
+            <a href='index.html' class='nav-link'>Home</a>
+          </li>
+          <li class='nav-item'>
+            <a href='dashboard.html' class='nav-link'>Dashboard</a>
+          </li>
+          <li class='nav-item'>
+            <a href='help.html' class='nav-link'>Help</a>
+          </li>
+          <li class='nav-item'>
+            <a href='about.html' class='nav-link'>About</a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+    <div class='header-divider'></div>
+  </header>
+
+  <div class='page-body'>
+    <main id='content' class='main-content' role='main'>
+      <div class='content-column' data-component='help-page-controller'>
+        <h1 class='page-title gradient-text'>Help &amp; Guide</h1>
+
+        <div id='help-error' data-component='help-error-retry' class='help-error-banner' hidden></div>
+
+        <section class='help-topics-section' aria-labelledby='help-topics-heading'>
+          <div class='help-topics-header'>
+            <div class='help-topics-header-left'>
+              <h2 id='help-topics-heading' class='section-label'>Help topics</h2>
+            </div>
+            <div class='help-topics-header-right'>
+              <nav class='help-context-nav' data-component='help-contextual-navigation' aria-label='Help contextual navigation'>
+                <button type='button' class='link-button' data-action='back-to-dashboard'>Back to Dashboard</button>
+                <button type='button' class='link-button' data-action='prev-topic'>Previous</button>
+                <button type='button' class='link-button' data-action='next-topic'>Next</button>
+              </nav>
+            </div>
+          </div>
+
+          <div class='topic-nav-list-wrapper'>
+            <ul class='topic-nav-list' data-component='topic-navigation-list' data-populate='help-overview' aria-label='Help topics navigation'>
+              <!-- Populated via WebsiteSDK.getHelpOverview() -->
+            </ul>
+          </div>
+        </section>
+
+        <section class='topic-detail-section' data-component='topic-detail-view' aria-live='polite'>
+          <header class='topic-detail-header'>
+            <h2 class='topic-title' data-field='topic-title'></h2>
+            <p class='topic-type-label' data-field='topic-type-label'></p>
+          </header>
+          <div class='topic-body' data-field='topic-body'></div>
+          <div class='topic-actions'>
+            <button type='button' class='btn btn-primary' data-action='try-in-editor' hidden>Try this in editor</button>
+          </div>
+        </section>
+
+        <section class='task-guide-checklist-section' data-component='task-guide-checklist' aria-labelledby='task-guide-heading' hidden>
+          <h3 id='task-guide-heading' class='section-label'>Task guide checklist</h3>
+          <ol class='checklist-list' data-field='checklist-steps'>
+            <!-- Checklist steps for selected task guide -->
+          </ol>
+          <div class='related-tasks' data-field='related-tasks'>
+            <!-- Related task links -->
+          </div>
+        </section>
+
+        <section class='faq-section' data-component='faq-list-view' aria-labelledby='faq-heading'>
+          <h3 id='faq-heading' class='section-label'>FAQs</h3>
+          <div class='faq-list' data-field='faq-list'>
+            <!-- FAQ items rendered here -->
+          </div>
+        </section>
+
+        <div data-component='help-url-state-sync' aria-hidden='true'></div>
+      </div>
+    </main>
+    <div class='layout-rail' aria-hidden='true'></div>
+  </div>
+
+  <footer class='site-footer'>
+    <div class='footer-inner'>
+      <div class='footer-branding'>
+        <span class='footer-brand'>doi.bio</span>
+        <span class='footer-meta'>Personal profile &amp; YouTube link hub</span>
+      </div>
+      <nav class='footer-nav' aria-label='Footer navigation'>
+        <a href='about.html' class='footer-link'>About</a>
+        <a href='help.html' class='footer-link'>Help &amp; Guide</a>
+        <a href='dashboard.html' class='footer-link'>Dashboard</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+
+    const helpPageState = {
+      helpData: null,
+      allTopics: [],
+      topicIndexByKey: {},
+      selectedIndex: 0,
+      initialTopicKey: urlParams.get('topic'),
+      profileId: urlParams.get('profileId') || null,
+      hasError: false
+    };
+
+    const containers = {
+      topicNav: document.querySelector('[data-component="topic-navigation-list"]'),
+      topicTitle: document.querySelector('[data-field="topic-title"]'),
+      topicTypeLabel: document.querySelector('[data-field="topic-type-label"]'),
+      topicBody: document.querySelector('[data-field="topic-body"]'),
+      checklistSteps: document.querySelector('[data-field="checklist-steps"]'),
+      relatedTasks: document.querySelector('[data-field="related-tasks"]'),
+      faqList: document.querySelector('[data-field="faq-list"]'),
+      taskGuideSection: document.querySelector('[data-component="task-guide-checklist"]'),
+      faqSection: document.querySelector('[data-component="faq-list-view"]'),
+      contextualNav: document.querySelector('[data-component="help-contextual-navigation"]'),
+      tryInEditorButton: document.querySelector('[data-action="try-in-editor"]'),
+      errorBar: document.querySelector('[data-component="help-error-retry"]')
+    };
+
+    function normalizeHelpData(raw) {
+      const safe = raw && typeof raw === 'object' ? raw : {};
+      const concepts = Array.isArray(safe.concepts) ? safe.concepts : [];
+      const taskGuides = Array.isArray(safe.task_guides) ? safe.task_guides : [];
+      const faqs = Array.isArray(safe.faqs) ? safe.faqs : [];
+      return { concepts, taskGuides, faqs };
+    }
+
+    function buildTopics(helpData) {
+      helpPageState.allTopics = [];
+      helpPageState.topicIndexByKey = {};
+
+      helpData.concepts.forEach(function(concept) {
+        const key = concept && typeof concept.key === 'string' ? concept.key : null;
+        if (!key) { return; }
+        const topic = { type: 'concept', key: key, data: concept };
+        const index = helpPageState.allTopics.length;
+        helpPageState.allTopics.push(topic);
+        helpPageState.topicIndexByKey[key] = index;
+      });
+
+      helpData.taskGuides.forEach(function(guide) {
+        const key = guide && typeof guide.key === 'string' ? guide.key : null;
+        if (!key) { return; }
+        const topic = { type: 'task_guide', key: key, data: guide };
+        const index = helpPageState.allTopics.length;
+        helpPageState.allTopics.push(topic);
+        helpPageState.topicIndexByKey[key] = index;
+      });
+
+      helpData.faqs.forEach(function(faq, idx) {
+        const key = 'faq_' + idx;
+        const topic = { type: 'faq', key: key, data: faq, faqIndex: idx };
+        const index = helpPageState.allTopics.length;
+        helpPageState.allTopics.push(topic);
+        helpPageState.topicIndexByKey[key] = index;
+      });
+    }
+
+    function chooseInitialSelectedIndex() {
+      const topics = helpPageState.allTopics;
+      if (!topics.length) {
+        helpPageState.selectedIndex = 0;
+        return;
+      }
+      const initialKey = helpPageState.initialTopicKey;
+      if (initialKey && Object.prototype.hasOwnProperty.call(helpPageState.topicIndexByKey, initialKey)) {
+        helpPageState.selectedIndex = helpPageState.topicIndexByKey[initialKey];
+        return;
+      }
+      helpPageState.selectedIndex = 0;
+      const selectedTopic = topics[0];
+      if (selectedTopic && typeof selectedTopic.key === 'string') {
+        updateUrlTopic(selectedTopic.key);
+      }
+    }
+
+    function updateUrlTopic(topicKey) {
+      try {
+        const currentUrl = new URL(window.location.href);
+        if (topicKey) {
+          currentUrl.searchParams.set('topic', topicKey);
+        } else {
+          currentUrl.searchParams.delete('topic');
+        }
+        window.history.pushState({ topic: topicKey }, '', currentUrl.toString());
+      } catch (e) {
+        // Fallback: ignore URL update errors
+      }
+    }
+
+    function renderError(container, message) {
+      if (!container) { return; }
+      if (!message) {
+        container.hidden = true;
+        container.innerHTML = '';
+        return;
+      }
+      const safeMessage = typeof message === 'string' ? message : 'Something went wrong while loading help.';
+      container.hidden = false;
+      container.innerHTML = `
+        <div class="help-error-content">
+          <span class="help-error-text">${safeMessage}</span>
+          <button type="button" class="btn btn-text" data-action="retry-help-overview">Retry</button>
+        </div>
+      `;
+    }
+
+    function renderTopicNavigation(container, state, helpData) {
+      if (!container) { return; }
+      container.innerHTML = '';
+
+      const topics = state.allTopics;
+      if (!topics.length) {
+        const li = document.createElement('li');
+        li.className = 'topic-nav-empty';
+        li.textContent = 'No help topics are available yet.';
+        container.appendChild(li);
+        return;
+      }
+
+      var hasConcepts = helpData.concepts.length > 0;
+      var hasTaskGuides = helpData.taskGuides.length > 0;
+      var hasFaqs = helpData.faqs.length > 0;
+
+      if (hasConcepts) {
+        const groupLabel = document.createElement('li');
+        groupLabel.className = 'topic-nav-group-label';
+        groupLabel.textContent = 'Concepts';
+        container.appendChild(groupLabel);
+        helpData.concepts.forEach(function(concept) {
+          const key = concept && typeof concept.key === 'string' ? concept.key : null;
+          if (!key) { return; }
+          const index = state.topicIndexByKey[key];
+          const li = document.createElement('li');
+          li.className = 'topic-nav-item';
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'topic-nav-link';
+          button.dataset.action = 'select-topic';
+          button.dataset.topicKey = key;
+          button.dataset.topicType = 'concept';
+          if (typeof index === 'number') {
+            button.dataset.topicIndex = String(index);
+          }
+          if (index === state.selectedIndex) {
+            button.classList.add('is-selected');
+          }
+          button.textContent = concept.title || key;
+          li.appendChild(button);
+          container.appendChild(li);
+        });
+      }
+
+      if (hasTaskGuides) {
+        const groupLabel = document.createElement('li');
+        groupLabel.className = 'topic-nav-group-label';
+        groupLabel.textContent = 'Task guides';
+        container.appendChild(groupLabel);
+        helpData.taskGuides.forEach(function(guide) {
+          const key = guide && typeof guide.key === 'string' ? guide.key : null;
+          if (!key) { return; }
+          const index = state.topicIndexByKey[key];
+          const li = document.createElement('li');
+          li.className = 'topic-nav-item';
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'topic-nav-link';
+          button.dataset.action = 'select-topic';
+          button.dataset.topicKey = key;
+          button.dataset.topicType = 'task_guide';
+          if (typeof index === 'number') {
+            button.dataset.topicIndex = String(index);
+          }
+          if (index === state.selectedIndex) {
+            button.classList.add('is-selected');
+          }
+          button.textContent = guide.title || key;
+          li.appendChild(button);
+          container.appendChild(li);
+        });
+      }
+
+      if (hasFaqs) {
+        const groupLabel = document.createElement('li');
+        groupLabel.className = 'topic-nav-group-label';
+        groupLabel.textContent = 'FAQs';
+        container.appendChild(groupLabel);
+        helpData.faqs.forEach(function(faq, idx) {
+          const faqKey = 'faq_' + idx;
+          const index = state.topicIndexByKey[faqKey];
+          const li = document.createElement('li');
+          li.className = 'topic-nav-item';
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'topic-nav-link';
+          button.dataset.action = 'select-topic';
+          button.dataset.topicKey = faqKey;
+          button.dataset.topicType = 'faq';
+          if (typeof index === 'number') {
+            button.dataset.topicIndex = String(index);
+          }
+          if (index === state.selectedIndex) {
+            button.classList.add('is-selected');
+          }
+          button.textContent = faq && faq.question ? faq.question : 'FAQ';
+          li.appendChild(button);
+          container.appendChild(li);
+        });
+      }
+    }
+
+    function isTaskGuideActionable(topic) {
+      if (!topic || topic.type !== 'task_guide' || !topic.key) { return false; }
+      const key = String(topic.key).toLowerCase();
+      if (key.indexOf('link') !== -1) { return true; }
+      if (key.indexOf('section') !== -1) { return true; }
+      if (key.indexOf('appearance') !== -1) { return true; }
+      if (key.indexOf('qr') !== -1) { return true; }
+      return false;
+    }
+
+    function renderTopicDetail(titleContainer, typeLabelContainer, bodyContainer, state, tryButton) {
+      if (!titleContainer || !typeLabelContainer || !bodyContainer) { return; }
+      const topics = state.allTopics;
+      if (!topics.length) {
+        titleContainer.textContent = 'Help content unavailable';
+        typeLabelContainer.textContent = '';
+        bodyContainer.innerHTML = '';
+        if (tryButton) {
+          tryButton.hidden = true;
+        }
+        return;
+      }
+      const topic = topics[state.selectedIndex];
+      if (!topic) { return; }
+
+      var typeLabel = '';
+      if (topic.type === 'concept') {
+        typeLabel = 'Concept';
+      } else if (topic.type === 'task_guide') {
+        typeLabel = 'Task guide';
+      } else if (topic.type === 'faq') {
+        typeLabel = 'FAQ';
+      }
+
+      if (topic.type === 'faq') {
+        titleContainer.textContent = topic.data && topic.data.question ? topic.data.question : 'FAQ';
+      } else {
+        titleContainer.textContent = topic.data && topic.data.title ? topic.data.title : topic.key;
+      }
+      typeLabelContainer.textContent = typeLabel;
+
+      bodyContainer.innerHTML = '';
+
+      if (topic.type === 'concept') {
+        const p = document.createElement('p');
+        p.textContent = topic.data && topic.data.summary ? topic.data.summary : '';
+        bodyContainer.appendChild(p);
+      } else if (topic.type === 'task_guide') {
+        const intro = document.createElement('p');
+        intro.textContent = 'Follow the checklist below in your Profile Editor to complete this task.';
+        bodyContainer.appendChild(intro);
+      } else if (topic.type === 'faq') {
+        const p = document.createElement('p');
+        p.textContent = topic.data && topic.data.answer ? topic.data.answer : '';
+        bodyContainer.appendChild(p);
+      }
+
+      if (tryButton) {
+        const actionable = isTaskGuideActionable(topic);
+        tryButton.hidden = !actionable;
+      }
+    }
+
+    function renderChecklist(checklistContainer, relatedTasksContainer, sectionElement, state) {
+      if (!checklistContainer || !sectionElement || !relatedTasksContainer) { return; }
+      const topics = state.allTopics;
+      const topic = topics[state.selectedIndex];
+
+      if (!topic || topic.type !== 'task_guide') {
+        sectionElement.hidden = true;
+        checklistContainer.innerHTML = '';
+        relatedTasksContainer.innerHTML = '';
+        return;
+      }
+
+      sectionElement.hidden = false;
+      checklistContainer.innerHTML = '';
+
+      const steps = Array.isArray(topic.data && topic.data.steps) ? topic.data.steps : [];
+      if (!steps.length) {
+        const li = document.createElement('li');
+        li.className = 'checklist-item checklist-item-empty';
+        li.textContent = 'This task guide does not have any steps yet.';
+        checklistContainer.appendChild(li);
+      } else {
+        steps.forEach(function(stepText, index) {
+          const li = document.createElement('li');
+          li.className = 'checklist-item';
+          const label = document.createElement('label');
+          label.className = 'checklist-label';
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.className = 'checklist-checkbox';
+          checkbox.dataset.action = 'toggle-step';
+          checkbox.dataset.stepIndex = String(index);
+          const span = document.createElement('span');
+          span.className = 'checklist-text';
+          span.textContent = stepText;
+          label.appendChild(checkbox);
+          label.appendChild(span);
+          li.appendChild(label);
+          checklistContainer.appendChild(li);
+        });
+      }
+
+      relatedTasksContainer.innerHTML = '';
+      const relatedKeys = Array.isArray(topic.data && topic.data.related_tasks) ? topic.data.related_tasks : [];
+      if (!relatedKeys.length) {
+        return;
+      }
+
+      const heading = document.createElement('div');
+      heading.className = 'related-tasks-heading';
+      heading.textContent = 'Related task guides';
+      relatedTasksContainer.appendChild(heading);
+
+      const list = document.createElement('ul');
+      list.className = 'related-tasks-list';
+      relatedTasksContainer.appendChild(list);
+
+      relatedKeys.forEach(function(key) {
+        if (typeof key !== 'string') { return; }
+        const index = state.topicIndexByKey[key];
+        if (typeof index !== 'number') { return; }
+        const relatedTopic = state.allTopics[index];
+        if (!relatedTopic || relatedTopic.type !== 'task_guide') { return; }
+        const li = document.createElement('li');
+        li.className = 'related-task-item';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'related-task-link';
+        button.dataset.action = 'select-topic';
+        button.dataset.topicKey = key;
+        button.dataset.topicType = 'task_guide';
+        button.dataset.topicIndex = String(index);
+        button.textContent = relatedTopic.data && relatedTopic.data.title ? relatedTopic.data.title : key;
+        li.appendChild(button);
+        list.appendChild(li);
+      });
+    }
+
+    function renderFaqList(container, helpData, state) {
+      if (!container) { return; }
+      container.innerHTML = '';
+
+      const faqs = helpData.faqs;
+      if (!faqs.length) {
+        const p = document.createElement('p');
+        p.className = 'faq-empty';
+        p.textContent = 'No FAQs are available yet.';
+        container.appendChild(p);
+        return;
+      }
+
+      const selectedTopic = state.allTopics[state.selectedIndex];
+      faqs.forEach(function(faq, idx) {
+        const faqKey = 'faq_' + idx;
+        const topicIndex = state.topicIndexByKey[faqKey];
+        const isSelected = selectedTopic && selectedTopic.type === 'faq' && selectedTopic.key === faqKey;
+
+        const wrapper = document.createElement('article');
+        wrapper.className = 'faq-item';
+
+        const questionButton = document.createElement('button');
+        questionButton.type = 'button';
+        questionButton.className = 'faq-question';
+        questionButton.dataset.action = 'select-topic';
+        questionButton.dataset.topicKey = faqKey;
+        questionButton.dataset.topicType = 'faq';
+        if (typeof topicIndex === 'number') {
+          questionButton.dataset.topicIndex = String(topicIndex);
+        }
+        questionButton.setAttribute('aria-expanded', isSelected ? 'true' : 'false');
+        questionButton.textContent = faq && faq.question ? faq.question : 'FAQ';
+        wrapper.appendChild(questionButton);
+
+        const answer = document.createElement('div');
+        answer.className = 'faq-answer';
+        if (!isSelected) {
+          answer.hidden = true;
+        }
+        const answerText = document.createElement('p');
+        answerText.textContent = faq && faq.answer ? faq.answer : '';
+        answer.appendChild(answerText);
+        wrapper.appendChild(answer);
+
+        container.appendChild(wrapper);
+      });
+    }
+
+    function renderAll() {
+      if (!helpPageState.helpData) { return; }
+      renderTopicNavigation(containers.topicNav, helpPageState, helpPageState.helpData);
+      renderTopicDetail(containers.topicTitle, containers.topicTypeLabel, containers.topicBody, helpPageState, containers.tryInEditorButton);
+      renderChecklist(containers.checklistSteps, containers.relatedTasks, containers.taskGuideSection, helpPageState);
+      renderFaqList(containers.faqList, helpPageState.helpData, helpPageState);
+    }
+
+    function resolveEditorTabForTopic(topic) {
+      if (!topic || !topic.key) { return 'links'; }
+      const key = String(topic.key).toLowerCase();
+      if (key.indexOf('link') !== -1) { return 'links'; }
+      if (key.indexOf('section') !== -1) { return 'links'; }
+      if (key.indexOf('appearance') !== -1) { return 'appearance'; }
+      if (key.indexOf('qr') !== -1) { return 'qr'; }
+      return 'links';
+    }
+
+    function openProfileEditorForCurrentTopic() {
+      const topics = helpPageState.allTopics;
+      if (!topics.length) { return; }
+      const topic = topics[helpPageState.selectedIndex];
+      if (!topic || topic.type !== 'task_guide') { return; }
+      if (!isTaskGuideActionable(topic)) { return; }
+      const tab = resolveEditorTabForTopic(topic);
+      const params = new URLSearchParams();
+      params.set('tab', tab);
+      if (helpPageState.profileId) {
+        params.set('profileId', helpPageState.profileId);
+      }
+      const query = params.toString();
+      const targetUrl = query ? 'profile_editor.html?' + query : 'profile_editor.html';
+      window.location.href = targetUrl;
+    }
+
+    function setSelectedIndex(newIndex) {
+      const topics = helpPageState.allTopics;
+      if (!topics.length) { return; }
+      const total = topics.length;
+      var index = newIndex;
+      if (index < 0) {
+        index = 0;
+      }
+      if (index >= total) {
+        index = total - 1;
+      }
+      helpPageState.selectedIndex = index;
+      const topic = topics[index];
+      if (topic && typeof topic.key === 'string') {
+        updateUrlTopic(topic.key);
+      }
+      renderAll();
+    }
+
+    function moveSelection(offset) {
+      const topics = helpPageState.allTopics;
+      if (!topics.length) { return; }
+      const total = topics.length;
+      var index = helpPageState.selectedIndex + offset;
+      if (index < 0) {
+        index = total - 1;
+      }
+      if (index >= total) {
+        index = 0;
+      }
+      helpPageState.selectedIndex = index;
+      const topic = topics[index];
+      if (topic && typeof topic.key === 'string') {
+        updateUrlTopic(topic.key);
+      }
+      renderAll();
+    }
+
+    function handleAction(actionEl, event) {
+      const action = actionEl && actionEl.dataset ? actionEl.dataset.action : null;
+      if (!action) { return; }
+
+      if (action === 'retry-help-overview') {
+        event.preventDefault();
+        loadHelpOverview();
+        return;
+      }
+
+      if (action === 'select-topic') {
+        event.preventDefault();
+        var index = null;
+        if (actionEl.dataset.topicIndex) {
+          const parsed = parseInt(actionEl.dataset.topicIndex, 10);
+          if (!isNaN(parsed)) {
+            index = parsed;
+          }
+        }
+        if (index === null) {
+          const key = actionEl.dataset.topicKey;
+          if (key && Object.prototype.hasOwnProperty.call(helpPageState.topicIndexByKey, key)) {
+            index = helpPageState.topicIndexByKey[key];
+          }
+        }
+        if (index !== null) {
+          setSelectedIndex(index);
+        }
+        return;
+      }
+
+      if (action === 'toggle-step') {
+        const li = actionEl.closest('.checklist-item');
+        if (li) {
+          if (actionEl.checked) {
+            li.classList.add('checklist-item--completed');
+          } else {
+            li.classList.remove('checklist-item--completed');
+          }
+        }
+        return;
+      }
+
+      if (action === 'prev-topic') {
+        event.preventDefault();
+        moveSelection(-1);
+        return;
+      }
+
+      if (action === 'next-topic') {
+        event.preventDefault();
+        moveSelection(1);
+        return;
+      }
+
+      if (action === 'back-to-dashboard') {
+        event.preventDefault();
+        window.location.href = 'dashboard.html';
+        return;
+      }
+
+      if (action === 'try-in-editor') {
+        event.preventDefault();
+        openProfileEditorForCurrentTopic();
+        return;
+      }
+    }
+
+    document.addEventListener('click', function(event) {
+      const actionEl = event.target.closest('[data-action]');
+      if (!actionEl) { return; }
+      handleAction(actionEl, event);
+    });
+
+    function loadHelpOverview() {
+      helpPageState.hasError = false;
+      renderError(containers.errorBar, '');
+      var raw;
+      try {
+        raw = WebsiteSDK.getHelpOverview();
+      } catch (e) {
+        helpPageState.hasError = true;
+        renderError(containers.errorBar, 'Unable to load help content. Please try again.');
+        return;
+      }
+
+      const normalized = normalizeHelpData(raw);
+      if (!normalized.concepts.length && !normalized.taskGuides.length && !normalized.faqs.length) {
+        helpPageState.hasError = true;
+        renderError(containers.errorBar, 'Help content is currently empty. Please try again later.');
+        helpPageState.helpData = normalized;
+        buildTopics(normalized);
+        renderAll();
+        return;
+      }
+
+      helpPageState.helpData = normalized;
+      buildTopics(normalized);
+      chooseInitialSelectedIndex();
+      renderAll();
+    }
+
+    const populateElements = document.querySelectorAll('[data-populate]');
+    const populateTypes = {};
+    populateElements.forEach(function(el) {
+      const type = el.dataset.populate;
+      if (!type) { return; }
+      if (!populateTypes[type]) {
+        populateTypes[type] = [];
+      }
+      populateTypes[type].push(el);
+    });
+
+    if (populateTypes['help-overview']) {
+      loadHelpOverview();
+    }
+  });
+  </script>
+</body>
+</html>

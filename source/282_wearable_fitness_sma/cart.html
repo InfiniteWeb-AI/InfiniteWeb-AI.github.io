@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shinkle Fitness Watches</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=Cormorant+Garamond:wght@400;500;600&amp;display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="cart.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="site-header">
+      <div class="header-inner">
+        <div class="logo">
+          <a href="index.html" aria-label="Shinkle home">SHINKLE</a>
+        </div>
+        <nav class="primary-nav" aria-label="Primary">
+          <ul>
+            <li><a href="index.html">Home</a></li>
+            <li><a href="category.html?categoryId=smartwatches">Shop Watches</a></li>
+            <li><a href="category.html?categoryId=bands">Bands</a></li>
+            <li><a href="category.html?categoryId=running">Running</a></li>
+            <li><a href="category.html?categoryId=new_releases">New Releases</a></li>
+            <li><a href="category.html?categoryId=subscriptions">Subscriptions</a></li>
+            <li><a href="support.html">Support</a></li>
+          </ul>
+        </nav>
+        <div class="header-utilities" aria-label="Language selection">
+          <span class="utility-label">ENGLISH</span>
+          <span class="utility-separator">|</span>
+          <span class="utility-label">CHINESE</span>
+        </div>
+      </div>
+    </header>
+
+    <main id="content" class="site-content" role="main">
+      <div class="cart-hero-canvas">
+        <div class="cart-ghost-word" aria-hidden="true">CART</div>
+        <section
+          class="cart-page-container"
+          aria-label="Shopping cart"
+          data-component="cart-page-controller"
+          data-populate="cart-summary"
+        >
+          <!-- Cart page layout is rendered by cart-page-controller JavaScript -->
+        </section>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <div class="footer-logo">SHINKLE</div>
+          <p class="footer-tagline">Wearable fitness smartwatches for every run, ride, and workout.</p>
+        </div>
+        <div class="footer-links">
+          <div class="footer-column">
+            <h3 class="footer-heading">Company</h3>
+            <ul>
+              <li><a href="about.html">About</a></li>
+              <li><a href="contact.html">Contact</a></li>
+            </ul>
+          </div>
+          <div class="footer-column">
+            <h3 class="footer-heading">Support</h3>
+            <ul>
+              <li><a href="shipping_returns.html">Shipping &amp; Returns</a></li>
+              <li><a href="support.html">Support Center</a></li>
+            </ul>
+          </div>
+          <div class="footer-column">
+            <h3 class="footer-heading">Legal</h3>
+            <ul>
+              <li><a href="privacy.html">Privacy Policy</a></li>
+              <li><a href="terms.html">Terms &amp; Conditions</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p class="footer-meta">&copy; <span id="current-year"></span> Shinkle. All rights reserved.</p>
+      </div>
+    </footer>
+  </div>
+
+  <script src="business_logic.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      // Identify root container via data-populate / data-component
+      var populateElements = document.querySelectorAll('[data-populate]');
+      var cartRoot = null;
+      populateElements.forEach(function (element) {
+        var dataType = element.getAttribute('data-populate');
+        if (dataType === 'cart-summary' && !cartRoot) {
+          cartRoot = element;
+        }
+      });
+
+      if (!cartRoot) {
+        return;
+      }
+
+      // URL parameters (no required incoming params for this page, but parsed for consistency)
+      var urlParams = new URLSearchParams(window.location.search);
+
+      // Cart & UI state (in-memory only)
+      var cartState = {
+        cart: null,
+        items: [],
+        products: [],
+        subtotal: 0,
+        estimated_tax: 0,
+        total: 0
+      };
+
+      var uiState = {
+        isLoading: false,
+        lastError: '',
+        lastAction: null // { type: 'load' | 'quantity' | 'remove' | 'checkout', payload: {...} }
+      };
+
+      // Utility functions
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function formatCurrency(amount) {
+        var number = typeof amount === 'number' && !isNaN(amount) ? amount : 0;
+        try {
+          return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD'
+          }).format(number);
+        } catch (e) {
+          return '$' + number.toFixed(2);
+        }
+      }
+
+      function formatBandSize(size) {
+        if (!size) return '';
+        if (size === 'small') return 'Band size: Small';
+        if (size === 'medium') return 'Band size: Medium';
+        if (size === 'large') return 'Band size: Large';
+        return 'Band size: ' + size;
+      }
+
+      function formatMaterial(material) {
+        if (!material) return '';
+        var label = '';
+        if (material === 'silicone') label = 'Silicone';
+        else if (material === 'leather') label = 'Leather';
+        else if (material === 'metal') label = 'Metal';
+        else if (material === 'fabric') label = 'Fabric';
+        else label = 'Other';
+        return 'Material: ' + label;
+      }
+
+      function formatFitnessGoalLabel(goal) {
+        if (!goal) return '';
+        var map = {
+          'weight_loss': 'Weight loss',
+          'muscle_gain': 'Muscle gain',
+          'endurance': 'Endurance',
+          'general_fitness': 'General fitness',
+          'stress_management': 'Stress management'
+        };
+        var label = map[goal] || goal.replace(/_/g, ' ');
+        return 'Goal: ' + label.charAt(0).toUpperCase() + label.slice(1);
+      }
+
+      function formatProductType(type) {
+        if (!type) return '';
+        if (type === 'smartwatch') return 'Smartwatch';
+        if (type === 'band') return 'Band';
+        if (type === 'subscription') return 'Subscription';
+        if (type === 'warranty') return 'Warranty';
+        if (type === 'accessory') return 'Accessory';
+        return type.charAt(0).toUpperCase() + type.slice(1);
+      }
+
+      function getPreorderLabel(cartItem, product) {
+        var isPreorderItem = !!(cartItem && cartItem.is_preorder);
+        var isPreorderProduct = !!(product && product.is_preorder);
+        if (!isPreorderItem && !isPreorderProduct) {
+          return '';
+        }
+        var releaseText = '';
+        if (product && product.release_date) {
+          try {
+            var date = new Date(product.release_date);
+            if (!isNaN(date.getTime())) {
+              var options = { year: 'numeric', month: 'short', day: 'numeric' };
+              releaseText = ' \u2022 Ships after ' + date.toLocaleDateString(undefined, options);
+            }
+          } catch (e) {
+            // ignore parse errors
+          }
+        }
+        return '<span class="badge badge-preorder" data-component="cart-preorder-indicator">Pre-order' + escapeHtml(releaseText) + '</span>';
+      }
+
+      function summarizeItemsCount(items) {
+        if (!Array.isArray(items) || items.length === 0) return 0;
+        var total = 0;
+        items.forEach(function (item) {
+          if (item && typeof item.quantity === 'number' && !isNaN(item.quantity)) {
+            total += item.quantity;
+          }
+        });
+        return total;
+      }
+
+      function hasSubscriptionProducts(products) {
+        if (!Array.isArray(products)) return false;
+        var found = false;
+        products.forEach(function (product) {
+          if (found || !product) return;
+          if (product.is_subscription || product.type === 'subscription') {
+            found = true;
+          }
+        });
+        return found;
+      }
+
+      // Rendering: this function only writes into the provided container (no querySelector here)
+      function renderCartPage(container, cartStateObj, uiStateObj) {
+        var hasItems = Array.isArray(cartStateObj.items) && cartStateObj.items.length > 0;
+        var itemCount = summarizeItemsCount(cartStateObj.items);
+        var isLoading = !!uiStateObj.isLoading;
+        var hasError = !!uiStateObj.lastError;
+        var errorMarkup = '';
+
+        if (hasError) {
+          errorMarkup = `
+            <div class="cart-error-banner" data-component="cart-error-banner" role="alert">
+              <div class="cart-error-banner-inner">
+                <div class="cart-error-banner-message">${escapeHtml(uiStateObj.lastError)}</div>
+                <div class="cart-error-banner-actions">
+                  ${uiStateObj.lastAction ? '<button type="button" class="btn btn-secondary" data-action="retry-last">Retry</button>' : ''}
+                  <button type="button" class="btn btn-ghost" data-action="dismiss-error" aria-label="Dismiss error">Dismiss</button>
+                </div>
+              </div>
+            </div>
+         `;
+        }
+
+        var bodyContent = '';
+
+        if (isLoading) {
+          // Loading skeleton
+          bodyContent = `
+            <div class="cart-loading-state" data-component="cart-loading-state" aria-busy="true" aria-live="polite">
+              <div class="cart-loading-card">
+                <div class="cart-loading-left">
+                  <div class="cart-loading-row"></div>
+                  <div class="cart-loading-row"></div>
+                  <div class="cart-loading-row"></div>
+                </div>
+                <div class="cart-loading-right">
+                  <div class="cart-loading-summary-line"></div>
+                  <div class="cart-loading-summary-line"></div>
+                  <div class="cart-loading-summary-button"></div>
+                </div>
+              </div>
+            </div>
+         `;
+        } else if (!hasItems) {
+          // Empty cart state
+          bodyContent = `
+            <section class="empty-cart-state" data-component="empty-cart-state">
+              <div class="empty-cart-inner">
+                <div class="empty-cart-icon" aria-hidden="true"></div>
+                <h2 class="empty-cart-title">Your cart is empty</h2>
+                <p class="empty-cart-body">Add a watch, band, or training plan to get started.</p>
+                <button type="button" class="btn btn-primary" data-action="continue-shopping">Continue shopping</button>
+              </div>
+            </section>
+         `;
+        } else {
+          // Populated cart: item list + summary panel
+          var itemsHtml = '';
+          var itemsArr = Array.isArray(cartStateObj.items) ? cartStateObj.items : [];
+          var productsArr = Array.isArray(cartStateObj.products) ? cartStateObj.products : [];
+
+          itemsArr.forEach(function (item, index) {
+            if (!item) return;
+            var product = productsArr[index] || {};
+            var unitPrice = typeof item.unit_price === 'number' ? item.unit_price : (typeof product.price === 'number' ? product.price : 0);
+            var lineTotal = typeof item.total_price === 'number' ? item.total_price : unitPrice * (item.quantity || 1);
+
+            var configParts = [];
+            if (item.selected_color) {
+              configParts.push('Color: ' + escapeHtml(item.selected_color));
+            }
+            if (item.selected_band_size) {
+              configParts.push(escapeHtml(formatBandSize(item.selected_band_size)));
+            }
+            if (item.selected_material) {
+              configParts.push(escapeHtml(formatMaterial(item.selected_material)));
+            }
+            if (item.selected_warranty_plan_id) {
+              configParts.push('Protection plan added');
+            }
+            if (item.selected_fitness_goal) {
+              configParts.push(escapeHtml(formatFitnessGoalLabel(item.selected_fitness_goal)));
+            }
+
+            var configText = configParts.join(' \u2022 ');
+            var preorderLabel = getPreorderLabel(item, product);
+            var productName = escapeHtml(product && product.name ? product.name : 'Product');
+            var productType = escapeHtml(formatProductType(product && product.type));
+            var thumbnailLabel = 'Item';
+            if (product && product.type === 'smartwatch') {
+              thumbnailLabel = 'Watch';
+            } else if (product && product.type === 'band') {
+              thumbnailLabel = 'Band';
+            } else if (product && product.type === 'subscription') {
+              thumbnailLabel = 'Plan';
+            }
+
+            var productIdAttr = product && product.id ? String(product.id) : '';
+            var cartItemIdAttr = item && item.id ? String(item.id) : '';
+            var quantityValue = (item && typeof item.quantity === 'number' && !isNaN(item.quantity) && item.quantity > 0) ? item.quantity : 1;
+
+            itemsHtml += `
+              <article class="cart-item-row" data-component="cart-item-row" data-cart-item-id="${escapeHtml(cartItemIdAttr)}">
+                <div class="cart-item-main">
+                  <div class="cart-item-thumbnail" aria-hidden="true">
+                    <div class="cart-item-thumbnail-placeholder">${escapeHtml(thumbnailLabel)}</div>
+                  </div>
+                  <div class="cart-item-info">
+                    <div class="cart-item-title-line">
+                      <button type="button" class="cart-item-title-link" data-action="edit-item" data-product-id="${escapeHtml(productIdAttr)}">${productName}</button>
+                      ${preorderLabel}
+                    </div>
+                    <div class="cart-item-meta">
+                      <span class="cart-item-type">${productType}</span>
+                      ${configText ? '<span class="cart-item-config">' + configText + '</span>' : ''}
+                    </div>
+                  </div>
+                </div>
+                <div class="cart-item-controls">
+                  <div class="cart-item-price-block">
+                    <div class="cart-item-unit-price">${formatCurrency(unitPrice)}</div>
+                    <div class="cart-item-line-total">${formatCurrency(lineTotal)}</div>
+                  </div>
+                  <div class="cart-item-actions">
+                    <div class="cart-item-quantity-control" data-component="cart-item-quantity-control">
+                      <button
+                        type="button"
+                        class="qty-btn qty-btn-decrement"
+                        data-action="decrement-qty"
+                        data-cart-item-id="${escapeHtml(cartItemIdAttr)}"
+                        data-current-qty="${quantityValue}"
+                        aria-label="Decrease quantity"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="number"
+                        class="qty-input"
+                        min="1"
+                        step="1"
+                        value="${quantityValue}"
+                        data-action="input-qty"
+                        data-cart-item-id="${escapeHtml(cartItemIdAttr)}"
+                        aria-label="Quantity"
+                      />
+                      <button
+                        type="button"
+                        class="qty-btn qty-btn-increment"
+                        data-action="increment-qty"
+                        data-cart-item-id="${escapeHtml(cartItemIdAttr)}"
+                        data-current-qty="${quantityValue}"
+                        aria-label="Increase quantity"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      class="cart-item-remove-button"
+                      data-component="cart-item-remove-button"
+                      data-action="remove-item"
+                      data-cart-item-id="${escapeHtml(cartItemIdAttr)}"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </article>
+            `;
+          });
+
+          var hasSubs = hasSubscriptionProducts(cartStateObj.products);
+
+          bodyContent = `
+            <div class="cart-body-layout">
+              <section class="cart-item-list" data-component="cart-item-list" aria-label="Cart items">
+                ${itemsHtml}
+              </section>
+              <aside class="cart-summary-panel" data-component="cart-summary-panel" aria-label="Order summary">
+                <div class="cart-summary-section">
+                  <div class="cart-summary-row">
+                    <span class="cart-summary-label">Subtotal</span>
+                    <span class="cart-summary-value">${formatCurrency(cartStateObj.subtotal)}</span>
+                  </div>
+                  <div class="cart-summary-row">
+                    <span class="cart-summary-label">Estimated tax</span>
+                    <span class="cart-summary-value">${formatCurrency(cartStateObj.estimated_tax)}</span>
+                  </div>
+                  <div class="cart-summary-divider"></div>
+                  <div class="cart-summary-row cart-summary-total-row">
+                    <span class="cart-summary-total-label">Total</span>
+                    <span class="cart-summary-total-value">${formatCurrency(cartStateObj.total)}</span>
+                  </div>
+                </div>
+                ${hasSubs ? `
+                <div class="cart-summary-note">
+                  Subscription items renew automatically according to their billing period. You can manage or cancel anytime.
+                </div>
+                ` : ''}
+                <div class="cart-summary-actions">
+                  <button
+                    type="button"
+                    class="btn btn-primary cart-checkout-button"
+                    data-component="cart-checkout-button"
+                    data-action="checkout"
+                  >
+                    Checkout
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-text cart-summary-continue"
+                    data-action="continue-shopping"
+                  >
+                    Continue shopping
+                  </button>
+                </div>
+              </aside>
+            </div>
+          `;
+        }
+
+        container.innerHTML = `
+          <div class="cart-page-shell">
+            ${errorMarkup}
+            <header class="cart-header-actions" data-component="cart-header-actions">
+              <div class="cart-header-left">
+                <h1 class="cart-title">Shopping Cart</h1>
+                <p class="cart-item-count">${hasItems ? (itemCount + ' item' + (itemCount === 1 ? '' : 's')) : '0 items'}</p>
+              </div>
+              <div class="cart-header-right">
+                <button type="button" class="btn btn-text cart-header-continue" data-action="continue-shopping">Continue shopping</button>
+              </div>
+            </header>
+            <section class="cart-main-band">
+              ${bodyContent}
+            </section>
+          </div>
+        `;
+      }
+
+      // Bind interactions after each render
+      function bindCartEventHandlers(container) {
+        // Continue shopping
+        var continueButtons = container.querySelectorAll('[data-action="continue-shopping"]');
+        continueButtons.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            window.location.href = 'index.html';
+          });
+        });
+
+        // Quantity increment
+        var incButtons = container.querySelectorAll('[data-action="increment-qty"]');
+        incButtons.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var cartItemId = btn.getAttribute('data-cart-item-id');
+            var currentStr = btn.getAttribute('data-current-qty') || '1';
+            var current = parseInt(currentStr, 10);
+            if (isNaN(current) || current < 1) {
+              current = 1;
+            }
+            var newQty = current + 1;
+            handleQuantityChange(cartItemId, newQty);
+          });
+        });
+
+        // Quantity decrement
+        var decButtons = container.querySelectorAll('[data-action="decrement-qty"]');
+        decButtons.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var cartItemId = btn.getAttribute('data-cart-item-id');
+            var currentStr = btn.getAttribute('data-current-qty') || '1';
+            var current = parseInt(currentStr, 10);
+            if (isNaN(current) || current < 1) {
+              current = 1;
+            }
+            var newQty = current - 1;
+            if (newQty < 1) {
+              newQty = 1;
+            }
+            handleQuantityChange(cartItemId, newQty);
+          });
+        });
+
+        // Quantity input (change & blur)
+        var qtyInputs = container.querySelectorAll('[data-action="input-qty"]');
+        qtyInputs.forEach(function (input) {
+          var changeHandler = function () {
+            var cartItemId = input.getAttribute('data-cart-item-id');
+            var valueStr = input.value;
+            var parsed = parseInt(valueStr, 10);
+            var newQty = (!isNaN(parsed) && parsed > 0) ? parsed : 1;
+            if (newQty !== parsed) {
+              input.value = newQty;
+            }
+            handleQuantityChange(cartItemId, newQty);
+          };
+          input.addEventListener('change', changeHandler);
+          input.addEventListener('blur', changeHandler);
+        });
+
+        // Remove item
+        var removeButtons = container.querySelectorAll('[data-action="remove-item"]');
+        removeButtons.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var cartItemId = btn.getAttribute('data-cart-item-id');
+            if (!cartItemId) return;
+            handleRemoveItem(cartItemId);
+          });
+        });
+
+        // Edit item (navigate to product detail)
+        var editButtons = container.querySelectorAll('[data-action="edit-item"]');
+        editButtons.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var productId = btn.getAttribute('data-product-id');
+            if (!productId) return;
+            var targetUrl = 'product.html?id=' + encodeURIComponent(productId) + '&from=cart';
+            window.location.href = targetUrl;
+          });
+        });
+
+        // Checkout
+        var checkoutButton = container.querySelector('[data-action="checkout"]');
+        if (checkoutButton) {
+          checkoutButton.addEventListener('click', function () {
+            handleCheckout();
+          });
+        }
+
+        // Error banner actions
+        var retryButton = container.querySelector('[data-action="retry-last"]');
+        if (retryButton) {
+          retryButton.addEventListener('click', function () {
+            handleRetryLastAction();
+          });
+        }
+
+        var dismissButton = container.querySelector('[data-action="dismiss-error"]');
+        if (dismissButton) {
+          dismissButton.addEventListener('click', function () {
+            uiState.lastError = '';
+            uiState.lastAction = null;
+            render();
+          });
+        }
+      }
+
+      // Helper to refresh cartState from a getCartSummary result
+      function applyCartSummary(summary) {
+        var data = summary || {};
+        cartState.cart = data.cart || null;
+        cartState.items = Array.isArray(data.items) ? data.items : [];
+        cartState.products = Array.isArray(data.products) ? data.products : [];
+        cartState.subtotal = typeof data.subtotal === 'number' ? data.subtotal : 0;
+        cartState.estimated_tax = typeof data.estimated_tax === 'number' ? data.estimated_tax : 0;
+        cartState.total = typeof data.total === 'number' ? data.total : cartState.subtotal + cartState.estimated_tax;
+      }
+
+      // Central render trigger
+      function render() {
+        if (!cartRoot) return;
+        renderCartPage(cartRoot, cartState, uiState);
+        bindCartEventHandlers(cartRoot);
+      }
+
+      // Controller actions
+      function loadCartSummary() {
+        uiState.isLoading = true;
+        render();
+        try {
+          var summary = WebsiteSDK.getCartSummary();
+          applyCartSummary(summary);
+          uiState.lastError = '';
+        } catch (e) {
+          uiState.lastError = 'We couldn\'t load your cart. Please try again.';
+        }
+        uiState.isLoading = false;
+        render();
+      }
+
+      function handleQuantityChange(cartItemId, quantity) {
+        if (!cartItemId) return;
+        var q = quantity;
+        if (typeof q !== 'number' || isNaN(q) || q < 1) {
+          q = 1;
+        }
+        uiState.isLoading = true;
+        uiState.lastAction = {
+          type: 'quantity',
+          payload: { cartItemId: cartItemId, quantity: q }
+        };
+        render();
+        try {
+          var result = WebsiteSDK.updateCartItemQuantity(cartItemId, q);
+          if (!result || !result.success) {
+            throw new Error('Update failed');
+          }
+          var summary = WebsiteSDK.getCartSummary();
+          applyCartSummary(summary);
+          uiState.lastError = '';
+        } catch (e) {
+          uiState.lastError = 'We couldn\'t update that quantity. Please try again.';
+        }
+        uiState.isLoading = false;
+        render();
+      }
+
+      function handleRemoveItem(cartItemId) {
+        if (!cartItemId) return;
+        uiState.isLoading = true;
+        uiState.lastAction = {
+          type: 'remove',
+          payload: { cartItemId: cartItemId }
+        };
+        render();
+        try {
+          var result = WebsiteSDK.removeCartItem(cartItemId);
+          if (!result || !result.success) {
+            throw new Error('Remove failed');
+          }
+          var summary = WebsiteSDK.getCartSummary();
+          applyCartSummary(summary);
+          uiState.lastError = '';
+        } catch (e) {
+          uiState.lastError = 'We couldn\'t remove that item. Please try again.';
+        }
+        uiState.isLoading = false;
+        render();
+      }
+
+      function handleCheckout() {
+        uiState.isLoading = true;
+        uiState.lastAction = {
+          type: 'checkout',
+          payload: {}
+        };
+        render();
+        try {
+          var result = WebsiteSDK.startGuestCheckout();
+          if (!result || !result.checkout_session || !result.checkout_session.id) {
+            throw new Error('Missing checkout session');
+          }
+          var sessionId = result.checkout_session.id;
+          var targetUrl = 'checkout.html?step=shipping&sessionId=' + encodeURIComponent(sessionId);
+          window.location.href = targetUrl;
+          return; // Do not continue rendering after navigation
+        } catch (e) {
+          uiState.lastError = 'We couldn\'t start checkout. Please try again.';
+          uiState.isLoading = false;
+          render();
+        }
+      }
+
+      function handleRetryLastAction() {
+        var last = uiState.lastAction;
+        if (!last) {
+          uiState.lastError = '';
+          render();
+          return;
+        }
+        if (last.type === 'load') {
+          loadCartSummary();
+        } else if (last.type === 'quantity') {
+          handleQuantityChange(last.payload.cartItemId, last.payload.quantity);
+        } else if (last.type === 'remove') {
+          handleRemoveItem(last.payload.cartItemId);
+        } else if (last.type === 'checkout') {
+          handleCheckout();
+        }
+      }
+
+      // Initial load
+      uiState.lastAction = { type: 'load', payload: {} };
+      loadCartSummary();
+    });
+  </script>
+  <script>
+    (function () {
+      var yearElem = document.getElementById('current-year');
+      if (yearElem) {
+        yearElem.textContent = new Date().getFullYear();
+      }
+    })();
+  </script>
+</body>
+</html>

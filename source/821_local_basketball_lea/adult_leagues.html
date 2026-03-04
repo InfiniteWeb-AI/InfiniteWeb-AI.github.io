@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Basketball League</title>
+  
+  <link rel="stylesheet" href="adult_leagues.css">
+</head>
+<body>
+  <header id="site-header">
+    <nav class="main-nav" aria-label="Main navigation">
+      <a href="index.html">Home</a>
+      <a href="adult_leagues.html">Adult Leagues</a>
+      <a href="youth_leagues.html">Youth Leagues</a>
+      <a href="schedule.html">Schedule</a>
+      <a href="playoffs.html">Playoffs</a>
+      <a href="locations.html">Locations</a>
+      <a href="sponsors.html">Sponsors</a>
+      <a href="volunteer.html">Volunteer</a>
+      <a href="contact.html">Contact</a>
+    </nav>
+
+    <h1 id="site-title">Local Basketball League</h1>
+
+    <div class="header-banner" aria-hidden="true"></div>
+  </header>
+
+  <main id="content" role="main">
+    <h2>Adult Leagues</h2>
+
+    <div id="adult-leagues-loader" data-component="page-init-loader" aria-live="polite">Loading adult divisions...</div>
+
+    <form id="adult-division-filters" data-component="adult-division-filter-bar">
+      <div>
+        Skill level:
+        <select name="skillLevel" data-action="filter-skill">
+          <option value="">All skill levels</option>
+        </select>
+      </div>
+      <div>
+        Coed:
+        <select name="coed" data-action="filter-coed">
+          <option value="all">All</option>
+          <option value="coed_only">Coed only</option>
+          <option value="non_coed_only">Non-coed only</option>
+        </select>
+      </div>
+      <div>
+        Your age:
+        <input type="number" name="age" min="0" data-action="filter-age">
+      </div>
+      <div>
+        <button type="button" data-action="clear-filters">Clear filters</button>
+      </div>
+    </form>
+
+    <div data-component="adult-division-list" data-populate="adultDivisionsSummary"></div>
+
+    <div style="margin-top: 16px;">
+      <a href="javascript:void(0)" data-action="adult-league-faq-link">Adult league FAQs</a>
+    </div>
+  </main>
+
+  <footer id="site-footer">
+    <hr>
+    <nav class="footer-nav" aria-label="Footer navigation">
+      <a href="about.html">About</a>
+      <a href="faq.html">FAQ</a>
+      <a href="adult_leagues.html">Adult Leagues</a>
+      <a href="youth_leagues.html">Youth Leagues</a>
+      <a href="schedule.html">Schedule &amp; Standings</a>
+      <a href="playoffs.html">Playoffs &amp; Championships</a>
+      <a href="locations.html">Locations &amp; Facilities</a>
+      <a href="sponsors.html">Sponsors &amp; Advertising</a>
+      <a href="volunteer.html">Volunteer &amp; Get Involved</a>
+      <a href="contact.html">Contact Us</a>
+    </nav>
+    <p class="footer-copy">&copy; Local Basketball League.</p>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialDivisionIdFromUrl = urlParams.get('divisionId');
+
+    const loaderEl = document.querySelector('[data-component="page-init-loader"]');
+    const listContainer = document.querySelector('[data-component="adult-division-list"]');
+    const filterForm = document.querySelector('[data-component="adult-division-filter-bar"]');
+
+    let adultDivisions = [];
+    let filteredDivisions = [];
+    let focusedDivisionId = null;
+    let initialDivisionId = initialDivisionIdFromUrl || null;
+    const divisionDetailsCache = {};
+    const filters = {
+      skillLevel: '',
+      coed: 'all',
+      age: ''
+    };
+    let didInitialScroll = false;
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str).replace(/[&<>"']/g, function(ch) {
+        switch (ch) {
+          case '&': return '&amp;';
+          case '<': return '&lt;';
+          case '>': return '&gt;';
+          case '"': return '&quot;';
+          case "'": return '&#39;';
+          default: return ch;
+        }
+      });
+    }
+
+    function capitalizeFirst(str) {
+      if (!str) return '';
+      const s = String(str);
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    }
+
+    function formatDay(day) {
+      if (!day) return '';
+      return capitalizeFirst(String(day));
+    }
+
+    function isBeginnerFriendly(skill) {
+      if (!skill) return false;
+      const s = String(skill).toLowerCase();
+      return s === 'beginner' || s === 'recreational' || s === 'mixed';
+    }
+
+    function setLoaderVisible(visible, message) {
+      if (!loaderEl) return;
+      loaderEl.style.display = visible ? '' : 'none';
+      if (typeof message === 'string') {
+        loaderEl.textContent = message;
+      }
+    }
+
+    function updateUrlDivisionId(id) {
+      try {
+        const url = new URL(window.location.href);
+        if (id) {
+          url.searchParams.set('divisionId', id);
+        } else {
+          url.searchParams.delete('divisionId');
+        }
+        window.history.pushState({ divisionId: id }, '', url.toString());
+      } catch (e) {
+        // Fallback: ignore URL update errors
+      }
+    }
+
+    function initFiltersMetadata() {
+      if (!filterForm) return;
+      const skillSelect = filterForm.querySelector('[data-action="filter-skill"]');
+      if (!skillSelect) return;
+
+      const skillSet = new Set();
+      try {
+        const metaDivisions = WebsiteSDK.getDivisionsByType('adult') || [];
+        metaDivisions.forEach(function(div) {
+          if (div && div.skill_level) {
+            skillSet.add(div.skill_level);
+          }
+        });
+      } catch (e) {
+        adultDivisions.forEach(function(div) {
+          if (div && div.skill_level) {
+            skillSet.add(div.skill_level);
+          }
+        });
+      }
+
+      while (skillSelect.options.length > 1) {
+        skillSelect.remove(1);
+      }
+
+      Array.from(skillSet).sort().forEach(function(level) {
+        const option = document.createElement('option');
+        option.value = level;
+        option.textContent = capitalizeFirst(level);
+        skillSelect.appendChild(option);
+      });
+    }
+
+    function applyFilters() {
+      filteredDivisions = adultDivisions.filter(function(div) {
+        if (!div) return false;
+        if (filters.skillLevel && div.skill_level !== filters.skillLevel) {
+          return false;
+        }
+        if (filters.coed === 'coed_only' && !div.is_coed) {
+          return false;
+        }
+        if (filters.coed === 'non_coed_only' && div.is_coed) {
+          return false;
+        }
+        if (filters.age) {
+          const ageNum = Number(filters.age);
+          if (!Number.isNaN(ageNum)) {
+            if (typeof div.age_min === 'number' && ageNum < div.age_min) {
+              return false;
+            }
+            if (typeof div.age_max === 'number' && ageNum > div.age_max) {
+              return false;
+            }
+          }
+        }
+        return true;
+      });
+      renderDivisionList(listContainer, filteredDivisions);
+    }
+
+    function renderJoinFormHtml(div) {
+      const skillLevel = div.skill_level || 'beginner';
+      const skillOptions = ['beginner', 'recreational', 'intermediate', 'competitive', 'advanced'];
+      const optionsHtml = skillOptions.map(function(level) {
+        const selected = level === skillLevel ? ' selected' : '';
+        return '<option value="' + level + '"' + selected + '>' + capitalizeFirst(level) + '</option>';
+      }).join('');
+
+      return `
+<form data-component="join-division-pre-contact-form" data-division-id="${div.division_id}">
+  <div><strong>Ask about joining this division</strong></div>
+  <div>*Age: <input type="number" name="age" min="0" required></div>
+  <div>Availability days:
+    <input type="checkbox" name="availabilityDays" value="monday">Mon
+    <input type="checkbox" name="availabilityDays" value="tuesday">Tue
+    <input type="checkbox" name="availabilityDays" value="wednesday">Wed
+    <input type="checkbox" name="availabilityDays" value="thursday">Thu
+    <input type="checkbox" name="availabilityDays" value="friday">Fri
+    <input type="checkbox" name="availabilityDays" value="saturday">Sat
+    <input type="checkbox" name="availabilityDays" value="sunday">Sun
+  </div>
+  <div>Availability time window: <input type="text" name="availabilityTimeWindow" placeholder="e.g., after 19:00"></div>
+  <div>Current skill level:
+    <select name="skillLevel">
+      ${optionsHtml}
+    </select>
+  </div>
+  <div>
+    <button type="submit" data-action="submit-join-form" data-division-id="${div.division_id}">Ask about joining this division</button>
+    <button type="button" data-action="cancel-join-form" data-division-id="${div.division_id}">Cancel</button>
+  </div>
+  <div data-role="join-form-error" style="color: red;"></div>
+</form>`;
+    }
+
+    function renderDivisionList(container, divisions) {
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (!divisions || divisions.length === 0) {
+        const p = document.createElement('p');
+        p.textContent = 'No adult divisions match the current filters.';
+        container.appendChild(p);
+        return;
+      }
+
+      divisions.forEach(function(div) {
+        const card = document.createElement('div');
+        card.setAttribute('data-component', 'adult-division-card');
+        card.setAttribute('data-division-id', div.division_id);
+
+        const isFocused = focusedDivisionId === div.division_id;
+        const skillLabel = div.skill_level ? capitalizeFirst(div.skill_level) : '';
+        let coedLabel = '';
+        if (div.is_coed === true) {
+          coedLabel = 'Coed';
+        } else if (div.is_coed === false) {
+          coedLabel = "Men's / Women's";
+        }
+
+        let ageText = '';
+        if (typeof div.age_min === 'number' && typeof div.age_max === 'number') {
+          ageText = 'Ages ' + div.age_min + ' - ' + div.age_max;
+        } else if (typeof div.age_min === 'number') {
+          ageText = 'Ages ' + div.age_min + '+';
+        } else if (typeof div.age_max === 'number') {
+          ageText = 'Up to age ' + div.age_max;
+        }
+
+        let gameDaysText = 'Varies';
+        if (Array.isArray(div.typical_game_days) && div.typical_game_days.length > 0) {
+          gameDaysText = div.typical_game_days.map(function(day) { return formatDay(day); }).join(', ');
+        }
+
+        let gameTimesText = 'Varies';
+        if (div.typical_game_time_start && div.typical_game_time_end) {
+          gameTimesText = div.typical_game_time_start + ' - ' + div.typical_game_time_end;
+        }
+
+        const cachedDetails = divisionDetailsCache[div.division_id];
+        const description = cachedDetails && cachedDetails.description ? cachedDetails.description : (div.description || '');
+        const beginnerFriendly = isBeginnerFriendly(div.skill_level);
+
+        let detailsHtml = '';
+        if (isFocused) {
+          const homeGymHtml = div.default_gym_id ? '<a href="javascript:void(0)" data-action="view-gym" data-gym-id="' + div.default_gym_id + '" data-division-id="' + div.division_id + '">' + escapeHtml(div.default_gym_name || div.default_gym_id) + '</a>' : 'TBD';
+          detailsHtml = `
+<div class="division-details">
+  ${description ? '<div>' + escapeHtml(description) + '</div>' : ''}
+  <div>Typical game days: ${escapeHtml(gameDaysText)}</div>
+  <div>Typical game times: ${escapeHtml(gameTimesText)}</div>
+  <div>Home gym: ${homeGymHtml}</div>
+  <div><a href="javascript:void(0)" data-action="view-schedule" data-division-id="${div.division_id}">View schedule &amp; standings</a></div>
+  ${beginnerFriendly ? renderJoinFormHtml(div) : ''}
+</div>`;
+        }
+
+        const parts = [];
+        if (skillLabel) parts.push(skillLabel);
+        if (coedLabel) parts.push(coedLabel);
+        if (ageText) parts.push(ageText);
+        const subtitle = parts.join(', ');
+
+        card.innerHTML = `
+<div data-action="toggle-division" data-division-id="${div.division_id}" class="division-header">
+  <strong>${escapeHtml(div.division_name || '')}</strong>${subtitle ? ' - ' + escapeHtml(subtitle) : ''}
+</div>
+<div class="division-summary">
+  <div>Typical game days: ${escapeHtml(gameDaysText)}</div>
+  <div>Typical time window: ${escapeHtml(gameTimesText)}</div>
+</div>
+${detailsHtml}
+`;
+
+        container.appendChild(card);
+      });
+
+      if (focusedDivisionId && !didInitialScroll) {
+        try {
+          const selector = '[data-component="adult-division-card"][data-division-id="' + CSS.escape(focusedDivisionId) + '"]';
+          const focusedCard = container.querySelector(selector);
+          if (focusedCard) {
+            focusedCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+          didInitialScroll = true;
+        } catch (e) {
+          // Ignore scroll errors
+        }
+      }
+    }
+
+    function handleToggleDivision(divisionId) {
+      if (!divisionId) return;
+      if (focusedDivisionId === divisionId) {
+        focusedDivisionId = null;
+        updateUrlDivisionId(null);
+        renderDivisionList(listContainer, filteredDivisions);
+        return;
+      }
+
+      focusedDivisionId = divisionId;
+      updateUrlDivisionId(divisionId);
+
+      if (!divisionDetailsCache[divisionId]) {
+        try {
+          const details = WebsiteSDK.getDivisionDetails(divisionId);
+          if (details) {
+            divisionDetailsCache[divisionId] = details;
+          }
+        } catch (e) {
+          // Ignore detail load failure; summary data will still show
+        }
+      }
+
+      renderDivisionList(listContainer, filteredDivisions);
+    }
+
+    function handleClearFilters() {
+      filters.skillLevel = '';
+      filters.coed = 'all';
+      filters.age = '';
+
+      if (filterForm) {
+        const skillSelect = filterForm.querySelector('[data-action="filter-skill"]');
+        const coedSelect = filterForm.querySelector('[data-action="filter-coed"]');
+        const ageInput = filterForm.querySelector('[data-action="filter-age"]');
+        if (skillSelect) skillSelect.value = '';
+        if (coedSelect) coedSelect.value = 'all';
+        if (ageInput) ageInput.value = '';
+      }
+
+      applyFilters();
+    }
+
+    function handleJoinFormSubmit(form) {
+      if (!form) return;
+      const divisionId = form.getAttribute('data-division-id');
+      const ageInput = form.querySelector('input[name="age"]');
+      const availabilityCheckboxes = form.querySelectorAll('input[name="availabilityDays"]:checked');
+      const timeInput = form.querySelector('input[name="availabilityTimeWindow"]');
+      const skillSelect = form.querySelector('select[name="skillLevel"]');
+      const errorEl = form.querySelector('[data-role="join-form-error"]');
+
+      if (errorEl) {
+        errorEl.textContent = '';
+      }
+
+      const ageVal = ageInput ? ageInput.value.trim() : '';
+      const availabilityDays = Array.prototype.map.call(availabilityCheckboxes, function(cb) { return cb.value; });
+      const timeWindow = timeInput ? timeInput.value.trim() : '';
+      const skillLevel = skillSelect ? skillSelect.value : '';
+
+      if (!ageVal) {
+        if (errorEl) errorEl.textContent = 'Please enter your age.';
+        return;
+      }
+
+      if (availabilityDays.length === 0) {
+        if (errorEl) errorEl.textContent = 'Please select at least one day you are available.';
+        return;
+      }
+
+      const params = new URLSearchParams();
+      params.set('reason', 'join_team');
+      if (divisionId) params.set('divisionId', divisionId);
+      params.set('age', ageVal);
+      params.set('availabilityDays', availabilityDays.join(','));
+      if (timeWindow) params.set('availabilityTimeWindow', timeWindow);
+      if (skillLevel) params.set('skillLevel', skillLevel);
+
+      window.location.href = 'contact.html?' + params.toString();
+    }
+
+    function loadData() {
+      setLoaderVisible(true, 'Loading adult divisions...');
+      try {
+        adultDivisions = WebsiteSDK.getAdultDivisionsSummary() || [];
+      } catch (e) {
+        setLoaderVisible(true, 'Unable to load adult divisions right now.');
+        return;
+      }
+
+      initFiltersMetadata();
+
+      if (initialDivisionId) {
+        try {
+          const details = WebsiteSDK.getDivisionDetails(initialDivisionId);
+          if (details && details.division_type === 'adult') {
+            const existsInList = adultDivisions.some(function(div) { return div && div.division_id === details.division_id; });
+            if (existsInList) {
+              focusedDivisionId = details.division_id;
+              divisionDetailsCache[details.division_id] = details;
+            }
+          }
+        } catch (e) {
+          // Ignore invalid or non-adult divisionId; proceed without focus
+        }
+      }
+
+      applyFilters();
+      setLoaderVisible(false);
+    }
+
+    const populateElements = document.querySelectorAll('[data-populate]');
+    populateElements.forEach(function(element) {
+      const dataType = element.dataset.populate;
+      if (dataType === 'adultDivisionsSummary') {
+        loadData();
+      }
+    });
+
+    document.addEventListener('change', function(event) {
+      const target = event.target;
+      const action = target && target.dataset ? target.dataset.action : null;
+      if (!action) return;
+
+      if (action === 'filter-skill') {
+        filters.skillLevel = target.value || '';
+        applyFilters();
+      } else if (action === 'filter-coed') {
+        filters.coed = target.value || 'all';
+        applyFilters();
+      } else if (action === 'filter-age') {
+        filters.age = target.value || '';
+        applyFilters();
+      }
+    });
+
+    document.addEventListener('click', function(event) {
+      const actionEl = event.target.closest('[data-action]');
+      if (!actionEl) return;
+      const action = actionEl.dataset.action;
+
+      if (action === 'toggle-division') {
+        const divisionId = actionEl.dataset.divisionId;
+        handleToggleDivision(divisionId);
+      } else if (action === 'view-schedule') {
+        const divisionId = actionEl.dataset.divisionId;
+        if (divisionId) {
+          const params = new URLSearchParams();
+          params.set('divisionId', divisionId);
+          window.location.href = 'schedule.html?' + params.toString();
+        }
+      } else if (action === 'view-gym') {
+        const gymId = actionEl.dataset.gymId;
+        if (gymId) {
+          const params = new URLSearchParams();
+          params.set('gymId', gymId);
+          window.location.href = 'locations.html?' + params.toString();
+        }
+      } else if (action === 'clear-filters') {
+        handleClearFilters();
+      } else if (action === 'adult-league-faq-link') {
+        const params = new URLSearchParams();
+        params.set('category', 'adult_leagues');
+        window.location.href = 'faq.html?' + params.toString();
+      } else if (action === 'cancel-join-form') {
+        const divisionId = actionEl.dataset.divisionId;
+        if (focusedDivisionId === divisionId) {
+          focusedDivisionId = null;
+          updateUrlDivisionId(null);
+          renderDivisionList(listContainer, filteredDivisions);
+        }
+      }
+    });
+
+    document.addEventListener('submit', function(event) {
+      const form = event.target;
+      if (form && form.matches('[data-component="join-division-pre-contact-form"]')) {
+        event.preventDefault();
+        handleJoinFormSubmit(form);
+      }
+    });
+
+    window.addEventListener('popstate', function() {
+      const params = new URLSearchParams(window.location.search);
+      const divIdFromUrl = params.get('divisionId');
+      if (divIdFromUrl === focusedDivisionId) return;
+
+      focusedDivisionId = divIdFromUrl;
+      if (focusedDivisionId && !divisionDetailsCache[focusedDivisionId]) {
+        try {
+          const details = WebsiteSDK.getDivisionDetails(focusedDivisionId);
+          if (details) {
+            divisionDetailsCache[focusedDivisionId] = details;
+          }
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+      applyFilters();
+    });
+
+    if (!populateElements.length) {
+      loadData();
+    }
+  });
+  </script>
+</body>
+</html>

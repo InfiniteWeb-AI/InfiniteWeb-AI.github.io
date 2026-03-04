@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>History - YAML to JSON Converter</title>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='history.css'>
+</head>
+<body>
+  <div class='page'>
+    <header class='site-header'>
+      <div class='shell header-inner'>
+        <a href='index.html' class='brand' aria-label='YAML to JSON Converter Home'>
+          <span class='brand-mark' aria-hidden='true'></span>
+          <span class='brand-text'>Lumotools</span>
+        </a>
+        <nav class='primary-nav' aria-label='Primary'>
+          <ul class='nav-list'>
+            <li class='nav-item'>
+              <a href='index.html' class='nav-link' title='Main YAML to JSON converter homepage'>Home</a>
+            </li>
+            <li class='nav-item'>
+              <a href='examples.html' class='nav-link' title='Browse YAML examples like shopping lists, profiles, and server configs'>Examples</a>
+            </li>
+            <li class='nav-item'>
+              <a href='history.html' class='nav-link is-active' title='View and reopen past YAML to JSON conversions' aria-current='page'>History</a>
+            </li>
+            <li class='nav-item'>
+              <a href='settings.html' class='nav-link' title='Configure formatting, behavior, and theme for conversions'>Settings</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id='content' class='site-main shell' role='main'>
+      <section class='history-page' data-component='history-page-controller' data-populate='history-page'>
+        <!-- Summary / hero-like bar -->
+        <section class='history-summary card' data-component='history-summary-bar' aria-label='History summary'>
+          <!-- Filled by JS -->
+        </section>
+
+        <!-- Message / notification area -->
+        <section class='history-message-area' data-component='history-message-area' aria-live='polite' hidden>
+          <div class='message-inner'>
+            <p class='message-text'></p>
+            <button type='button' class='message-dismiss' data-action='dismiss-message' aria-label='Dismiss message'>&times;</button>
+          </div>
+        </section>
+
+        <!-- Main history list area -->
+        <section class='history-main' aria-label='Conversion history workspace'>
+          <div class='history-list' data-component='history-list' aria-label='Conversion history list'>
+            <!-- Rows rendered by JS -->
+          </div>
+
+          <!-- Empty state (shown when there are no items for this page) -->
+          <section class='history-empty-state' data-component='history-empty-state' aria-label='No history to show' hidden>
+            <div class='empty-state-inner'>
+              <div class='empty-icon' aria-hidden='true'></div>
+              <h2 class='empty-title'>No history yet</h2>
+              <p class='empty-body'>Run your first YAML to JSON conversion and it will appear here.</p>
+              <button type='button' class='btn-primary' data-action='goto-home'>Go to converter</button>
+            </div>
+          </section>
+
+          <!-- Pagination controls -->
+          <nav class='history-pagination' data-component='history-pagination-controls' aria-label='History pagination'>
+            <!-- Pagination buttons rendered by JS -->
+          </nav>
+        </section>
+      </section>
+    </main>
+
+    <footer class='site-footer'>
+      <div class='shell footer-inner'>
+        <div class='footer-left'>
+          <span class='footer-brand'>Lumotools</span>
+          <span class='footer-meta'>&copy; 2024 All rights reserved.</span>
+        </div>
+        <nav class='footer-nav' aria-label='Footer'>
+          <ul class='footer-nav-list'>
+            <li class='footer-nav-item'>
+              <a href='help.html' class='footer-link' title='How-to guides and documentation for using the converter'>Help</a>
+            </li>
+            <li class='footer-nav-item'>
+              <a href='about.html' class='footer-link' title='Information about the YAML to JSON converter tool'>About</a>
+            </li>
+            <li class='footer-nav-item'>
+              <a href='privacy.html' class='footer-link' title='Privacy policy for data and content handling'>Privacy</a>
+            </li>
+            <li class='footer-nav-item'>
+              <a href='terms.html' class='footer-link' title='Terms of use for the YAML to JSON converter'>Terms</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </footer>
+  </div>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var pageController = document.querySelector('[data-component="history-page-controller"]');
+      if (!pageController || typeof WebsiteSDK === 'undefined') {
+        return;
+      }
+
+      var summaryBar = pageController.querySelector('[data-component="history-summary-bar"]');
+      var messageArea = pageController.querySelector('[data-component="history-message-area"]');
+      var messageTextEl = messageArea ? messageArea.querySelector('.message-text') : null;
+      var listContainer = pageController.querySelector('[data-component="history-list"]');
+      var emptyStateContainer = pageController.querySelector('[data-component="history-empty-state"]');
+      var paginationContainer = pageController.querySelector('[data-component="history-pagination-controls"]');
+
+      var state = {
+        currentPage: 1,
+        pageSize: 10,
+        totalCount: 0,
+        totalPages: 1,
+        items: []
+      };
+
+      function parsePageFromUrl() {
+        var params = new URLSearchParams(window.location.search);
+        var pageParam = params.get('page');
+        var parsed = parseInt(pageParam, 10);
+        if (!pageParam || isNaN(parsed) || parsed < 1) {
+          return 1;
+        }
+        return parsed;
+      }
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value).replace(/[&<>]/g, function(ch) {
+          if (ch === '&') return '&amp;';
+          if (ch === '<') return '&lt;';
+          if (ch === '>') return '&gt;';
+          return ch;
+        });
+      }
+
+      function escapeAttribute(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value).replace(/[&<>'"]/g, function(ch) {
+          if (ch === '&') return '&amp;';
+          if (ch === '<') return '&lt;';
+          if (ch === '>') return '&gt;';
+          if (ch === '\'') return '&#39;';
+          if (ch === '"') return '&quot;';
+          return ch;
+        });
+      }
+
+      function formatDate(value) {
+        if (!value) {
+          return 'N/A';
+        }
+        var date = new Date(value);
+        if (isNaN(date.getTime())) {
+          return 'N/A';
+        }
+        return date.toLocaleString();
+      }
+
+      function showMessage(kind, text) {
+        if (!messageArea || !messageTextEl) {
+          return;
+        }
+        messageArea.removeAttribute('hidden');
+        messageArea.dataset.kind = kind || 'info';
+        messageArea.classList.remove('message--error', 'message--info', 'message--success');
+        if (kind === 'error') {
+          messageArea.classList.add('message--error');
+        } else if (kind === 'success') {
+          messageArea.classList.add('message--success');
+        } else {
+          messageArea.classList.add('message--info');
+        }
+        messageTextEl.textContent = text;
+      }
+
+      function hideMessage() {
+        if (!messageArea || !messageTextEl) {
+          return;
+        }
+        messageArea.setAttribute('hidden', 'hidden');
+        messageArea.classList.remove('message--error', 'message--info', 'message--success');
+        messageTextEl.textContent = '';
+      }
+
+      function renderSummary(container, historyState) {
+        if (!container) {
+          return;
+        }
+        var total = historyState.totalCount || 0;
+        var startIndex = total === 0 ? 0 : ((historyState.currentPage - 1) * historyState.pageSize + 1);
+        var endIndex = total === 0 ? 0 : Math.min(historyState.currentPage * historyState.pageSize, total);
+        var rangeText = total === 0 ? '0 of 0' : startIndex + ' - ' + endIndex + ' of ' + total;
+        var lastUpdatedText = 'N/A';
+        if (historyState.items && historyState.items.length > 0) {
+          var latestItem = historyState.items[0];
+          var latestTimestamp = latestItem.updated_at || latestItem.last_converted_at || latestItem.created_at;
+          lastUpdatedText = formatDate(latestTimestamp);
+        }
+        container.innerHTML = '' +
+          '<div class="history-summary-inner">' +
+            '<div class="history-summary-main">' +
+              '<h1 class="history-summary-title">History</h1>' +
+              '<p class="history-summary-description">Browse, reopen, and pin your previous YAML to JSON conversions.</p>' +
+            '</div>' +
+            '<dl class="history-summary-metrics">' +
+              '<div class="history-summary-metric">' +
+                '<dt>Total conversions</dt>' +
+                '<dd>' + escapeHtml(total) + '</dd>' +
+              '</div>' +
+              '<div class="history-summary-metric">' +
+                '<dt>Currently showing</dt>' +
+                '<dd>' + escapeHtml(rangeText) + '</dd>' +
+              '</div>' +
+              '<div class="history-summary-metric">' +
+                '<dt>Last updated</dt>' +
+                '<dd>' + escapeHtml(lastUpdatedText) + '</dd>' +
+              '</div>' +
+            '</dl>' +
+          '</div>';
+      }
+
+      function renderHistoryList(container, historyState) {
+        if (!container) {
+          return;
+        }
+        var items = Array.isArray(historyState.items) ? historyState.items : [];
+        if (items.length === 0) {
+          container.innerHTML = '';
+          return;
+        }
+        var rowsHtml = items.map(function(item) {
+          var title = item.title || 'Untitled conversion';
+          var snippet = item.yaml_snippet_preview || '';
+          snippet = String(snippet).replace(/\s+/g, ' ').trim();
+          if (snippet.length > 160) {
+            snippet = snippet.slice(0, 157) + '...';
+          }
+          var hasSnippet = snippet.length > 0;
+          var dateLabel = item.last_converted_at ? 'Last converted' : 'Created';
+          var timestamp = item.last_converted_at || item.created_at || item.updated_at;
+          var dateDisplay = formatDate(timestamp);
+          var jsonStyle = item.json_output_style === 'minified' ? 'Minified JSON' : 'Pretty JSON';
+          var sourceText = item.source_example_title ? ('Source: ' + item.source_example_title) : '';
+          var pinnedClass = item.is_pinned ? ' history-row--pinned' : '';
+          var pinnedBadge = item.is_pinned ? '<span class="history-row-badge" aria-label="Pinned conversion">Pinned</span>' : '';
+          var sourceHtml = sourceText ? '<span class="history-row-meta-item">' + escapeHtml(sourceText) + '</span>' : '';
+          var snippetHtml = hasSnippet ? '<p class="history-row-snippet">' + escapeHtml(snippet) + '</p>' : '';
+          var ariaPressed = item.is_pinned ? 'true' : 'false';
+          var pinLabel = item.is_pinned ? 'Unpin this conversion' : 'Pin this conversion';
+          var dateTimeAttr = timestamp ? escapeAttribute(timestamp) : '';
+
+          return '' +
+            '<article class="history-row' + pinnedClass + '" data-conversion-id="' + escapeAttribute(item.conversion_id) + '" data-is-pinned="' + (item.is_pinned ? 'true' : 'false') + '">' +
+              '<div class="history-row-main" data-action="open-conversion">' +
+                '<div class="history-row-header">' +
+                  '<h2 class="history-row-title">' + escapeHtml(title) + '</h2>' +
+                  pinnedBadge +
+                '</div>' +
+                snippetHtml +
+                '<div class="history-row-meta">' +
+                  '<span class="history-row-meta-item">' + dateLabel + ': <time datetime="' + dateTimeAttr + '">' + escapeHtml(dateDisplay) + '</time></span>' +
+                  '<span class="history-row-meta-item">JSON: ' + escapeHtml(jsonStyle) + '</span>' +
+                  sourceHtml +
+                '</div>' +
+              '</div>' +
+              '<div class="history-row-actions">' +
+                '<button type="button" class="btn-text" data-action="open-conversion">Reopen</button>' +
+                '<button type="button" class="icon-button pin-toggle" data-action="toggle-pin" aria-pressed="' + ariaPressed + '" aria-label="' + escapeAttribute(pinLabel) + '">' +
+                  '<span class="pin-icon" aria-hidden="true"></span>' +
+                '</button>' +
+              '</div>' +
+            '</article>';
+        }).join('');
+
+        container.innerHTML = rowsHtml;
+      }
+
+      function renderPagination(container, historyState) {
+        if (!container) {
+          return;
+        }
+        var totalPages = historyState.totalPages || 1;
+        var currentPage = historyState.currentPage || 1;
+        if (historyState.totalCount === 0 || totalPages <= 1) {
+          container.innerHTML = '';
+          container.setAttribute('aria-hidden', 'true');
+          return;
+        }
+        container.removeAttribute('aria-hidden');
+
+        var maxVisiblePages = 5;
+        var startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+        var endPage = startPage + maxVisiblePages - 1;
+        if (endPage > totalPages) {
+          endPage = totalPages;
+          startPage = Math.max(1, endPage - maxVisiblePages + 1);
+        }
+
+        var pageButtonsHtml = '';
+        for (var p = startPage; p <= endPage; p++) {
+          var isCurrent = p === currentPage;
+          var currentClass = isCurrent ? ' page-btn--current' : '';
+          var ariaCurrentAttr = isCurrent ? ' aria-current="page"' : '';
+          pageButtonsHtml += '' +
+            '<button type="button" class="page-btn' + currentClass + '" data-action="go-page" data-page="' + p + '"' + ariaCurrentAttr + '>' + p + '</button>';
+        }
+
+        var prevDisabled = currentPage <= 1;
+        var nextDisabled = currentPage >= totalPages;
+
+        var prevDisabledAttr = prevDisabled ? ' disabled' : '';
+        var nextDisabledAttr = nextDisabled ? ' disabled' : '';
+        var prevAriaDisabled = prevDisabled ? 'true' : 'false';
+        var nextAriaDisabled = nextDisabled ? 'true' : 'false';
+
+        container.innerHTML = '' +
+          '<div class="pagination-inner">' +
+            '<button type="button" class="page-btn page-btn--prev" data-action="prev-page" aria-disabled="' + prevAriaDisabled + '"' + prevDisabledAttr + '>Previous</button>' +
+            '<div class="page-btn-group">' +
+              pageButtonsHtml +
+            '</div>' +
+            '<button type="button" class="page-btn page-btn--next" data-action="next-page" aria-disabled="' + nextAriaDisabled + '"' + nextDisabledAttr + '>Next</button>' +
+          '</div>';
+      }
+
+      function updateUI() {
+        renderSummary(summaryBar, state);
+        if (state.items.length === 0) {
+          if (listContainer) {
+            listContainer.innerHTML = '';
+          }
+          if (emptyStateContainer) {
+            emptyStateContainer.removeAttribute('hidden');
+          }
+          if (paginationContainer) {
+            paginationContainer.innerHTML = '';
+            paginationContainer.setAttribute('aria-hidden', 'true');
+          }
+        } else {
+          if (emptyStateContainer) {
+            emptyStateContainer.setAttribute('hidden', 'hidden');
+          }
+          renderHistoryList(listContainer, state);
+          renderPagination(paginationContainer, state);
+        }
+      }
+
+      function loadHistoryData(isInitial) {
+        hideMessage();
+        var offset = (state.currentPage - 1) * state.pageSize;
+        var response;
+        try {
+          response = WebsiteSDK.getConversionHistoryList(state.pageSize, offset);
+        } catch (e) {
+          showMessage('error', 'Unable to load history. Please try again.');
+          state.items = [];
+          state.totalCount = 0;
+          state.totalPages = 1;
+          updateUI();
+          return;
+        }
+
+        var items = Array.isArray(response && response.items) ? response.items : [];
+        var totalCount = typeof response.total_count === 'number' ? response.total_count : 0;
+
+        state.items = items;
+        state.totalCount = totalCount;
+        state.totalPages = totalCount === 0 ? 1 : Math.ceil(totalCount / state.pageSize);
+
+        if (isInitial) {
+          var url = new URL(window.location.href);
+          if (state.currentPage === 1) {
+            url.searchParams.delete('page');
+          } else {
+            url.searchParams.set('page', String(state.currentPage));
+          }
+          window.history.replaceState({ page: state.currentPage }, '', url.toString());
+        }
+
+        updateUI();
+      }
+
+      function handlePageChange(newPage) {
+        if (newPage < 1) {
+          return;
+        }
+        if (state.totalCount > 0 && newPage > state.totalPages) {
+          return;
+        }
+        state.currentPage = newPage;
+        var url = new URL(window.location.href);
+        if (newPage === 1) {
+          url.searchParams.delete('page');
+        } else {
+          url.searchParams.set('page', String(newPage));
+        }
+        window.history.pushState({ page: newPage }, '', url.toString());
+        loadHistoryData(false);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      function handleOpenConversion(conversionId) {
+        if (!conversionId) {
+          return;
+        }
+        var result;
+        try {
+          result = WebsiteSDK.openConversionFromHistory(conversionId);
+        } catch (e) {
+          showMessage('error', 'Unable to open this conversion from history.');
+          return;
+        }
+        if (result && result.success && result.active_conversion_id) {
+          var targetId = result.active_conversion_id;
+          window.location.href = 'index.html?conversionId=' + encodeURIComponent(targetId);
+        } else {
+          var msg = result && result.message ? result.message : 'Failed to open the selected conversion.';
+          showMessage('error', msg);
+        }
+      }
+
+      function handleTogglePin(conversionId, currentPinned) {
+        if (!conversionId) {
+          return;
+        }
+        var desiredPinned = !currentPinned;
+        var result;
+        try {
+          result = WebsiteSDK.setConversionPinned(conversionId, desiredPinned);
+        } catch (e) {
+          showMessage('error', 'Unable to update pin state. Please try again.');
+          return;
+        }
+        if (result && result.success) {
+          var authoritativePinned = !!result.is_pinned;
+          // Update local state
+          var items = state.items;
+          for (var i = 0; i < items.length; i++) {
+            if (items[i].conversion_id === conversionId) {
+              items[i].is_pinned = authoritativePinned;
+              break;
+            }
+          }
+          state.items = items;
+          updateUI();
+        } else {
+          var msg = result && result.message ? result.message : 'Failed to update pin state.';
+          showMessage('error', msg);
+        }
+      }
+
+      // Event delegation for all data-action interactions inside the page controller
+      pageController.addEventListener('click', function(event) {
+        var actionEl = event.target.closest('[data-action]');
+        if (!actionEl || !pageController.contains(actionEl)) {
+          return;
+        }
+        var action = actionEl.dataset.action;
+        if (!action) {
+          return;
+        }
+
+        if (action === 'dismiss-message') {
+          event.preventDefault();
+          hideMessage();
+          return;
+        }
+
+        if (action === 'open-conversion') {
+          event.preventDefault();
+          var rowEl = actionEl.closest('[data-conversion-id]');
+          if (!rowEl) {
+            return;
+          }
+          var conversionId = rowEl.getAttribute('data-conversion-id');
+          handleOpenConversion(conversionId);
+          return;
+        }
+
+        if (action === 'toggle-pin') {
+          event.preventDefault();
+          var row = actionEl.closest('[data-conversion-id]');
+          if (!row) {
+            return;
+          }
+          var cid = row.getAttribute('data-conversion-id');
+          var isPinned = row.getAttribute('data-is-pinned') === 'true';
+          handleTogglePin(cid, isPinned);
+          return;
+        }
+
+        if (action === 'go-page') {
+          event.preventDefault();
+          var pageStr = actionEl.getAttribute('data-page');
+          var pageNum = parseInt(pageStr, 10);
+          if (!isNaN(pageNum)) {
+            handlePageChange(pageNum);
+          }
+          return;
+        }
+
+        if (action === 'prev-page') {
+          event.preventDefault();
+          if (state.currentPage > 1) {
+            handlePageChange(state.currentPage - 1);
+          }
+          return;
+        }
+
+        if (action === 'next-page') {
+          event.preventDefault();
+          if (state.currentPage < state.totalPages) {
+            handlePageChange(state.currentPage + 1);
+          }
+          return;
+        }
+
+        if (action === 'goto-home') {
+          event.preventDefault();
+          window.location.href = 'index.html';
+          return;
+        }
+      });
+
+      // Handle browser back/forward navigation for pagination
+      window.addEventListener('popstate', function(event) {
+        var pageFromState = event.state && event.state.page ? parseInt(event.state.page, 10) : NaN;
+        var page = !isNaN(pageFromState) && pageFromState >= 1 ? pageFromState : parsePageFromUrl();
+        if (isNaN(page) || page < 1) {
+          page = 1;
+        }
+        state.currentPage = page;
+        loadHistoryData(false);
+      });
+
+      // Initial load
+      state.currentPage = parsePageFromUrl();
+      loadHistoryData(true);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Investment Insights | Real Estate Trends &amp; Lifestyle</title>
+  <!-- Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet" />
+  <!-- Global Styles -->
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Page Styles -->
+  <link rel="stylesheet" href="investment_insights.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner container">
+      <nav class="primary-nav" aria-label="Main navigation">
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="neighborhood_guides.html">Neighborhood Guides</a></li>
+          <li><a href="lifestyle_decor.html">Lifestyle &amp; Decor</a></li>
+          <li><a href="events_open_houses.html">Events &amp; Open Houses</a></li>
+          <li><a href="home_upgrades.html">Home Upgrades</a></li>
+          <li><a href="investment_insights.html">Investment Insights</a></li>
+          <li><a href="mortgage_calculator.html">Tools: Affordability Calculator</a></li>
+          <li><a href="cost_of_living.html">Tools: Cost of Living</a></li>
+          <li><a href="my_saved.html?tab=watchlist">Watchlist</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="content" class="site-main container" role="main">
+    <h1 class="page-title">Investment Insights</h1>
+
+    <!-- Global search autocomplete -->
+    <section class="global-search" data-component="global-search-autocomplete">
+      <form class="global-search__form" action="javascript:void(0)" role="search" aria-label="Global article search">
+        <label for="global-search-input" class="visually-hidden">Search all articles</label>
+        <input
+          id="global-search-input"
+          class="global-search__input"
+          type="search"
+          name="q"
+          placeholder="Search investment insights and more"
+          autocomplete="off"
+          data-action="global-search-input"
+        />
+      </form>
+      <div
+        class="global-search__suggestions"
+        data-component="global-search-suggestions"
+        aria-live="polite"
+        aria-label="Search suggestions"
+      ></div>
+    </section>
+
+    <!-- Filters bar (populated via SDK) -->
+    <section
+      class="investment-filters"
+      data-component="investment-filters-bar"
+      data-populate="investment-filters"
+      aria-label="Filter investment insight articles"
+    ></section>
+
+    <!-- Watchlist notification -->
+    <section
+      class="watchlist-notification"
+      data-component="watchlist-notification"
+      aria-live="polite"
+    ></section>
+
+    <!-- Articles loader -->
+    <section
+      class="investment-articles-loader"
+      data-component="investment-articles-loader"
+      aria-hidden="true"
+      hidden
+    >
+      <div class="loader">Loading investment articles&hellip;</div>
+    </section>
+
+    <!-- Articles list -->
+    <section
+      class="investment-articles"
+      data-component="investment-articles-list"
+      data-populate="investment-articles"
+      aria-label="Investment insight articles"
+    ></section>
+
+    <!-- Pagination controls -->
+    <nav
+      class="pagination"
+      data-component="investment-pagination-controls"
+      aria-label="Investment insights pagination"
+    ></nav>
+  </main>
+
+  <footer class="site-footer" role="contentinfo">
+    <div class="footer-inner container">
+      <nav class="footer-nav" aria-label="Footer navigation">
+        <ul>
+          <li><a href="about.html">About</a></li>
+          <li><a href="contact.html">Contact</a></li>
+          <li><a href="my_saved.html?tab=reading_list">Reading List</a></li>
+          <li><a href="privacy.html">Privacy Policy</a></li>
+          <li><a href="terms.html">Terms of Use</a></li>
+        </ul>
+      </nav>
+      <p class="footer-meta">&copy; 2024 Real Estate Trends &amp; Lifestyle Blog</p>
+    </div>
+  </footer>
+
+  <!-- SDK / business logic -->
+  <script src="business_logic.js"></script>
+
+  <!-- Page UI logic -->
+  <script>
+    (function() {
+      'use strict';
+
+      const PAGE_SIZE = 10;
+
+      const currentState = getUrlStateFromLocation(window.location);
+
+      let filtersBarContainer = null;
+      let articlesListContainer = null;
+      let paginationContainer = null;
+      let loaderContainer = null;
+      let watchlistNotificationContainer = null;
+      let searchSuggestionsContainer = null;
+      let searchInputElement = null;
+
+      const filterControls = {
+        propertyTypeSelect: null,
+        roiMinInput: null,
+        roiMaxInput: null,
+        sortSelect: null,
+        roiBounds: { min: null, max: null }
+      };
+
+      const watchlistAddedIds = new Set();
+      let searchDebounceTimer = null;
+
+      document.addEventListener('DOMContentLoaded', function() {
+        filtersBarContainer = document.querySelector('[data-component="investment-filters-bar"]');
+        articlesListContainer = document.querySelector('[data-component="investment-articles-list"]');
+        paginationContainer = document.querySelector('[data-component="investment-pagination-controls"]');
+        loaderContainer = document.querySelector('[data-component="investment-articles-loader"]');
+        watchlistNotificationContainer = document.querySelector('[data-component="watchlist-notification"]');
+        searchSuggestionsContainer = document.querySelector('[data-component="global-search-suggestions"]');
+        searchInputElement = document.querySelector('[data-action="global-search-input"]');
+
+        const populateElements = document.querySelectorAll('[data-populate]');
+        let hasInitializedFilters = false;
+        let hasInitializedArticles = false;
+
+        populateElements.forEach(function(element) {
+          const dataType = element.dataset.populate;
+          if (dataType === 'investment-filters' && !hasInitializedFilters) {
+            hasInitializedFilters = true;
+            initializeFiltersBar(element, currentState);
+          } else if (dataType === 'investment-articles' && !hasInitializedArticles) {
+            hasInitializedArticles = true;
+            loadArticles();
+          }
+        });
+
+        setupEventDelegation();
+
+        window.addEventListener('popstate', function() {
+          const newState = getUrlStateFromLocation(window.location);
+          currentState.propertyType = newState.propertyType;
+          currentState.minProjectedRoiPercent = newState.minProjectedRoiPercent;
+          currentState.maxProjectedRoiPercent = newState.maxProjectedRoiPercent;
+          currentState.sortBy = newState.sortBy;
+          currentState.page = newState.page;
+          syncControlsWithState();
+          loadArticles();
+        });
+      });
+
+      function getUrlStateFromLocation(location) {
+        const params = new URLSearchParams(location.search || '');
+        const propertyType = params.get('propertyType') || null;
+
+        const minStr = params.get('minProjectedRoiPercent');
+        const maxStr = params.get('maxProjectedRoiPercent');
+        const sortBy = params.get('sortBy') || null;
+        const pageStr = params.get('page');
+
+        let minProjectedRoiPercent = null;
+        let maxProjectedRoiPercent = null;
+        let page = 1;
+
+        if (minStr !== null) {
+          const v = parseFloat(minStr);
+          if (!isNaN(v)) {
+            minProjectedRoiPercent = v;
+          }
+        }
+        if (maxStr !== null) {
+          const v = parseFloat(maxStr);
+          if (!isNaN(v)) {
+            maxProjectedRoiPercent = v;
+          }
+        }
+        if (pageStr !== null) {
+          const v = parseInt(pageStr, 10);
+          if (!isNaN(v) && v > 0) {
+            page = v;
+          }
+        }
+
+        return {
+          propertyType: propertyType,
+          minProjectedRoiPercent: minProjectedRoiPercent,
+          maxProjectedRoiPercent: maxProjectedRoiPercent,
+          sortBy: sortBy,
+          page: page
+        };
+      }
+
+      function syncUrlFromState(resetPage) {
+        const url = new URL(window.location.href);
+        const params = url.searchParams;
+
+        if (currentState.propertyType && currentState.propertyType.trim() !== '') {
+          params.set('propertyType', currentState.propertyType);
+        } else {
+          params.delete('propertyType');
+        }
+
+        if (currentState.minProjectedRoiPercent != null && !isNaN(currentState.minProjectedRoiPercent)) {
+          params.set('minProjectedRoiPercent', String(currentState.minProjectedRoiPercent));
+        } else {
+          params.delete('minProjectedRoiPercent');
+        }
+
+        if (currentState.maxProjectedRoiPercent != null && !isNaN(currentState.maxProjectedRoiPercent)) {
+          params.set('maxProjectedRoiPercent', String(currentState.maxProjectedRoiPercent));
+        } else {
+          params.delete('maxProjectedRoiPercent');
+        }
+
+        if (currentState.sortBy && currentState.sortBy.trim() !== '') {
+          params.set('sortBy', currentState.sortBy);
+        } else {
+          params.delete('sortBy');
+        }
+
+        if (resetPage) {
+          currentState.page = 1;
+        }
+
+        if (currentState.page && currentState.page > 0) {
+          params.set('page', String(currentState.page));
+        } else {
+          params.delete('page');
+        }
+
+        url.search = params.toString();
+        window.history.pushState({}, '', url.toString());
+      }
+
+      function initializeFiltersBar(container, state) {
+        let options;
+        try {
+          options = WebsiteSDK.getInvestmentFilterOptions();
+        } catch (error) {
+          console.error('Error loading investment filter options', error);
+          container.innerHTML = '<p class="filters-bar__error">Filters are temporarily unavailable.</p>';
+          return;
+        }
+
+        filterControls.roiBounds.min = typeof options.projected_roi_min === 'number' ? options.projected_roi_min : null;
+        filterControls.roiBounds.max = typeof options.projected_roi_max === 'number' ? options.projected_roi_max : null;
+
+        renderFiltersBar(container, options, state);
+
+        filterControls.propertyTypeSelect = document.getElementById('filter-property-type');
+        filterControls.roiMinInput = document.getElementById('filter-roi-min');
+        filterControls.roiMaxInput = document.getElementById('filter-roi-max');
+        filterControls.sortSelect = document.getElementById('filter-sort-by');
+      }
+
+      function renderFiltersBar(container, options, state) {
+        const propertyTypes = Array.isArray(options.property_types) ? options.property_types : [];
+        const sortOptions = Array.isArray(options.sort_options) ? options.sort_options : [];
+
+        const propertyTypeOptionsHtml = propertyTypes.map(function(pt) {
+          const selected = state.propertyType === pt ? ' selected' : '';
+          const label = formatPropertyTypeLabel(pt);
+          return '<option value="' + escapeHtml(pt) + '"' + selected + '>' + escapeHtml(label) + '</option>';
+        }).join('');
+
+        const sortOptionsHtml = sortOptions.map(function(opt) {
+          const value = typeof opt.value === 'string' ? opt.value : '';
+          const label = typeof opt.label === 'string' ? opt.label : value;
+          const selected = state.sortBy === value ? ' selected' : '';
+          return '<option value="' + escapeHtml(value) + '"' + selected + '>' + escapeHtml(label) + '</option>';
+        }).join('');
+
+        const minRoiValue = state.minProjectedRoiPercent != null && !isNaN(state.minProjectedRoiPercent)
+          ? String(state.minProjectedRoiPercent)
+          : '';
+        const maxRoiValue = state.maxProjectedRoiPercent != null && !isNaN(state.maxProjectedRoiPercent)
+          ? String(state.maxProjectedRoiPercent)
+          : '';
+
+        const minPlaceholder = options.projected_roi_min != null ? String(options.projected_roi_min) : '';
+        const maxPlaceholder = options.projected_roi_max != null ? String(options.projected_roi_max) : '';
+
+        container.innerHTML = (
+          '<div class="filters-bar">' +
+            '<div class="filters-bar__group">' +
+              '<label class="filters-bar__label" for="filter-property-type">Property type</label>' +
+              '<select id="filter-property-type" class="filters-bar__select" data-action="filter-property-type">' +
+                '<option value="">All property types</option>' +
+                propertyTypeOptionsHtml +
+              '</select>' +
+            '</div>' +
+            '<div class="filters-bar__group filters-bar__group--range" aria-label="Projected ROI range">' +
+              '<span class="filters-bar__label">Projected ROI (%)</span>' +
+              '<div class="filters-bar__range-inputs">' +
+                '<label class="visually-hidden" for="filter-roi-min">Minimum projected ROI</label>' +
+                '<input id="filter-roi-min" class="filters-bar__input filters-bar__input--number" type="number" inputmode="decimal" min="' + escapeHtml(minPlaceholder) + '" max="' + escapeHtml(maxPlaceholder) + '" step="0.1" placeholder="' + escapeHtml(minPlaceholder) + '" value="' + escapeHtml(minRoiValue) + '" />' +
+                '<span class="filters-bar__range-separator">&ndash;</span>' +
+                '<label class="visually-hidden" for="filter-roi-max">Maximum projected ROI</label>' +
+                '<input id="filter-roi-max" class="filters-bar__input filters-bar__input--number" type="number" inputmode="decimal" min="' + escapeHtml(minPlaceholder) + '" max="' + escapeHtml(maxPlaceholder) + '" step="0.1" placeholder="' + escapeHtml(maxPlaceholder) + '" value="' + escapeHtml(maxRoiValue) + '" />' +
+                '<button type="button" class="btn btn-secondary filters-bar__apply" data-action="apply-roi-filter">Apply</button>' +
+              '</div>' +
+            '</div>' +
+            '<div class="filters-bar__group filters-bar__group--sort">' +
+              '<label class="filters-bar__label" for="filter-sort-by">Sort by</label>' +
+              '<select id="filter-sort-by" class="filters-bar__select" data-action="sort-change">' +
+                '<option value="">Default</option>' +
+                sortOptionsHtml +
+              '</select>' +
+            '</div>' +
+          '</div>'
+        );
+      }
+
+      function syncControlsWithState() {
+        if (!filterControls.propertyTypeSelect) {
+          return;
+        }
+        filterControls.propertyTypeSelect.value = currentState.propertyType || '';
+
+        if (filterControls.roiMinInput) {
+          filterControls.roiMinInput.value = currentState.minProjectedRoiPercent != null && !isNaN(currentState.minProjectedRoiPercent)
+            ? String(currentState.minProjectedRoiPercent)
+            : '';
+        }
+        if (filterControls.roiMaxInput) {
+          filterControls.roiMaxInput.value = currentState.maxProjectedRoiPercent != null && !isNaN(currentState.maxProjectedRoiPercent)
+            ? String(currentState.maxProjectedRoiPercent)
+            : '';
+        }
+        if (filterControls.sortSelect) {
+          filterControls.sortSelect.value = currentState.sortBy || '';
+        }
+      }
+
+      function loadArticles() {
+        if (!articlesListContainer || !paginationContainer || !loaderContainer) {
+          return;
+        }
+
+        showLoader(true);
+        articlesListContainer.innerHTML = '';
+        paginationContainer.innerHTML = '';
+
+        let result;
+        try {
+          const propertyTypeParam = currentState.propertyType && currentState.propertyType.trim() !== ''
+            ? currentState.propertyType
+            : undefined;
+          const minParam = currentState.minProjectedRoiPercent != null && !isNaN(currentState.minProjectedRoiPercent)
+            ? currentState.minProjectedRoiPercent
+            : undefined;
+          const maxParam = currentState.maxProjectedRoiPercent != null && !isNaN(currentState.maxProjectedRoiPercent)
+            ? currentState.maxProjectedRoiPercent
+            : undefined;
+          const sortByParam = currentState.sortBy && currentState.sortBy.trim() !== ''
+            ? currentState.sortBy
+            : undefined;
+          const pageParam = currentState.page && currentState.page > 0 ? currentState.page : 1;
+
+          result = WebsiteSDK.getInvestmentArticles(
+            propertyTypeParam,
+            minParam,
+            maxParam,
+            sortByParam,
+            pageParam,
+            PAGE_SIZE
+          );
+        } catch (error) {
+          console.error('Error loading investment articles', error);
+          showLoader(false);
+          articlesListContainer.innerHTML = '<p class="articles-list__error">We could not load investment insights right now. Please try again in a moment.</p>';
+          return;
+        }
+
+        const articles = Array.isArray(result.articles) ? result.articles : [];
+        const total = typeof result.total === 'number' ? result.total : articles.length;
+        const page = typeof result.page === 'number' ? result.page : (currentState.page || 1);
+        const pageSize = typeof result.pageSize === 'number' ? result.pageSize : PAGE_SIZE;
+
+        currentState.page = page;
+
+        renderArticlesList(articlesListContainer, articles);
+        renderPagination(paginationContainer, total, page, pageSize);
+        showLoader(false);
+      }
+
+      function showLoader(visible) {
+        if (!loaderContainer) {
+          return;
+        }
+        if (visible) {
+          loaderContainer.hidden = false;
+          loaderContainer.setAttribute('aria-hidden', 'false');
+        } else {
+          loaderContainer.hidden = true;
+          loaderContainer.setAttribute('aria-hidden', 'true');
+        }
+      }
+
+      function renderArticlesList(container, articles) {
+        if (!articles || articles.length === 0) {
+          container.innerHTML = '<p class="articles-list__empty">No investment insights match your filters yet. Try adjusting the property type or ROI range.</p>';
+          return;
+        }
+
+        const cardsHtml = articles.map(function(article) {
+          const id = article && typeof article.id === 'string' ? article.id : '';
+          const title = article && typeof article.title === 'string' && article.title.trim() !== ''
+            ? article.title
+            : 'Untitled article';
+          const excerpt = article && typeof article.excerpt === 'string' ? article.excerpt : '';
+          const publishDate = article && article.publish_date ? formatDate(article.publish_date) : '';
+          const propertyTypeLabel = article && article.property_type ? formatPropertyTypeLabel(article.property_type) : '';
+          const roiValue = article && typeof article.projected_roi_percent === 'number'
+            ? formatPercentage(article.projected_roi_percent)
+            : '';
+          const readingTime = article && typeof article.reading_time_minutes === 'number'
+            ? article.reading_time_minutes
+            : null;
+
+          const metaParts = [];
+          if (publishDate) {
+            metaParts.push(publishDate);
+          }
+          if (propertyTypeLabel) {
+            metaParts.push(propertyTypeLabel);
+          }
+          if (roiValue) {
+            metaParts.push('Projected ROI ' + roiValue);
+          }
+          if (readingTime != null) {
+            metaParts.push(String(readingTime) + ' min read');
+          }
+          const metaText = metaParts.join(' b7 ');
+
+          const isAdded = watchlistAddedIds.has(id);
+          const watchlistLabel = isAdded ? 'In watchlist' : 'Add to watchlist';
+
+          return (
+            '<article class="card investment-article-card" data-component="investment-article-card" data-article-id="' + escapeHtml(id) + '">' +
+              '<div class="investment-article-card__body">' +
+                '<header class="investment-article-card__header">' +
+                  '<h2 class="investment-article-card__title">' +
+                    '<button type="button" class="link-button investment-article-card__title-link" data-action="open-article" data-article-id="' + escapeHtml(id) + '">' +
+                      escapeHtml(title) +
+                    '</button>' +
+                  '</h2>' +
+                  (metaText ? '<p class="investment-article-card__meta">' + escapeHtml(metaText) + '</p>' : '') +
+                '</header>' +
+                (excerpt ? '<p class="investment-article-card__excerpt">' + escapeHtml(excerpt) + '</p>' : '') +
+              '</div>' +
+              '<footer class="investment-article-card__footer">' +
+                '<button type="button" class="btn btn-secondary investment-article-card__watchlist-button' + (isAdded ? ' is-added' : '') + '" data-action="toggle-watchlist" data-article-id="' + escapeHtml(id) + '" aria-pressed="' + (isAdded ? 'true' : 'false') + '">' +
+                  escapeHtml(watchlistLabel) +
+                '</button>' +
+              '</footer>' +
+            '</article>'
+          );
+        }).join('');
+
+        container.innerHTML = cardsHtml;
+      }
+
+      function renderPagination(container, total, page, pageSize) {
+        const totalItems = typeof total === 'number' && total >= 0 ? total : 0;
+        const currentPage = typeof page === 'number' && page > 0 ? page : 1;
+        const size = typeof pageSize === 'number' && pageSize > 0 ? pageSize : PAGE_SIZE;
+        const totalPages = Math.max(1, Math.ceil(totalItems / size));
+
+        if (totalPages <= 1) {
+          container.innerHTML = '';
+          return;
+        }
+
+        const pages = [];
+        for (let i = 1; i <= totalPages; i += 1) {
+          pages.push(i);
+        }
+
+        const pageButtonsHtml = pages.map(function(p) {
+          const isCurrent = p === currentPage;
+          return (
+            '<li class="pagination__item">' +
+              '<button type="button" class="pagination__button' + (isCurrent ? ' is-current' : '') + '" data-action="page-number" data-page="' + String(p) + '"' + (isCurrent ? ' aria-current="page"' : '') + '>' +
+                escapeHtml(String(p)) +
+              '</button>' +
+            '</li>'
+          );
+        }).join('');
+
+        const prevDisabled = currentPage <= 1;
+        const nextDisabled = currentPage >= totalPages;
+        const prevPage = currentPage > 1 ? currentPage - 1 : 1;
+        const nextPage = currentPage < totalPages ? currentPage + 1 : totalPages;
+
+        container.innerHTML = (
+          '<ul class="pagination__list">' +
+            '<li class="pagination__item">' +
+              '<button type="button" class="pagination__button pagination__button--prev" data-action="page-prev" data-page="' + String(prevPage) + '"' + (prevDisabled ? ' disabled aria-disabled="true"' : '') + '>' +
+                'Previous' +
+              '</button>' +
+            '</li>' +
+            pageButtonsHtml +
+            '<li class="pagination__item">' +
+              '<button type="button" class="pagination__button pagination__button--next" data-action="page-next" data-page="' + String(nextPage) + '"' + (nextDisabled ? ' disabled aria-disabled="true"' : '') + '>' +
+                'Next' +
+              '</button>' +
+            '</li>' +
+          '</ul>'
+        );
+      }
+
+      function renderWatchlistNotification(container, message, type, showViewLink) {
+        if (!message) {
+          container.innerHTML = '';
+          return;
+        }
+        const statusClass = type === 'error' ? 'watchlist-notification--error' : 'watchlist-notification--success';
+        const viewLinkHtml = showViewLink
+          ? '<button type="button" class="link-button watchlist-notification__link" data-action="view-watchlist">View watchlist</button>'
+          : '';
+
+        container.innerHTML = (
+          '<div class="watchlist-notification__inner ' + statusClass + '">' +
+            '<p class="watchlist-notification__message">' + escapeHtml(message) + '</p>' +
+            viewLinkHtml +
+          '</div>'
+        );
+      }
+
+      function renderSearchSuggestions(container, suggestions) {
+        const hasQueries = suggestions && Array.isArray(suggestions.suggested_queries) && suggestions.suggested_queries.length > 0;
+        const hasArticles = suggestions && Array.isArray(suggestions.top_matching_articles) && suggestions.top_matching_articles.length > 0;
+
+        if (!hasQueries && !hasArticles) {
+          container.innerHTML = '';
+          return;
+        }
+
+        const articleItemsHtml = hasArticles
+          ? suggestions.top_matching_articles.map(function(a) {
+              const id = a && typeof a.id === 'string' ? a.id : '';
+              const title = a && typeof a.title === 'string' ? a.title : 'Untitled article';
+              return (
+                '<li class="search-suggestions__item">' +
+                  '<button type="button" class="search-suggestions__link" data-action="search-suggestion-article" data-article-id="' + escapeHtml(id) + '">' +
+                    escapeHtml(title) +
+                  '</button>' +
+                '</li>'
+              );
+            }).join('')
+          : '';
+
+        const queryItemsHtml = hasQueries
+          ? suggestions.suggested_queries.map(function(q) {
+              const text = q && typeof q.text === 'string' ? q.text : '';
+              return (
+                '<li class="search-suggestions__item">' +
+                  '<button type="button" class="search-suggestions__link search-suggestions__link--query" data-action="search-suggestion-query" data-query="' + escapeHtml(text) + '">' +
+                    escapeHtml(text) +
+                  '</button>' +
+                '</li>'
+              );
+            }).join('')
+          : '';
+
+        const articlesSectionHtml = hasArticles
+          ? ('<div class="search-suggestions__group">' +
+               '<div class="search-suggestions__heading">Articles</div>' +
+               '<ul class="search-suggestions__list">' + articleItemsHtml + '</ul>' +
+             '</div>')
+          : '';
+
+        const queriesSectionHtml = hasQueries
+          ? ('<div class="search-suggestions__group">' +
+               '<div class="search-suggestions__heading">Suggested searches</div>' +
+               '<ul class="search-suggestions__list">' + queryItemsHtml + '</ul>' +
+             '</div>')
+          : '';
+
+        container.innerHTML = '<div class="search-suggestions">' + articlesSectionHtml + queriesSectionHtml + '</div>';
+      }
+
+      function handleSearchInput(value) {
+        if (!searchSuggestionsContainer) {
+          return;
+        }
+
+        const query = value != null ? String(value).trim() : '';
+        if (searchDebounceTimer) {
+          clearTimeout(searchDebounceTimer);
+          searchDebounceTimer = null;
+        }
+
+        if (query === '') {
+          searchSuggestionsContainer.innerHTML = '';
+          return;
+        }
+
+        searchDebounceTimer = setTimeout(function() {
+          let result;
+          try {
+            result = WebsiteSDK.getSearchSuggestions(query);
+          } catch (error) {
+            console.error('Error getting search suggestions', error);
+            return;
+          }
+          renderSearchSuggestions(searchSuggestionsContainer, result || {});
+        }, 200);
+      }
+
+      function navigateToArticle(articleId) {
+        if (!articleId) {
+          return;
+        }
+        window.location.href = 'article.html?id=' + encodeURIComponent(articleId);
+      }
+
+      function navigateToWatchlist() {
+        window.location.href = 'my_saved.html?tab=watchlist';
+      }
+
+      function setupEventDelegation() {
+        document.addEventListener('click', function(event) {
+          const target = event.target.closest('[data-action]');
+          if (!target) {
+            return;
+          }
+          const action = target.dataset.action;
+
+          if (action === 'open-article') {
+            const articleId = target.dataset.articleId || target.getAttribute('data-article-id');
+            navigateToArticle(articleId);
+          } else if (action === 'toggle-watchlist') {
+            event.preventDefault();
+            handleToggleWatchlist(target);
+          } else if (action === 'apply-roi-filter') {
+            event.preventDefault();
+            handleApplyRoiFilter();
+          } else if (action === 'page-prev' || action === 'page-next' || action === 'page-number') {
+            event.preventDefault();
+            if (target.disabled) {
+              return;
+            }
+            const pageStr = target.dataset.page;
+            const newPage = pageStr ? parseInt(pageStr, 10) : NaN;
+            if (!isNaN(newPage) && newPage > 0 && newPage !== currentState.page) {
+              currentState.page = newPage;
+              syncUrlFromState(false);
+              loadArticles();
+            }
+          } else if (action === 'view-watchlist') {
+            event.preventDefault();
+            navigateToWatchlist();
+          } else if (action === 'search-suggestion-article') {
+            event.preventDefault();
+            const articleId = target.dataset.articleId || target.getAttribute('data-article-id');
+            navigateToArticle(articleId);
+          } else if (action === 'search-suggestion-query') {
+            event.preventDefault();
+            const query = target.dataset.query || '';
+            if (searchInputElement) {
+              searchInputElement.value = query;
+            }
+            if (searchSuggestionsContainer) {
+              searchSuggestionsContainer.innerHTML = '';
+            }
+          }
+        });
+
+        document.addEventListener('change', function(event) {
+          const target = event.target;
+          const action = target.dataset.action;
+          if (!action) {
+            return;
+          }
+
+          if (action === 'filter-property-type') {
+            const value = target.value || '';
+            currentState.propertyType = value !== '' ? value : null;
+            currentState.page = 1;
+            syncUrlFromState(true);
+            loadArticles();
+          } else if (action === 'sort-change') {
+            const value = target.value || '';
+            currentState.sortBy = value !== '' ? value : null;
+            currentState.page = 1;
+            syncUrlFromState(true);
+            loadArticles();
+          }
+        });
+
+        document.addEventListener('input', function(event) {
+          const target = event.target;
+          const action = target.dataset.action;
+          if (action === 'global-search-input') {
+            handleSearchInput(target.value || '');
+          }
+        });
+
+        document.addEventListener('click', function(event) {
+          if (!searchSuggestionsContainer || !searchInputElement) {
+            return;
+          }
+          const insideSearch = event.target.closest('[data-component="global-search-autocomplete"]');
+          if (!insideSearch) {
+            searchSuggestionsContainer.innerHTML = '';
+          }
+        });
+      }
+
+      function handleApplyRoiFilter() {
+        if (!filterControls.roiMinInput || !filterControls.roiMaxInput) {
+          return;
+        }
+        const minStr = filterControls.roiMinInput.value.trim();
+        const maxStr = filterControls.roiMaxInput.value.trim();
+
+        let minVal = null;
+        let maxVal = null;
+
+        if (minStr !== '') {
+          const v = parseFloat(minStr);
+          if (!isNaN(v)) {
+            minVal = v;
+          }
+        }
+        if (maxStr !== '') {
+          const v = parseFloat(maxStr);
+          if (!isNaN(v)) {
+            maxVal = v;
+          }
+        }
+
+        currentState.minProjectedRoiPercent = minVal;
+        currentState.maxProjectedRoiPercent = maxVal;
+        currentState.page = 1;
+
+        syncUrlFromState(true);
+        loadArticles();
+      }
+
+      function handleToggleWatchlist(buttonElement) {
+        const articleId = buttonElement.dataset.articleId || buttonElement.getAttribute('data-article-id');
+        if (!articleId) {
+          return;
+        }
+
+        const isCurrentlyAdded = watchlistAddedIds.has(articleId);
+
+        if (!isCurrentlyAdded) {
+          let result;
+          try {
+            result = WebsiteSDK.addArticleToWatchlist(articleId);
+          } catch (error) {
+            console.error('Error adding article to watchlist', error);
+            renderWatchlistNotification(watchlistNotificationContainer, 'Could not add this article to your watchlist. Please try again.', 'error', false);
+            return;
+          }
+
+          if (result && result.success) {
+            watchlistAddedIds.add(articleId);
+            buttonElement.classList.add('is-added');
+            buttonElement.setAttribute('aria-pressed', 'true');
+            buttonElement.textContent = 'In watchlist';
+            const message = result.message || 'Added to your watchlist.';
+            renderWatchlistNotification(watchlistNotificationContainer, message, 'success', true);
+          } else {
+            const message = result && result.message
+              ? result.message
+              : 'Could not add this article to your watchlist.';
+            renderWatchlistNotification(watchlistNotificationContainer, message, 'error', false);
+          }
+        } else {
+          let result;
+          try {
+            result = WebsiteSDK.removeArticleFromWatchlist(articleId);
+          } catch (error) {
+            console.error('Error removing article from watchlist', error);
+            renderWatchlistNotification(watchlistNotificationContainer, 'Could not remove this article from your watchlist. Please try again.', 'error', false);
+            return;
+          }
+
+          if (result && result.success) {
+            watchlistAddedIds.delete(articleId);
+            buttonElement.classList.remove('is-added');
+            buttonElement.setAttribute('aria-pressed', 'false');
+            buttonElement.textContent = 'Add to watchlist';
+            const message = result.message || 'Removed from your watchlist.';
+            renderWatchlistNotification(watchlistNotificationContainer, message, 'success', true);
+          } else {
+            const message = result && result.message
+              ? result.message
+              : 'Could not remove this article from your watchlist.';
+            renderWatchlistNotification(watchlistNotificationContainer, message, 'error', false);
+          }
+        }
+      }
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        const str = String(value);
+        return str.replace(/[&<>"']/g, function(ch) {
+          switch (ch) {
+            case '&': return '&amp;';
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '"': return '&quot;';
+            case "'": return '&#39;';
+            default: return ch;
+          }
+        });
+      }
+
+      function formatPropertyTypeLabel(value) {
+        if (!value) {
+          return '';
+        }
+        const str = String(value);
+        const parts = str.split('_');
+        return parts.map(function(part) {
+          if (part.length === 0) {
+            return '';
+          }
+          return part.charAt(0).toUpperCase() + part.slice(1);
+        }).join(' ');
+      }
+
+      function formatDate(value) {
+        if (!value) {
+          return '';
+        }
+        const date = new Date(value);
+        if (isNaN(date.getTime())) {
+          return '';
+        }
+        return date.toLocaleDateString(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        });
+      }
+
+      function formatPercentage(value) {
+        if (typeof value !== 'number' || isNaN(value)) {
+          return '';
+        }
+        const rounded = Math.round(value * 10) / 10;
+        return String(rounded) + '%';
+      }
+    })();
+  </script>
+</body>
+</html>

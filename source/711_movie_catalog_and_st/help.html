@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Movie Catalog</title>
+  <meta name='description' content='Provides dynamically managed help articles and FAQs covering search, filters, watchlists, custom lists, provider links, Watch Now buttons, and troubleshooting, loaded from the content service.'>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='help.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='header-inner'>
+      <a href='index.html' class='brand'>Movie Catalog</a>
+      <nav class='main-nav' aria-label='Primary navigation'>
+        <ul>
+          <li><a href='index.html'>Home</a></li>
+          <li><a href='genre.html?genreId=all'>Genres</a></li>
+          <li><a href='genre.html?genreId=action'>Action</a></li>
+          <li><a href='genre.html?genreId=comedy'>Comedy</a></li>
+          <li><a href='genre.html?genreId=family'>Family</a></li>
+          <li><a href='watchlist.html'>Watchlist</a></li>
+          <li><a href='lists.html'>Lists</a></li>
+          <li><a href='settings.html'>Settings</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-content' tabindex='-1'>
+    <div class='help-page-root' data-component='help-page-loader' data-populate='static-page-content'>
+      <div class='help-loading-state'>Loading help content...</div>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner'>
+      <nav class='footer-nav' aria-label='Footer navigation'>
+        <ul>
+          <li><a href='about.html'>About</a></li>
+          <li><a href='help.html'>Help</a></li>
+          <li><a href='contact.html'>Contact</a></li>
+          <li><a href='privacy.html'>Privacy Policy</a></li>
+          <li><a href='terms.html'>Terms of Service</a></li>
+        </ul>
+      </nav>
+      <p class='footer-meta'>&copy; 2026 Movie Catalog. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    const helpPageState = {
+      faqItems: [],
+      sectionTitlesById: {},
+      sectionOrder: [],
+      urlState: null,
+      root: null,
+      searchForm: null,
+      searchInput: null,
+      staticContent: null
+    };
+
+    document.addEventListener('DOMContentLoaded', function() {
+      helpPageState.urlState = parseUrlState();
+
+      const populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function(element) {
+        const dataType = element.dataset.populate;
+        if (dataType === 'static-page-content') {
+          initHelpStaticPage(element);
+        }
+      });
+
+      setupHelpInteractions();
+
+      window.addEventListener('popstate', function() {
+        const state = parseUrlState();
+        applyUrlState(state);
+      });
+    });
+
+    function parseUrlState() {
+      const params = new URLSearchParams(window.location.search || '');
+      return {
+        section: params.get('section') || '',
+        q: params.get('q') || '',
+        faqId: params.get('faqId') || ''
+      };
+    }
+
+    function updateUrlState(partial) {
+      const current = helpPageState.urlState || parseUrlState();
+      const next = {
+        section: partial.section !== undefined ? partial.section : current.section,
+        q: partial.q !== undefined ? partial.q : current.q,
+        faqId: partial.faqId !== undefined ? partial.faqId : current.faqId
+      };
+
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+
+      if (next.section) {
+        params.set('section', next.section);
+      } else {
+        params.delete('section');
+        next.section = '';
+      }
+
+      if (next.q) {
+        params.set('q', next.q);
+      } else {
+        params.delete('q');
+        next.q = '';
+      }
+
+      if (next.faqId) {
+        params.set('faqId', next.faqId);
+      } else {
+        params.delete('faqId');
+        next.faqId = '';
+      }
+
+      url.search = params.toString();
+      const newUrl = url.pathname + (url.search ? '?' + url.search : '') + url.hash;
+      window.history.pushState({}, '', newUrl);
+
+      applyUrlState(next);
+    }
+
+    function derivePageCodeFromLocation() {
+      const path = window.location.pathname || '';
+      const file = path.split('/').pop() || 'help.html';
+      const base = file.replace(/\.html?$/i, '');
+      let pageCode = base.replace(/-/g, '_');
+      if (pageCode === 'help') {
+        pageCode = 'help_faq';
+      }
+      return pageCode;
+    }
+
+    function initHelpStaticPage(container) {
+      const pageCode = derivePageCodeFromLocation();
+      let content;
+      try {
+        content = WebsiteSDK.getStaticPageContent(pageCode);
+      } catch (e) {
+        container.innerHTML = '<p class="help-error" role="alert">Unable to load help content. Please try again later.</p>';
+        console.error(e);
+        return;
+      }
+      helpPageState.staticContent = content;
+      renderHelpPage(container, content);
+    }
+
+    function renderHelpPage(container, content) {
+      container.innerHTML = '';
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'help-page-inner';
+
+      const header = document.createElement('header');
+      header.className = 'help-page-header';
+
+      const titleEl = document.createElement('h1');
+      titleEl.className = 'section-heading help-page-title';
+      titleEl.textContent = content && content.title ? content.title : 'Help & FAQ';
+      header.appendChild(titleEl);
+
+      const searchForm = document.createElement('form');
+      searchForm.className = 'faq-search-form';
+      searchForm.setAttribute('data-component', 'faq-search-form');
+
+      const label = document.createElement('label');
+      label.setAttribute('for', 'faqSearchInput');
+      label.textContent = 'Search Help & FAQs';
+
+      const fieldWrapper = document.createElement('div');
+      fieldWrapper.className = 'faq-search-field';
+
+      const input = document.createElement('input');
+      input.type = 'search';
+      input.id = 'faqSearchInput';
+      input.name = 'q';
+      input.placeholder = 'Search by keyword or feature';
+      input.autocomplete = 'off';
+
+      const searchButton = document.createElement('button');
+      searchButton.type = 'submit';
+      searchButton.textContent = 'Search';
+
+      const clearButton = document.createElement('button');
+      clearButton.type = 'button';
+      clearButton.setAttribute('data-action', 'faq-search-clear');
+      clearButton.textContent = 'Clear';
+
+      fieldWrapper.appendChild(input);
+      fieldWrapper.appendChild(searchButton);
+      fieldWrapper.appendChild(clearButton);
+
+      searchForm.appendChild(label);
+      searchForm.appendChild(fieldWrapper);
+      header.appendChild(searchForm);
+
+      const lastUpdated = document.createElement('p');
+      lastUpdated.className = 'help-last-updated';
+      lastUpdated.setAttribute('data-component', 'help-last-updated-indicator');
+      if (content && content.lastUpdatedAt) {
+        const date = new Date(content.lastUpdatedAt);
+        if (!isNaN(date.getTime())) {
+          const formatted = date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+          lastUpdated.textContent = 'Last updated: ' + formatted;
+        } else {
+          lastUpdated.style.display = 'none';
+        }
+      } else {
+        lastUpdated.style.display = 'none';
+      }
+      header.appendChild(lastUpdated);
+
+      wrapper.appendChild(header);
+
+      const layoutTop = document.createElement('div');
+      layoutTop.className = 'help-layout help-layout-top two-column-layout';
+
+      const toc = document.createElement('aside');
+      toc.className = 'help-toc';
+      toc.setAttribute('data-component', 'help-toc');
+      toc.setAttribute('aria-label', 'Help topics');
+      layoutTop.appendChild(toc);
+
+      const faqColumnTop = document.createElement('section');
+      faqColumnTop.className = 'help-faq-column';
+      const faqTopContainer = document.createElement('div');
+      faqTopContainer.className = 'faq-accordion-split faq-accordion-split--top';
+      faqTopContainer.setAttribute('data-component', 'faq-accordion-list');
+      faqColumnTop.appendChild(faqTopContainer);
+      layoutTop.appendChild(faqColumnTop);
+
+      wrapper.appendChild(layoutTop);
+
+      const supportSection = document.createElement('section');
+      supportSection.className = 'contact-support-callout';
+      supportSection.setAttribute('data-component', 'contact-support-link');
+
+      const supportInner = document.createElement('div');
+      supportInner.className = 'contact-support-inner';
+
+      const supportText = document.createElement('p');
+      supportText.className = 'contact-support-text';
+      supportText.textContent = 'Still need help?';
+
+      const supportButton = document.createElement('button');
+      supportButton.type = 'button';
+      supportButton.className = 'btn-contact-support';
+      supportButton.setAttribute('data-action', 'contact-support-navigate');
+      supportButton.textContent = 'Contact support';
+
+      supportInner.appendChild(supportText);
+      supportInner.appendChild(supportButton);
+      supportSection.appendChild(supportInner);
+      wrapper.appendChild(supportSection);
+
+      const layoutBottom = document.createElement('div');
+      layoutBottom.className = 'help-layout help-layout-bottom two-column-layout';
+
+      const spacer = document.createElement('div');
+      spacer.className = 'help-toc-spacer';
+      layoutBottom.appendChild(spacer);
+
+      const faqColumnBottom = document.createElement('section');
+      faqColumnBottom.className = 'help-faq-column';
+      const faqBottomContainer = document.createElement('div');
+      faqBottomContainer.className = 'faq-accordion-split faq-accordion-split--bottom';
+      faqBottomContainer.setAttribute('data-component', 'faq-accordion-list');
+      faqColumnBottom.appendChild(faqBottomContainer);
+      layoutBottom.appendChild(faqColumnBottom);
+
+      wrapper.appendChild(layoutBottom);
+
+      const raw = document.createElement('div');
+      raw.className = 'help-raw-body';
+      raw.hidden = true;
+      raw.innerHTML = content && content.bodyHtml ? content.bodyHtml : '';
+      wrapper.appendChild(raw);
+
+      container.appendChild(wrapper);
+    }
+
+    function setupHelpInteractions() {
+      const root = document.querySelector('[data-component="help-page-loader"]');
+      if (!root) {
+        return;
+      }
+      const raw = root.querySelector('.help-raw-body');
+      if (!raw) {
+        return;
+      }
+
+      const faqItems = extractFaqItems(raw);
+      helpPageState.faqItems = faqItems;
+
+      const split = splitFaqItems(faqItems);
+      const topContainer = root.querySelector('.faq-accordion-split--top');
+      const bottomContainer = root.querySelector('.faq-accordion-split--bottom');
+
+      renderFaqAccordionList(topContainer, split.top);
+      renderFaqAccordionList(bottomContainer, split.bottom);
+
+      const tocContainer = root.querySelector('.help-toc');
+      buildToc(tocContainer, faqItems);
+
+      helpPageState.root = root;
+      helpPageState.searchForm = root.querySelector('.faq-search-form');
+      helpPageState.searchInput = root.querySelector('#faqSearchInput');
+
+      const initialState = parseUrlState();
+      applyUrlState(initialState);
+
+      bindHelpEvents();
+    }
+
+    function extractFaqItems(rawContainer) {
+      const nodes = rawContainer.querySelectorAll('[data-faq-id]');
+      const items = [];
+      const sectionTitlesById = {};
+      const sectionOrder = [];
+
+      nodes.forEach(function(node, index) {
+        const idAttr = node.getAttribute('data-faq-id');
+        const id = idAttr && idAttr.length ? idAttr : String(index + 1);
+
+        let questionText = '';
+        const questionElem = node.querySelector('.faq-question, h3, h4');
+        if (questionElem) {
+          questionText = questionElem.textContent.trim();
+        } else {
+          questionText = (node.textContent || '').trim().split('\n')[0];
+        }
+
+        const answerElem = node.querySelector('.faq-answer');
+        const answerHtml = answerElem ? answerElem.innerHTML : node.innerHTML;
+
+        let sectionId = null;
+        let sectionTitle = null;
+        let prev = node.previousElementSibling;
+        while (prev && !sectionId) {
+          if (prev.tagName && prev.tagName.toLowerCase() === 'h2') {
+            sectionTitle = prev.textContent.trim();
+            sectionId = prev.id && prev.id.length ? prev.id : makeSectionIdFromTitle(sectionTitle);
+          }
+          prev = prev.previousElementSibling;
+        }
+
+        if (sectionId && !sectionTitlesById[sectionId]) {
+          sectionTitlesById[sectionId] = sectionTitle || sectionId;
+          sectionOrder.push(sectionId);
+        }
+
+        items.push({
+          id: id,
+          questionText: questionText,
+          answerHtml: answerHtml,
+          sectionId: sectionId,
+          sectionTitle: sectionTitle,
+          index: index,
+          domElement: null,
+          questionLower: '',
+          answerText: ''
+        });
+      });
+
+      helpPageState.sectionTitlesById = sectionTitlesById;
+      helpPageState.sectionOrder = sectionOrder;
+
+      return items;
+    }
+
+    function makeSectionIdFromTitle(title) {
+      return 'section-' + title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    }
+
+    function splitFaqItems(items) {
+      const result = { top: [], bottom: [] };
+      if (!items || !items.length) {
+        return result;
+      }
+      const half = Math.ceil(items.length / 2);
+      result.top = items.slice(0, half);
+      result.bottom = items.slice(half);
+      if (!result.bottom.length) {
+        result.bottom = [];
+      }
+      return result;
+    }
+
+    function renderFaqAccordionList(container, items) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+      if (!items || !items.length) {
+        return;
+      }
+
+      let currentSectionId = null;
+      items.forEach(function(item) {
+        if (item.sectionId && item.sectionId !== currentSectionId) {
+          currentSectionId = item.sectionId;
+          const heading = document.createElement('h2');
+          heading.className = 'faq-section-heading section-heading';
+          heading.textContent = item.sectionTitle || item.sectionId;
+          heading.id = item.sectionId;
+          heading.setAttribute('data-section-id', item.sectionId);
+          container.appendChild(heading);
+        }
+
+        const wrapper = document.createElement('article');
+        wrapper.className = 'faq-item';
+        wrapper.setAttribute('data-faq-id', item.id);
+        if (item.sectionId) {
+          wrapper.setAttribute('data-section-id', item.sectionId);
+        }
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'faq-question';
+        button.setAttribute('data-action', 'faq-toggle');
+        button.setAttribute('aria-expanded', 'false');
+        const panelId = 'faq-panel-' + item.id;
+        button.setAttribute('aria-controls', panelId);
+        button.textContent = item.questionText;
+
+        const answer = document.createElement('div');
+        answer.className = 'faq-answer';
+        answer.id = panelId;
+        answer.hidden = true;
+        answer.innerHTML = item.answerHtml;
+
+        wrapper.appendChild(button);
+        wrapper.appendChild(answer);
+        container.appendChild(wrapper);
+
+        item.domElement = wrapper;
+        item.questionLower = (item.questionText || '').toLowerCase();
+        const tmpDiv = document.createElement('div');
+        tmpDiv.innerHTML = item.answerHtml;
+        item.answerText = (tmpDiv.textContent || '').toLowerCase();
+      });
+    }
+
+    function buildToc(container, faqItems) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+      if (!faqItems || !faqItems.length) {
+        return;
+      }
+
+      const heading = document.createElement('h2');
+      heading.className = 'section-heading';
+      heading.textContent = 'Topics';
+      container.appendChild(heading);
+
+      const list = document.createElement('ul');
+      list.className = 'text-link-list';
+      container.appendChild(list);
+
+      const titlesById = helpPageState.sectionTitlesById || {};
+      const order = helpPageState.sectionOrder || [];
+      order.forEach(function(sectionId) {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'toc-link';
+        btn.setAttribute('data-action', 'toc-section');
+        btn.setAttribute('data-section-id', sectionId);
+        btn.textContent = titlesById[sectionId] || sectionId;
+        li.appendChild(btn);
+        list.appendChild(li);
+      });
+    }
+
+    function applyUrlState(state) {
+      helpPageState.urlState = state;
+      const root = helpPageState.root;
+      if (!root) {
+        return;
+      }
+      const q = state.q || '';
+      const faqId = state.faqId || '';
+      const sectionId = state.section || '';
+
+      if (helpPageState.searchInput) {
+        helpPageState.searchInput.value = q;
+      }
+
+      applyFaqFilter(q);
+      applyFaqExpansion(faqId);
+      applyActiveSection(sectionId);
+    }
+
+    function applyFaqFilter(query) {
+      const items = helpPageState.faqItems || [];
+      const q = (query || '').toLowerCase();
+      items.forEach(function(item) {
+        if (!item.domElement) {
+          return;
+        }
+        let visible = true;
+        if (q) {
+          const matchInQuestion = item.questionLower && item.questionLower.indexOf(q) !== -1;
+          const matchInAnswer = item.answerText && item.answerText.indexOf(q) !== -1;
+          visible = matchInQuestion || matchInAnswer;
+        }
+        item.domElement.style.display = visible ? '' : 'none';
+      });
+    }
+
+    function applyFaqExpansion(faqId) {
+      const items = helpPageState.faqItems || [];
+      items.forEach(function(item) {
+        if (!item.domElement) {
+          return;
+        }
+        const btn = item.domElement.querySelector('.faq-question');
+        const panel = item.domElement.querySelector('.faq-answer');
+        if (!btn || !panel) {
+          return;
+        }
+        const isTarget = faqId && item.id === faqId;
+        btn.setAttribute('aria-expanded', isTarget ? 'true' : 'false');
+        panel.hidden = !isTarget;
+      });
+
+      if (faqId) {
+        const targetItem = items.find(function(it) {
+          return it.id === faqId && it.domElement;
+        });
+        if (targetItem && typeof targetItem.domElement.scrollIntoView === 'function') {
+          targetItem.domElement.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        }
+      }
+    }
+
+    function applyActiveSection(sectionId) {
+      const root = helpPageState.root;
+      if (!root) {
+        return;
+      }
+      const tocButtons = root.querySelectorAll('.toc-link');
+      tocButtons.forEach(function(btn) {
+        const sid = btn.getAttribute('data-section-id');
+        if (sectionId && sid === sectionId) {
+          btn.classList.add('is-active');
+        } else {
+          btn.classList.remove('is-active');
+        }
+      });
+
+      if (sectionId) {
+        const heading = root.querySelector('.faq-section-heading[data-section-id="' + sectionId + '"]');
+        if (heading && typeof heading.scrollIntoView === 'function') {
+          heading.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        }
+      }
+    }
+
+    function bindHelpEvents() {
+      const root = helpPageState.root;
+      if (!root) {
+        return;
+      }
+
+      const searchForm = helpPageState.searchForm;
+      if (searchForm) {
+        searchForm.addEventListener('submit', function(ev) {
+          ev.preventDefault();
+          const q = helpPageState.searchInput ? helpPageState.searchInput.value.trim() : '';
+          updateUrlState({ q: q || '' });
+        });
+      }
+
+      const clearButton = root.querySelector('[data-action="faq-search-clear"]');
+      if (clearButton && helpPageState.searchInput) {
+        clearButton.addEventListener('click', function() {
+          helpPageState.searchInput.value = '';
+          updateUrlState({ q: '' });
+        });
+      }
+
+      root.addEventListener('click', function(ev) {
+        const target = ev.target;
+        if (!target) {
+          return;
+        }
+        const action = target.getAttribute('data-action');
+        if (action === 'faq-toggle') {
+          const itemEl = target.closest('.faq-item');
+          if (!itemEl) {
+            return;
+          }
+          const faqId = itemEl.getAttribute('data-faq-id');
+          const expanded = target.getAttribute('aria-expanded') === 'true';
+          const panel = itemEl.querySelector('.faq-answer');
+          if (!panel) {
+            return;
+          }
+          const newExpanded = !expanded;
+          target.setAttribute('aria-expanded', newExpanded ? 'true' : 'false');
+          panel.hidden = !newExpanded;
+          updateUrlState({ faqId: newExpanded ? faqId : '' });
+        } else if (action === 'toc-section') {
+          const sectionId = target.getAttribute('data-section-id');
+          updateUrlState({ section: sectionId || '' });
+        } else if (action === 'contact-support-navigate') {
+          navigateToContactSupport();
+        }
+      });
+    }
+
+    function navigateToContactSupport() {
+      const state = helpPageState.urlState || parseUrlState();
+      const params = new URLSearchParams();
+      params.set('topic', 'support');
+      if (state.section) {
+        params.set('section', state.section);
+      }
+      if (state.faqId) {
+        params.set('faqId', state.faqId);
+      }
+      const query = params.toString();
+      window.location.href = 'contact.html' + (query ? '?' + query : '');
+    }
+  </script>
+</body>
+</html>

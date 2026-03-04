@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='help.css'>
+<script src='business_logic.js'></script>
+
+<div class='help-page-container' data-component='help-page-container'>
+  <header class='help-header' data-component='help-header'>
+    <h1 id='help-page-title' class='help-page-title' data-populate='help-title'></h1>
+    <p class='help-last-updated-row'>
+      <span class='help-last-updated-label'>Last updated: </span>
+      <span id='help-last-updated' class='help-last-updated-value' data-populate='help-last-updated'></span>
+    </p>
+  </header>
+
+  <div class='help-loader' data-component='help-content-loader' data-populate='help-loader' aria-live='polite'></div>
+
+  <section class='help-search-section'>
+    <form id='help-search-form' class='help-search-form' data-component='help-search-form' data-action='help-search-form' role='search'>
+      <label class='visually-hidden' for='help-search-input'>Search help topics</label>
+      <input
+        type='text'
+        id='help-search-input'
+        name='q'
+        class='help-search-input'
+        placeholder='Search help (e.g. alerts, exports, analytics)'
+        autocomplete='off'
+      >
+      <button type='submit' class='help-search-button'>Search</button>
+      <button type='button' class='help-search-clear-button' data-action='help-search-clear'>Clear</button>
+    </form>
+  </section>
+
+  <nav class='help-toc-card help-card' data-component='help-table-of-contents' aria-label='Help topics'>
+    <h2 class='help-toc-title'>Help topics</h2>
+    <ul class='help-toc-list' id='help-toc-list' data-populate='help-toc'></ul>
+  </nav>
+
+  <section class='help-section-list' data-component='help-section-list' aria-label='Help content'>
+    <ul class='help-section-list-inner' id='help-section-list' data-populate='help-sections'></ul>
+  </section>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  document.addEventListener('DOMContentLoaded', function() {
+    var allowedPageKeys = ['about', 'help', 'policies'];
+
+    function derivePageKeyFromLocation() {
+      var url = new URL(window.location.href);
+      var params = url.searchParams;
+      var urlPageKey = params.get('pageKey');
+      if (urlPageKey && allowedPageKeys.indexOf(urlPageKey) !== -1) {
+        return urlPageKey;
+      }
+      var path = url.pathname.toLowerCase();
+      var fileName = path.substring(path.lastIndexOf('/') + 1) || '';
+      var baseName = fileName.split('.')[0];
+      if (allowedPageKeys.indexOf(baseName) !== -1) {
+        return baseName;
+      }
+      return 'help';
+    }
+
+    function readUrlState() {
+      var url = new URL(window.location.href);
+      var params = url.searchParams;
+      var state = {
+        pageKey: derivePageKeyFromLocation(),
+        q: params.get('q') || '',
+        section: params.get('section') || ''
+      };
+      return state;
+    }
+
+    function generateSlug(heading) {
+      if (!heading) {
+        return '';
+      }
+      var slug = heading.toLowerCase();
+      slug = slug.trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      return slug;
+    }
+
+    function filterSections(allSections, query) {
+      if (!allSections || !allSections.length) {
+        return [];
+      }
+      if (!query) {
+        return allSections.slice();
+      }
+      var qLower = query.toLowerCase();
+      return allSections.filter(function(section) {
+        var headingText = section.heading ? section.heading.toLowerCase() : '';
+        var bodyText = section.bodyHtml ? section.bodyHtml.toLowerCase() : '';
+        return headingText.indexOf(qLower) !== -1 || bodyText.indexOf(qLower) !== -1;
+      });
+    }
+
+    var titleEl = document.querySelector('[data-populate="help-title"]');
+    var lastUpdatedEl = document.querySelector('[data-populate="help-last-updated"]');
+    var loaderEl = document.querySelector('[data-populate="help-loader"]');
+    var tocContainer = document.querySelector('[data-populate="help-toc"]');
+    var sectionsContainer = document.querySelector('[data-populate="help-sections"]');
+    var searchForm = document.querySelector('[data-action="help-search-form"]');
+    var searchInput = document.getElementById('help-search-input');
+    var clearButton = document.querySelector('[data-action="help-search-clear"]');
+
+    var urlState = readUrlState();
+    var currentPageKey = urlState.pageKey;
+    var currentQuery = urlState.q || '';
+    var currentSectionSlug = urlState.section || '';
+
+    if (searchInput) {
+      searchInput.value = currentQuery;
+    }
+
+    var helpContent = null;
+    var sectionsWithSlugs = [];
+    var intersectionObserver = null;
+
+    function renderHeader() {
+      if (titleEl) {
+        var titleText = (helpContent && helpContent.title) ? helpContent.title : 'Help';
+        titleEl.textContent = titleText;
+      }
+      if (lastUpdatedEl) {
+        var lu = (helpContent && helpContent.lastUpdated) ? helpContent.lastUpdated : '';
+        lastUpdatedEl.textContent = lu;
+      }
+    }
+
+    function renderLoaderMessage(message) {
+      if (!loaderEl) {
+        return;
+      }
+      loaderEl.textContent = message || '';
+    }
+
+    function renderTOC(container, sections, activeSlug) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+      if (!sections || !sections.length) {
+        var emptyItem = document.createElement('li');
+        emptyItem.className = 'help-toc-empty';
+        emptyItem.textContent = currentQuery ? 'No help topics match your search.' : 'No help topics available.';
+        container.appendChild(emptyItem);
+        return;
+      }
+      sections.forEach(function(section) {
+        var li = document.createElement('li');
+        li.className = 'help-toc-item';
+        if (section.slug === activeSlug) {
+          li.className += ' is-active';
+        }
+        var link = document.createElement('a');
+        link.href = 'javascript:void(0)';
+        link.textContent = section.heading;
+        link.setAttribute('data-action', 'help-toc-item-click');
+        link.setAttribute('data-section-slug', section.slug);
+        li.appendChild(link);
+        container.appendChild(li);
+      });
+    }
+
+    function renderSections(container, sections, activeSlug) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+      if (!sections || !sections.length) {
+        var empty = document.createElement('li');
+        empty.className = 'help-section-empty';
+        empty.textContent = currentQuery ? 'No help topics matched your search.' : 'No help topics are available.';
+        container.appendChild(empty);
+        return;
+      }
+      sections.forEach(function(section, index) {
+        var li = document.createElement('li');
+        li.className = 'help-section-item';
+        li.setAttribute('data-component', 'help-section-item');
+        li.setAttribute('data-section-slug', section.slug);
+        li.id = 'help-section-' + section.slug;
+        if (section.slug === activeSlug) {
+          li.className += ' is-active';
+        }
+
+        var card = document.createElement('article');
+        card.className = 'help-section-card';
+
+        var headingEl = document.createElement('h2');
+        headingEl.className = 'help-section-heading';
+        var headingLink = document.createElement('a');
+        headingLink.href = 'javascript:void(0)';
+        headingLink.textContent = section.heading;
+        headingLink.setAttribute('data-action', 'help-section-heading-click');
+        headingLink.setAttribute('data-section-slug', section.slug);
+        headingEl.appendChild(headingLink);
+
+        var bodyEl = document.createElement('div');
+        bodyEl.className = 'help-section-body';
+        if (section.bodyHtml) {
+          bodyEl.innerHTML = section.bodyHtml;
+        }
+
+        card.appendChild(headingEl);
+        card.appendChild(bodyEl);
+        li.appendChild(card);
+        container.appendChild(li);
+      });
+    }
+
+    function setUrlParams(changes, replace) {
+      var url = new URL(window.location.href);
+      var params = url.searchParams;
+
+      if (typeof changes.pageKey !== 'undefined') {
+        if (!changes.pageKey) {
+          params.delete('pageKey');
+        } else {
+          params.set('pageKey', changes.pageKey);
+        }
+      }
+      if (typeof changes.q !== 'undefined') {
+        if (!changes.q) {
+          params.delete('q');
+        } else {
+          params.set('q', changes.q);
+        }
+      }
+      if (typeof changes.section !== 'undefined') {
+        if (!changes.section) {
+          params.delete('section');
+        } else {
+          params.set('section', changes.section);
+        }
+      }
+
+      var newSearch = params.toString();
+      var newUrl = url.pathname + (newSearch ? '?' + newSearch : '');
+      var state = {
+        pageKey: currentPageKey,
+        q: currentQuery,
+        section: currentSectionSlug
+      };
+      if (replace) {
+        window.history.replaceState(state, '', newUrl);
+      } else {
+        window.history.pushState(state, '', newUrl);
+      }
+    }
+
+    function scrollToSection(slug) {
+      if (!slug) {
+        return;
+      }
+      var selector = '[data-component="help-section-item"][data-section-slug="' + slug + '"]';
+      var element = document.querySelector(selector);
+      if (!element) {
+        return;
+      }
+      try {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (e) {
+        element.scrollIntoView(true);
+      }
+    }
+
+    function setupIntersectionObserver() {
+      if (!('IntersectionObserver' in window)) {
+        return;
+      }
+      if (!sectionsContainer) {
+        return;
+      }
+      if (intersectionObserver) {
+        intersectionObserver.disconnect();
+        intersectionObserver = null;
+      }
+      intersectionObserver = new IntersectionObserver(function(entries) {
+        var visible = entries.filter(function(entry) {
+          return entry.isIntersecting;
+        });
+        if (!visible.length) {
+          return;
+        }
+        visible.sort(function(a, b) {
+          return b.intersectionRatio - a.intersectionRatio;
+        });
+        var topEntry = visible[0];
+        var slug = topEntry.target.getAttribute('data-section-slug');
+        if (!slug || slug === currentSectionSlug) {
+          return;
+        }
+        currentSectionSlug = slug;
+        setUrlParams({ section: slug }, true);
+        var filtered = filterSections(sectionsWithSlugs, currentQuery);
+        renderTOC(tocContainer, filtered, currentSectionSlug);
+        renderSections(sectionsContainer, filtered, currentSectionSlug);
+        setupIntersectionObserver();
+      }, {
+        root: null,
+        rootMargin: '0px',
+        threshold: 0.4
+      });
+
+      var items = sectionsContainer.querySelectorAll('[data-component="help-section-item"]');
+      items.forEach(function(item) {
+        intersectionObserver.observe(item);
+      });
+    }
+
+    function applyFilterAndRender() {
+      var filtered = filterSections(sectionsWithSlugs, currentQuery);
+      renderTOC(tocContainer, filtered, currentSectionSlug);
+      renderSections(sectionsContainer, filtered, currentSectionSlug);
+      setupIntersectionObserver();
+    }
+
+    function loadContent(pageKey) {
+      renderLoaderMessage('Loading help content');
+      try {
+        helpContent = WebsiteSDK.getInformationalPageContent(pageKey);
+      } catch (e) {
+        renderLoaderMessage('Unable to load help content. Please try again later.');
+        helpContent = null;
+        sectionsWithSlugs = [];
+        return;
+      }
+      if (!helpContent || !helpContent.sections) {
+        helpContent = helpContent || {};
+        helpContent.sections = [];
+      }
+      sectionsWithSlugs = helpContent.sections.map(function(section, index) {
+        var heading = section.heading || '';
+        var bodyHtml = section.bodyHtml || '';
+        var baseSlug = generateSlug(heading) || ('section-' + (index + 1));
+        return {
+          heading: heading,
+          bodyHtml: bodyHtml,
+          slug: baseSlug
+        };
+      });
+      renderLoaderMessage('');
+      renderHeader();
+      applyFilterAndRender();
+      if (currentSectionSlug) {
+        scrollToSection(currentSectionSlug);
+      }
+    }
+
+    function handleSearchSubmit(event) {
+      event.preventDefault();
+      if (!searchInput) {
+        return;
+      }
+      var value = searchInput.value || '';
+      var trimmed = value.trim();
+      currentQuery = trimmed;
+      currentSectionSlug = '';
+      setUrlParams({ q: trimmed || null, section: null }, false);
+      applyFilterAndRender();
+      if (sectionsContainer) {
+        try {
+          sectionsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (e) {
+          sectionsContainer.scrollIntoView(true);
+        }
+      }
+    }
+
+    function handleSearchClear(event) {
+      event.preventDefault();
+      if (!searchInput) {
+        return;
+      }
+      searchInput.value = '';
+      currentQuery = '';
+      setUrlParams({ q: null }, false);
+      applyFilterAndRender();
+    }
+
+    function setActiveSectionFromInteraction(slug) {
+      if (!slug) {
+        return;
+      }
+      currentSectionSlug = slug;
+      setUrlParams({ section: slug }, false);
+      applyFilterAndRender();
+      scrollToSection(slug);
+    }
+
+    if (searchForm) {
+      searchForm.addEventListener('submit', handleSearchSubmit);
+    }
+
+    if (clearButton) {
+      clearButton.addEventListener('click', handleSearchClear);
+    }
+
+    if (tocContainer) {
+      tocContainer.addEventListener('click', function(event) {
+        var target = event.target;
+        if (!target) {
+          return;
+        }
+        var action = target.getAttribute('data-action');
+        if (action === 'help-toc-item-click') {
+          event.preventDefault();
+          var slug = target.getAttribute('data-section-slug') || '';
+          setActiveSectionFromInteraction(slug);
+        }
+      });
+    }
+
+    if (sectionsContainer) {
+      sectionsContainer.addEventListener('click', function(event) {
+        var target = event.target;
+        if (!target) {
+          return;
+        }
+        var action = target.getAttribute('data-action');
+        if (action === 'help-section-heading-click') {
+          event.preventDefault();
+          var slug = target.getAttribute('data-section-slug') || '';
+          setActiveSectionFromInteraction(slug);
+        }
+      });
+    }
+
+    window.addEventListener('popstate', function() {
+      var state = readUrlState();
+      var newPageKey = state.pageKey;
+      var newQuery = state.q || '';
+      var newSection = state.section || '';
+      var pageKeyChanged = newPageKey !== currentPageKey;
+
+      currentQuery = newQuery;
+      currentSectionSlug = newSection;
+
+      if (searchInput) {
+        searchInput.value = currentQuery;
+      }
+
+      if (pageKeyChanged) {
+        currentPageKey = newPageKey;
+        loadContent(currentPageKey);
+      } else {
+        applyFilterAndRender();
+        if (currentSectionSlug) {
+          scrollToSection(currentSectionSlug);
+        }
+      }
+    });
+
+    loadContent(currentPageKey);
+  });
+})();
+</script>

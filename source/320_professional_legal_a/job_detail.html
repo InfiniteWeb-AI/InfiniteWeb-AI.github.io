@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Legal Association Newsletter Framework - Job Detail</title>
+    
+    <link rel="stylesheet" href="job_detail.css">
+</head>
+<body>
+    <header class="site-header" role="banner">
+        <div class="site-header-inner">
+            <div class="site-branding">
+                <div class="site-logo-mark" aria-hidden="true"></div>
+                <div class="site-brand-text">
+                    <div class="site-parent-org">Deutscher Anwaltverein</div>
+                    <hr class="site-brand-divider">
+                    <div class="site-title">Arbeitsgemeinschaft<br>Insolvenzrecht &amp; Sanierung</div>
+                </div>
+            </div>
+        </div>
+        <nav class="primary-nav" aria-label="Primary navigation">
+            <ul>
+                <li><a href="index.html" title="Association homepage">Home</a></li>
+                <li><a href="newsletter.html" title="Newsletter hub with latest articles and topics">Newsletter</a></li>
+                <li><a href="newsletter_issue.html?issueId=latest" title="Most recent newsletter issue table of contents">Latest Issue</a></li>
+                <li><a href="newsletter_archive.html" title="Browse all past newsletter issues">Archive</a></li>
+                <li><a href="search_results.html" title="Search and filter newsletter articles">Search Articles</a></li>
+                <li><a href="events.html" title="Continuing legal education and events listing">CLE &amp; Events</a></li>
+                <li><a href="jobs.html" title="Legal job highlights and listings">Careers</a></li>
+                <li><a href="reading_list.html" title="View and manage saved newsletter articles">My Reading List</a></li>
+                <li><a href="my_events.html" title="View and manage saved CLE and events">My Events</a></li>
+                <li><a href="saved_jobs.html" title="View and manage bookmarked job postings">Saved Jobs</a></li>
+                <li><a href="display_settings.html" title="Adjust theme, text size, and line spacing">Display Settings</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" role="main">
+        <article class="job-detail-page" data-component="job-detail-page">
+            <nav class="job-detail-nav" aria-label="Job navigation" data-component="job-navigation-bar">
+                <a href="javascript:void(0)" class="job-detail-nav-link" data-action="back-to-listings">&larr; Back to job listings</a>
+                <span class="job-detail-nav-separator" aria-hidden="true">|</span>
+                <a href="javascript:void(0)" class="job-detail-nav-link" data-action="view-saved-jobs">Saved jobs</a>
+            </nav>
+
+            <div class="job-detail-loader" data-component="job-detail-loader" aria-live="polite">
+                <p class="loader-text">Loading job details</p>
+            </div>
+
+            <section class="job-detail-content" data-populate="job-detail" hidden></section>
+
+            <div class="job-detail-status" data-component="job-detail-status-messages" aria-live="polite" role="status"></div>
+        </article>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul>
+                <li><a href="about.html" title="Information about the legal association and newsletter">About the Association</a></li>
+                <li><a href="help.html" title="FAQs and contact information for assistance">Help &amp; Support</a></li>
+                <li><a href="subscription.html" title="Manage newsletter topics and email delivery settings">Newsletter Preferences</a></li>
+                <li><a href="collections.html" title="View and manage article collections">Collections</a></li>
+                <li><a href="events.html" title="Browse continuing legal education and events">CLE &amp; Events</a></li>
+                <li><a href="jobs.html" title="Browse legal job listings and opportunities">Careers</a></li>
+                <li><a href="display_settings.html" title="Configure appearance and accessibility options">Display Settings</a></li>
+            </ul>
+        </nav>
+        <div class="site-footer-meta">
+            <p>&copy; <span class="footer-year">2025</span> Legal Association Newsletter.</p>
+        </div>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const pageState = {
+            jobId: null,
+            job: null,
+            isSaved: false,
+            isSaving: false
+        };
+
+        const urlParams = new URLSearchParams(window.location.search);
+        pageState.jobId = urlParams.get('jobId');
+
+        const loaderEl = document.querySelector('[data-component="job-detail-loader"]');
+        const jobDetailContainer = document.querySelector('[data-populate="job-detail"]');
+        const topStatusEl = document.querySelector('.job-detail-status[data-component="job-detail-status-messages"]');
+
+        function setTopStatus(message, isError) {
+            if (!topStatusEl) return;
+            topStatusEl.textContent = message || '';
+            topStatusEl.classList.toggle('job-detail-status-error', !!isError);
+        }
+
+        function escapeHtml(str) {
+            if (typeof str !== 'string') return '';
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function formatMultiline(text) {
+            if (!text) return '';
+            const escaped = escapeHtml(text);
+            const paragraphs = escaped.split(/\n{2,}/).map(function(part) {
+                const trimmed = part.trim();
+                if (!trimmed) return '';
+                const withBreaks = trimmed.replace(/\n/g, '<br>');
+                return '<p>' + withBreaks + '</p>';
+            }).filter(function(p) { return p !== ''; });
+            return paragraphs.join('\n');
+        }
+
+        function formatDate(value, labelPrefix) {
+            if (!value) return '';
+            var date;
+            try {
+                date = new Date(value);
+                if (Number.isNaN(date.getTime())) return '';
+            } catch (e) {
+                return '';
+            }
+            var options = { year: 'numeric', month: 'long', day: 'numeric' };
+            var formatted = date.toLocaleDateString(undefined, options);
+            return labelPrefix ? (labelPrefix + ' ' + formatted) : formatted;
+        }
+
+        function formatLocation(job) {
+            if (!job) return '';
+            if (job.locationDisplay) return escapeHtml(job.locationDisplay);
+            var parts = [];
+            if (job.locationCity) parts.push(job.locationCity);
+            if (job.locationState) parts.push(job.locationState);
+            if (job.locationCountry) parts.push(job.locationCountry);
+            if (!parts.length) return '';
+            return escapeHtml(parts.join(', '));
+        }
+
+        function formatSalary(job) {
+            if (!job) return '';
+            var hasMin = typeof job.salaryMin === 'number';
+            var hasMax = typeof job.salaryMax === 'number';
+            if (!hasMin && !hasMax) return '';
+            var currency = job.salaryCurrency || '';
+            var range;
+            if (hasMin && hasMax && job.salaryMin === job.salaryMax) {
+                range = job.salaryMin.toLocaleString();
+            } else if (hasMin && hasMax) {
+                range = job.salaryMin.toLocaleString() + ' - ' + job.salaryMax.toLocaleString();
+            } else if (hasMin) {
+                range = 'From ' + job.salaryMin.toLocaleString();
+            } else {
+                range = 'Up to ' + job.salaryMax.toLocaleString();
+            }
+            if (currency) {
+                return range + ' ' + escapeHtml(currency.toUpperCase()) + (job.isSalaryExact ? ' (exact)' : '');
+            }
+            return range + (job.isSalaryExact ? ' (exact)' : '');
+        }
+
+        function formatPracticeArea(value) {
+            if (!value) return '';
+            var map = {
+                litigation: 'Litigation',
+                court_practice: 'Court practice',
+                ethics: 'Ethics',
+                intellectual_property: 'Intellectual property',
+                compliance: 'Compliance',
+                corporate_compliance: 'Corporate compliance',
+                general: 'General'
+            };
+            return map[value] || value;
+        }
+
+        function bindJobDetailActions(container) {
+            if (!container) return;
+
+            var saveButton = container.querySelector('.job-save-button[data-action="toggle-save"]');
+            var bottomStatus = container.querySelector('.job-detail-status-bottom[data-component="job-detail-status-messages"]');
+            var applyButton = container.querySelector('.job-apply-button[data-action="apply"]');
+
+            function setBottomStatus(message, isError) {
+                if (!bottomStatus) return;
+                bottomStatus.textContent = message || '';
+                bottomStatus.classList.toggle('job-detail-status-error', !!isError);
+            }
+
+            if (saveButton) {
+                saveButton.addEventListener('click', function() {
+                    if (!pageState.jobId || !pageState.job) {
+                        setBottomStatus('This job cannot be saved at the moment.', true);
+                        return;
+                    }
+                    if (pageState.isSaving) return;
+                    pageState.isSaving = true;
+                    saveButton.disabled = true;
+                    setBottomStatus('', false);
+
+                    try {
+                        if (!pageState.isSaved) {
+                            var saveResult = WebsiteSDK.saveJobPosting(pageState.jobId);
+                            if (saveResult && saveResult.success) {
+                                pageState.isSaved = true;
+                                if (saveResult.job) {
+                                    pageState.job = saveResult.job;
+                                }
+                                saveButton.dataset.saveState = 'saved';
+                                saveButton.textContent = 'Remove from saved jobs';
+                                var labelEl = container.querySelector('.job-save-label');
+                                if (labelEl) {
+                                    labelEl.textContent = 'Saved job';
+                                }
+                                setBottomStatus('This job has been saved to your Saved Jobs.', false);
+                            } else {
+                                setBottomStatus('Saving the job failed. Please try again.', true);
+                            }
+                        } else {
+                            var removeResult = WebsiteSDK.removeSavedJob(pageState.jobId);
+                            if (removeResult && removeResult.success) {
+                                pageState.isSaved = false;
+                                saveButton.dataset.saveState = 'unsaved';
+                                saveButton.textContent = 'Save this job';
+                                var labelEl2 = container.querySelector('.job-save-label');
+                                if (labelEl2) {
+                                    labelEl2.textContent = 'Save job';
+                                }
+                                setBottomStatus('The job has been removed from your Saved Jobs.', false);
+                            } else {
+                                setBottomStatus('Removing the job from Saved Jobs failed. Please try again.', true);
+                            }
+                        }
+                    } catch (e) {
+                        setBottomStatus('An unexpected error occurred while updating the saved state.', true);
+                    } finally {
+                        pageState.isSaving = false;
+                        saveButton.disabled = false;
+                    }
+                });
+            }
+
+            if (applyButton) {
+                applyButton.addEventListener('click', function() {
+                    if (!pageState.job || !pageState.job.applicationUrl) {
+                        setBottomStatus('No application link is available for this job.', true);
+                        return;
+                    }
+                    try {
+                        var url = pageState.job.applicationUrl;
+                        window.open(url, '_blank', 'noopener');
+                    } catch (e) {
+                        setBottomStatus('Unable to open the application link.', true);
+                    }
+                });
+            }
+        }
+
+        function renderJobDetail(container, detail) {
+            if (!container) return;
+            if (!detail || !detail.job) {
+                container.hidden = true;
+                setTopStatus('The requested job could not be found.', true);
+                return;
+            }
+
+            var job = detail.job;
+            var isSaved = !!detail.isSaved;
+            pageState.job = job;
+            pageState.isSaved = isSaved;
+
+            var title = job.title ? escapeHtml(job.title) : 'Untitled position';
+            var employer = job.employerName ? escapeHtml(job.employerName) : '';
+            var location = formatLocation(job);
+            var salary = formatSalary(job);
+            var practiceArea = formatPracticeArea(job.practiceArea);
+            var posted = formatDate(job.postedAt, 'Posted');
+            var expires = job.expiresAt ? formatDate(job.expiresAt, 'Closes') : '';
+            var descriptionHtml = formatMultiline(job.description || '');
+            var requirementsHtml = job.requirements ? formatMultiline(job.requirements) : '';
+            var hasApplicationUrl = !!job.applicationUrl;
+            var applyNote = hasApplicationUrl ? '' : 'No online application link is available. Please review the description for application instructions.';
+
+            var saveLabel = isSaved ? 'Saved job' : 'Save job';
+            var saveButtonLabel = isSaved ? 'Remove from saved jobs' : 'Save this job';
+            var saveState = isSaved ? 'saved' : 'unsaved';
+
+            container.innerHTML = `
+                <header class="job-detail-header" data-component="job-detail-header">
+                    <h1 class="job-title">${title}</h1>
+                    ${employer ? `<p class="job-employer">${employer}</p>` : ''}
+                    <div class="job-save-toggle-wrapper" data-component="job-save-toggle">
+                        <button type="button"
+                            class="job-save-button"
+                            data-action="toggle-save"
+                            data-save-state="${saveState}">
+                            ${saveButtonLabel}
+                        </button>
+                        <span class="job-save-label">${saveLabel}</span>
+                    </div>
+                </header>
+                <section class="job-metadata" data-component="job-metadata-panel">
+                    ${location ? `<p class="job-location">${location}</p>` : ''}
+                    ${salary ? `<p class="job-salary">${salary}</p>` : ''}
+                    ${(practiceArea || posted || expires) ? `
+                        <p class="job-practice-and-dates">
+                            ${practiceArea ? `<span class="job-practice-area">${practiceArea}</span>` : ''}
+                            ${practiceArea && (posted || expires) ? `<span class="job-meta-separator" aria-hidden="true">b7</span>` : ''}
+                            ${posted ? `<span class="job-posted-at">${posted}</span>` : ''}
+                            ${(posted && expires) ? `<span class="job-meta-separator" aria-hidden="true">b7</span>` : ''}
+                            ${expires ? `<span class="job-expires-at">${expires}</span>` : ''}
+                        </p>
+                    ` : ''}
+                </section>
+                <section class="job-description-section" data-component="job-description-section">
+                    <h2 class="visually-hidden">Job description</h2>
+                    ${descriptionHtml ? `<div class="job-description">${descriptionHtml}</div>` : '<p>No description provided.</p>'}
+                    ${requirementsHtml ? `<div class="job-requirements"><h2>Requirements</h2>${requirementsHtml}</div>` : ''}
+                </section>
+                <section class="job-application-actions" data-component="job-application-actions">
+                    <h2 class="visually-hidden">Application</h2>
+                    ${hasApplicationUrl ? `
+                        <button type="button" class="job-apply-button" data-action="apply">
+                            Apply for this position
+                        </button>
+                    ` : ''}
+                    ${applyNote ? `<p class="job-application-note">${applyNote}</p>` : ''}
+                </section>
+                <div class="job-detail-status-bottom" data-component="job-detail-status-messages" aria-live="polite" role="status"></div>
+            `;
+
+            container.hidden = false;
+            bindJobDetailActions(container);
+        }
+
+        function attachNavigationHandlers() {
+            var backLinks = document.querySelectorAll('[data-action="back-to-listings"]');
+            backLinks.forEach(function(link) {
+                link.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    window.location.href = 'jobs.html';
+                });
+            });
+
+            var savedJobsLinks = document.querySelectorAll('[data-action="view-saved-jobs"]');
+            savedJobsLinks.forEach(function(link) {
+                link.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    window.location.href = 'saved_jobs.html';
+                });
+            });
+        }
+
+        attachNavigationHandlers();
+
+        if (!pageState.jobId) {
+            if (loaderEl) {
+                loaderEl.style.display = 'none';
+            }
+            if (jobDetailContainer) {
+                jobDetailContainer.hidden = true;
+            }
+            setTopStatus('The job could not be loaded because no job was specified in the URL.', true);
+            return;
+        }
+
+        if (loaderEl) {
+            loaderEl.style.display = '';
+        }
+
+        var populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function(element) {
+            var dataType = element.dataset.populate;
+            if (dataType === 'job-detail') {
+                try {
+                    var detail = WebsiteSDK.getJobDetail(pageState.jobId);
+                    if (loaderEl) {
+                        loaderEl.style.display = 'none';
+                    }
+                    renderJobDetail(element, detail);
+                    setTopStatus('', false);
+                } catch (e) {
+                    if (loaderEl) {
+                        loaderEl.style.display = 'none';
+                    }
+                    element.hidden = true;
+                    setTopStatus('An error occurred while loading the job details.', true);
+                }
+            }
+        });
+    });
+    </script>
+</body>
+</html>
+}

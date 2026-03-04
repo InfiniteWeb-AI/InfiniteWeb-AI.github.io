@@ -1,0 +1,1448 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='automation_editor.css'>
+
+<div class='automation-editor-page'>
+  <section class='glass-card automation-editor-card' data-component='automation-editor-root' data-populate='automation-editor'>
+    <div class='editor-inner'>
+      <!-- Loading & error overlay -->
+      <div class='loading-overlay' data-component='loading-and-error-state' hidden>
+        <div class='loading-overlay-backdrop'></div>
+        <div class='loading-overlay-content' role='status' aria-live='polite'>
+          <div class='spinner' aria-hidden='true'></div>
+          <p class='loading-message' data-role='loading-message'>Loading automation editor
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</p>
+          <div class='loading-actions'>
+            <button type='button' class='btn btn-secondary' data-action='retry-load' hidden>Retry</button>
+            <button type='button' class='btn btn-tertiary' data-action='back-from-error' hidden>Back to Automations</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controller / header -->
+      <header class='editor-header' data-component='automation-editor-controller'>
+        <div class='editor-icon' aria-hidden='true'></div>
+        <div class='editor-titles'>
+          <h1 class='editor-title' data-role='editor-title'>Create Automation</h1>
+          <p class='editor-subtitle' data-role='editor-subtitle'>Configure when this runs and what happens.</p>
+        </div>
+      </header>
+
+      <!-- Validation messages -->
+      <section class='validation-strip' data-component='validation-messages' hidden aria-live='assertive'>
+        <div class='validation-content'>
+          <ul class='validation-list' data-role='validation-list'></ul>
+          <button type='button' class='validation-dismiss' data-action='dismiss-validation' aria-label='Dismiss messages'>d</button>
+        </div>
+      </section>
+
+      <!-- Metadata form -->
+      <section class='editor-section' data-component='automation-metadata-form' aria-label='Automation details'>
+        <div class='form-group'>
+          <label for='automationNameInput' class='field-label'>Automation name</label>
+          <input id='automationNameInput' type='text' class='field-input' placeholder='Good morning' autocomplete='off' maxlength='80'>
+        </div>
+        <div class='form-group'>
+          <label for='automationDescriptionInput' class='field-label'>Description (optional)</label>
+          <textarea id='automationDescriptionInput' class='field-input field-textarea' rows='2' placeholder='Short note to identify this routine.'></textarea>
+        </div>
+        <div class='form-group form-inline'>
+          <span class='field-label'>Status</span>
+          <label class='switch'>
+            <input type='checkbox' id='automationStatusInput'>
+            <span class='switch-track'></span>
+            <span class='switch-label'>Enabled</span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Trigger configurator -->
+      <section class='editor-section' data-component='trigger-configurator' aria-label='Automation triggers'>
+        <header class='section-header'>
+          <h2 class='section-title'>When should this run?</h2>
+          <p class='section-helper'>Add at least one trigger to start this automation.</p>
+        </header>
+        <div class='trigger-list' data-role='triggers-list'>
+          <!-- Trigger rows injected by JavaScript -->
+        </div>
+        <button type='button' class='btn btn-ghost full-width' data-action='add-trigger'>+ Add trigger</button>
+      </section>
+
+      <!-- Action configurator -->
+      <section class='editor-section' data-component='action-configurator' aria-label='Automation actions'>
+        <header class='section-header'>
+          <h2 class='section-title'>What should happen?</h2>
+          <p class='section-helper'>Choose rooms and devices to control when this runs.</p>
+        </header>
+        <div class='action-list' data-role='actions-list'>
+          <!-- Action rows injected by JavaScript -->
+        </div>
+        <button type='button' class='btn btn-ghost full-width' data-action='add-action'>+ Add action</button>
+      </section>
+
+      <!-- Summary panel -->
+      <section class='editor-section summary-section' data-component='automation-summary-panel' aria-label='Automation summary'>
+        <header class='summary-header'>
+          <div>
+            <h2 class='section-title'>Summary</h2>
+            <p class='section-helper'>Review what will run and when.</p>
+          </div>
+          <button type='button' class='summary-toggle' data-action='toggle-summary' aria-expanded='false'>Show</button>
+        </header>
+        <div class='summary-body' data-role='summary-body' hidden>
+          <!-- Summary content injected by JavaScript -->
+        </div>
+      </section>
+
+      <!-- Save toolbar -->
+      <footer class='save-toolbar' data-component='save-automation-toolbar'>
+        <div class='save-toolbar-left'>
+          <button type='button' class='btn btn-text' data-action='cancel-editing'>Cancel</button>
+          <span class='unsaved-indicator' data-role='unsaved-indicator' hidden>Unsaved changes</span>
+        </div>
+        <div class='save-toolbar-right'>
+          <span class='save-status' data-role='save-status'></span>
+          <button type='button' class='btn btn-primary' data-action='save-automation'>Create Automation</button>
+        </div>
+      </footer>
+    </div>
+  </section>
+</div>
+
+<script src='business_logic.js'></script>
+<script>
+(function () {
+  'use strict';
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var urlParams = new URLSearchParams(window.location.search);
+    var modeParam = urlParams.get('mode');
+    var automationIdParam = urlParams.get('automationId');
+    var mode = modeParam === 'edit' && automationIdParam ? 'edit' : 'create';
+
+    var populateElements = document.querySelectorAll('[data-populate]');
+    Array.prototype.forEach.call(populateElements, function (container) {
+      var type = container.getAttribute('data-populate');
+      if (type === 'automation-editor') {
+        initAutomationEditor(container, mode, automationIdParam);
+      }
+    });
+  });
+
+  function initAutomationEditor(root, initialMode, automationIdParam) {
+    var state = {
+      mode: initialMode,
+      automationId: initialMode === 'edit' ? automationIdParam : null,
+      options: {
+        availableTriggerTypes: [],
+        availableActionTypes: [],
+        rooms: [],
+        devices: [],
+        deviceTypeFilters: []
+      },
+      automation: null,
+      triggers: [],
+      actions: [],
+      unsavedChanges: false,
+      overlay: {
+        visible: false,
+        mode: 'idle', // 'idle' | 'initial-loading' | 'initial-error' | 'saving'
+        message: ''
+      }
+    };
+
+    // DOM references
+    var headerTitleEl = root.querySelector('[data-role="editor-title"]');
+    var headerSubtitleEl = root.querySelector('[data-role="editor-subtitle"]');
+
+    var validationPanel = root.querySelector('[data-component="validation-messages"]');
+    var validationList = validationPanel ? validationPanel.querySelector('[data-role="validation-list"]') : null;
+
+    var nameInput = root.querySelector('#automationNameInput');
+    var descriptionInput = root.querySelector('#automationDescriptionInput');
+    var statusInput = root.querySelector('#automationStatusInput');
+
+    var triggersContainer = root.querySelector('[data-role="triggers-list"]');
+    var actionsContainer = root.querySelector('[data-role="actions-list"]');
+
+    var summaryBody = root.querySelector('[data-role="summary-body"]');
+    var summaryToggle = root.querySelector('[data-action="toggle-summary"]');
+
+    var saveToolbar = root.querySelector('[data-component="save-automation-toolbar"]');
+    var saveButton = saveToolbar ? saveToolbar.querySelector('[data-action="save-automation"]') : null;
+    var cancelButton = saveToolbar ? saveToolbar.querySelector('[data-action="cancel-editing"]') : null;
+    var unsavedIndicator = saveToolbar ? saveToolbar.querySelector('[data-role="unsaved-indicator"]') : null;
+    var saveStatus = saveToolbar ? saveToolbar.querySelector('[data-role="save-status"]') : null;
+
+    var loadingOverlay = root.querySelector('[data-component="loading-and-error-state"]');
+    var loadingMessageEl = loadingOverlay ? loadingOverlay.querySelector('[data-role="loading-message"]') : null;
+    var retryButton = loadingOverlay ? loadingOverlay.querySelector('[data-action="retry-load"]') : null;
+    var backFromErrorButton = loadingOverlay ? loadingOverlay.querySelector('[data-action="back-from-error"]') : null;
+
+    // Helpers for state
+    function markDirty() {
+      if (!state.unsavedChanges) {
+        state.unsavedChanges = true;
+        if (unsavedIndicator) {
+          unsavedIndicator.hidden = false;
+        }
+      }
+    }
+
+    function clearDirty() {
+      state.unsavedChanges = false;
+      if (unsavedIndicator) {
+        unsavedIndicator.hidden = true;
+      }
+    }
+
+    function ensureAutomation() {
+      if (!state.automation) {
+        state.automation = createDefaultAutomation();
+      }
+    }
+
+    function createDefaultAutomation() {
+      var nowIso = new Date().toISOString();
+      return {
+        id: null,
+        name: '',
+        description: '',
+        status: 'enabled',
+        created_at: nowIso,
+        updated_at: null
+      };
+    }
+
+    function createDefaultTrigger() {
+      return {
+        id: null,
+        automation_id: state.automationId,
+        trigger_type: 'time_schedule',
+        time_of_day: '07:00',
+        days_of_week: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+        timezone: '',
+        enabled: true
+      };
+    }
+
+    function createDefaultAction() {
+      return {
+        id: null,
+        automation_id: state.automationId,
+        action_type: state.options.availableActionTypes && state.options.availableActionTypes.length ? state.options.availableActionTypes[0] : 'device_control',
+        target_type: 'room',
+        target_room_id: '',
+        target_device_ids: [],
+        device_type_filter: 'all',
+        command: 'turn_on',
+        brightness_level: 100
+      };
+    }
+
+    function cloneTriggerFromEntity(src) {
+      return {
+        id: src.id || null,
+        automation_id: src.automation_id || state.automationId,
+        trigger_type: src.trigger_type || 'time_schedule',
+        time_of_day: src.time_of_day || '',
+        days_of_week: Array.isArray(src.days_of_week) ? src.days_of_week.slice() : [],
+        timezone: src.timezone || '',
+        enabled: typeof src.enabled === 'boolean' ? src.enabled : true
+      };
+    }
+
+    function cloneActionFromEntity(src) {
+      return {
+        id: src.id || null,
+        automation_id: src.automation_id || state.automationId,
+        action_type: src.action_type || 'device_control',
+        target_type: src.target_type || 'room',
+        target_room_id: src.target_room_id || '',
+        target_device_ids: Array.isArray(src.target_device_ids) ? src.target_device_ids.slice() : [],
+        device_type_filter: src.device_type_filter || 'all',
+        command: src.command || 'turn_on',
+        brightness_level: typeof src.brightness_level === 'number' ? src.brightness_level : 100
+      };
+    }
+
+    // Overlay rendering
+    function renderOverlay() {
+      if (!loadingOverlay || !loadingMessageEl) {
+        return;
+      }
+      if (!state.overlay.visible || state.overlay.mode === 'idle') {
+        loadingOverlay.hidden = true;
+        return;
+      }
+      loadingOverlay.hidden = false;
+      loadingMessageEl.textContent = state.overlay.message || '';
+
+      var isInitialLoading = state.overlay.mode === 'initial-loading';
+      var isInitialError = state.overlay.mode === 'initial-error';
+      var isSaving = state.overlay.mode === 'saving';
+
+      if (retryButton) {
+        retryButton.hidden = !isInitialError;
+      }
+      if (backFromErrorButton) {
+        backFromErrorButton.hidden = !isInitialError;
+      }
+
+      // Spinner visibility can be handled via CSS using data-mode if desired
+      loadingOverlay.setAttribute('data-mode', state.overlay.mode);
+    }
+
+    function showInitialLoadingOverlay() {
+      state.overlay.visible = true;
+      state.overlay.mode = 'initial-loading';
+      state.overlay.message = state.mode === 'edit' ? 'Loading automationaaaaa...' : 'Loading automation editoraaaaa...';
+      renderOverlay();
+    }
+
+    function showInitialError(message) {
+      state.overlay.visible = true;
+      state.overlay.mode = 'initial-error';
+      state.overlay.message = message || 'Something went wrong while loading.';
+      renderOverlay();
+    }
+
+    function showSavingOverlay() {
+      state.overlay.visible = true;
+      state.overlay.mode = 'saving';
+      state.overlay.message = 'Saving automationaaaaa...';
+      renderOverlay();
+    }
+
+    function hideOverlay() {
+      state.overlay.visible = false;
+      state.overlay.mode = 'idle';
+      state.overlay.message = '';
+      renderOverlay();
+    }
+
+    function showValidationMessages(messages) {
+      if (!validationPanel || !validationList) {
+        return;
+      }
+      validationList.innerHTML = '';
+      if (!messages || !messages.length) {
+        validationPanel.hidden = true;
+        return;
+      }
+      messages.forEach(function (msg) {
+        var li = document.createElement('li');
+        li.textContent = msg;
+        validationList.appendChild(li);
+      });
+      validationPanel.hidden = false;
+    }
+
+    function clearValidationMessages() {
+      if (!validationPanel || !validationList) {
+        return;
+      }
+      validationList.innerHTML = '';
+      validationPanel.hidden = true;
+    }
+
+    function goToAutomationsList(from) {
+      var fromParam = from || 'automation_editor';
+      window.location.href = 'automations_list.html?from=' + encodeURIComponent(fromParam);
+    }
+
+    // Rendering helpers
+    function renderHeader() {
+      if (!headerTitleEl || !headerSubtitleEl) {
+        return;
+      }
+      if (state.mode === 'edit') {
+        headerTitleEl.textContent = 'Edit Automation';
+        var name = state.automation && state.automation.name ? state.automation.name : '';
+        headerSubtitleEl.textContent = name ? 'Updating: ' + name : 'Update when this runs and what it controls.';
+      } else {
+        headerTitleEl.textContent = 'Create Automation';
+        headerSubtitleEl.textContent = 'Configure when this runs and what happens.';
+      }
+    }
+
+    function renderMetadata() {
+      ensureAutomation();
+      if (nameInput) {
+        nameInput.value = state.automation.name || '';
+      }
+      if (descriptionInput) {
+        descriptionInput.value = state.automation.description || '';
+      }
+      if (statusInput) {
+        statusInput.checked = state.automation.status !== 'disabled';
+      }
+    }
+
+    function getDaysOfWeekOptions() {
+      return [
+        { value: 'monday', label: 'Mon' },
+        { value: 'tuesday', label: 'Tue' },
+        { value: 'wednesday', label: 'Wed' },
+        { value: 'thursday', label: 'Thu' },
+        { value: 'friday', label: 'Fri' },
+        { value: 'saturday', label: 'Sat' },
+        { value: 'sunday', label: 'Sun' }
+      ];
+    }
+
+    function renderTriggers() {
+      if (!triggersContainer) {
+        return;
+      }
+      triggersContainer.innerHTML = '';
+
+      if (!state.triggers.length) {
+        var empty = document.createElement('p');
+        empty.className = 'empty-state';
+        empty.textContent = 'No triggers added yet.';
+        triggersContainer.appendChild(empty);
+        return;
+      }
+
+      var daysOptions = getDaysOfWeekOptions();
+
+      state.triggers.forEach(function (trigger, index) {
+        var row = document.createElement('article');
+        row.className = 'trigger-row';
+        row.setAttribute('data-index', String(index));
+        row.setAttribute('data-role', 'trigger-row');
+        row.id = 'trigger-row-' + index;
+
+        var triggerTypeOptions = state.options.availableTriggerTypes && state.options.availableTriggerTypes.length
+          ? state.options.availableTriggerTypes
+          : ['time_schedule', 'device_event', 'manual'];
+
+        var triggerTypeSelect = document.createElement('select');
+        triggerTypeSelect.className = 'field-input';
+        triggerTypeSelect.setAttribute('data-field', 'trigger_type');
+        triggerTypeOptions.forEach(function (type) {
+          var opt = document.createElement('option');
+          opt.value = type;
+          var label = '';
+          if (type === 'time_schedule') {
+            label = 'Time schedule';
+          } else if (type === 'device_event') {
+            label = 'Device event';
+          } else if (type === 'manual') {
+            label = 'Manual';
+          } else {
+            label = type;
+          }
+          opt.textContent = label;
+          if (trigger.trigger_type === type) {
+            opt.selected = true;
+          }
+          triggerTypeSelect.appendChild(opt);
+        });
+
+        var headerRow = document.createElement('div');
+        headerRow.className = 'trigger-row-header';
+
+        var typeGroup = document.createElement('div');
+        typeGroup.className = 'form-group';
+        var typeLabel = document.createElement('label');
+        typeLabel.className = 'field-label';
+        typeLabel.textContent = 'Trigger type';
+        typeGroup.appendChild(typeLabel);
+        typeGroup.appendChild(triggerTypeSelect);
+        headerRow.appendChild(typeGroup);
+
+        var enableGroup = document.createElement('div');
+        enableGroup.className = 'form-group trigger-enable-group';
+        var enableLabel = document.createElement('label');
+        enableLabel.className = 'switch';
+        var enableInput = document.createElement('input');
+        enableInput.type = 'checkbox';
+        enableInput.setAttribute('data-field', 'enabled');
+        enableInput.checked = trigger.enabled !== false;
+        var enableTrack = document.createElement('span');
+        enableTrack.className = 'switch-track';
+        var enableText = document.createElement('span');
+        enableText.className = 'switch-label';
+        enableText.textContent = 'Enabled';
+        enableLabel.appendChild(enableInput);
+        enableLabel.appendChild(enableTrack);
+        enableLabel.appendChild(enableText);
+        enableGroup.appendChild(enableLabel);
+        headerRow.appendChild(enableGroup);
+
+        var removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'btn btn-text btn-remove';
+        removeBtn.setAttribute('data-action', 'remove-trigger');
+        removeBtn.setAttribute('data-index', String(index));
+        removeBtn.textContent = 'Remove';
+        headerRow.appendChild(removeBtn);
+
+        row.appendChild(headerRow);
+
+        // Time schedule specific fields
+        var timeFields = document.createElement('div');
+        timeFields.className = 'trigger-time-fields';
+        if (trigger.trigger_type !== 'time_schedule') {
+          timeFields.className += ' is-hidden';
+        }
+
+        var timeGroup = document.createElement('div');
+        timeGroup.className = 'form-group';
+        var timeLabel = document.createElement('label');
+        timeLabel.className = 'field-label';
+        timeLabel.textContent = 'Time of day';
+        var timeInput = document.createElement('input');
+        timeInput.type = 'time';
+        timeInput.className = 'field-input';
+        timeInput.setAttribute('data-field', 'time_of_day');
+        if (trigger.time_of_day) {
+          timeInput.value = trigger.time_of_day;
+        }
+        timeGroup.appendChild(timeLabel);
+        timeGroup.appendChild(timeInput);
+        timeFields.appendChild(timeGroup);
+
+        var daysGroup = document.createElement('div');
+        daysGroup.className = 'form-group days-of-week-group';
+        var daysLabel = document.createElement('span');
+        daysLabel.className = 'field-label';
+        daysLabel.textContent = 'Days of week';
+        daysGroup.appendChild(daysLabel);
+
+        var daysContainer = document.createElement('div');
+        daysContainer.className = 'pill-group';
+        var selectedDays = Array.isArray(trigger.days_of_week) ? trigger.days_of_week : [];
+        daysOptions.forEach(function (day) {
+          var dayLabel = document.createElement('label');
+          dayLabel.className = 'pill';
+          var dayInput = document.createElement('input');
+          dayInput.type = 'checkbox';
+          dayInput.setAttribute('data-field', 'days_of_week');
+          dayInput.value = day.value;
+          if (selectedDays.indexOf(day.value) !== -1) {
+            dayInput.checked = true;
+          }
+          var span = document.createElement('span');
+          span.textContent = day.label;
+          dayLabel.appendChild(dayInput);
+          dayLabel.appendChild(span);
+          daysContainer.appendChild(dayLabel);
+        });
+        daysGroup.appendChild(daysContainer);
+        timeFields.appendChild(daysGroup);
+
+        row.appendChild(timeFields);
+
+        triggersContainer.appendChild(row);
+      });
+    }
+
+    function getCommandOptionsFor(actionType) {
+      if (actionType === 'notification') {
+        return [
+          { value: 'turn_on', label: 'Send push notification' },
+          { value: 'turn_off', label: 'Send email notification' }
+        ];
+      }
+      // device_control or default
+      return [
+        { value: 'turn_on', label: 'Turn on' },
+        { value: 'turn_off', label: 'Turn off' },
+        { value: 'set_brightness', label: 'Set brightness' },
+        { value: 'lock', label: 'Lock' },
+        { value: 'unlock', label: 'Unlock' }
+      ];
+    }
+
+    function getFilteredDevicesForAction(action) {
+      var devices = state.options.devices || [];
+      if (action.target_type === 'room' && action.target_room_id) {
+        devices = devices.filter(function (d) { return d.room_id === action.target_room_id; });
+      }
+      if (action.device_type_filter && action.device_type_filter !== 'all') {
+        devices = devices.filter(function (d) { return d.device_type === action.device_type_filter; });
+      }
+      return devices;
+    }
+
+    function renderActions() {
+      if (!actionsContainer) {
+        return;
+      }
+      actionsContainer.innerHTML = '';
+
+      if (!state.actions.length) {
+        var empty = document.createElement('p');
+        empty.className = 'empty-state';
+        empty.textContent = 'No actions added yet.';
+        actionsContainer.appendChild(empty);
+        return;
+      }
+
+      state.actions.forEach(function (action, index) {
+        var row = document.createElement('article');
+        row.className = 'action-row';
+        row.setAttribute('data-index', String(index));
+        row.setAttribute('data-role', 'action-row');
+        row.id = 'action-row-' + index;
+
+        var headerRow = document.createElement('div');
+        headerRow.className = 'action-row-header';
+
+        // Action type
+        var typeGroup = document.createElement('div');
+        typeGroup.className = 'form-group';
+        var typeLabel = document.createElement('label');
+        typeLabel.className = 'field-label';
+        typeLabel.textContent = 'Action type';
+        var typeSelect = document.createElement('select');
+        typeSelect.className = 'field-input';
+        typeSelect.setAttribute('data-field', 'action_type');
+
+        var actionTypeOptions = state.options.availableActionTypes && state.options.availableActionTypes.length
+          ? state.options.availableActionTypes
+          : ['device_control', 'notification'];
+        actionTypeOptions.forEach(function (type) {
+          var opt = document.createElement('option');
+          opt.value = type;
+          var label = type === 'device_control' ? 'Device control' : (type === 'notification' ? 'Notification' : type);
+          opt.textContent = label;
+          if (action.action_type === type) {
+            opt.selected = true;
+          }
+          typeSelect.appendChild(opt);
+        });
+        typeGroup.appendChild(typeLabel);
+        typeGroup.appendChild(typeSelect);
+        headerRow.appendChild(typeGroup);
+
+        // Target type
+        var targetGroup = document.createElement('div');
+        targetGroup.className = 'form-group';
+        var targetLabel = document.createElement('label');
+        targetLabel.className = 'field-label';
+        targetLabel.textContent = 'Target';
+        var targetSelect = document.createElement('select');
+        targetSelect.className = 'field-input';
+        targetSelect.setAttribute('data-field', 'target_type');
+        ['room', 'device', 'device_group'].forEach(function (t) {
+          var opt = document.createElement('option');
+          opt.value = t;
+          var label = '';
+          if (t === 'room') { label = 'Room'; }
+          else if (t === 'device') { label = 'Specific devices'; }
+          else { label = 'Device group'; }
+          opt.textContent = label;
+          if (action.target_type === t) {
+            opt.selected = true;
+          }
+          targetSelect.appendChild(opt);
+        });
+        targetGroup.appendChild(targetLabel);
+        targetGroup.appendChild(targetSelect);
+        headerRow.appendChild(targetGroup);
+
+        var removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'btn btn-text btn-remove';
+        removeBtn.setAttribute('data-action', 'remove-action');
+        removeBtn.setAttribute('data-index', String(index));
+        removeBtn.textContent = 'Remove';
+        headerRow.appendChild(removeBtn);
+
+        row.appendChild(headerRow);
+
+        // Target configuration
+        var targetConfig = document.createElement('div');
+        targetConfig.className = 'action-target-config';
+
+        // Room selector (used for room/device_group targets)
+        var roomGroup = document.createElement('div');
+        roomGroup.className = 'form-group';
+        var roomLabel = document.createElement('label');
+        roomLabel.className = 'field-label';
+        roomLabel.textContent = 'Room';
+        var roomSelect = document.createElement('select');
+        roomSelect.className = 'field-input';
+        roomSelect.setAttribute('data-field', 'target_room_id');
+        var defaultRoomOpt = document.createElement('option');
+        defaultRoomOpt.value = '';
+        defaultRoomOpt.textContent = action.target_type === 'room' ? 'Select a room' : 'Any room';
+        roomSelect.appendChild(defaultRoomOpt);
+        (state.options.rooms || []).forEach(function (room) {
+          var opt = document.createElement('option');
+          opt.value = room.id;
+          opt.textContent = room.name;
+          if (action.target_room_id === room.id) {
+            opt.selected = true;
+          }
+          roomSelect.appendChild(opt);
+        });
+        roomGroup.appendChild(roomLabel);
+        roomGroup.appendChild(roomSelect);
+        if (action.target_type === 'room' || action.target_type === 'device_group') {
+          targetConfig.appendChild(roomGroup);
+        }
+
+        // Device type filter (used for device_group and optional filtering for device)
+        if (action.target_type === 'device_group' || action.target_type === 'device') {
+          var filterGroup = document.createElement('div');
+          filterGroup.className = 'form-group';
+          var filterLabel = document.createElement('label');
+          filterLabel.className = 'field-label';
+          filterLabel.textContent = 'Device type';
+          var filterSelect = document.createElement('select');
+          filterSelect.className = 'field-input';
+          filterSelect.setAttribute('data-field', 'device_type_filter');
+          var filters = state.options.deviceTypeFilters && state.options.deviceTypeFilters.length
+            ? state.options.deviceTypeFilters
+            : ['all', 'light', 'thermostat', 'camera', 'door_lock', 'sensor'];
+          filters.forEach(function (f) {
+            var opt = document.createElement('option');
+            opt.value = f;
+            var label = f === 'all' ? 'All types' : f;
+            opt.textContent = label;
+            if (action.device_type_filter === f) {
+              opt.selected = true;
+            }
+            filterSelect.appendChild(opt);
+          });
+          filterGroup.appendChild(filterLabel);
+          filterGroup.appendChild(filterSelect);
+          targetConfig.appendChild(filterGroup);
+        }
+
+        // Device multi-select (for target_type === device)
+        if (action.target_type === 'device') {
+          var devicesGroup = document.createElement('div');
+          devicesGroup.className = 'form-group';
+          var devicesLabel = document.createElement('label');
+          devicesLabel.className = 'field-label';
+          devicesLabel.textContent = 'Devices';
+          var devicesSelect = document.createElement('select');
+          devicesSelect.className = 'field-input';
+          devicesSelect.multiple = true;
+          devicesSelect.setAttribute('data-field', 'target_device_ids');
+
+          var devices = getFilteredDevicesForAction(action);
+          var selectedIds = Array.isArray(action.target_device_ids) ? action.target_device_ids : [];
+          devices.forEach(function (device) {
+            var opt = document.createElement('option');
+            opt.value = device.id;
+            var roomName = findRoomName(device.room_id);
+            opt.textContent = device.name + ' (' + roomName + ')';
+            if (selectedIds.indexOf(device.id) !== -1) {
+              opt.selected = true;
+            }
+            devicesSelect.appendChild(opt);
+          });
+          devicesGroup.appendChild(devicesLabel);
+          devicesGroup.appendChild(devicesSelect);
+          targetConfig.appendChild(devicesGroup);
+        }
+
+        row.appendChild(targetConfig);
+
+        // Command configuration
+        var commandConfig = document.createElement('div');
+        commandConfig.className = 'action-command-config';
+
+        var commandGroup = document.createElement('div');
+        commandGroup.className = 'form-group';
+        var commandLabel = document.createElement('label');
+        commandLabel.className = 'field-label';
+        commandLabel.textContent = action.action_type === 'notification' ? 'Notification type' : 'Command';
+        var commandSelect = document.createElement('select');
+        commandSelect.className = 'field-input';
+        commandSelect.setAttribute('data-field', 'command');
+        var commandOptions = getCommandOptionsFor(action.action_type);
+        commandOptions.forEach(function (c) {
+          var opt = document.createElement('option');
+          opt.value = c.value;
+          opt.textContent = c.label;
+          if (action.command === c.value) {
+            opt.selected = true;
+          }
+          commandSelect.appendChild(opt);
+        });
+        commandGroup.appendChild(commandLabel);
+        commandGroup.appendChild(commandSelect);
+        commandConfig.appendChild(commandGroup);
+
+        if (action.command === 'set_brightness') {
+          var brightnessGroup = document.createElement('div');
+          brightnessGroup.className = 'form-group brightness-group';
+          var brightnessLabel = document.createElement('label');
+          brightnessLabel.className = 'field-label';
+          brightnessLabel.textContent = 'Brightness';
+          var sliderWrapper = document.createElement('div');
+          sliderWrapper.className = 'slider-wrapper';
+          var brightnessInput = document.createElement('input');
+          brightnessInput.type = 'range';
+          brightnessInput.min = '0';
+          brightnessInput.max = '100';
+          brightnessInput.setAttribute('data-field', 'brightness_level');
+          brightnessInput.value = typeof action.brightness_level === 'number' ? String(action.brightness_level) : '100';
+          var brightnessValue = document.createElement('span');
+          brightnessValue.className = 'slider-value';
+          brightnessValue.textContent = (typeof action.brightness_level === 'number' ? action.brightness_level : 100) + '%';
+          sliderWrapper.appendChild(brightnessInput);
+          sliderWrapper.appendChild(brightnessValue);
+          brightnessGroup.appendChild(brightnessLabel);
+          brightnessGroup.appendChild(sliderWrapper);
+          commandConfig.appendChild(brightnessGroup);
+        }
+
+        row.appendChild(commandConfig);
+
+        actionsContainer.appendChild(row);
+      });
+    }
+
+    function findRoomName(roomId) {
+      if (!roomId) {
+        return 'Any room';
+      }
+      var rooms = state.options.rooms || [];
+      for (var i = 0; i < rooms.length; i++) {
+        if (rooms[i].id === roomId) {
+          return rooms[i].name;
+        }
+      }
+      return 'Unknown room';
+    }
+
+    function findDeviceName(deviceId) {
+      var devices = state.options.devices || [];
+      for (var i = 0; i < devices.length; i++) {
+        if (devices[i].id === deviceId) {
+          return devices[i].name;
+        }
+      }
+      return 'Unknown device';
+    }
+
+    function renderSummary() {
+      if (!summaryBody) {
+        return;
+      }
+      summaryBody.innerHTML = '';
+      ensureAutomation();
+
+      // Automation section
+      var autoSection = document.createElement('div');
+      autoSection.className = 'summary-section-block';
+      var autoHeader = document.createElement('div');
+      autoHeader.className = 'summary-section-header-row';
+      var autoTitle = document.createElement('h3');
+      autoTitle.className = 'summary-section-title';
+      autoTitle.textContent = 'Automation';
+      var autoEditBtn = document.createElement('button');
+      autoEditBtn.type = 'button';
+      autoEditBtn.className = 'link-button';
+      autoEditBtn.setAttribute('data-action', 'edit-metadata');
+      autoEditBtn.textContent = 'Edit';
+      autoHeader.appendChild(autoTitle);
+      autoHeader.appendChild(autoEditBtn);
+      autoSection.appendChild(autoHeader);
+
+      var autoLine = document.createElement('p');
+      autoLine.className = 'summary-line';
+      var name = state.automation.name && state.automation.name.trim() ? state.automation.name.trim() : 'Untitled automation';
+      var statusText = state.automation.status === 'disabled' ? 'Disabled' : 'Enabled';
+      autoLine.textContent = name + ' b7 ' + statusText;
+      autoSection.appendChild(autoLine);
+      summaryBody.appendChild(autoSection);
+
+      // Triggers section
+      var triggersSection = document.createElement('div');
+      triggersSection.className = 'summary-section-block';
+      var trigHeader = document.createElement('div');
+      trigHeader.className = 'summary-section-header-row';
+      var trigTitle = document.createElement('h3');
+      trigTitle.className = 'summary-section-title';
+      trigTitle.textContent = 'Triggers';
+      trigHeader.appendChild(trigTitle);
+      triggersSection.appendChild(trigHeader);
+
+      if (!state.triggers.length) {
+        var noTrig = document.createElement('p');
+        noTrig.className = 'summary-line muted';
+        noTrig.textContent = 'No triggers configured.';
+        triggersSection.appendChild(noTrig);
+      } else {
+        var trigList = document.createElement('ul');
+        trigList.className = 'summary-list';
+        var daysOptions = getDaysOfWeekOptions();
+        state.triggers.forEach(function (trigger, index) {
+          var li = document.createElement('li');
+          li.className = 'summary-line';
+          var label = '';
+          if (trigger.trigger_type === 'time_schedule') {
+            var time = trigger.time_of_day || 'Time not set';
+            var days = Array.isArray(trigger.days_of_week) ? trigger.days_of_week : [];
+            var dayLabels = daysOptions
+              .filter(function (d) { return days.indexOf(d.value) !== -1; })
+              .map(function (d) { return d.label; });
+            var daysText = dayLabels.length ? dayLabels.join(', ') : 'No days selected';
+            label = 'At ' + time + ' on ' + daysText;
+          } else if (trigger.trigger_type === 'device_event') {
+            label = 'On device event';
+          } else if (trigger.trigger_type === 'manual') {
+            label = 'Manual only';
+          } else {
+            label = trigger.trigger_type || 'Trigger';
+          }
+          if (trigger.enabled === false) {
+            label += ' (disabled)';
+          }
+          var textSpan = document.createElement('span');
+          textSpan.textContent = label;
+          li.appendChild(textSpan);
+
+          var editBtn = document.createElement('button');
+          editBtn.type = 'button';
+          editBtn.className = 'link-button';
+          editBtn.setAttribute('data-action', 'edit-trigger');
+          editBtn.setAttribute('data-index', String(index));
+          editBtn.textContent = 'Edit';
+          li.appendChild(editBtn);
+
+          trigList.appendChild(li);
+        });
+        triggersSection.appendChild(trigList);
+      }
+      summaryBody.appendChild(triggersSection);
+
+      // Actions section
+      var actionsSection = document.createElement('div');
+      actionsSection.className = 'summary-section-block';
+      var actHeader = document.createElement('div');
+      actHeader.className = 'summary-section-header-row';
+      var actTitle = document.createElement('h3');
+      actTitle.className = 'summary-section-title';
+      actTitle.textContent = 'Actions';
+      actHeader.appendChild(actTitle);
+      actionsSection.appendChild(actHeader);
+
+      if (!state.actions.length) {
+        var noActions = document.createElement('p');
+        noActions.className = 'summary-line muted';
+        noActions.textContent = 'No actions configured.';
+        actionsSection.appendChild(noActions);
+      } else {
+        var actList = document.createElement('ul');
+        actList.className = 'summary-list';
+        state.actions.forEach(function (action, index) {
+          var li = document.createElement('li');
+          li.className = 'summary-line';
+
+          var parts = [];
+          if (action.action_type === 'notification') {
+            parts.push('Send notification');
+          } else {
+            if (action.command === 'turn_on') { parts.push('Turn on'); }
+            else if (action.command === 'turn_off') { parts.push('Turn off'); }
+            else if (action.command === 'set_brightness') { parts.push('Set brightness to ' + (action.brightness_level != null ? action.brightness_level : 100) + '%'); }
+            else if (action.command === 'lock') { parts.push('Lock'); }
+            else if (action.command === 'unlock') { parts.push('Unlock'); }
+          }
+
+          if (action.target_type === 'room') {
+            parts.push('in ' + findRoomName(action.target_room_id));
+          } else if (action.target_type === 'device') {
+            var names = [];
+            if (Array.isArray(action.target_device_ids)) {
+              action.target_device_ids.forEach(function (id) { names.push(findDeviceName(id)); });
+            }
+            if (names.length) {
+              parts.push('on ' + names.join(', '));
+            } else {
+              parts.push('on selected devices');
+            }
+          } else if (action.target_type === 'device_group') {
+            var typeLabel = action.device_type_filter === 'all' || !action.device_type_filter ? 'devices' : action.device_type_filter + 's';
+            if (action.target_room_id) {
+              parts.push('for ' + typeLabel + ' in ' + findRoomName(action.target_room_id));
+            } else {
+              parts.push('for all ' + typeLabel);
+            }
+          }
+
+          var textSpan = document.createElement('span');
+          textSpan.textContent = parts.join(' ');
+          li.appendChild(textSpan);
+
+          var editBtn = document.createElement('button');
+          editBtn.type = 'button';
+          editBtn.className = 'link-button';
+          editBtn.setAttribute('data-action', 'edit-action');
+          editBtn.setAttribute('data-index', String(index));
+          editBtn.textContent = 'Edit';
+          li.appendChild(editBtn);
+
+          actList.appendChild(li);
+        });
+        actionsSection.appendChild(actList);
+      }
+
+      summaryBody.appendChild(actionsSection);
+    }
+
+    function renderToolbar() {
+      if (!saveButton || !saveStatus) {
+        return;
+      }
+      saveButton.textContent = state.mode === 'edit' ? 'Save Changes' : 'Create Automation';
+      saveButton.disabled = state.overlay.mode === 'saving';
+      saveStatus.textContent = state.overlay.mode === 'saving' ? 'Savingaaaaa...' : '';
+    }
+
+    function renderAll() {
+      renderHeader();
+      renderMetadata();
+      renderTriggers();
+      renderActions();
+      renderSummary();
+      renderToolbar();
+    }
+
+    function validateAutomation() {
+      var messages = [];
+      ensureAutomation();
+      if (!state.automation.name || !state.automation.name.trim()) {
+        messages.push('Automation name is required.');
+      }
+      if (!state.triggers.length) {
+        messages.push('Add at least one trigger.');
+      }
+      if (!state.actions.length) {
+        messages.push('Add at least one action.');
+      }
+
+      state.triggers.forEach(function (trigger, index) {
+        var idx = index + 1;
+        if (!trigger.trigger_type) {
+          messages.push('Trigger ' + idx + ': type is required.');
+        }
+        if (trigger.trigger_type === 'time_schedule') {
+          if (!trigger.time_of_day) {
+            messages.push('Trigger ' + idx + ': time of day is required.');
+          }
+          if (!trigger.days_of_week || !trigger.days_of_week.length) {
+            messages.push('Trigger ' + idx + ': select at least one day of week.');
+          }
+        }
+      });
+
+      state.actions.forEach(function (action, index) {
+        var idx = index + 1;
+        if (!action.action_type) {
+          messages.push('Action ' + idx + ': type is required.');
+        }
+        if (!action.target_type) {
+          messages.push('Action ' + idx + ': target type is required.');
+        }
+        if (action.target_type === 'room' && !action.target_room_id) {
+          messages.push('Action ' + idx + ': select a target room.');
+        }
+        if (action.target_type === 'device' && (!action.target_device_ids || !action.target_device_ids.length)) {
+          messages.push('Action ' + idx + ': select at least one device.');
+        }
+        if (action.target_type === 'device_group' && !action.device_type_filter) {
+          messages.push('Action ' + idx + ': select a device type.');
+        }
+        if (!action.command) {
+          messages.push('Action ' + idx + ': command is required.');
+        }
+        if (action.command === 'set_brightness') {
+          var level = action.brightness_level;
+          if (typeof level !== 'number' || level < 0 || level > 100) {
+            messages.push('Action ' + idx + ': brightness must be between 0 and 100.');
+          }
+        }
+      });
+
+      return {
+        valid: messages.length === 0,
+        messages: messages
+      };
+    }
+
+    function buildAutomationDefinition() {
+      ensureAutomation();
+      return {
+        id: state.mode === 'edit' && state.automation.id ? state.automation.id : undefined,
+        name: state.automation.name || '',
+        description: state.automation.description || '',
+        status: state.automation.status || 'enabled',
+        triggers: state.triggers.map(function (trigger) {
+          return {
+            triggerType: trigger.trigger_type,
+            timeOfDay: trigger.time_of_day || '',
+            daysOfWeek: Array.isArray(trigger.days_of_week) ? trigger.days_of_week.slice() : [],
+            timezone: trigger.timezone || '',
+            enabled: trigger.enabled !== false
+          };
+        }),
+        actions: state.actions.map(function (action) {
+          return {
+            actionType: action.action_type,
+            targetType: action.target_type,
+            targetRoomId: action.target_room_id || '',
+            targetDeviceIds: Array.isArray(action.target_device_ids) ? action.target_device_ids.slice() : [],
+            deviceTypeFilter: action.device_type_filter || '',
+            command: action.command,
+            brightnessLevel: typeof action.brightness_level === 'number' ? action.brightness_level : undefined
+          };
+        })
+      };
+    }
+
+    function loadInitialData() {
+      clearValidationMessages();
+      showInitialLoadingOverlay();
+
+      try {
+        var options = WebsiteSDK.getAutomationEditorOptions();
+        state.options.availableTriggerTypes = Array.isArray(options.availableTriggerTypes) ? options.availableTriggerTypes : [];
+        state.options.availableActionTypes = Array.isArray(options.availableActionTypes) ? options.availableActionTypes : [];
+        state.options.rooms = Array.isArray(options.rooms) ? options.rooms : [];
+        state.options.devices = Array.isArray(options.devices) ? options.devices : [];
+        state.options.deviceTypeFilters = Array.isArray(options.deviceTypeFilters) ? options.deviceTypeFilters : [];
+      } catch (error) {
+        showInitialError('Could not load automation editor options. Please try again.');
+        return;
+      }
+
+      if (state.mode === 'edit' && state.automationId) {
+        try {
+          var details = WebsiteSDK.getAutomationDetails(state.automationId);
+          state.automation = details.automation ? {
+            id: details.automation.id,
+            name: details.automation.name || '',
+            description: details.automation.description || '',
+            status: details.automation.status || 'enabled',
+            created_at: details.automation.created_at,
+            updated_at: details.automation.updated_at
+          } : createDefaultAutomation();
+          state.triggers = Array.isArray(details.triggers) ? details.triggers.map(cloneTriggerFromEntity) : [];
+          state.actions = Array.isArray(details.actions) ? details.actions.map(cloneActionFromEntity) : [];
+        } catch (error2) {
+          state.automation = createDefaultAutomation();
+          state.triggers = [];
+          state.actions = [];
+          showInitialError('We could not load the selected automation. It may have been removed.');
+          return;
+        }
+      } else {
+        state.automation = createDefaultAutomation();
+        state.triggers = [];
+        state.actions = [];
+      }
+
+      hideOverlay();
+      renderAll();
+      clearDirty();
+    }
+
+    // Event wiring
+    if (nameInput) {
+      nameInput.addEventListener('input', function (e) {
+        ensureAutomation();
+        state.automation.name = e.target.value;
+        markDirty();
+        renderHeader();
+        renderSummary();
+      });
+    }
+
+    if (descriptionInput) {
+      descriptionInput.addEventListener('input', function (e) {
+        ensureAutomation();
+        state.automation.description = e.target.value;
+        markDirty();
+        renderSummary();
+      });
+    }
+
+    if (statusInput) {
+      statusInput.addEventListener('change', function (e) {
+        ensureAutomation();
+        state.automation.status = e.target.checked ? 'enabled' : 'disabled';
+        markDirty();
+        renderSummary();
+      });
+    }
+
+    // Trigger events
+    var addTriggerBtn = root.querySelector('[data-action="add-trigger"]');
+    if (addTriggerBtn) {
+      addTriggerBtn.addEventListener('click', function () {
+        state.triggers.push(createDefaultTrigger());
+        markDirty();
+        renderTriggers();
+        renderSummary();
+      });
+    }
+
+    if (triggersContainer) {
+      triggersContainer.addEventListener('change', function (e) {
+        var row = e.target.closest('.trigger-row');
+        if (!row) { return; }
+        var index = parseInt(row.getAttribute('data-index'), 10);
+        if (isNaN(index) || index < 0 || index >= state.triggers.length) { return; }
+        var trigger = state.triggers[index];
+        var field = e.target.getAttribute('data-field');
+        if (!field) { return; }
+        if (field === 'trigger_type') {
+          trigger.trigger_type = e.target.value;
+        } else if (field === 'time_of_day') {
+          trigger.time_of_day = e.target.value;
+        } else if (field === 'enabled') {
+          trigger.enabled = e.target.checked;
+        } else if (field === 'days_of_week') {
+          var value = e.target.value;
+          var current = Array.isArray(trigger.days_of_week) ? trigger.days_of_week : [];
+          if (e.target.checked) {
+            if (current.indexOf(value) === -1) {
+              current.push(value);
+            }
+          } else {
+            current = current.filter(function (d) { return d !== value; });
+          }
+          trigger.days_of_week = current;
+        }
+        markDirty();
+        renderTriggers();
+        renderSummary();
+      });
+
+      triggersContainer.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-action="remove-trigger"]');
+        if (!btn) { return; }
+        var index = parseInt(btn.getAttribute('data-index'), 10);
+        if (isNaN(index) || index < 0 || index >= state.triggers.length) { return; }
+        state.triggers.splice(index, 1);
+        markDirty();
+        renderTriggers();
+        renderSummary();
+      });
+    }
+
+    // Action events
+    var addActionBtn = root.querySelector('[data-action="add-action"]');
+    if (addActionBtn) {
+      addActionBtn.addEventListener('click', function () {
+        state.actions.push(createDefaultAction());
+        markDirty();
+        renderActions();
+        renderSummary();
+      });
+    }
+
+    if (actionsContainer) {
+      actionsContainer.addEventListener('change', function (e) {
+        var row = e.target.closest('.action-row');
+        if (!row) { return; }
+        var index = parseInt(row.getAttribute('data-index'), 10);
+        if (isNaN(index) || index < 0 || index >= state.actions.length) { return; }
+        var action = state.actions[index];
+        var field = e.target.getAttribute('data-field');
+        if (!field) { return; }
+
+        if (field === 'action_type') {
+          action.action_type = e.target.value;
+          // reset command to sensible default
+          var commands = getCommandOptionsFor(action.action_type);
+          action.command = commands[0] ? commands[0].value : 'turn_on';
+        } else if (field === 'target_type') {
+          action.target_type = e.target.value;
+          // clear target fields when changing type
+          action.target_room_id = '';
+          action.target_device_ids = [];
+        } else if (field === 'target_room_id') {
+          action.target_room_id = e.target.value;
+        } else if (field === 'device_type_filter') {
+          action.device_type_filter = e.target.value;
+        } else if (field === 'target_device_ids') {
+          var selected = [];
+          Array.prototype.forEach.call(e.target.options, function (opt) {
+            if (opt.selected) { selected.push(opt.value); }
+          });
+          action.target_device_ids = selected;
+        } else if (field === 'command') {
+          action.command = e.target.value;
+        } else if (field === 'brightness_level') {
+          var val = parseInt(e.target.value, 10);
+          if (!isNaN(val)) {
+            action.brightness_level = val;
+          }
+          // update inline percentage display
+          var display = e.target.parentElement.querySelector('.slider-value');
+          if (display) {
+            display.textContent = (action.brightness_level != null ? action.brightness_level : 0) + '%';
+          }
+        }
+        markDirty();
+        renderActions();
+        renderSummary();
+      });
+
+      actionsContainer.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-action="remove-action"]');
+        if (!btn) { return; }
+        var index = parseInt(btn.getAttribute('data-index'), 10);
+        if (isNaN(index) || index < 0 || index >= state.actions.length) { return; }
+        state.actions.splice(index, 1);
+        markDirty();
+        renderActions();
+        renderSummary();
+      });
+    }
+
+    // Summary toggle and navigation
+    if (summaryToggle && summaryBody) {
+      summaryToggle.addEventListener('click', function () {
+        var expanded = summaryToggle.getAttribute('aria-expanded') === 'true';
+        var newExpanded = !expanded;
+        summaryToggle.setAttribute('aria-expanded', String(newExpanded));
+        summaryBody.hidden = !newExpanded;
+        summaryToggle.textContent = newExpanded ? 'Hide' : 'Show';
+      });
+
+      summaryBody.addEventListener('click', function (e) {
+        var metaBtn = e.target.closest('[data-action="edit-metadata"]');
+        if (metaBtn) {
+          var metaSection = root.querySelector('[data-component="automation-metadata-form"]');
+          if (metaSection) {
+            metaSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            var input = metaSection.querySelector('#automationNameInput');
+            if (input) { input.focus(); }
+          }
+          return;
+        }
+        var trigBtn = e.target.closest('[data-action="edit-trigger"]');
+        if (trigBtn) {
+          var tIndex = parseInt(trigBtn.getAttribute('data-index'), 10);
+          var tRow = root.querySelector('.trigger-row[data-index="' + tIndex + '"]');
+          if (tRow) { tRow.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+          return;
+        }
+        var actBtn = e.target.closest('[data-action="edit-action"]');
+        if (actBtn) {
+          var aIndex = parseInt(actBtn.getAttribute('data-index'), 10);
+          var aRow = root.querySelector('.action-row[data-index="' + aIndex + '"]');
+          if (aRow) { aRow.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+        }
+      });
+    }
+
+    // Validation dismiss
+    var dismissValidationBtn = root.querySelector('[data-action="dismiss-validation"]');
+    if (dismissValidationBtn) {
+      dismissValidationBtn.addEventListener('click', function () {
+        clearValidationMessages();
+      });
+    }
+
+    // Save / Cancel
+    if (saveButton) {
+      saveButton.addEventListener('click', function (e) {
+        e.preventDefault();
+        clearValidationMessages();
+        var result = validateAutomation();
+        if (!result.valid) {
+          showValidationMessages(result.messages);
+          return;
+        }
+        var definition = buildAutomationDefinition();
+        showSavingOverlay();
+        renderToolbar();
+        try {
+          var resp = WebsiteSDK.saveAutomation(definition);
+          hideOverlay();
+          renderToolbar();
+          if (resp && resp.success) {
+            if (resp.automation) {
+              state.automation = resp.automation;
+            }
+            if (Array.isArray(resp.triggers)) {
+              state.triggers = resp.triggers.map(cloneTriggerFromEntity);
+            }
+            if (Array.isArray(resp.actions)) {
+              state.actions = resp.actions.map(cloneActionFromEntity);
+            }
+            clearDirty();
+            renderAll();
+            goToAutomationsList('automation_editor');
+          } else {
+            showValidationMessages(['We could not save your automation. Please review the configuration and try again.']);
+          }
+        } catch (error) {
+          hideOverlay();
+          renderToolbar();
+          showValidationMessages(['An unexpected error occurred while saving. Please try again.']);
+        }
+      });
+    }
+
+    if (cancelButton) {
+      cancelButton.addEventListener('click', function (e) {
+        e.preventDefault();
+        if (state.unsavedChanges) {
+          // Simple client-side confirmation
+          var discard = window.confirm('Discard your changes and return to Automations?');
+          if (!discard) {
+            return;
+          }
+        }
+        goToAutomationsList('automation_editor_cancel');
+      });
+    }
+
+    // Loading overlay actions
+    if (retryButton) {
+      retryButton.addEventListener('click', function () {
+        loadInitialData();
+      });
+    }
+
+    if (backFromErrorButton) {
+      backFromErrorButton.addEventListener('click', function () {
+        goToAutomationsList('automation_editor_cancel');
+      });
+    }
+
+    // Kick off initial load
+    loadInitialData();
+  }
+})();
+</script>

@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Automotive Reference</title>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='compare.css'>
+</head>
+<body>
+    <div class='page-shell'>
+        <header class='site-header' role='banner'>
+            <div class='header-inner'>
+                <nav class='primary-nav' aria-label='Main navigation'>
+                    <a href='index.html' class='nav-link nav-link--primary' title='Homepage with search entry points and global search bar'>Home</a>
+                    <span class='nav-separator'>|</span>
+                    <a href='search.html?mode=make' class='nav-link' title='Browse manufacturers and select a model by make'>Search by Make</a>
+                    <span class='nav-separator'>|</span>
+                    <a href='search.html?mode=model' class='nav-link' title='Search directly for a model name'>Search by Model</a>
+                    <span class='nav-separator'>|</span>
+                    <a href='advanced_search.html' class='nav-link' title='Full vehicle finder with all filters available'>Advanced Search</a>
+                    <span class='nav-separator'>|</span>
+                    <a href='advanced_search.html?mode=body_style' class='nav-link' title='Browse vehicles by body style such as SUV, wagon, or coupe'>Browse by Body Style</a>
+                    <span class='nav-separator'>|</span>
+                    <a href='advanced_search.html?mode=category' class='nav-link' title='Browse vehicles by category such as compact cars'>Browse by Category</a>
+                    <span class='nav-separator'>|</span>
+                    <a href='advanced_search.html?mode=performance' class='nav-link' title='Find performance-focused vehicles using acceleration and power filters'>Browse by Performance</a>
+                    <span class='nav-separator'>|</span>
+                    <a href='advanced_search.html?mode=special_editions' class='nav-link' title='Browse limited-run and special-edition vehicles'>Special Editions</a>
+                    <span class='nav-separator'>|</span>
+                    <a href='my_lists.html' class='nav-link' title='View and manage bookmarks, favorites, watchlist, and special-interest items'>My Lists</a>
+                </nav>
+            </div>
+            <hr class='header-rule' aria-hidden='true'>
+        </header>
+
+        <main id='content' class='site-main' role='main'>
+            <div class='comparison-page' data-component='comparison-page-init'>
+                <section class='comparison-header-section' data-component='comparison-header' data-populate='comparison-header'></section>
+
+                <hr class='comparison-main-divider' aria-hidden='true'>
+
+                <section class='preferred-summary-section' data-component='preferred-summary' data-populate='preferred-summary'></section>
+
+                <section class='comparison-table-section' data-component='comparison-table' data-populate='comparison-table'></section>
+
+                <section class='comparison-empty-state-section' data-component='comparison-empty-or-error-state' data-populate='comparison-empty-or-error-state' hidden></section>
+            </div>
+        </main>
+
+        <footer class='site-footer' role='contentinfo'>
+            <hr class='footer-rule' aria-hidden='true'>
+            <div class='footer-inner'>
+                <nav class='footer-nav' aria-label='Footer navigation'>
+                    <a href='about.html' class='footer-link' title='Learn about this automotive reference site'>About</a>
+                    <span class='footer-separator'>|</span>
+                    <a href='help.html' class='footer-link' title='Get help using searches, filters, comparisons, and lists'>Help / How it Works</a>
+                    <span class='footer-separator'>|</span>
+                    <a href='my_lists.html' class='footer-link' title='Quick access to your saved bookmarks and vehicles'>My Lists</a>
+                    <span class='footer-separator'>|</span>
+                    <a href='index.html' class='footer-link' title='Return to the homepage'>Home</a>
+                </nav>
+                <p class='footer-meta'>&copy; <span class='footer-year'>2026</span> Automotive Reference. All information provided for historical and reference purposes only.</p>
+            </div>
+        </footer>
+    </div>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        'use strict';
+
+        var urlParams = new URLSearchParams(window.location.search);
+        var comparisonId = urlParams.get('comparisonId');
+
+        var containers = {};
+        var populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function(element) {
+            var key = element.dataset.populate;
+            containers[key] = element;
+        });
+
+        var state = {
+            comparisonId: comparisonId,
+            comparison: null,
+            comparisonItems: [],
+            vehiclesById: {},
+            generationsById: {},
+            modelsById: {},
+            makesById: {},
+            preferredListItem: null
+        };
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            return String(value).replace(/[&<>"']/g, function(ch) {
+                switch (ch) {
+                    case '&': return '&amp;';
+                    case '<': return '&lt;';
+                    case '>': return '&gt;';
+                    case '"': return '&quot;';
+                    case '\'': return '&#39;';
+                    default: return ch;
+                }
+            });
+        }
+
+        function escapeAttribute(value) {
+            return escapeHtml(value);
+        }
+
+        function resolveItemEntities(item, currentState) {
+            var vehicle = null;
+            var generation = null;
+            var model = null;
+            var make = null;
+
+            if (!item) {
+                return { vehicle: null, generation: null, model: null, make: null };
+            }
+
+            if (item.itemType === 'vehicle' && item.vehicleId) {
+                vehicle = currentState.vehiclesById[item.vehicleId] || null;
+                if (vehicle && vehicle.generationId) {
+                    generation = currentState.generationsById[vehicle.generationId] || null;
+                }
+                if (vehicle && vehicle.modelId) {
+                    model = currentState.modelsById[vehicle.modelId] || null;
+                }
+                if (vehicle && vehicle.makeId) {
+                    make = currentState.makesById[vehicle.makeId] || null;
+                }
+                if (!make && model && model.makeId) {
+                    make = currentState.makesById[model.makeId] || null;
+                }
+            } else if (item.itemType === 'generation' && item.generationId) {
+                generation = currentState.generationsById[item.generationId] || null;
+                if (generation && generation.modelId) {
+                    model = currentState.modelsById[generation.modelId] || null;
+                    if (model && model.makeId) {
+                        make = currentState.makesById[model.makeId] || null;
+                    }
+                }
+            }
+
+            return {
+                vehicle: vehicle,
+                generation: generation,
+                model: model,
+                make: make
+            };
+        }
+
+        function buildItemLabel(item, currentState) {
+            var entities = resolveItemEntities(item, currentState);
+            var vehicle = entities.vehicle;
+            var generation = entities.generation;
+            var model = entities.model;
+            var make = entities.make;
+            var parts = [];
+
+            if (item.itemType === 'vehicle' && vehicle) {
+                if (vehicle.modelYear) {
+                    parts.push(vehicle.modelYear);
+                }
+                if (make && make.name) {
+                    parts.push(make.name);
+                }
+                if (model && model.name) {
+                    parts.push(model.name);
+                }
+                if (vehicle.trimName) {
+                    parts.push(vehicle.trimName);
+                }
+                if (parts.length === 0) {
+                    return 'Vehicle';
+                }
+                return parts.join(' ');
+            }
+
+            if (generation) {
+                if (make && make.name) {
+                    parts.push(make.name);
+                }
+                if (model && model.name) {
+                    parts.push(model.name);
+                }
+                if (generation.name) {
+                    parts.push(generation.name);
+                }
+                var yearText = '';
+                if (generation.firstModelYear) {
+                    if (generation.lastModelYear && generation.lastModelYear !== generation.firstModelYear) {
+                        yearText = generation.firstModelYear + '\u2013' + generation.lastModelYear;
+                    } else {
+                        yearText = String(generation.firstModelYear);
+                    }
+                }
+                if (yearText) {
+                    parts.push('(' + yearText + ')');
+                }
+                if (parts.length === 0) {
+                    return 'Generation';
+                }
+                return parts.join(' ');
+            }
+
+            return 'Item';
+        }
+
+        function buildItemSubLabel(item, currentState) {
+            var entities = resolveItemEntities(item, currentState);
+            var vehicle = entities.vehicle;
+            var generation = entities.generation;
+
+            if (item.itemType === 'vehicle' && vehicle) {
+                var segments = [];
+                if (vehicle.bodyStyle) {
+                    segments.push(vehicle.bodyStyle);
+                }
+                if (vehicle.fuelType) {
+                    segments.push(vehicle.fuelType);
+                }
+                if (vehicle.marketRegion) {
+                    segments.push(vehicle.marketRegion);
+                }
+                return segments.join(' \u00b7 ');
+            }
+
+            if (generation) {
+                var spanParts = [];
+                if (generation.productionStartYear) {
+                    var endYear = generation.productionEndYear || generation.lastModelYear || null;
+                    if (endYear && endYear !== generation.productionStartYear) {
+                        spanParts.push('Production ' + generation.productionStartYear + '\u2013' + endYear);
+                    } else {
+                        spanParts.push('Production from ' + generation.productionStartYear);
+                    }
+                }
+                if (generation.internalCode) {
+                    spanParts.push('Code ' + generation.internalCode);
+                }
+                return spanParts.join(' \u00b7 ');
+            }
+
+            return '';
+        }
+
+        function buildItemLinkTarget(item, currentState) {
+            var targetType = item.itemType === 'generation' ? 'generation' : 'vehicle';
+            var targetId = item.itemType === 'generation' ? item.generationId : item.vehicleId;
+            var entities = resolveItemEntities(item, currentState);
+            var vehicle = entities.vehicle;
+            var generation = entities.generation;
+            var imageUrl = null;
+
+            if (vehicle && vehicle.imageUrl) {
+                imageUrl = vehicle.imageUrl;
+            } else if (generation && generation.heroImageUrl) {
+                imageUrl = generation.heroImageUrl;
+            }
+
+            return {
+                targetType: targetType,
+                targetId: targetId,
+                imageUrl: imageUrl
+            };
+        }
+
+        function formatCurrency(amount, currencyCode) {
+            if (amount === null || amount === undefined || isNaN(amount)) {
+                return null;
+            }
+            var prefix = '';
+            if (currencyCode === 'usd') {
+                prefix = '$';
+            } else if (currencyCode === 'eur') {
+                prefix = '\u20ac';
+            } else if (currencyCode === 'gbp') {
+                prefix = '\u00a3';
+            } else if (currencyCode === 'jpy') {
+                prefix = '\u00a5';
+            }
+            try {
+                var rounded = Math.round(Number(amount));
+                var formatted = rounded.toLocaleString('en-US');
+                return prefix + formatted;
+            } catch (e) {
+                return prefix + String(amount);
+            }
+        }
+
+        function formatYesNo(value) {
+            if (value === null || value === undefined) {
+                return null;
+            }
+            return value ? 'Yes' : 'No';
+        }
+
+        function buildAttributeRow(label, items, currentState, valueFn) {
+            var row = '<tr class="comparison-attribute-row">';
+            row += '<th scope="row" class="comparison-attribute-name">' + escapeHtml(label) + '</th>';
+            items.forEach(function(item, index) {
+                var raw = valueFn(item, currentState);
+                var display;
+                if (raw === null || raw === undefined || raw === '') {
+                    display = '\u2014';
+                } else {
+                    display = escapeHtml(String(raw));
+                }
+                row += '<td class="comparison-attribute-value" data-col-index="' + index + '">' + display + '</td>';
+            });
+            row += '</tr>';
+            return row;
+        }
+
+        function renderComparisonHeader(container, currentState) {
+            if (!container) {
+                return;
+            }
+            var title = currentState.comparison && currentState.comparison.title ? currentState.comparison.title : 'Comparison';
+            var count = currentState.comparisonItems ? currentState.comparisonItems.length : 0;
+
+            var html = '';
+            html += '<section class="comparison-header">';
+            html += '<p class="comparison-intro-line">This page shows a side-by-side reference view for a saved comparison session.</p>';
+            html += '<p class="comparison-intro-line">Use the links below to jump to key attribute groups within the table.</p>';
+            html += '<div class="comparison-title-block">';
+            html += '<h1 class="comparison-title">' + escapeHtml(title) + '</h1>';
+            html += '</div>';
+            html += '<div class="comparison-index-links">';
+            html += '<span class="comparison-index-label">Jump to:</span> ';
+            html += '<a href="#efficiency" data-action="anchor-navigate" data-target="efficiency">Efficiency</a> | ';
+            html += '<a href="#cargo" data-action="anchor-navigate" data-target="cargo">Cargo &amp; space</a> | ';
+            html += '<a href="#safety" data-action="anchor-navigate" data-target="safety">Safety</a> | ';
+            html += '<a href="#performance" data-action="anchor-navigate" data-target="performance">Performance</a> | ';
+            html += '<a href="#pricing" data-action="anchor-navigate" data-target="pricing">Pricing &amp; ownership</a>';
+            html += '</div>';
+            html += '<p class="comparison-meta-line">' + escapeHtml(String(count)) + ' item' + (count === 1 ? '' : 's') + ' in this comparison.</p>';
+            html += '</section>';
+
+            container.innerHTML = html;
+        }
+
+        function renderPreferredSummary(container, currentState) {
+            if (!container) {
+                return;
+            }
+            var items = currentState.comparisonItems || [];
+            var preferredItem = null;
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].isPreferred) {
+                    preferredItem = items[i];
+                    break;
+                }
+            }
+
+            if (!preferredItem) {
+                var emptyHtml = '';
+                emptyHtml += '<div class="preferred-summary preferred-summary--empty">';
+                emptyHtml += '<p>No preferred item is selected for this comparison.</p>';
+                emptyHtml += '<p>Use the <span class="preferred-summary-inline-label">Mark as preferred</span> link in any column header to keep track of your choice.</p>';
+                emptyHtml += '</div>';
+                container.innerHTML = emptyHtml;
+                return;
+            }
+
+            var label = buildItemLabel(preferredItem, currentState);
+            var html = '';
+            html += '<div class="preferred-summary">';
+            html += '<p>Preferred item for this comparison: <strong>' + escapeHtml(label) + '</strong>.</p>';
+            html += '<p>'; 
+            html += '<a href="javascript:void(0)" data-action="view-preferred-list">View all preferred items</a>';
+            if (currentState.preferredListItem) {
+                html += ' <span class="preferred-summary-note">(Stored in My Lists.)</span>';
+            }
+            html += '</p>';
+            html += '</div>';
+
+            container.innerHTML = html;
+        }
+
+        function renderComparisonTable(container, currentState) {
+            if (!container) {
+                return;
+            }
+            var itemsRaw = currentState.comparisonItems || [];
+            if (!itemsRaw.length) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var items = itemsRaw.slice().sort(function(a, b) {
+                var aPos = typeof a.position === 'number' ? a.position : 0;
+                var bPos = typeof b.position === 'number' ? b.position : 0;
+                return aPos - bPos;
+            });
+
+            var colCount = items.length;
+            var html = '';
+            html += '<table class="comparison-table">';
+            html += '<thead>';
+            html += '<tr class="comparison-header-row">';
+            html += '<th scope="col" class="comparison-attribute-col">Attribute</th>';
+
+            items.forEach(function(item, index) {
+                var label = buildItemLabel(item, currentState);
+                var subLabel = buildItemSubLabel(item, currentState);
+                var linkInfo = buildItemLinkTarget(item, currentState);
+                var preferredClass = item.isPreferred ? ' comparison-item-col--preferred' : '';
+
+                html += '<th scope="col" class="comparison-item-col' + preferredClass + '" data-col-index="' + index + '" data-item-id="' + escapeAttribute(item.id || '') + '">';
+                html += '<div class="comparison-column-header" data-component="comparison-column-header">';
+
+                if (linkInfo.imageUrl) {
+                    html += '<div class="comparison-column-image-wrapper">';
+                    html += '<a href="javascript:void(0)" data-action="navigate-detail" data-item-type="' + escapeAttribute(linkInfo.targetType) + '" data-target-id="' + escapeAttribute(linkInfo.targetId || '') + '">';
+                    html += '<img src="' + escapeAttribute(linkInfo.imageUrl) + '" alt="' + escapeHtml(label) + '" class="comparison-column-image">';
+                    html += '</a>';
+                    html += '</div>';
+                }
+
+                html += '<div class="comparison-column-title">';
+                html += '<a href="javascript:void(0)" data-action="navigate-detail" data-item-type="' + escapeAttribute(linkInfo.targetType) + '" data-target-id="' + escapeAttribute(linkInfo.targetId || '') + '">';
+                html += escapeHtml(label);
+                html += '</a>';
+                html += '</div>';
+
+                if (subLabel) {
+                    html += '<div class="comparison-column-subtitle">' + escapeHtml(subLabel) + '</div>';
+                }
+
+                html += '<div class="preferred-toggle" data-component="preferred-toggle">';
+                if (item.isPreferred) {
+                    html += '<span class="preferred-indicator-label">[Preferred]</span> ';
+                }
+                html += '<a href="javascript:void(0)" data-action="mark-preferred" data-item-type="' + escapeAttribute(item.itemType) + '" data-generation-id="' + escapeAttribute(item.generationId || '') + '" data-vehicle-id="' + escapeAttribute(item.vehicleId || '') + '">';
+                html += item.isPreferred ? 'Change preferred item' : 'Mark as preferred';
+                html += '</a>';
+                html += '</div>';
+
+                html += '</div>';
+                html += '</th>';
+            });
+
+            html += '</tr>';
+            html += '</thead>';
+            html += '<tbody>';
+
+            html += '<tr class="comparison-group-header-row" id="efficiency"><th scope="rowgroup" colspan="' + (colCount + 1) + '">Efficiency</th></tr>';
+            html += buildAttributeRow('Combined MPG (est.)', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                var generation = ent.generation;
+                var value = null;
+                if (vehicle && vehicle.combinedMpg !== null && vehicle.combinedMpg !== undefined) {
+                    value = vehicle.combinedMpg;
+                } else if (generation && generation.combinedMpg !== null && generation.combinedMpg !== undefined) {
+                    value = generation.combinedMpg;
+                }
+                return value !== null && value !== undefined ? value + ' mpg' : null;
+            });
+            html += buildAttributeRow('Highway MPG', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.highwayMpg !== null && vehicle.highwayMpg !== undefined) {
+                    return vehicle.highwayMpg + ' mpg';
+                }
+                return null;
+            });
+            html += buildAttributeRow('Fuel type', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.fuelType) {
+                    return vehicle.fuelType;
+                }
+                return null;
+            });
+            html += buildAttributeRow('Electric range', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.electricRangeMiles !== null && vehicle.electricRangeMiles !== undefined) {
+                    return vehicle.electricRangeMiles + ' mi';
+                }
+                return null;
+            });
+
+            html += '<tr class="comparison-group-header-row" id="cargo"><th scope="rowgroup" colspan="' + (colCount + 1) + '">Cargo &amp; space</th></tr>';
+            html += buildAttributeRow('Body style', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                var generation = ent.generation;
+                if (vehicle && vehicle.bodyStyle) {
+                    return vehicle.bodyStyle;
+                }
+                if (generation && Array.isArray(generation.bodyStyles) && generation.bodyStyles.length) {
+                    return generation.bodyStyles.join(', ');
+                }
+                return null;
+            });
+            html += buildAttributeRow('Seating capacity', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.seatingCapacity !== null && vehicle.seatingCapacity !== undefined) {
+                    return vehicle.seatingCapacity;
+                }
+                return null;
+            });
+            html += buildAttributeRow('Cargo volume', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.cargoVolumeLiters !== null && vehicle.cargoVolumeLiters !== undefined) {
+                    return vehicle.cargoVolumeLiters + ' L';
+                }
+                return null;
+            });
+
+            html += '<tr class="comparison-group-header-row" id="safety"><th scope="rowgroup" colspan="' + (colCount + 1) + '">Safety</th></tr>';
+            html += buildAttributeRow('Overall safety rating', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.safetyRatingOverall !== null && vehicle.safetyRatingOverall !== undefined) {
+                    return vehicle.safetyRatingOverall + ' / 5';
+                }
+                return null;
+            });
+            html += buildAttributeRow('Safety rating source', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.safetyRatingSource) {
+                    return vehicle.safetyRatingSource;
+                }
+                return null;
+            });
+            html += buildAttributeRow('Safety recall count', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.safetyRecallCount !== null && vehicle.safetyRecallCount !== undefined) {
+                    return vehicle.safetyRecallCount;
+                }
+                return null;
+            });
+
+            html += '<tr class="comparison-group-header-row" id="performance"><th scope="rowgroup" colspan="' + (colCount + 1) + '">Performance</th></tr>';
+            html += buildAttributeRow('Horsepower', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.horsepower !== null && vehicle.horsepower !== undefined) {
+                    return vehicle.horsepower + ' hp';
+                }
+                return null;
+            });
+            html += buildAttributeRow('0	60 mph', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.zeroToSixtyMphSeconds !== null && vehicle.zeroToSixtyMphSeconds !== undefined) {
+                    return vehicle.zeroToSixtyMphSeconds + ' s';
+                }
+                return null;
+            });
+            html += buildAttributeRow('Drivetrain', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.drivetrain) {
+                    return vehicle.drivetrain;
+                }
+                return null;
+            });
+            html += buildAttributeRow('Transmission', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.transmission) {
+                    return vehicle.transmission;
+                }
+                return null;
+            });
+            html += buildAttributeRow('Category', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.category) {
+                    return vehicle.category;
+                }
+                return null;
+            });
+
+            html += '<tr class="comparison-group-header-row" id="pricing"><th scope="rowgroup" colspan="' + (colCount + 1) + '">Pricing &amp; ownership</th></tr>';
+            html += buildAttributeRow('Base price (approx.)', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.basePrice !== null && vehicle.basePrice !== undefined) {
+                    var formatted = formatCurrency(vehicle.basePrice, vehicle.basePriceCurrency || 'usd');
+                    return formatted;
+                }
+                return null;
+            });
+            html += buildAttributeRow('Limited edition', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.isLimitedEdition !== null && vehicle.isLimitedEdition !== undefined) {
+                    return formatYesNo(vehicle.isLimitedEdition);
+                }
+                return null;
+            });
+            html += buildAttributeRow('Production volume (units)', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.productionVolumeUnits !== null && vehicle.productionVolumeUnits !== undefined) {
+                    return vehicle.productionVolumeUnits;
+                }
+                return null;
+            });
+            html += buildAttributeRow('Owner rating', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.ownerRating !== null && vehicle.ownerRating !== undefined) {
+                    return vehicle.ownerRating + ' / 5';
+                }
+                return null;
+            });
+            html += buildAttributeRow('Reliability rating', items, currentState, function(item, cs) {
+                var ent = resolveItemEntities(item, cs);
+                var vehicle = ent.vehicle;
+                if (vehicle && vehicle.reliabilityRating !== null && vehicle.reliabilityRating !== undefined) {
+                    return vehicle.reliabilityRating + ' / 5';
+                }
+                return null;
+            });
+
+            html += '</tbody>';
+            html += '</table>';
+
+            container.innerHTML = html;
+        }
+
+        function renderEmptyOrError(container, reason) {
+            if (!container) {
+                return;
+            }
+            var title;
+            var detail;
+
+            if (reason === 'missing') {
+                title = 'No comparison selected.';
+                detail = 'This page expects a comparison identifier in the address bar, usually opened from a model, vehicle, or My Lists page.';
+            } else if (reason === 'empty') {
+                title = 'Nothing to compare yet.';
+                detail = 'The requested comparison did not contain any items. Start a new comparison from a model or advanced search page.';
+            } else {
+                title = 'Comparison could not be loaded.';
+                detail = 'An error occurred while loading this comparison. You can try reopening it from My Lists or start a new comparison.';
+            }
+
+            var html = '';
+            html += '<div class="comparison-empty-inner">';
+            html += '<h1 class="comparison-empty-title">' + escapeHtml(title) + '</h1>';
+            if (detail) {
+                html += '<p class="comparison-empty-text">' + escapeHtml(detail) + '</p>';
+            }
+            html += '<p class="comparison-empty-text">You can also review items you have marked as preferred.</p>';
+            html += '<p class="comparison-empty-actions">';
+            html += '<a href="javascript:void(0)" data-action="view-preferred-list">View all preferred items</a>';
+            html += '</p>';
+            html += '</div>';
+
+            container.innerHTML = html;
+        }
+
+        function showEmptyState(reason) {
+            if (containers['comparison-empty-or-error-state']) {
+                renderEmptyOrError(containers['comparison-empty-or-error-state'], reason);
+                containers['comparison-empty-or-error-state'].hidden = false;
+            }
+            if (containers['preferred-summary']) {
+                containers['preferred-summary'].innerHTML = '';
+            }
+            if (containers['comparison-table']) {
+                containers['comparison-table'].innerHTML = '';
+            }
+        }
+
+        function handleInitialLoad() {
+            if (containers['comparison-header']) {
+                renderComparisonHeader(containers['comparison-header'], state);
+            }
+
+            if (!state.comparisonId) {
+                showEmptyState('missing');
+                return;
+            }
+
+            var result;
+            try {
+                result = WebsiteSDK.getComparisonDetails(state.comparisonId);
+            } catch (e) {
+                console.error('getComparisonDetails error', e);
+                showEmptyState('error');
+                return;
+            }
+
+            if (!result || !Array.isArray(result.comparisonItems) || result.comparisonItems.length === 0) {
+                state.comparison = result && result.comparison ? result.comparison : null;
+                state.comparisonItems = [];
+                if (containers['comparison-header']) {
+                    renderComparisonHeader(containers['comparison-header'], state);
+                }
+                showEmptyState('empty');
+                return;
+            }
+
+            state.comparison = result.comparison || null;
+            state.comparisonItems = result.comparisonItems || [];
+
+            var vehicles = Array.isArray(result.vehicles) ? result.vehicles : [];
+            var generations = Array.isArray(result.generations) ? result.generations : [];
+            var models = Array.isArray(result.models) ? result.models : [];
+            var makes = Array.isArray(result.makes) ? result.makes : [];
+
+            state.vehiclesById = {};
+            vehicles.forEach(function(v) {
+                if (v && v.id) {
+                    state.vehiclesById[v.id] = v;
+                }
+            });
+
+            state.generationsById = {};
+            generations.forEach(function(g) {
+                if (g && g.id) {
+                    state.generationsById[g.id] = g;
+                }
+            });
+
+            state.modelsById = {};
+            models.forEach(function(m) {
+                if (m && m.id) {
+                    state.modelsById[m.id] = m;
+                }
+            });
+
+            state.makesById = {};
+            makes.forEach(function(mk) {
+                if (mk && mk.id) {
+                    state.makesById[mk.id] = mk;
+                }
+            });
+
+            if (containers['comparison-empty-or-error-state']) {
+                containers['comparison-empty-or-error-state'].hidden = true;
+                containers['comparison-empty-or-error-state'].innerHTML = '';
+            }
+
+            if (containers['comparison-header']) {
+                renderComparisonHeader(containers['comparison-header'], state);
+            }
+            if (containers['preferred-summary']) {
+                renderPreferredSummary(containers['preferred-summary'], state);
+            }
+            if (containers['comparison-table']) {
+                renderComparisonTable(containers['comparison-table'], state);
+            }
+
+            handleHashAnchor();
+        }
+
+        function handleHashAnchor() {
+            var hash = window.location.hash;
+            if (!hash) {
+                return;
+            }
+            var id = hash.substring(1);
+            if (!id) {
+                return;
+            }
+            var target = document.getElementById(id);
+            if (target) {
+                try {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } catch (e) {
+                    target.scrollIntoView(true);
+                }
+            }
+        }
+
+        document.addEventListener('click', function(event) {
+            var trigger = event.target.closest('[data-action]');
+            if (!trigger) {
+                return;
+            }
+            var action = trigger.dataset.action;
+
+            if (action === 'mark-preferred') {
+                event.preventDefault();
+                if (!state.comparisonId) {
+                    return;
+                }
+                var itemType = trigger.dataset.itemType;
+                var generationId = trigger.dataset.generationId || null;
+                var vehicleId = trigger.dataset.vehicleId || null;
+
+                var result;
+                try {
+                    result = WebsiteSDK.markPreferredInComparison(state.comparisonId, itemType, generationId, vehicleId);
+                } catch (e) {
+                    console.error('markPreferredInComparison error', e);
+                    window.alert('Could not update preferred item for this comparison.');
+                    return;
+                }
+
+                if (!result || !result.success) {
+                    if (result && result.message) {
+                        window.alert(result.message);
+                    } else {
+                        window.alert('Could not update preferred item for this comparison.');
+                    }
+                    return;
+                }
+
+                state.comparison = result.comparison || state.comparison;
+                state.comparisonItems = result.comparisonItems || state.comparisonItems;
+                state.preferredListItem = result.preferredListItem || null;
+
+                if (containers['preferred-summary']) {
+                    renderPreferredSummary(containers['preferred-summary'], state);
+                }
+                if (containers['comparison-table']) {
+                    renderComparisonTable(containers['comparison-table'], state);
+                }
+
+            } else if (action === 'navigate-detail') {
+                event.preventDefault();
+                var itemTypeNav = trigger.dataset.itemType;
+                var targetId = trigger.dataset.targetId;
+                if (!targetId) {
+                    return;
+                }
+                if (itemTypeNav === 'generation') {
+                    window.location.href = 'generation.html?generationId=' + encodeURIComponent(targetId);
+                } else if (itemTypeNav === 'vehicle') {
+                    window.location.href = 'vehicle.html?vehicleId=' + encodeURIComponent(targetId);
+                }
+
+            } else if (action === 'view-preferred-list') {
+                event.preventDefault();
+                window.location.href = 'my_lists.html?section=preferred';
+
+            } else if (action === 'anchor-navigate') {
+                event.preventDefault();
+                var targetKey = trigger.dataset.target;
+                if (!targetKey) {
+                    return;
+                }
+                if (targetKey === 'top') {
+                    window.scrollTo(0, 0);
+                    try {
+                        history.replaceState(null, document.title, window.location.pathname + window.location.search);
+                    } catch (e) {}
+                    return;
+                }
+                var anchorTarget = document.getElementById(targetKey);
+                if (anchorTarget) {
+                    try {
+                        anchorTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    } catch (e) {
+                        anchorTarget.scrollIntoView(true);
+                    }
+                    window.location.hash = '#' + targetKey;
+                }
+            }
+        });
+
+        handleInitialLoad();
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>XML Sitemap Manager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <link rel="stylesheet" href="url_form.css">
+</head>
+<body>
+  <header id="site-header">
+    <h1 id="page-title">Sitemap URL</h1>
+    <nav id="primary-nav" aria-label="Main navigation">
+      <ul>
+        <li><a href="index.html">Dashboard</a></li>
+        <li><a href="sitemaps.html">Sitemaps</a></li>
+        <li><a href="help.html">Help</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="content" role="main">
+    <div data-component="url-form-mode-resolver" hidden></div>
+
+    <h1 id="form-title">Add URL</h1>
+
+    <div id="feedback-panel" data-component="sitemap-url-feedback-panel" style="display:none;">
+      <p id="feedback-main-message"></p>
+      <ul id="feedback-error-list"></ul>
+    </div>
+
+    <form id="sitemap-url-form" data-component="sitemap-url-form" data-populate="sitemap-url-details" novalidate>
+      <div class="form-field">
+        <label for="urlInput">URL or path *</label>
+        <input type="text" id="urlInput" name="url" required>
+        <div class="field-error" data-field-error="url"></div>
+      </div>
+
+      <div class="form-field">
+        <label for="statusCodeInput">HTTP status code *</label>
+        <input type="number" id="statusCodeInput" name="statusCode" min="100" max="599" required>
+        <div class="field-error" data-field-error="statusCode"></div>
+      </div>
+
+      <div class="form-field">
+        <label for="indexStatusInput">Index status *</label>
+        <select id="indexStatusInput" name="indexStatus" required>
+          <option value="">Select index status</option>
+          <option value="indexed">indexed</option>
+          <option value="not_indexed">not_indexed</option>
+          <option value="unknown">unknown</option>
+        </select>
+        <div class="field-error" data-field-error="indexStatus"></div>
+      </div>
+
+      <div class="form-field">
+        <label for="priorityInput">Priority (0.0-1.0) *</label>
+        <input type="number" id="priorityInput" name="priority" step="0.1" min="0" max="1" required>
+        <div class="field-error" data-field-error="priority"></div>
+      </div>
+
+      <div class="form-field">
+        <label for="changefreqInput">Change frequency *</label>
+        <select id="changefreqInput" name="changefreq" required>
+          <option value="">Select change frequency</option>
+          <option value="always">always</option>
+          <option value="hourly">hourly</option>
+          <option value="daily">daily</option>
+          <option value="weekly">weekly</option>
+          <option value="monthly">monthly</option>
+          <option value="yearly">yearly</option>
+          <option value="never">never</option>
+        </select>
+        <div class="field-error" data-field-error="changefreq"></div>
+      </div>
+
+      <div class="form-field">
+        <label for="lastModifiedAtInput">Last modified (date and time) *</label>
+        <input type="datetime-local" id="lastModifiedAtInput" name="lastModifiedAt" required>
+        <div class="field-error" data-field-error="lastModifiedAt"></div>
+      </div>
+
+      <div class="form-field">
+        <label for="inclusionStatusInput">Inclusion status *</label>
+        <select id="inclusionStatusInput" name="inclusionStatus" required>
+          <option value="">Select inclusion status</option>
+          <option value="included">included</option>
+          <option value="excluded">excluded</option>
+        </select>
+        <div class="field-error" data-field-error="inclusionStatus"></div>
+      </div>
+
+      <div class="form-actions" data-component="sitemap-url-navigation-controls">
+        <button type="submit" data-action="save">Save</button>
+        <a href="javascript:void(0)" data-action="cancel">Cancel</a>
+        <span class="loading-indicator" data-component="sitemap-url-loading-indicator" style="display:none;"></span>
+      </div>
+    </form>
+
+    <p class="low-priority-help" data-component="low-priority-help-link">
+      <a href="javascript:void(0)" data-action="open-low-priority-help">Learn more about managing low-priority URLs</a>
+    </p>
+  </main>
+
+  <footer id="site-footer">
+    <p class="footer-links">
+      <a href="about.html">About</a> |
+      <a href="help.html">Help</a> |
+      <a href="index.html">Dashboard</a>
+    </p>
+    <p class="footer-note">
+      <!-- Optional footer note or legal text can be placed here. -->
+    </p>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sitemapIdParam = urlParams.get('sitemapId');
+    const urlIdParam = urlParams.get('urlId');
+    const modeParam = urlParams.get('mode');
+
+    const state = {
+      mode: 'create',
+      urlId: urlIdParam,
+      currentSitemapId: sitemapIdParam,
+      loadingDetails: false,
+      submitting: false,
+      blockingError: null,
+      form: {
+        url: '',
+        statusCode: '',
+        indexStatus: '',
+        priority: '',
+        changefreq: '',
+        lastModifiedAt: '',
+        inclusionStatus: ''
+      }
+    };
+
+    if (state.urlId) {
+      state.mode = 'edit';
+    } else if (modeParam && modeParam.toLowerCase() === 'create') {
+      state.mode = 'create';
+    } else if (modeParam && modeParam.toLowerCase() === 'edit') {
+      // Without urlId present, fall back to create mode per specification
+      state.mode = 'create';
+    }
+
+    const headerTitle = document.getElementById('page-title');
+    if (headerTitle) {
+      headerTitle.textContent = 'Sitemap URL';
+    }
+
+    const formTitle = document.getElementById('form-title');
+    if (formTitle) {
+      formTitle.textContent = state.mode === 'edit' ? 'Edit URL' : 'Add URL';
+    }
+
+    const formElement = document.querySelector('[data-component="sitemap-url-form"]');
+    const urlInput = document.getElementById('urlInput');
+    const statusCodeInput = document.getElementById('statusCodeInput');
+    const indexStatusSelect = document.getElementById('indexStatusInput');
+    const priorityInput = document.getElementById('priorityInput');
+    const changefreqSelect = document.getElementById('changefreqInput');
+    const lastModifiedInput = document.getElementById('lastModifiedAtInput');
+    const inclusionStatusSelect = document.getElementById('inclusionStatusInput');
+
+    const feedbackPanel = document.getElementById('feedback-panel');
+    const feedbackMainMessage = document.getElementById('feedback-main-message');
+    const feedbackErrorList = document.getElementById('feedback-error-list');
+    const savingIndicator = document.querySelector('[data-component="sitemap-url-loading-indicator"]');
+    const saveButton = document.querySelector('[data-action="save"]');
+    const cancelLink = document.querySelector('[data-action="cancel"]');
+
+    const defaultInfoText = 'Use this form to add a new sitemap URL or edit an existing one. Priority ranges from 0.0 (lowest) to 1.0 (highest).';
+
+    if (feedbackMainMessage && !feedbackMainMessage.textContent) {
+      feedbackMainMessage.textContent = defaultInfoText;
+    }
+
+    function toLocalInputValue(isoString) {
+      if (!isoString) {
+        return '';
+      }
+      const date = new Date(isoString);
+      if (isNaN(date.getTime())) {
+        return '';
+      }
+      const tzOffset = date.getTimezoneOffset();
+      const localTime = new Date(date.getTime() - tzOffset * 60000);
+      return localTime.toISOString().slice(0, 16);
+    }
+
+    function fromLocalInputValue(localValue) {
+      if (!localValue) {
+        return '';
+      }
+      const date = new Date(localValue);
+      if (isNaN(date.getTime())) {
+        return '';
+      }
+      return date.toISOString();
+    }
+
+    function clearFieldErrors() {
+      const fieldErrorEls = document.querySelectorAll('.field-error');
+      fieldErrorEls.forEach(function(el) {
+        el.textContent = '';
+      });
+    }
+
+    function setBlockingError(message) {
+      state.blockingError = message;
+      if (feedbackMainMessage) {
+        feedbackMainMessage.textContent = message;
+      }
+      if (feedbackErrorList) {
+        feedbackErrorList.innerHTML = '';
+      }
+      if (feedbackPanel) {
+        feedbackPanel.style.display = 'block';
+      }
+      updateInteractionState();
+    }
+
+    function showValidationFeedback(fieldErrors, generalErrors) {
+      clearFieldErrors();
+      Object.keys(fieldErrors).forEach(function(fieldName) {
+        const msg = fieldErrors[fieldName];
+        if (msg) {
+          const el = document.querySelector('[data-field-error="' + fieldName + '"]');
+          if (el) {
+            el.textContent = msg;
+          }
+        }
+      });
+      if (feedbackErrorList) {
+        feedbackErrorList.innerHTML = '';
+        (generalErrors || []).forEach(function(msg) {
+          const li = document.createElement('li');
+          li.textContent = msg;
+          feedbackErrorList.appendChild(li);
+        });
+      }
+      if (feedbackMainMessage) {
+        feedbackMainMessage.textContent = generalErrors && generalErrors.length > 0 ? generalErrors[0] : defaultInfoText;
+      }
+      if (feedbackPanel) {
+        feedbackPanel.style.display = 'block';
+      }
+    }
+
+    function showApiMessage(message) {
+      clearFieldErrors();
+      if (feedbackErrorList) {
+        feedbackErrorList.innerHTML = '';
+      }
+      if (feedbackMainMessage) {
+        feedbackMainMessage.textContent = message;
+      }
+      if (feedbackPanel) {
+        feedbackPanel.style.display = 'block';
+      }
+    }
+
+    function updateInteractionState() {
+      const disableSave = state.submitting || state.loadingDetails || !!state.blockingError || (!state.currentSitemapId && state.mode === 'create');
+      if (saveButton) {
+        saveButton.disabled = disableSave;
+      }
+      if (cancelLink) {
+        const cancelDisabled = state.submitting || !state.currentSitemapId;
+        if (cancelDisabled) {
+          cancelLink.setAttribute('data-disabled', 'true');
+          cancelLink.classList.add('disabled');
+        } else {
+          cancelLink.removeAttribute('data-disabled');
+          cancelLink.classList.remove('disabled');
+        }
+      }
+      if (savingIndicator) {
+        if (state.submitting || state.loadingDetails) {
+          savingIndicator.style.display = 'inline';
+          savingIndicator.textContent = state.submitting ? 'Saving...' : 'Loading...';
+        } else {
+          savingIndicator.style.display = 'none';
+          savingIndicator.textContent = '';
+        }
+      }
+    }
+
+    function validateCurrentForm() {
+      const fieldErrors = {};
+      const generalErrors = [];
+
+      const formState = state.form;
+
+      if (!formState.url || !formState.url.trim()) {
+        fieldErrors.url = 'URL is required.';
+      }
+
+      if (formState.statusCode === '' || formState.statusCode === null || typeof formState.statusCode === 'undefined') {
+        fieldErrors.statusCode = 'Status code is required.';
+      } else if (isNaN(formState.statusCode) || formState.statusCode < 100 || formState.statusCode > 599) {
+        fieldErrors.statusCode = 'Enter a valid HTTP status code between 100 and 599.';
+      }
+
+      if (formState.indexStatus !== 'indexed' && formState.indexStatus !== 'not_indexed' && formState.indexStatus !== 'unknown') {
+        fieldErrors.indexStatus = 'Select an index status.';
+      }
+
+      if (formState.priority === '' || formState.priority === null || typeof formState.priority === 'undefined') {
+        fieldErrors.priority = 'Priority is required.';
+      } else if (isNaN(formState.priority) || formState.priority < 0 || formState.priority > 1) {
+        fieldErrors.priority = 'Priority must be between 0.0 and 1.0.';
+      }
+
+      if (!formState.changefreq) {
+        fieldErrors.changefreq = 'Change frequency is required.';
+      }
+
+      if (!formState.lastModifiedAt) {
+        fieldErrors.lastModifiedAt = 'Last modified date/time is required.';
+      } else {
+        const d = new Date(formState.lastModifiedAt);
+        if (isNaN(d.getTime())) {
+          fieldErrors.lastModifiedAt = 'Enter a valid date/time.';
+        }
+      }
+
+      if (formState.inclusionStatus !== 'included' && formState.inclusionStatus !== 'excluded') {
+        fieldErrors.inclusionStatus = 'Select an inclusion status.';
+      }
+
+      if (!state.currentSitemapId && state.mode === 'create') {
+        generalErrors.push('Missing sitemapId. Open this form from a sitemap URL list so the new URL can be attached to a sitemap.');
+      }
+
+      const hasFieldErrors = Object.keys(fieldErrors).some(function(key) {
+        return fieldErrors[key];
+      });
+      const hasGeneralErrors = generalErrors.length > 0;
+      const isValid = !hasFieldErrors && !hasGeneralErrors;
+
+      if (!isValid && generalErrors.length === 0) {
+        generalErrors.push('Please correct the highlighted fields and try again.');
+      }
+
+      return {
+        fieldErrors: fieldErrors,
+        generalErrors: generalErrors,
+        isValid: isValid
+      };
+    }
+
+    function syncFormStateFromInputs() {
+      if (urlInput) {
+        state.form.url = urlInput.value.trim();
+      }
+      if (statusCodeInput) {
+        const raw = statusCodeInput.value;
+        state.form.statusCode = raw === '' ? '' : parseInt(raw, 10);
+      }
+      if (indexStatusSelect) {
+        state.form.indexStatus = indexStatusSelect.value;
+      }
+      if (priorityInput) {
+        const rawPriority = priorityInput.value;
+        state.form.priority = rawPriority === '' ? '' : parseFloat(rawPriority);
+      }
+      if (changefreqSelect) {
+        state.form.changefreq = changefreqSelect.value;
+      }
+      if (lastModifiedInput) {
+        state.form.lastModifiedAt = fromLocalInputValue(lastModifiedInput.value);
+      }
+      if (inclusionStatusSelect) {
+        state.form.inclusionStatus = inclusionStatusSelect.value;
+      }
+    }
+
+    function applyFormStateToInputs() {
+      if (urlInput) {
+        urlInput.value = state.form.url || '';
+      }
+      if (statusCodeInput) {
+        statusCodeInput.value = state.form.statusCode !== '' && state.form.statusCode !== null && typeof state.form.statusCode !== 'undefined' ? state.form.statusCode : '';
+      }
+      if (indexStatusSelect) {
+        indexStatusSelect.value = state.form.indexStatus || '';
+      }
+      if (priorityInput) {
+        priorityInput.value = state.form.priority !== '' && state.form.priority !== null && typeof state.form.priority !== 'undefined' ? state.form.priority : '';
+      }
+      if (changefreqSelect) {
+        changefreqSelect.value = state.form.changefreq || '';
+      }
+      if (lastModifiedInput) {
+        lastModifiedInput.value = toLocalInputValue(state.form.lastModifiedAt);
+      }
+      if (inclusionStatusSelect) {
+        inclusionStatusSelect.value = state.form.inclusionStatus || '';
+      }
+    }
+
+    function initCreateDefaults() {
+      const now = new Date();
+      state.form = {
+        url: '',
+        statusCode: 200,
+        indexStatus: 'unknown',
+        priority: 0.5,
+        changefreq: 'weekly',
+        lastModifiedAt: now.toISOString(),
+        inclusionStatus: 'included'
+      };
+      applyFormStateToInputs();
+    }
+
+    function loadSitemapUrlDetails() {
+      if (!state.urlId) {
+        setBlockingError('Missing urlId parameter. Unable to load URL details for editing.');
+        return;
+      }
+      state.loadingDetails = true;
+      updateInteractionState();
+      try {
+        const response = WebsiteSDK.getSitemapUrlDetails(state.urlId);
+        if (!response || !response.sitemapUrl) {
+          setBlockingError('URL details could not be loaded. The record may have been removed.');
+          return;
+        }
+        const record = response.sitemapUrl;
+        state.form.url = record.url || '';
+        state.form.statusCode = typeof record.statusCode === 'number' ? record.statusCode : 200;
+        state.form.indexStatus = record.indexStatus || 'unknown';
+        state.form.priority = typeof record.priority === 'number' ? record.priority : 0.5;
+        state.form.changefreq = record.changefreq || 'weekly';
+        state.form.lastModifiedAt = record.lastModifiedAt || '';
+        state.form.inclusionStatus = record.inclusionStatus || 'included';
+        if (!state.currentSitemapId && record.sitemapId) {
+          state.currentSitemapId = record.sitemapId;
+        }
+        applyFormStateToInputs();
+        if (feedbackMainMessage) {
+          feedbackMainMessage.textContent = defaultInfoText;
+        }
+        if (feedbackErrorList) {
+          feedbackErrorList.innerHTML = '';
+        }
+        if (feedbackPanel) {
+          feedbackPanel.style.display = 'block';
+        }
+      } catch (e) {
+        setBlockingError('An unexpected error occurred while loading the URL details.');
+      } finally {
+        state.loadingDetails = false;
+        updateInteractionState();
+      }
+    }
+
+    function handleFormSubmit(event) {
+      if (event) {
+        event.preventDefault();
+      }
+      if (!formElement) {
+        return;
+      }
+      if (state.submitting || state.loadingDetails) {
+        return;
+      }
+      syncFormStateFromInputs();
+      const validation = validateCurrentForm();
+      if (!validation.isValid) {
+        showValidationFeedback(validation.fieldErrors, validation.generalErrors);
+        return;
+      }
+      state.submitting = true;
+      updateInteractionState();
+      try {
+        if (state.mode === 'edit') {
+          const resp = WebsiteSDK.updateSitemapUrl(
+            state.urlId,
+            state.form.url || undefined,
+            typeof state.form.statusCode === 'number' ? state.form.statusCode : undefined,
+            state.form.indexStatus || undefined,
+            typeof state.form.priority === 'number' ? state.form.priority : undefined,
+            state.form.changefreq || undefined,
+            state.form.lastModifiedAt || undefined,
+            state.form.inclusionStatus || undefined
+          );
+          if (resp && resp.success) {
+            if (!state.currentSitemapId && resp.sitemapUrl && resp.sitemapUrl.sitemapId) {
+              state.currentSitemapId = resp.sitemapUrl.sitemapId;
+            }
+            if (state.currentSitemapId) {
+              window.location.href = 'sitemap_urls.html?sitemapId=' + encodeURIComponent(state.currentSitemapId);
+              return;
+            }
+            showApiMessage('URL updated, but the parent sitemap could not be determined for navigation.');
+          } else {
+            const message = resp && resp.message ? resp.message : 'The URL could not be updated. Please review the form and try again.';
+            showApiMessage(message);
+          }
+        } else {
+          if (!state.currentSitemapId) {
+            setBlockingError('Missing sitemapId. Cannot create a URL without a parent sitemap.');
+            return;
+          }
+          const resp = WebsiteSDK.createSitemapUrl(
+            state.currentSitemapId,
+            state.form.url,
+            typeof state.form.statusCode === 'number' ? state.form.statusCode : undefined,
+            state.form.indexStatus || undefined,
+            state.form.priority,
+            state.form.changefreq,
+            state.form.lastModifiedAt || undefined,
+            state.form.inclusionStatus || undefined
+          );
+          if (resp && resp.success) {
+            if (!state.currentSitemapId && resp.sitemapUrl && resp.sitemapUrl.sitemapId) {
+              state.currentSitemapId = resp.sitemapUrl.sitemapId;
+            }
+            if (state.currentSitemapId) {
+              window.location.href = 'sitemap_urls.html?sitemapId=' + encodeURIComponent(state.currentSitemapId);
+              return;
+            }
+            showApiMessage('URL created, but the parent sitemap could not be determined for navigation.');
+          } else {
+            const message = resp && resp.message ? resp.message : 'The URL could not be created. Please review the form and try again.';
+            showApiMessage(message);
+          }
+        }
+      } catch (e) {
+        showApiMessage('An unexpected error occurred while saving the URL. Please try again.');
+      } finally {
+        state.submitting = false;
+        updateInteractionState();
+      }
+    }
+
+    function handleCancelClick(event) {
+      if (event) {
+        event.preventDefault();
+      }
+      if (!state.currentSitemapId) {
+        showApiMessage('Cannot navigate back to the URL list because the sitemapId is unknown.');
+        return;
+      }
+      if (state.submitting) {
+        return;
+      }
+      window.location.href = 'sitemap_urls.html?sitemapId=' + encodeURIComponent(state.currentSitemapId);
+    }
+
+    function handleHelpClick(event) {
+      if (event) {
+        event.preventDefault();
+      }
+      window.location.href = 'help.html?topicId=task_8';
+    }
+
+    if (formElement) {
+      formElement.addEventListener('submit', handleFormSubmit);
+    }
+
+    if (urlInput) {
+      urlInput.addEventListener('input', function() {
+        state.form.url = urlInput.value.trim();
+      });
+    }
+    if (statusCodeInput) {
+      statusCodeInput.addEventListener('input', function() {
+        const raw = statusCodeInput.value;
+        state.form.statusCode = raw === '' ? '' : parseInt(raw, 10);
+      });
+    }
+    if (indexStatusSelect) {
+      indexStatusSelect.addEventListener('change', function() {
+        state.form.indexStatus = indexStatusSelect.value;
+      });
+    }
+    if (priorityInput) {
+      priorityInput.addEventListener('input', function() {
+        const rawPriority = priorityInput.value;
+        state.form.priority = rawPriority === '' ? '' : parseFloat(rawPriority);
+      });
+    }
+    if (changefreqSelect) {
+      changefreqSelect.addEventListener('change', function() {
+        state.form.changefreq = changefreqSelect.value;
+      });
+    }
+    if (lastModifiedInput) {
+      lastModifiedInput.addEventListener('change', function() {
+        state.form.lastModifiedAt = fromLocalInputValue(lastModifiedInput.value);
+      });
+    }
+    if (inclusionStatusSelect) {
+      inclusionStatusSelect.addEventListener('change', function() {
+        state.form.inclusionStatus = inclusionStatusSelect.value;
+      });
+    }
+
+    const actionElements = document.querySelectorAll('[data-action]');
+    actionElements.forEach(function(element) {
+      const action = element.dataset.action;
+      if (action === 'save') {
+        element.addEventListener('click', function(event) {
+          event.preventDefault();
+          handleFormSubmit(event);
+        });
+      } else if (action === 'cancel') {
+        element.addEventListener('click', handleCancelClick);
+      } else if (action === 'open-low-priority-help') {
+        element.addEventListener('click', handleHelpClick);
+      }
+    });
+
+    const populateElements = document.querySelectorAll('[data-populate]');
+    populateElements.forEach(function(element) {
+      const dataType = element.dataset.populate;
+      if (dataType === 'sitemap-url-details') {
+        if (state.mode === 'edit') {
+          loadSitemapUrlDetails();
+        } else {
+          initCreateDefaults();
+        }
+      }
+    });
+
+    if (!state.currentSitemapId && state.mode === 'create') {
+      setBlockingError('Missing sitemapId parameter. This form must be opened from a specific sitemap.');
+    } else if (feedbackPanel) {
+      feedbackPanel.style.display = 'block';
+    }
+
+    updateInteractionState();
+  });
+  </script>
+</body>
+</html>

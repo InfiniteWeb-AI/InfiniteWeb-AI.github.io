@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Community Radio Station</title>
+
+    <!-- Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;600&amp;family=Source+Sans+3:wght@300;400;600;700&amp;display=swap" rel="stylesheet" />
+
+    <!-- Framework stylesheet -->
+    <link rel="stylesheet" href="styles.css" />
+    <!-- Schedule page stylesheet -->
+    <link rel="stylesheet" href="schedule.css" />
+</head>
+<body class="site-body">
+    <header class="site-header">
+        <div class="hero-header">
+            <div class="hero-media">
+                <div class="hero-inner wrapper">
+                    <a href="donate.html" class="btn btn-donate">Donate</a>
+
+                    <a href="listen.html" class="hero-listen-banner">
+                        <span class="hero-listen-text-main">Click to <strong>Listen LIVE online</strong></span>
+                        <span class="hero-listen-text-sub">(player opens in new window)</span>
+                    </a>
+
+                    <div class="hero-logo-badge" aria-label="Community Radio Station logo">
+                        <div class="hero-logo-ellipse hero-logo-ellipse-primary"></div>
+                        <div class="hero-logo-ellipse hero-logo-ellipse-secondary"></div>
+                        <div class="hero-logo-text">
+                            <span class="hero-logo-line hero-logo-line-top">Community Radio</span>
+                            <span class="hero-logo-line hero-logo-line-middle">106.3 FM</span>
+                            <span class="hero-logo-line hero-logo-line-bottom">and online</span>
+                        </div>
+                    </div>
+
+                    <div class="hero-tagline">
+                        <p>The community radio station for our local area, run by volunteers and not-for-profit.</p>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="main-nav" aria-label="Primary navigation">
+                <div class="wrapper nav-inner">
+                    <ul class="nav-links">
+                        <li class="nav-item"><a href="index.html">Home</a></li>
+                        <li class="nav-item"><a href="listen.html">Listen</a></li>
+                        <li class="nav-item"><a href="schedule.html">Schedule</a></li>
+                        <li class="nav-item"><a href="shows.html">Shows</a></li>
+                        <li class="nav-item"><a href="events.html">Events</a></li>
+                        <li class="nav-item"><a href="community.html">Community</a></li>
+                        <li class="nav-item"><a href="community_bulletin.html">Bulletin Board</a></li>
+                        <li class="nav-item"><a href="volunteer.html">Get Involved</a></li>
+                        <li class="nav-item"><a href="my_events.html">My Events</a></li>
+                        <li class="nav-item nav-item-donate"><a href="donate.html">Donate</a></li>
+                    </ul>
+
+                    <form class="site-search" role="search">
+                        <label class="sr-only" for="site-search-input">Search this site</label>
+                        <input id="site-search-input" type="search" name="q" placeholder="Search this site" />
+                    </form>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <main id="content" class="site-content wrapper" role="main">
+        <section class="schedule-page" aria-labelledby="schedule-page-title">
+            <header class="schedule-page-header">
+                <h1 id="schedule-page-title" class="schedule-page-title">Schedule</h1>
+            </header>
+
+            <!-- Schedule controller band: day selector + filters + time range + rebroadcast toggle -->
+            <section
+                class="schedule-controller"
+                data-component="schedule-page-controller"
+                data-populate="schedule-controller"
+                aria-label="Schedule controls"
+            ></section>
+
+            <!-- Loading / error status row -->
+            <section
+                class="schedule-status"
+                data-component="schedule-loading-error-handler"
+                data-populate="schedule-status"
+                aria-live="polite"
+            ></section>
+
+            <!-- Two-column layout: list on left, summary on right -->
+            <div class="schedule-main-layout">
+                <section class="schedule-list-wrapper" aria-label="Daily program schedule">
+                    <div
+                        class="schedule-list-container"
+                        data-component="schedule-list"
+                        data-populate="schedule-list"
+                    ></div>
+
+                    <div
+                        class="schedule-empty-state-container"
+                        data-component="schedule-empty-state"
+                        data-populate="schedule-empty-state"
+                        hidden
+                    ></div>
+                </section>
+
+                <aside
+                    class="schedule-summary-wrapper"
+                    data-component="schedule-results-summary"
+                    data-populate="schedule-summary"
+                    aria-label="Schedule summary"
+                ></aside>
+            </div>
+        </section>
+
+        <script src="business_logic.js"></script>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            'use strict';
+
+            var DAY_CODES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            var DAY_LABELS = {
+                monday: 'Monday',
+                tuesday: 'Tuesday',
+                wednesday: 'Wednesday',
+                thursday: 'Thursday',
+                friday: 'Friday',
+                saturday: 'Saturday',
+                sunday: 'Sunday'
+            };
+
+            var controllerContainer = document.querySelector('[data-populate="schedule-controller"]');
+            var statusContainer = document.querySelector('[data-populate="schedule-status"]');
+            var listContainer = document.querySelector('[data-populate="schedule-list"]');
+            var emptyContainer = document.querySelector('[data-populate="schedule-empty-state"]');
+            var summaryContainer = document.querySelector('[data-populate="schedule-summary"]');
+
+            var state = {
+                dayOfWeek: null,
+                genre: null,
+                format: null,
+                timeWindowStart: null,
+                timeWindowEnd: null,
+                includeRebroadcasts: true,
+                filtersMeta: null,
+                currentView: null,
+                effectiveFilters: {
+                    primaryGenre: null,
+                    format: null,
+                    timeWindowStart: null,
+                    timeWindowEnd: null,
+                    includeRebroadcasts: true
+                }
+            };
+
+            var statusState = {
+                type: 'idle',
+                message: ''
+            };
+
+            function escapeHtml(value) {
+                if (value === null || value === undefined) {
+                    return '';
+                }
+                return String(value)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            function parseBooleanParam(value, defaultValue) {
+                if (value === null || value === undefined) {
+                    return defaultValue;
+                }
+                var v = String(value).toLowerCase();
+                if (v === 'true' || v === '1' || v === 'yes' || v === 'on') {
+                    return true;
+                }
+                if (v === 'false' || v === '0' || v === 'no' || v === 'off') {
+                    return false;
+                }
+                return defaultValue;
+            }
+
+            function isValidTimeString(value) {
+                if (!value) {
+                    return false;
+                }
+                var match = /^(\d{2}):(\d{2})$/.exec(value);
+                if (!match) {
+                    return false;
+                }
+                var hour = parseInt(match[1], 10);
+                var minute = parseInt(match[2], 10);
+                if (isNaN(hour) || isNaN(minute)) {
+                    return false;
+                }
+                return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+            }
+
+            function getDefaultDayCode() {
+                var today = new Date();
+                // JS: 0=Sunday,1=Monday,...; map to monday..sunday
+                var jsDay = today.getDay();
+                // convert so that Monday=0 ... Sunday=6
+                var index;
+                if (jsDay === 0) {
+                    index = 6; // Sunday
+                } else {
+                    index = jsDay - 1;
+                }
+                return DAY_CODES[index] || 'monday';
+            }
+
+            function applyUrlParamsToState() {
+                var params = new URLSearchParams(window.location.search);
+
+                var day = params.get('day');
+                if (!DAY_CODES.includes(day)) {
+                    day = getDefaultDayCode();
+                }
+                state.dayOfWeek = day;
+
+                var genre = params.get('genre');
+                state.genre = genre ? genre : null;
+
+                var format = params.get('format');
+                state.format = format ? format : null;
+
+                var start = params.get('start');
+                state.timeWindowStart = start ? start : null;
+
+                var end = params.get('end');
+                state.timeWindowEnd = end ? end : null;
+
+                var includeRebroadcastsParam = params.get('includeRebroadcasts');
+                state.includeRebroadcasts = parseBooleanParam(includeRebroadcastsParam, true);
+            }
+
+            function updateUrlFromState(push) {
+                var params = new URLSearchParams();
+
+                if (state.dayOfWeek) {
+                    params.set('day', state.dayOfWeek);
+                }
+                if (state.genre) {
+                    params.set('genre', state.genre);
+                }
+                if (state.format) {
+                    params.set('format', state.format);
+                }
+                if (state.timeWindowStart) {
+                    params.set('start', state.timeWindowStart);
+                }
+                if (state.timeWindowEnd) {
+                    params.set('end', state.timeWindowEnd);
+                }
+                if (typeof state.includeRebroadcasts === 'boolean') {
+                    params.set('includeRebroadcasts', state.includeRebroadcasts ? 'true' : 'false');
+                }
+
+                var query = params.toString();
+                var newUrl = window.location.pathname + (query ? '?' + query : '');
+
+                if (push) {
+                    window.history.pushState({}, '', newUrl);
+                } else {
+                    window.history.replaceState({}, '', newUrl);
+                }
+            }
+
+            function setStatus(type, message) {
+                statusState.type = type;
+                statusState.message = message || '';
+                if (statusContainer) {
+                    renderStatus(statusContainer, statusState);
+                }
+            }
+
+            function getGenreLabel(code, filtersMeta) {
+                if (!code || !filtersMeta || !filtersMeta.genres) {
+                    return '';
+                }
+                for (var i = 0; i < filtersMeta.genres.length; i++) {
+                    var g = filtersMeta.genres[i];
+                    if (g.code === code) {
+                        return g.label || code;
+                    }
+                }
+                return code;
+            }
+
+            function getFormatLabel(code) {
+                if (!code) {
+                    return '';
+                }
+                if (code === 'music') {
+                    return 'Music';
+                }
+                if (code === 'talk') {
+                    return 'Talk';
+                }
+                if (code === 'mixed') {
+                    return 'Mixed';
+                }
+                return code;
+            }
+
+            function loadScheduleAndFilters() {
+                setStatus('loading', 'Loading schedulea0b7a0please wait0a0a0');
+                try {
+                    var filtersMeta = WebsiteSDK.getScheduleFilterOptions();
+                    if (!filtersMeta) {
+                        filtersMeta = { genres: [], formats: [], timeWindows: [] };
+                    }
+                    if (!filtersMeta.genres) {
+                        filtersMeta.genres = [];
+                    }
+                    if (!filtersMeta.formats) {
+                        filtersMeta.formats = [];
+                    }
+                    if (!filtersMeta.timeWindows) {
+                        filtersMeta.timeWindows = [];
+                    }
+                    state.filtersMeta = filtersMeta;
+
+                    var effectiveGenre = null;
+                    if (state.genre && filtersMeta.genres && filtersMeta.genres.length > 0) {
+                        for (var i = 0; i < filtersMeta.genres.length; i++) {
+                            if (filtersMeta.genres[i].code === state.genre) {
+                                effectiveGenre = state.genre;
+                                break;
+                            }
+                        }
+                    }
+
+                    var effectiveFormat = null;
+                    if (state.format && filtersMeta.formats && filtersMeta.formats.length > 0) {
+                        for (var j = 0; j < filtersMeta.formats.length; j++) {
+                            if (filtersMeta.formats[j].code === state.format) {
+                                effectiveFormat = state.format;
+                                break;
+                            }
+                        }
+                    }
+
+                    var effectiveStart = isValidTimeString(state.timeWindowStart) ? state.timeWindowStart : null;
+                    var effectiveEnd = isValidTimeString(state.timeWindowEnd) ? state.timeWindowEnd : null;
+
+                    state.effectiveFilters = {
+                        primaryGenre: effectiveGenre,
+                        format: effectiveFormat,
+                        timeWindowStart: effectiveStart,
+                        timeWindowEnd: effectiveEnd,
+                        includeRebroadcasts: state.includeRebroadcasts
+                    };
+
+                    var view = WebsiteSDK.getScheduleDayView(
+                        state.dayOfWeek,
+                        effectiveGenre || undefined,
+                        effectiveFormat || undefined,
+                        effectiveStart || undefined,
+                        effectiveEnd || undefined,
+                        state.includeRebroadcasts
+                    );
+
+                    state.currentView = view;
+                    setStatus('idle');
+                    renderAll();
+                } catch (error) {
+                    console.error(error);
+                    setStatus('error', 'Sorry, we could not load the schedule right now. Please try again.');
+                }
+            }
+
+            function renderAll() {
+                if (controllerContainer) {
+                    renderController(controllerContainer, state);
+                }
+                if (summaryContainer) {
+                    renderSummary(summaryContainer, state);
+                }
+                if (listContainer && emptyContainer) {
+                    renderScheduleOrEmpty(listContainer, emptyContainer, state);
+                }
+            }
+
+            function renderController(container, stateObj) {
+                var filtersMeta = stateObj.filtersMeta || { genres: [], formats: [], timeWindows: [] };
+
+                var dayDefs = [
+                    { code: 'monday', label: 'Mon' },
+                    { code: 'tuesday', label: 'Tue' },
+                    { code: 'wednesday', label: 'Wed' },
+                    { code: 'thursday', label: 'Thu' },
+                    { code: 'friday', label: 'Fri' },
+                    { code: 'saturday', label: 'Sat' },
+                    { code: 'sunday', label: 'Sun' }
+                ];
+
+                var dayTabsHtml = '';
+                for (var i = 0; i < dayDefs.length; i++) {
+                    var d = dayDefs[i];
+                    var isActive = d.code === stateObj.dayOfWeek;
+                    dayTabsHtml += `
+                        <button
+                            type="button"
+                            class="schedule-day-tab${isActive ? ' is-active' : ''}"
+                            data-action="change-day"
+                            data-day="${escapeHtml(d.code)}"
+                            role="tab"
+                            aria-selected="${isActive ? 'true' : 'false'}"
+                        >
+                            ${escapeHtml(d.label)}
+                        </button>
+                    `;
+                }
+
+                var genreOptions = `
+                    <option value="">All genres</option>
+                `;
+                for (var gIndex = 0; gIndex < filtersMeta.genres.length; gIndex++) {
+                    var g = filtersMeta.genres[gIndex];
+                    var selectedGenre = stateObj.genre === g.code ? ' selected' : '';
+                    genreOptions += `
+                        <option value="${escapeHtml(g.code)}"${selectedGenre}>${escapeHtml(g.label || g.code)}</option>
+                    `;
+                }
+
+                var formatOptions = `
+                    <option value="">All formats</option>
+                `;
+                for (var fIndex = 0; fIndex < filtersMeta.formats.length; fIndex++) {
+                    var f = filtersMeta.formats[fIndex];
+                    var selectedFormat = stateObj.format === f.code ? ' selected' : '';
+                    formatOptions += `
+                        <option value="${escapeHtml(f.code)}"${selectedFormat}>${escapeHtml(f.label || getFormatLabel(f.code))}</option>
+                    `;
+                }
+
+                var effective = stateObj.effectiveFilters || {
+                    primaryGenre: null,
+                    format: null,
+                    timeWindowStart: null,
+                    timeWindowEnd: null,
+                    includeRebroadcasts: true
+                };
+
+                var selectedPresetCode = '';
+                var timeWindows = filtersMeta.timeWindows || [];
+                for (var tIndex = 0; tIndex < timeWindows.length; tIndex++) {
+                    var w = timeWindows[tIndex];
+                    var wStart = w.start_time || null;
+                    var wEnd = w.end_time || null;
+                    if (effective.timeWindowStart === wStart && effective.timeWindowEnd === wEnd) {
+                        selectedPresetCode = w.code;
+                        break;
+                    }
+                }
+
+                var presetOptions = `
+                    <option value="">Any time</option>
+                `;
+                for (var twIndex = 0; twIndex < timeWindows.length; twIndex++) {
+                    var tw = timeWindows[twIndex];
+                    var selectedPreset = selectedPresetCode === tw.code ? ' selected' : '';
+                    presetOptions += `
+                        <option value="${escapeHtml(tw.code)}"${selectedPreset}>${escapeHtml(tw.label || tw.code)}</option>
+                    `;
+                }
+
+                var hasCustomTime = (!selectedPresetCode && (stateObj.timeWindowStart || stateObj.timeWindowEnd));
+
+                var customSelectedAttr = hasCustomTime ? ' selected' : '';
+                presetOptions += `
+                    <option value="__custom"${customSelectedAttr}>Custom time window</option>
+                `;
+
+                var dateLabel = '';
+                if (stateObj.currentView && stateObj.currentView.dateLabel) {
+                    dateLabel = stateObj.currentView.dateLabel;
+                } else if (stateObj.dayOfWeek && DAY_LABELS[stateObj.dayOfWeek]) {
+                    dateLabel = DAY_LABELS[stateObj.dayOfWeek];
+                }
+
+                container.innerHTML = `
+                    <div class="schedule-controller-inner">
+                        <div class="schedule-controller-top-row">
+                            <div class="schedule-day-selector" data-component="schedule-day-selector">
+                                <span class="schedule-controller-label">Day</span>
+                                <div class="schedule-day-tabs" role="tablist" aria-label="Choose day of week">
+                                    ${dayTabsHtml}
+                                </div>
+                            </div>
+                            <div class="schedule-controller-date-label">
+                                <span class="schedule-controller-label">Viewing</span>
+                                <span class="schedule-controller-date">${escapeHtml(dateLabel)}</span>
+                            </div>
+                        </div>
+                        <div class="schedule-controller-bottom-row">
+                            <form class="schedule-filter-bar" data-component="schedule-filter-bar" data-action="filter-form" aria-label="Show filters">
+                                <div class="filter-field">
+                                    <label for="schedule-genre-select">Genre</label>
+                                    <select id="schedule-genre-select" name="genre" data-action="change-genre">
+                                        ${genreOptions}
+                                    </select>
+                                </div>
+                                <div class="filter-field">
+                                    <label for="schedule-format-select">Format</label>
+                                    <select id="schedule-format-select" name="format" data-action="change-format">
+                                        ${formatOptions}
+                                    </select>
+                                </div>
+                                <div class="filter-field">
+                                    <label for="schedule-time-preset-select">Time window</label>
+                                    <select id="schedule-time-preset-select" name="timePreset" data-action="change-preset-window">
+                                        ${presetOptions}
+                                    </select>
+                                </div>
+                                <div class="filter-actions">
+                                    <button type="button" class="btn btn-secondary" data-action="clear-filters">Clear filters</button>
+                                </div>
+                            </form>
+                            <form class="schedule-time-range-form" data-component="schedule-time-range-form" aria-label="Custom time range">
+                                <fieldset class="time-range-fieldset">
+                                    <legend>Custom time</legend>
+                                    <div class="time-range-fields">
+                                        <label>
+                                            From
+                                            <input
+                                                type="time"
+                                                name="timeStart"
+                                                value="${stateObj.timeWindowStart ? escapeHtml(stateObj.timeWindowStart) : ''}"
+                                                data-action="time-start-input"
+                                            />
+                                        </label>
+                                        <label>
+                                            To
+                                            <input
+                                                type="time"
+                                                name="timeEnd"
+                                                value="${stateObj.timeWindowEnd ? escapeHtml(stateObj.timeWindowEnd) : ''}"
+                                                data-action="time-end-input"
+                                            />
+                                        </label>
+                                    </div>
+                                    <div class="time-range-actions">
+                                        <button type="button" class="btn btn-secondary" data-action="apply-time-range">Apply</button>
+                                        <button type="button" class="btn btn-link" data-action="clear-time-range">Clear</button>
+                                    </div>
+                                </fieldset>
+                            </form>
+                            <div class="rebroadcast-toggle" data-component="rebroadcast-toggle">
+                                <label class="toggle-label">
+                                    <input
+                                        type="checkbox"
+                                        class="toggle-input"
+                                        data-action="toggle-rebroadcasts"
+                                        ${stateObj.includeRebroadcasts ? 'checked' : ''}
+                                    />
+                                    <span class="toggle-pill"></span>
+                                    <span class="toggle-text">Include rebroadcasts</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderStatus(container, status) {
+                if (!status || status.type === 'idle') {
+                    container.innerHTML = '';
+                    container.style.display = 'none';
+                    return;
+                }
+                container.style.display = '';
+
+                if (status.type === 'loading') {
+                    container.innerHTML = `
+                        <div class="schedule-status-panel schedule-status-loading">
+                            <div class="schedule-status-spinner" aria-hidden="true"></div>
+                            <div class="schedule-status-message">${escapeHtml(status.message || 'Loading schedule...')}</div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                if (status.type === 'error') {
+                    container.innerHTML = `
+                        <div class="schedule-status-panel schedule-status-error" role="alert">
+                            <div class="schedule-status-message">${escapeHtml(status.message || 'An error occurred while loading the schedule.')}</div>
+                            <div class="schedule-status-actions">
+                                <button type="button" class="btn btn-secondary" data-action="retry-load">Retry</button>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            function renderScheduleOrEmpty(listCont, emptyCont, stateObj) {
+                var view = stateObj.currentView;
+                var slots = view && view.slots ? view.slots : [];
+
+                if (!slots || slots.length === 0) {
+                    listCont.innerHTML = '';
+                    listCont.hidden = true;
+                    emptyCont.hidden = false;
+                    renderEmptyState(emptyCont, stateObj);
+                } else {
+                    emptyCont.innerHTML = '';
+                    emptyCont.hidden = true;
+                    listCont.hidden = false;
+                    renderScheduleList(listCont, stateObj);
+                }
+            }
+
+            function renderScheduleList(container, stateObj) {
+                var view = stateObj.currentView || { slots: [] };
+                var slots = view.slots || [];
+                var filtersMeta = stateObj.filtersMeta || { genres: [], formats: [] };
+
+                var itemsHtml = '';
+                for (var i = 0; i < slots.length; i++) {
+                    var slot = slots[i];
+                    var timeRange = (slot.start_time || '') + (slot.end_time ? ' - ' + slot.end_time : '');
+                    var genreLabel = getGenreLabel(slot.show_primary_genre, filtersMeta);
+                    var formatLabel = getFormatLabel(slot.show_format);
+                    var badgesHtml = '';
+
+                    if (slot.is_rebroadcast) {
+                        badgesHtml += `<span class="slot-badge slot-badge-rebroadcast">Rebroadcast</span>`;
+                    } else {
+                        badgesHtml += `<span class="slot-badge slot-badge-live">Live</span>`;
+                    }
+
+                    if (slot.allows_song_requests) {
+                        badgesHtml += `<span class="slot-badge slot-badge-requests">Song requests welcome</span>`;
+                    }
+
+                    if (slot.is_favorited) {
+                        badgesHtml += `<span class="slot-badge slot-badge-favorited">Favorited</span>`;
+                    }
+
+                    var descriptionText = slot.short_description ? escapeHtml(slot.short_description) : '';
+
+                    itemsHtml += `
+                        <article
+                            class="schedule-slot"
+                            role="listitem"
+                            data-slot-id="${escapeHtml(slot.schedule_slot_id)}"
+                            data-show-id="${escapeHtml(slot.show_id)}"
+                        >
+                            <div class="schedule-slot-time">
+                                <span class="schedule-slot-time-range">${escapeHtml(timeRange)}</span>
+                            </div>
+                            <div class="schedule-slot-main">
+                                <button
+                                    type="button"
+                                    class="schedule-slot-title-btn"
+                                    data-action="open-show"
+                                    data-show-id="${escapeHtml(slot.show_id)}"
+                                    data-schedule-slot-id="${escapeHtml(slot.schedule_slot_id)}"
+                                >
+                                    <span class="schedule-slot-title">${escapeHtml(slot.show_title)}</span>
+                                </button>
+                                <div class="schedule-slot-meta">
+                                    ${genreLabel ? `<span class="slot-meta-item slot-meta-genre">${escapeHtml(genreLabel)}</span>` : ''}
+                                    ${formatLabel ? `<span class="slot-meta-item slot-meta-format">${escapeHtml(formatLabel)}</span>` : ''}
+                                </div>
+                                <div class="schedule-slot-badges">
+                                    ${badgesHtml}
+                                </div>
+                                ${descriptionText ? `
+                                    <div class="schedule-slot-description" data-slot-details="collapsed">
+                                        <p>${descriptionText}</p>
+                                        <button type="button" class="slot-details-toggle" data-action="toggle-slot-details">Less info</button>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </article>
+                    `;
+                }
+
+                container.innerHTML = `
+                    <div class="schedule-list" role="list">
+                        ${itemsHtml}
+                    </div>
+                `;
+            }
+
+            function renderEmptyState(container, stateObj) {
+                var dayLabel = stateObj.dayOfWeek && DAY_LABELS[stateObj.dayOfWeek] ? DAY_LABELS[stateObj.dayOfWeek] : 'Selected day';
+                var dateLabel = stateObj.currentView && stateObj.currentView.dateLabel ? stateObj.currentView.dateLabel : dayLabel;
+                var todayCode = getDefaultDayCode();
+                var todayLabel = DAY_LABELS[todayCode] || 'today';
+
+                container.innerHTML = `
+                    <div class="schedule-empty-state" role="status">
+                        <h2 class="schedule-empty-title">No shows found for ${escapeHtml(dateLabel)}</h2>
+                        <p class="schedule-empty-text">
+                            Your current combination of filters did not match any scheduled shows.
+                        </p>
+                        <div class="schedule-empty-actions">
+                            <button type="button" class="btn btn-secondary" data-action="empty-clear-filters">Clear all filters</button>
+                            <button
+                                type="button"
+                                class="btn btn-link"
+                                data-action="empty-switch-day"
+                                data-day="${escapeHtml(todayCode)}"
+                            >
+                                View ${escapeHtml(todayLabel)}'s schedule
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderSummary(container, stateObj) {
+                var view = stateObj.currentView;
+                if (!view) {
+                    container.innerHTML = '';
+                    return;
+                }
+                var slots = view.slots || [];
+
+                var dayLabel = view.dayOfWeek && DAY_LABELS[view.dayOfWeek] ? DAY_LABELS[view.dayOfWeek] : '';
+                var dateLabel = view.dateLabel || dayLabel;
+
+                var slotCount = slots.length;
+
+                var genreSet = {};
+                var liveCount = 0;
+                var rebroadcastCount = 0;
+                for (var i = 0; i < slots.length; i++) {
+                    var slot = slots[i];
+                    if (slot.show_primary_genre) {
+                        genreSet[slot.show_primary_genre] = true;
+                    }
+                    if (slot.is_rebroadcast) {
+                        rebroadcastCount++;
+                    } else {
+                        liveCount++;
+                    }
+                }
+                var distinctGenres = Object.keys(genreSet).length;
+
+                var effective = stateObj.effectiveFilters || {
+                    primaryGenre: null,
+                    format: null,
+                    timeWindowStart: null,
+                    timeWindowEnd: null,
+                    includeRebroadcasts: true
+                };
+
+                var filtersMeta = stateObj.filtersMeta || { genres: [], formats: [], timeWindows: [] };
+
+                var filterItemsHtml = '';
+
+                if (effective.primaryGenre) {
+                    filterItemsHtml += `<li>Genre: ${escapeHtml(getGenreLabel(effective.primaryGenre, filtersMeta))}</li>`;
+                } else {
+                    filterItemsHtml += `<li>Genre: All</li>`;
+                }
+
+                if (effective.format) {
+                    filterItemsHtml += `<li>Format: ${escapeHtml(getFormatLabel(effective.format))}</li>`;
+                } else {
+                    filterItemsHtml += `<li>Format: All</li>`;
+                }
+
+                var timeLabel = 'Any time';
+                if (effective.timeWindowStart && effective.timeWindowEnd) {
+                    timeLabel = effective.timeWindowStart + ' - ' + effective.timeWindowEnd;
+                } else if (effective.timeWindowStart) {
+                    timeLabel = 'From ' + effective.timeWindowStart;
+                } else if (effective.timeWindowEnd) {
+                    timeLabel = 'Until ' + effective.timeWindowEnd;
+                }
+                filterItemsHtml += `<li>Time: ${escapeHtml(timeLabel)}</li>`;
+
+                var rebroadcastLabel = effective.includeRebroadcasts ? 'Included' : 'Excluded';
+                filterItemsHtml += `<li>Rebroadcasts: ${escapeHtml(rebroadcastLabel)}</li>`;
+
+                container.innerHTML = `
+                    <div class="schedule-summary-card">
+                        <h2 class="schedule-summary-title">${escapeHtml(dayLabel)}</h2>
+                        <p class="schedule-summary-date">${escapeHtml(dateLabel)}</p>
+                        <dl class="schedule-summary-metrics">
+                            <div class="summary-metric">
+                                <dt>Shows this day</dt>
+                                <dd>${slotCount}</dd>
+                            </div>
+                            <div class="summary-metric">
+                                <dt>Distinct genres</dt>
+                                <dd>${distinctGenres}</dd>
+                            </div>
+                            <div class="summary-metric">
+                                <dt>Live shows</dt>
+                                <dd>${liveCount}</dd>
+                            </div>
+                            <div class="summary-metric">
+                                <dt>Rebroadcasts</dt>
+                                <dd>${rebroadcastCount}</dd>
+                            </div>
+                        </dl>
+                        <div class="schedule-summary-filters">
+                            <h3>Active filters</h3>
+                            <ul>
+                                ${filterItemsHtml}
+                            </ul>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function handleApplyTimeRange(target) {
+                var form = target.closest('.schedule-time-range-form');
+                if (!form) {
+                    return;
+                }
+                var startInput = form.querySelector('input[name="timeStart"]');
+                var endInput = form.querySelector('input[name="timeEnd"]');
+                if (!startInput || !endInput) {
+                    return;
+                }
+                var startVal = startInput.value || null;
+                var endVal = endInput.value || null;
+
+                if (startVal && !isValidTimeString(startVal)) {
+                    window.alert('Please enter a valid start time in HH:MM format.');
+                    return;
+                }
+                if (endVal && !isValidTimeString(endVal)) {
+                    window.alert('Please enter a valid end time in HH:MM format.');
+                    return;
+                }
+                if (startVal && endVal && startVal > endVal) {
+                    window.alert('Start time must be earlier than end time.');
+                    return;
+                }
+
+                state.timeWindowStart = startVal;
+                state.timeWindowEnd = endVal;
+                updateUrlFromState(true);
+                loadScheduleAndFilters();
+            }
+
+            function handleClearTimeRange() {
+                state.timeWindowStart = null;
+                state.timeWindowEnd = null;
+                updateUrlFromState(true);
+                loadScheduleAndFilters();
+            }
+
+            function handlePresetWindowChange(selectEl) {
+                var value = selectEl.value;
+                var filtersMeta = state.filtersMeta || { timeWindows: [] };
+                var timeWindows = filtersMeta.timeWindows || [];
+
+                if (!value) {
+                    state.timeWindowStart = null;
+                    state.timeWindowEnd = null;
+                } else if (value === '__custom') {
+                    // Do not change current start/end; user will adjust and apply
+                } else {
+                    var matched = null;
+                    for (var i = 0; i < timeWindows.length; i++) {
+                        if (timeWindows[i].code === value) {
+                            matched = timeWindows[i];
+                            break;
+                        }
+                    }
+                    if (matched) {
+                        state.timeWindowStart = matched.start_time || null;
+                        state.timeWindowEnd = matched.end_time || null;
+                    }
+                }
+
+                updateUrlFromState(true);
+                loadScheduleAndFilters();
+            }
+
+            function clearAllFilters() {
+                state.genre = null;
+                state.format = null;
+                state.timeWindowStart = null;
+                state.timeWindowEnd = null;
+                state.includeRebroadcasts = true;
+                updateUrlFromState(true);
+                loadScheduleAndFilters();
+            }
+
+            document.addEventListener('click', function(event) {
+                var actionEl = event.target.closest('[data-action]');
+                if (!actionEl) {
+                    return;
+                }
+                var action = actionEl.getAttribute('data-action');
+
+                if (action === 'change-day') {
+                    var day = actionEl.getAttribute('data-day');
+                    if (day && DAY_CODES.includes(day) && day !== state.dayOfWeek) {
+                        state.dayOfWeek = day;
+                        updateUrlFromState(true);
+                        loadScheduleAndFilters();
+                    }
+                    return;
+                }
+
+                if (action === 'apply-time-range') {
+                    handleApplyTimeRange(actionEl);
+                    return;
+                }
+
+                if (action === 'clear-time-range') {
+                    handleClearTimeRange();
+                    return;
+                }
+
+                if (action === 'clear-filters') {
+                    clearAllFilters();
+                    return;
+                }
+
+                if (action === 'toggle-slot-details') {
+                    var detailsEl = actionEl.closest('.schedule-slot-description');
+                    if (detailsEl) {
+                        var isCollapsed = detailsEl.getAttribute('data-slot-details') === 'collapsed';
+                        if (isCollapsed) {
+                            detailsEl.setAttribute('data-slot-details', 'expanded');
+                            actionEl.textContent = 'Less info';
+                        } else {
+                            detailsEl.setAttribute('data-slot-details', 'collapsed');
+                            actionEl.textContent = 'More info';
+                        }
+                    }
+                    return;
+                }
+
+                if (action === 'open-show') {
+                    var showId = actionEl.getAttribute('data-show-id');
+                    var slotId = actionEl.getAttribute('data-schedule-slot-id');
+                    if (showId && slotId) {
+                        var url = 'show.html?showId=' + encodeURIComponent(showId) + '&scheduleSlotId=' + encodeURIComponent(slotId);
+                        window.location.href = url;
+                    }
+                    return;
+                }
+
+                if (action === 'empty-clear-filters') {
+                    clearAllFilters();
+                    return;
+                }
+
+                if (action === 'empty-switch-day') {
+                    var targetDay = actionEl.getAttribute('data-day');
+                    if (!targetDay || !DAY_CODES.includes(targetDay)) {
+                        targetDay = getDefaultDayCode();
+                    }
+                    state.dayOfWeek = targetDay;
+                    updateUrlFromState(true);
+                    loadScheduleAndFilters();
+                    return;
+                }
+
+                if (action === 'retry-load') {
+                    loadScheduleAndFilters();
+                    return;
+                }
+            });
+
+            document.addEventListener('change', function(event) {
+                var target = event.target;
+                if (!target.matches('[data-action]')) {
+                    return;
+                }
+                var action = target.getAttribute('data-action');
+
+                if (action === 'change-genre') {
+                    var genreVal = target.value || null;
+                    state.genre = genreVal;
+                    updateUrlFromState(true);
+                    loadScheduleAndFilters();
+                    return;
+                }
+
+                if (action === 'change-format') {
+                    var formatVal = target.value || null;
+                    state.format = formatVal;
+                    updateUrlFromState(true);
+                    loadScheduleAndFilters();
+                    return;
+                }
+
+                if (action === 'change-preset-window') {
+                    handlePresetWindowChange(target);
+                    return;
+                }
+
+                if (action === 'toggle-rebroadcasts') {
+                    var checked = target.checked;
+                    state.includeRebroadcasts = !!checked;
+                    updateUrlFromState(true);
+                    loadScheduleAndFilters();
+                    return;
+                }
+            });
+
+            window.addEventListener('popstate', function() {
+                applyUrlParamsToState();
+                loadScheduleAndFilters();
+            });
+
+            applyUrlParamsToState();
+            loadScheduleAndFilters();
+        });
+        </script>
+    </main>
+
+    <footer class="site-footer">
+        <div class="wrapper footer-inner">
+            <div class="footer-brand">
+                <div class="footer-logo-mark" aria-hidden="true"></div>
+                <div class="footer-brand-text">
+                    <p class="footer-station-name">Community Radio 106.3 FM</p>
+                    <p class="footer-tagline">Local voices, local music, local stories.</p>
+                </div>
+            </div>
+
+            <div class="footer-links-columns" aria-label="Footer navigation">
+                <div class="footer-column">
+                    <ul class="footer-links">
+                        <li><a href="about.html">About</a></li>
+                        <li><a href="contact.html">Contact</a></li>
+                        <li><a href="newsletter.html">Newsletter Signup</a></li>
+                        <li><a href="volunteer.html">Volunteer</a></li>
+                    </ul>
+                </div>
+                <div class="footer-column">
+                    <ul class="footer-links">
+                        <li><a href="events.html">Events</a></li>
+                        <li><a href="support.html">Support / Underwriting</a></li>
+                        <li><a href="faq.html">FAQ</a></li>
+                        <li><a href="policies.html">Policies</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer-bottom">
+            <div class="wrapper footer-bottom-inner">
+                <p class="footer-copy">&copy; <span class="footer-year">2026</span> Community Radio 106.3 FM. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

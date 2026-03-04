@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta http-equiv='X-UA-Compatible' content='IE=edge'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Local Basketball League</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='playoffs.css'>
+</head>
+<body>
+  <header id='site-header'>
+    <nav class='main-nav' aria-label='Main navigation'>
+      <a href='index.html'>Home</a>
+      <a href='adult_leagues.html'>Adult Leagues</a>
+      <a href='youth_leagues.html'>Youth Leagues</a>
+      <a href='schedule.html'>Schedule</a>
+      <a href='playoffs.html'>Playoffs</a>
+      <a href='locations.html'>Locations</a>
+      <a href='sponsors.html'>Sponsors</a>
+      <a href='volunteer.html'>Volunteer</a>
+      <a href='contact.html'>Contact</a>
+    </nav>
+
+    <h1 id='site-title'>Local Basketball League</h1>
+
+    <div class='header-banner' aria-hidden='true'></div>
+  </header>
+
+  <main id='content' role='main'>
+    <h2 id='page-title'>Playoffs &amp; Championships</h2>
+    <p id='page-instructions'>Select a division to view its playoff bracket and see details for championship games.</p>
+
+    <div id='playoff-division-initializer' data-component='playoff-division-initializer'>
+      <span id='playoff-division-loading'>Loading playoff divisions...</span>
+      <span id='playoff-division-error' style='display:none;'>Unable to load playoff divisions. Please try again later.</span>
+    </div>
+
+    <div id='playoff-division-selector' data-component='playoff-division-selector'>
+      <label for='playoff-division-select'>Division:</label>
+      <select id='playoff-division-select' name='divisionId' data-action='change-division'>
+        <option value=''>Select a playoff division</option>
+      </select>
+    </div>
+
+    <section id='playoff-bracket-view' data-component='playoff-bracket-view' aria-live='polite' aria-busy='false'>
+      <h3 id='bracket-division-name'></h3>
+      <p id='bracket-description'></p>
+      <p>
+        <a href='javascript:void(0)' id='view-full-division-schedule-link' data-action='view-full-division-schedule'>View full division schedule</a>
+      </p>
+      <div id='bracket-games-container' data-populate='playoff-bracket'></div>
+    </section>
+
+    <section id='championship-games-summary' data-component='championship-games-summary' aria-live='polite'>
+      <h3>Championship games across all divisions</h3>
+      <div id='championship-games-list' data-populate='championship-games-summary'></div>
+    </section>
+
+    <p id='playoff-question-cta' data-component='playoff-question-cta'>
+      <a href='javascript:void(0)' data-action='general-playoff-question'>Have a playoff question? Contact us</a>
+    </p>
+  </main>
+
+  <footer id='site-footer'>
+    <hr>
+    <nav class='footer-nav' aria-label='Footer navigation'>
+      <a href='about.html'>About</a>
+      <a href='faq.html'>FAQ</a>
+      <a href='adult_leagues.html'>Adult Leagues</a>
+      <a href='youth_leagues.html'>Youth Leagues</a>
+      <a href='schedule.html'>Schedule &amp; Standings</a>
+      <a href='playoffs.html'>Playoffs &amp; Championships</a>
+      <a href='locations.html'>Locations &amp; Facilities</a>
+      <a href='sponsors.html'>Sponsors &amp; Advertising</a>
+      <a href='volunteer.html'>Volunteer &amp; Get Involved</a>
+      <a href='contact.html'>Contact Us</a>
+    </nav>
+    <p class='footer-copy'>&copy; Local Basketball League.</p>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var state = {
+        divisions: [],
+        selectedDivisionId: null
+      };
+
+      var loadingEl = document.getElementById('playoff-division-loading');
+      var errorEl = document.getElementById('playoff-division-error');
+      var initializerEl = document.getElementById('playoff-division-initializer');
+      var divisionSelectEl = document.getElementById('playoff-division-select');
+      var bracketDivisionNameEl = document.getElementById('bracket-division-name');
+      var bracketDescriptionEl = document.getElementById('bracket-description');
+      var bracketGamesContainer = document.querySelector('[data-populate=playoff-bracket]');
+      var championshipGamesContainer = document.querySelector('[data-populate=championship-games-summary]');
+
+      function getUrlDivisionId() {
+        var params = new URLSearchParams(window.location.search);
+        var id = params.get('divisionId');
+        return id || null;
+      }
+
+      function setUrlDivisionId(divisionId, replace) {
+        try {
+          var url = new URL(window.location.href);
+          var params = url.searchParams;
+          if (divisionId) {
+            params.set('divisionId', divisionId);
+          } else {
+            params.delete('divisionId');
+          }
+          url.search = params.toString();
+          var method = replace ? 'replaceState' : 'pushState';
+          if (window.history && window.history[method]) {
+            window.history[method]({}, '', url.toString());
+          } else {
+            window.location.search = url.search;
+          }
+        } catch (e) {
+          // Fallback if URL API is not available
+        }
+      }
+
+      function formatDate(dateString) {
+        if (!dateString) return '';
+        var d = new Date(dateString);
+        if (isNaN(d.getTime())) return '';
+        var year = d.getFullYear();
+        var month = String(d.getMonth() + 1).padStart(2, '0');
+        var day = String(d.getDate()).padStart(2, '0');
+        return year + '-' + month + '-' + day;
+      }
+
+      function formatTime(dateString) {
+        if (!dateString) return '';
+        var d = new Date(dateString);
+        if (isNaN(d.getTime())) return '';
+        var hours = String(d.getHours()).padStart(2, '0');
+        var minutes = String(d.getMinutes()).padStart(2, '0');
+        return hours + ':' + minutes;
+      }
+
+      function formatDayOfWeek(day) {
+        if (!day) return '';
+        return day.charAt(0).toUpperCase() + day.slice(1);
+      }
+
+      function attachActionHandlersForContainer(root) {
+        if (!root) return;
+        var elements = root.querySelectorAll('[data-action]');
+        elements.forEach(function(el) {
+          if (el.dataset.bound === 'true') return;
+          var action = el.dataset.action;
+          if (action === 'championship-gym-link' ||
+              action === 'summary-gym-link' ||
+              action === 'championship-media-request' ||
+              action === 'summary-media-request') {
+            el.addEventListener('click', handleDynamicActionClick);
+            el.dataset.bound = 'true';
+          }
+        });
+      }
+
+      function handleDynamicActionClick(event) {
+        event.preventDefault();
+        var el = event.currentTarget;
+        var action = el.dataset.action;
+        if (action === 'championship-gym-link' || action === 'summary-gym-link') {
+          var gymId = el.dataset.gymId || '';
+          if (gymId) {
+            navigateToLocation(gymId);
+          }
+        } else if (action === 'championship-media-request' || action === 'summary-media-request') {
+          var divisionId = el.dataset.divisionId || '';
+          var gameId = el.dataset.gameId || '';
+          var startDatetime = el.dataset.startDatetime || '';
+          navigateToMediaRequest(divisionId, gameId, startDatetime);
+        }
+      }
+
+      function navigateToSchedule(divisionId) {
+        var url = 'schedule.html';
+        if (divisionId) {
+          var params = new URLSearchParams();
+          params.set('divisionId', divisionId);
+          url += '?' + params.toString();
+        }
+        window.location.href = url;
+      }
+
+      function navigateToLocation(gymId) {
+        if (!gymId) return;
+        var params = new URLSearchParams();
+        params.set('gymId', gymId);
+        var url = 'locations.html?' + params.toString();
+        window.location.href = url;
+      }
+
+      function navigateToMediaRequest(divisionId, gameId, startDatetime) {
+        var params = new URLSearchParams();
+        params.set('reason', 'media_request');
+        if (divisionId) params.set('divisionId', divisionId);
+        if (gameId) params.set('gameId', gameId);
+        if (startDatetime) {
+          var datePart = formatDate(startDatetime);
+          var timePart = formatTime(startDatetime);
+          if (datePart) params.set('gameDate', datePart);
+          if (timePart) params.set('gameStartTime', timePart);
+        }
+        params.set('isMediaCourtsideRequested', 'true');
+        var url = 'contact.html?' + params.toString();
+        window.location.href = url;
+      }
+
+      function renderDivisionSelector(divisions) {
+        if (!divisionSelectEl) return;
+        while (divisionSelectEl.options.length > 1) {
+          divisionSelectEl.remove(1);
+        }
+        divisions.forEach(function(div) {
+          var opt = document.createElement('option');
+          opt.value = div.division_id;
+          opt.textContent = div.division_name;
+          divisionSelectEl.appendChild(opt);
+        });
+        if (state.selectedDivisionId) {
+          divisionSelectEl.value = state.selectedDivisionId;
+        }
+      }
+
+      function renderBracketGames(container, bracketData) {
+        if (!container) return;
+        container.innerHTML = '';
+        if (!bracketData || !Array.isArray(bracketData.games) || bracketData.games.length === 0) {
+          var msg = document.createElement('p');
+          msg.textContent = 'No playoff games found for this division.';
+          container.appendChild(msg);
+          return;
+        }
+
+        var table = document.createElement('table');
+        var thead = document.createElement('thead');
+        var headerRow = document.createElement('tr');
+
+        var thDate = document.createElement('th');
+        thDate.textContent = 'Date / Time';
+        var thMatchup = document.createElement('th');
+        thMatchup.textContent = 'Matchup';
+        var thLocation = document.createElement('th');
+        thLocation.textContent = 'Location';
+        var thStatus = document.createElement('th');
+        thStatus.textContent = 'Status';
+        var thNotes = document.createElement('th');
+        thNotes.textContent = 'Notes / Actions';
+
+        headerRow.appendChild(thDate);
+        headerRow.appendChild(thMatchup);
+        headerRow.appendChild(thLocation);
+        headerRow.appendChild(thStatus);
+        headerRow.appendChild(thNotes);
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        var tbody = document.createElement('tbody');
+
+        bracketData.games.forEach(function(game) {
+          var tr = document.createElement('tr');
+
+          var tdDate = document.createElement('td');
+          var dateText = formatDayOfWeek(game.day_of_week) + ' ' + formatDate(game.start_datetime) + ' ' + formatTime(game.start_datetime);
+          tdDate.textContent = dateText.trim();
+
+          var tdMatchup = document.createElement('td');
+          var matchup = '';
+          if (game.away_team_name) matchup += game.away_team_name;
+          if (matchup) matchup += ' at ';
+          if (game.home_team_name) matchup += game.home_team_name;
+          tdMatchup.textContent = matchup;
+
+          var tdLocation = document.createElement('td');
+          if (game.is_championship && game.location_gym_id) {
+            var gymLink = document.createElement('a');
+            gymLink.href = 'javascript:void(0)';
+            gymLink.textContent = game.location_gym_name || '';
+            gymLink.dataset.action = 'championship-gym-link';
+            gymLink.dataset.gymId = game.location_gym_id;
+            tdLocation.appendChild(gymLink);
+          } else {
+            tdLocation.textContent = game.location_gym_name || '';
+          }
+          if (game.location_court_name) {
+            var courtText = document.createTextNode(' - ' + game.location_court_name);
+            tdLocation.appendChild(courtText);
+          }
+
+          var tdStatus = document.createElement('td');
+          tdStatus.textContent = game.status || '';
+
+          var tdNotes = document.createElement('td');
+          if (game.is_championship) {
+            var strong = document.createElement('strong');
+            strong.textContent = 'Championship game';
+            tdNotes.appendChild(strong);
+            tdNotes.appendChild(document.createElement('br'));
+            var mediaLink = document.createElement('a');
+            mediaLink.href = 'javascript:void(0)';
+            mediaLink.textContent = 'Request photo/media access';
+            mediaLink.dataset.action = 'championship-media-request';
+            mediaLink.dataset.divisionId = bracketData.division_id || '';
+            mediaLink.dataset.gameId = game.game_id || '';
+            mediaLink.dataset.startDatetime = game.start_datetime || '';
+            tdNotes.appendChild(mediaLink);
+          } else {
+            tdNotes.textContent = 'Playoff game';
+          }
+
+          tr.appendChild(tdDate);
+          tr.appendChild(tdMatchup);
+          tr.appendChild(tdLocation);
+          tr.appendChild(tdStatus);
+          tr.appendChild(tdNotes);
+          tbody.appendChild(tr);
+        });
+
+        table.appendChild(tbody);
+        container.appendChild(table);
+        attachActionHandlersForContainer(container);
+      }
+
+      function loadPlayoffBracket(divisionId) {
+        if (!divisionId || !bracketGamesContainer) return;
+        if (bracketDivisionNameEl) bracketDivisionNameEl.textContent = '';
+        if (bracketDescriptionEl) bracketDescriptionEl.textContent = '';
+        bracketGamesContainer.innerHTML = '';
+        var viewEl = document.getElementById('playoff-bracket-view');
+        if (viewEl) {
+          viewEl.setAttribute('aria-busy', 'true');
+        }
+        try {
+          var data = WebsiteSDK.getPlayoffScheduleByDivision(divisionId);
+          if (bracketDivisionNameEl) {
+            bracketDivisionNameEl.textContent = data.division_name || '';
+          }
+          if (bracketDescriptionEl) {
+            bracketDescriptionEl.textContent = data.bracket_description || '';
+          }
+          renderBracketGames(bracketGamesContainer, data);
+        } catch (e) {
+          bracketGamesContainer.innerHTML = '';
+          var msg = document.createElement('p');
+          msg.textContent = 'Unable to load playoff bracket for this division.';
+          bracketGamesContainer.appendChild(msg);
+        } finally {
+          if (viewEl) {
+            viewEl.setAttribute('aria-busy', 'false');
+          }
+        }
+      }
+
+      function renderChampionshipGamesList(container, games) {
+        if (!container) return;
+        container.innerHTML = '';
+        if (!Array.isArray(games) || games.length === 0) {
+          var msg = document.createElement('p');
+          msg.textContent = 'No championship games to display yet.';
+          container.appendChild(msg);
+          return;
+        }
+
+        var sorted = games.slice().sort(function(a, b) {
+          var da = new Date(a.start_datetime || '');
+          var db = new Date(b.start_datetime || '');
+          return da - db;
+        });
+
+        var table = document.createElement('table');
+        var thead = document.createElement('thead');
+        var headerRow = document.createElement('tr');
+
+        var thDate = document.createElement('th');
+        thDate.textContent = 'Date / Time';
+        var thDivision = document.createElement('th');
+        thDivision.textContent = 'Division';
+        var thMatchup = document.createElement('th');
+        thMatchup.textContent = 'Matchup';
+        var thLocation = document.createElement('th');
+        thLocation.textContent = 'Location';
+        var thStatus = document.createElement('th');
+        thStatus.textContent = 'Status';
+        var thActions = document.createElement('th');
+        thActions.textContent = 'Actions';
+
+        headerRow.appendChild(thDate);
+        headerRow.appendChild(thDivision);
+        headerRow.appendChild(thMatchup);
+        headerRow.appendChild(thLocation);
+        headerRow.appendChild(thStatus);
+        headerRow.appendChild(thActions);
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        var tbody = document.createElement('tbody');
+
+        sorted.forEach(function(game) {
+          var tr = document.createElement('tr');
+
+          var tdDate = document.createElement('td');
+          var dateText = formatDayOfWeek(game.day_of_week) + ' ' + formatDate(game.start_datetime) + ' ' + formatTime(game.start_datetime);
+          tdDate.textContent = dateText.trim();
+
+          var tdDivision = document.createElement('td');
+          tdDivision.textContent = game.division_name || '';
+
+          var tdMatchup = document.createElement('td');
+          var matchup = '';
+          if (game.away_team_name) matchup += game.away_team_name;
+          if (matchup) matchup += ' at ';
+          if (game.home_team_name) matchup += game.home_team_name;
+          tdMatchup.textContent = matchup;
+
+          var tdLocation = document.createElement('td');
+          if (game.location_gym_id) {
+            var gymLink = document.createElement('a');
+            gymLink.href = 'javascript:void(0)';
+            gymLink.textContent = game.location_gym_name || '';
+            gymLink.dataset.action = 'summary-gym-link';
+            gymLink.dataset.gymId = game.location_gym_id;
+            tdLocation.appendChild(gymLink);
+          } else {
+            tdLocation.textContent = game.location_gym_name || '';
+          }
+          if (game.location_court_name) {
+            var courtText = document.createTextNode(' - ' + game.location_court_name);
+            tdLocation.appendChild(courtText);
+          }
+
+          var tdStatus = document.createElement('td');
+          tdStatus.textContent = game.status || '';
+
+          var tdActions = document.createElement('td');
+          var mediaLink = document.createElement('a');
+          mediaLink.href = 'javascript:void(0)';
+          mediaLink.textContent = 'Request photo/media access';
+          mediaLink.dataset.action = 'summary-media-request';
+          mediaLink.dataset.divisionId = game.division_id || '';
+          mediaLink.dataset.gameId = game.game_id || '';
+          mediaLink.dataset.startDatetime = game.start_datetime || '';
+          tdActions.appendChild(mediaLink);
+
+          tr.appendChild(tdDate);
+          tr.appendChild(tdDivision);
+          tr.appendChild(tdMatchup);
+          tr.appendChild(tdLocation);
+          tr.appendChild(tdStatus);
+          tr.appendChild(tdActions);
+          tbody.appendChild(tr);
+        });
+
+        table.appendChild(tbody);
+        container.appendChild(table);
+        attachActionHandlersForContainer(container);
+      }
+
+      function initializeChampionshipSummary(container) {
+        if (!container) return;
+        try {
+          var games = WebsiteSDK.getChampionshipGames();
+          renderChampionshipGamesList(container, games);
+        } catch (e) {
+          container.innerHTML = '';
+          var msg = document.createElement('p');
+          msg.textContent = 'Unable to load championship games.';
+          container.appendChild(msg);
+        }
+      }
+
+      function initializeDivisions() {
+        if (loadingEl) loadingEl.style.display = '';
+        if (errorEl) errorEl.style.display = 'none';
+        var urlDivisionId = getUrlDivisionId();
+        try {
+          state.divisions = WebsiteSDK.getDivisionsByType('playoff') || [];
+        } catch (e) {
+          if (loadingEl) loadingEl.style.display = 'none';
+          if (errorEl) errorEl.style.display = '';
+          return;
+        }
+
+        if (!state.divisions.length) {
+          if (loadingEl) loadingEl.style.display = 'none';
+          if (errorEl) {
+            errorEl.textContent = 'No playoff divisions are currently available.';
+            errorEl.style.display = '';
+          }
+          return;
+        }
+
+        var validIds = state.divisions.map(function(d) { return d.division_id; });
+        var selected = urlDivisionId && validIds.indexOf(urlDivisionId) !== -1 ? urlDivisionId : state.divisions[0].division_id;
+        state.selectedDivisionId = selected;
+
+        if (!urlDivisionId || validIds.indexOf(urlDivisionId) === -1) {
+          setUrlDivisionId(selected, true);
+        }
+
+        renderDivisionSelector(state.divisions);
+
+        if (initializerEl) {
+          initializerEl.style.display = 'none';
+        }
+
+        loadPlayoffBracket(selected);
+      }
+
+      function handleDivisionChange(event) {
+        var newId = event.target.value;
+        if (!newId) return;
+        if (newId === state.selectedDivisionId) return;
+        state.selectedDivisionId = newId;
+        setUrlDivisionId(newId, false);
+        loadPlayoffBracket(newId);
+      }
+
+      function handleViewFullScheduleClick(event) {
+        event.preventDefault();
+        if (!state.selectedDivisionId) return;
+        navigateToSchedule(state.selectedDivisionId);
+      }
+
+      function handleGeneralPlayoffQuestion(event) {
+        event.preventDefault();
+        var url = 'contact.html?reason=general_question';
+        window.location.href = url;
+      }
+
+      function setupStaticActionHandlers() {
+        var actionElements = document.querySelectorAll('[data-action]');
+        actionElements.forEach(function(el) {
+          var action = el.dataset.action;
+          if (action === 'change-division') {
+            el.addEventListener('change', handleDivisionChange);
+          } else if (action === 'view-full-division-schedule') {
+            el.addEventListener('click', handleViewFullScheduleClick);
+          } else if (action === 'general-playoff-question') {
+            el.addEventListener('click', handleGeneralPlayoffQuestion);
+          }
+        });
+      }
+
+      window.addEventListener('popstate', function() {
+        if (!state.divisions.length) return;
+        var urlDivisionId = getUrlDivisionId();
+        if (!urlDivisionId || urlDivisionId === state.selectedDivisionId) return;
+        var exists = state.divisions.some(function(d) { return d.division_id === urlDivisionId; });
+        if (exists) {
+          state.selectedDivisionId = urlDivisionId;
+          if (divisionSelectEl) {
+            divisionSelectEl.value = urlDivisionId;
+          }
+          loadPlayoffBracket(urlDivisionId);
+        }
+      });
+
+      setupStaticActionHandlers();
+      initializeDivisions();
+      initializeChampionshipSummary(championshipGamesContainer);
+    });
+  </script>
+</body>
+</html>

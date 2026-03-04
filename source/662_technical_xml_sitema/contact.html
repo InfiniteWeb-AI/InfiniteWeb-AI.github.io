@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta http-equiv='X-UA-Compatible' content='IE=edge'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Sitemap Management - Contact</title>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='contact.css'>
+</head>
+<body>
+
+<header class='page-header' role='banner'>
+    <h1 class='page-title'>Sitemap Management</h1>
+    <nav class='primary-nav' aria-label='Primary'>
+        <ul class='primary-nav-list'>
+            <li class='primary-nav-item'><a href='index.html'>Dashboard</a></li>
+            <li class='primary-nav-item'><a href='sitemap_index.html'>Sitemap Index</a></li>
+            <li class='primary-nav-item'><a href='url_lists.html'>URL Lists</a></li>
+            <li class='primary-nav-item'><a href='sitemap_groups.html'>Groups</a></li>
+            <li class='primary-nav-item'><a href='reports.html'>Reports</a></li>
+            <li class='primary-nav-item'><a href='help.html'>Help</a></li>
+        </ul>
+    </nav>
+</header>
+
+<main id='content' class='content' role='main'>
+    <section class='contact-page' data-component='contact-page-controller'>
+        <header class='contact-page-header'>
+            <h1>Contact</h1>
+            <p class='contact-page-description'>Use this page to report sitemap issues, request features, or ask questions about sitemap management.</p>
+        </header>
+
+        <section class='contact-info-wrapper' aria-label='Support contact information'>
+            <div class='contact-info-panel' data-component='contact-info-panel' data-populate='contactInfo'>
+                <p>Loading contact information&hellip;</p>
+            </div>
+        </section>
+
+        <section class='submission-status-wrapper'>
+            <div class='submission-status-banner' data-component='submission-status-banner' aria-live='polite' hidden></div>
+        </section>
+
+        <section class='contact-form-wrapper'>
+            <form id='contactForm' data-component='contact-form' novalidate>
+                <div id='contactFormErrors' class='contact-form-errors' aria-live='polite'></div>
+
+                <div class='form-field' data-component='contact-category-selector'>
+                    <label for='contactCategory'>Category (optional)</label>
+                    <input id='contactCategory' name='category' list='contactCategoryOptions' autocomplete='off'>
+                    <datalist id='contactCategoryOptions'>
+                        <option value='bug_report'></option>
+                        <option value='feature_request'></option>
+                        <option value='question'></option>
+                        <option value='other'></option>
+                    </datalist>
+                    <p class='field-help-text'>You can choose a category or type your own label.</p>
+                    <p class='field-inline-actions'>
+                        <a href='javascript:void(0)' data-action='clear-category'>Clear category</a>
+                    </p>
+                </div>
+
+                <div class='form-field'>
+                    <label for='contactEmail'>Your email (optional)</label>
+                    <input id='contactEmail' name='email' type='email' autocomplete='email'>
+                    <p class='field-help-text'>Provide a reply-to address if you want a response.</p>
+                </div>
+
+                <div class='form-field'>
+                    <label for='contactSubject'>Subject<span aria-hidden='true'> *</span></label>
+                    <input id='contactSubject' name='subject' type='text' required>
+                </div>
+
+                <div class='form-field'>
+                    <label for='contactMessage'>Message<span aria-hidden='true'> *</span></label>
+                    <textarea id='contactMessage' name='message' rows='6' required></textarea>
+                    <p class='field-help-text'>Include URLs, sitemap filenames, and recent changes if relevant.</p>
+                </div>
+
+                <div class='form-actions'>
+                    <button type='submit' data-action='submit-contact-form'>Submit request</button>
+                </div>
+            </form>
+        </section>
+
+        <section class='contact-footer-links'>
+            <p data-component='contact-help-link'>
+                Need help with what to write? 
+                <a href='javascript:void(0)' data-action='navigate-help'>Open contextual Help for this page</a>.
+            </p>
+            <p data-component='back-to-dashboard-link'>
+                <a href='javascript:void(0)' data-action='navigate-dashboard'>Back to Dashboard</a>
+            </p>
+        </section>
+    </section>
+</main>
+
+<footer class='page-footer' role='contentinfo'>
+    <p class='footer-links'>
+        <a href='about.html'>About</a> |
+        <a href='contact.html'>Contact</a> |
+        <a href='settings.html'>Settings</a> |
+        <a href='sitemap_index.html'>Sitemap Index</a>
+    </p>
+    <p class='footer-meta'>
+        This technical interface provides access to sitemap and URL management pages via the links above.
+    </p>
+</footer>
+
+<script src='business_logic.js'></script>
+<script>
+(function() {
+    'use strict';
+
+    function escapeHtml(value) {
+        if (value === null || value === undefined) {
+            return '';
+        }
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    var contactPageState = {
+        initialCategory: '',
+        initialSubject: '',
+        formDirty: false,
+        contactInfoError: false,
+        channels: [],
+        submitting: false,
+        submissionStatus: 'idle',
+        submissionMessage: '',
+        submissionTicketId: ''
+    };
+
+    function parseUrlParams() {
+        var params = new URLSearchParams(window.location.search || '');
+        return {
+            category: params.get('category') || '',
+            subject: params.get('subject') || ''
+        };
+    }
+
+    function applyInitialFormValuesIfPristine(params, elements) {
+        if (contactPageState.formDirty) {
+            return;
+        }
+        if (elements.categoryInput) {
+            elements.categoryInput.value = params.category;
+        }
+        if (elements.subjectInput) {
+            elements.subjectInput.value = params.subject;
+        }
+    }
+
+    function renderContactInfo(container, data) {
+        if (!container) {
+            return;
+        }
+
+        if (!data) {
+            contactPageState.contactInfoError = true;
+            container.innerHTML = (
+                '<div class="contact-info-panel-inner contact-info-error">' +
+                    '<p>Contact information could not be loaded. You can still use the form below, or ' +
+                    '<a href="javascript:void(0)" data-action="retry-contact-info">retry loading contact details</a>.</p>' +
+                '</div>'
+            );
+            return;
+        }
+
+        contactPageState.contactInfoError = false;
+        contactPageState.channels = Array.isArray(data.channels) ? data.channels : [];
+        var primaryEmailText = data.primary_email ? escapeHtml(data.primary_email) : 'Not available';
+
+        var channelsRows = '';
+        if (contactPageState.channels.length > 0) {
+            for (var i = 0; i < contactPageState.channels.length; i++) {
+                var ch = contactPageState.channels[i];
+                var label = escapeHtml(ch.label || ch.type || 'Channel');
+                var description = escapeHtml(ch.description || ch.value || '');
+                channelsRows += (
+                    '<tr>' +
+                        '<td>' +
+                            '<a href="javascript:void(0)" data-action="support-channel" data-channel-index="' + i + '">' + label + '</a>' +
+                        '</td>' +
+                        '<td>' + description + '</td>' +
+                    '</tr>'
+                );
+            }
+        } else {
+            channelsRows = '<tr><td colspan="2">No additional channels are currently configured.</td></tr>';
+        }
+
+        container.innerHTML = (
+            '<div class="contact-info-panel-inner">' +
+                '<p>Use this form or one of the channels below to reach the sitemap management support team.</p>' +
+                '<p><strong>Primary contact email:</strong> <span class="contact-primary-email">' + primaryEmailText + '</span></p>' +
+                '<table class="support-channels-table" aria-label="Available support channels">' +
+                    '<thead>' +
+                        '<tr>' +
+                            '<th scope="col">Channel</th>' +
+                            '<th scope="col">Details</th>' +
+                        '</tr>' +
+                    '</thead>' +
+                    '<tbody>' + channelsRows + '</tbody>' +
+                '</table>' +
+            '</div>'
+        );
+    }
+
+    function renderSubmissionStatusBanner(container, status, message, ticketId) {
+        if (!container) {
+            return;
+        }
+
+        contactPageState.submissionStatus = status;
+        contactPageState.submissionMessage = message || '';
+        contactPageState.submissionTicketId = ticketId || '';
+
+        if (status === 'idle') {
+            container.hidden = true;
+            container.innerHTML = '';
+            return;
+        }
+
+        var label;
+        if (status === 'submitting') {
+            label = 'Submitting';
+        } else if (status === 'success') {
+            label = 'Success';
+        } else {
+            label = 'Error';
+        }
+
+        var ticketPart = '';
+        if (ticketId) {
+            ticketPart = '<div class="status-ticket">Reference ticket: <code>' + escapeHtml(ticketId) + '</code></div>';
+        }
+
+        container.innerHTML = (
+            '<div class="status-banner status-' + escapeHtml(status) + '">' +
+                '<p><strong>' + label + ':</strong> ' + escapeHtml(message || '') + '</p>' +
+                ticketPart +
+                '<div class="status-actions">' +
+                    '<button type="button" data-action="dismiss-status">Dismiss</button>' +
+                '</div>' +
+            '</div>'
+        );
+        container.hidden = false;
+    }
+
+    function validateForm(elements) {
+        var errors = [];
+
+        var subject = elements.subjectInput.value.trim();
+        var message = elements.messageInput.value.trim();
+        var email = elements.emailInput.value.trim();
+
+        if (!subject) {
+            errors.push('Subject is required.');
+        }
+        if (!message) {
+            errors.push('Message is required.');
+        }
+        if (email) {
+            var emailPattern = /.+@.+\..+/;
+            if (!emailPattern.test(email)) {
+                errors.push('Enter a valid email address.');
+            }
+        }
+
+        return errors;
+    }
+
+    function renderFormErrors(container, errors) {
+        if (!container) {
+            return;
+        }
+        if (!errors || errors.length === 0) {
+            container.innerHTML = '';
+            container.style.display = 'none';
+            return;
+        }
+        var items = '';
+        for (var i = 0; i < errors.length; i++) {
+            items += '<li>' + escapeHtml(errors[i]) + '</li>';
+        }
+        container.innerHTML = '<ul>' + items + '</ul>';
+        container.style.display = '';
+    }
+
+    function setSubmittingState(form, submitButton, statusBannerContainer, isSubmitting) {
+        contactPageState.submitting = isSubmitting;
+        if (submitButton) {
+            submitButton.disabled = !!isSubmitting;
+        }
+        if (isSubmitting) {
+            renderSubmissionStatusBanner(statusBannerContainer, 'submitting', 'Submitting your request&hellip;', '');
+        }
+    }
+
+    function handleSupportChannelClick(index) {
+        var idx = parseInt(index, 10);
+        if (isNaN(idx) || idx < 0 || idx >= contactPageState.channels.length) {
+            return;
+        }
+        var ch = contactPageState.channels[idx];
+        if (!ch) {
+            return;
+        }
+        var type = (ch.type || '').toLowerCase();
+        var value = ch.value || '';
+
+        if (!value) {
+            return;
+        }
+
+        if (type === 'email') {
+            window.location.href = 'mailto:' + value;
+        } else {
+            try {
+                window.open(value, '_blank', 'noopener');
+            } catch (e) {
+                window.location.href = value;
+            }
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        var categoryInput = document.getElementById('contactCategory');
+        var emailInput = document.getElementById('contactEmail');
+        var subjectInput = document.getElementById('contactSubject');
+        var messageInput = document.getElementById('contactMessage');
+        var form = document.getElementById('contactForm');
+        var errorsContainer = document.getElementById('contactFormErrors');
+        var statusBannerContainer = document.querySelector('[data-component="submission-status-banner"]');
+        var contactInfoContainer = document.querySelector('[data-populate="contactInfo"]');
+        var submitButton = form ? form.querySelector('[data-action="submit-contact-form"]') : null;
+
+        var params = parseUrlParams();
+        contactPageState.initialCategory = params.category;
+        contactPageState.initialSubject = params.subject;
+
+        if (categoryInput && subjectInput) {
+            applyInitialFormValuesIfPristine(params, {
+                categoryInput: categoryInput,
+                subjectInput: subjectInput
+            });
+        }
+
+        var populateElements = document.querySelectorAll('[data-populate]');
+        for (var i = 0; i < populateElements.length; i++) {
+            var el = populateElements[i];
+            var dataType = el.getAttribute('data-populate');
+            if (dataType === 'contactInfo') {
+                try {
+                    if (typeof WebsiteSDK !== 'undefined' && WebsiteSDK && typeof WebsiteSDK.getContactInfo === 'function') {
+                        var data = WebsiteSDK.getContactInfo();
+                        renderContactInfo(el, data);
+                    } else {
+                        renderContactInfo(el, null);
+                    }
+                } catch (e) {
+                    renderContactInfo(el, null);
+                }
+            }
+        }
+
+        function markFormDirty() {
+            contactPageState.formDirty = true;
+        }
+
+        if (categoryInput) {
+            categoryInput.addEventListener('input', markFormDirty);
+            categoryInput.addEventListener('change', markFormDirty);
+        }
+        if (emailInput) {
+            emailInput.addEventListener('input', markFormDirty);
+        }
+        if (subjectInput) {
+            subjectInput.addEventListener('input', markFormDirty);
+        }
+        if (messageInput) {
+            messageInput.addEventListener('input', markFormDirty);
+        }
+
+        if (form) {
+            form.addEventListener('submit', function(event) {
+                event.preventDefault();
+                if (contactPageState.submitting) {
+                    return;
+                }
+
+                var fields = {
+                    categoryInput: categoryInput,
+                    emailInput: emailInput,
+                    subjectInput: subjectInput,
+                    messageInput: messageInput
+                };
+
+                var validationErrors = validateForm(fields);
+                renderFormErrors(errorsContainer, validationErrors);
+                if (validationErrors.length > 0) {
+                    renderSubmissionStatusBanner(statusBannerContainer, 'error', 'Please correct the errors in the form before submitting.', '');
+                    return;
+                }
+
+                setSubmittingState(form, submitButton, statusBannerContainer, true);
+
+                var subject = subjectInput ? subjectInput.value.trim() : '';
+                var message = messageInput ? messageInput.value.trim() : '';
+                var category = categoryInput ? categoryInput.value.trim() : '';
+                var email = emailInput ? emailInput.value.trim() : '';
+
+                try {
+                    var result;
+                    if (typeof WebsiteSDK !== 'undefined' && WebsiteSDK && typeof WebsiteSDK.submitContactRequest === 'function') {
+                        result = WebsiteSDK.submitContactRequest(subject, message, category || null, email || null);
+                    } else {
+                        result = {
+                            success: false,
+                            ticketId: '',
+                            message: 'Submission interface is not available.'
+                        };
+                    }
+
+                    if (result && result.success) {
+                        renderSubmissionStatusBanner(statusBannerContainer, 'success', result.message || 'Your request has been submitted.', result.ticketId || '');
+                    } else {
+                        var errorMessage = (result && result.message) ? result.message : 'Your request could not be submitted. Please try again.';
+                        renderSubmissionStatusBanner(statusBannerContainer, 'error', errorMessage, result && result.ticketId ? result.ticketId : '');
+                    }
+                } catch (e) {
+                    renderSubmissionStatusBanner(statusBannerContainer, 'error', 'An unexpected error occurred while submitting your request. Please try again.', '');
+                } finally {
+                    setSubmittingState(form, submitButton, statusBannerContainer, false);
+                }
+            });
+        }
+
+        document.addEventListener('click', function(event) {
+            var target = event.target;
+            if (!target || typeof target.closest !== 'function') {
+                return;
+            }
+            var actionEl = target.closest('[data-action]');
+            if (!actionEl) {
+                return;
+            }
+            var action = actionEl.getAttribute('data-action');
+            if (!action) {
+                return;
+            }
+
+            if (action === 'navigate-help') {
+                event.preventDefault();
+                window.location.href = 'help.html?currentPage=contact';
+            } else if (action === 'navigate-dashboard') {
+                event.preventDefault();
+                window.location.href = 'index.html';
+            } else if (action === 'clear-category') {
+                event.preventDefault();
+                if (categoryInput) {
+                    categoryInput.value = '';
+                    markFormDirty();
+                }
+            } else if (action === 'dismiss-status') {
+                event.preventDefault();
+                renderSubmissionStatusBanner(statusBannerContainer, 'idle', '', '');
+            } else if (action === 'retry-contact-info') {
+                event.preventDefault();
+                if (!contactInfoContainer) {
+                    return;
+                }
+                try {
+                    if (typeof WebsiteSDK !== 'undefined' && WebsiteSDK && typeof WebsiteSDK.getContactInfo === 'function') {
+                        var refreshed = WebsiteSDK.getContactInfo();
+                        renderContactInfo(contactInfoContainer, refreshed);
+                    } else {
+                        renderContactInfo(contactInfoContainer, null);
+                    }
+                } catch (e) {
+                    renderContactInfo(contactInfoContainer, null);
+                }
+            } else if (action === 'support-channel') {
+                event.preventDefault();
+                var idx = actionEl.getAttribute('data-channel-index');
+                handleSupportChannelClick(idx);
+            }
+        });
+
+        window.addEventListener('popstate', function() {
+            var updated = parseUrlParams();
+            contactPageState.initialCategory = updated.category;
+            contactPageState.initialSubject = updated.subject;
+            applyInitialFormValuesIfPristine(updated, {
+                categoryInput: categoryInput,
+                subjectInput: subjectInput
+            });
+        });
+    });
+})();
+</script>
+
+</body>
+</html>

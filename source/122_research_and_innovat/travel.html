@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='travel.css'>
+
+<section class='travel-layout' data-component='travel-page-state' data-populate='travel-page-state'>
+  <div class='container travel-layout__inner'>
+    <section class='travel-controls' aria-label='Filter and sort hotels'>
+      <form class='hotels-filter-bar' data-component='hotels-filter-bar'>
+        <div class='hotels-filter-bar__group hotels-filter-bar__group--distance'>
+          <label for='filter-distance-input' class='hotels-filter-bar__label'>Max distance from venue</label>
+          <div class='hotels-filter-bar__field'>
+            <input type='number' id='filter-distance-input' name='distance_max_km' class='hotels-filter-bar__input hotels-filter-bar__input--number' min='0' step='0.1'>
+            <span class='hotels-filter-bar__suffix'>km</span>
+          </div>
+        </div>
+
+        <div class='hotels-filter-bar__group hotels-filter-bar__group--price'>
+          <label for='filter-price-input' class='hotels-filter-bar__label'>Max nightly rate</label>
+          <div class='hotels-filter-bar__field'>
+            <input type='number' id='filter-price-input' name='price_max' class='hotels-filter-bar__input hotels-filter-bar__input--number' min='0' step='1'>
+            <span class='hotels-filter-bar__suffix hotels-filter-bar__suffix--currency' data-role='price-currency'></span>
+          </div>
+        </div>
+
+        <div class='hotels-filter-bar__group hotels-filter-bar__group--amenity'>
+          <label for='filter-amenity-select' class='hotels-filter-bar__label'>Amenity</label>
+          <div class='hotels-filter-bar__field'>
+            <select id='filter-amenity-select' name='amenity' class='hotels-filter-bar__select'>
+              <!-- options populated in JS -->
+            </select>
+          </div>
+        </div>
+
+        <div class='hotels-filter-bar__group hotels-filter-bar__group--rating'>
+          <label for='filter-rating-select' class='hotels-filter-bar__label'>Minimum rating</label>
+          <div class='hotels-filter-bar__field'>
+            <select id='filter-rating-select' name='rating_min' class='hotels-filter-bar__select'>
+              <!-- options populated in JS -->
+            </select>
+          </div>
+        </div>
+
+        <div class='hotels-filter-bar__group hotels-filter-bar__group--actions'>
+          <button type='button' class='btn btn-secondary hotels-filter-bar__button hotels-filter-bar__button--reset' data-action='reset-filters'>Reset</button>
+          <button type='button' class='btn btn-primary hotels-filter-bar__button hotels-filter-bar__button--apply' data-action='apply-filters'>Apply</button>
+        </div>
+      </form>
+
+      <div class='hotels-sorting-control' data-component='hotels-sorting-control'>
+        <label for='hotels-sort-select' class='hotels-sorting-control__label'>Sort by</label>
+        <select id='hotels-sort-select' class='hotels-sorting-control__select' data-action='change-sort'>
+          <!-- sort options populated in JS -->
+        </select>
+      </div>
+    </section>
+
+    <section class='hotels-list-section' aria-label='Recommended hotels near the conference venue'>
+      <div class='hotels-list' data-component='hotels-list' aria-live='polite'>
+        <!-- hotel cards populated in JS -->
+      </div>
+    </section>
+  </div>
+
+  <aside class='saved-hotels-summary saved-hotels-summary--floating' data-component='saved-hotels-summary' aria-live='polite'>
+    <!-- summary content populated in JS -->
+  </aside>
+</section>
+
+<script src='business_logic.js'></script>
+<script>
+'use strict';
+
+var travelPageState = {
+  container: null,
+  filterOptions: null,
+  filters: null,
+  sort: null,
+  hotels: [],
+  showSavedOnly: false
+};
+
+document.addEventListener('DOMContentLoaded', function () {
+  var populateElements = document.querySelectorAll('[data-populate]');
+  populateElements.forEach(function (element) {
+    var populateType = element.getAttribute('data-populate');
+    if (populateType === 'travel-page-state') {
+      initTravelPage(element);
+    }
+  });
+
+  document.addEventListener('click', function (event) {
+    var actionElement = event.target.closest('[data-action]');
+    if (!actionElement) {
+      return;
+    }
+    var action = actionElement.getAttribute('data-action');
+
+    if (action === 'apply-filters') {
+      event.preventDefault();
+      handleApplyFilters(actionElement);
+    } else if (action === 'reset-filters') {
+      event.preventDefault();
+      handleResetFilters(actionElement);
+    } else if (action === 'toggle-hotel-saved') {
+      event.preventDefault();
+      event.stopPropagation();
+      handleToggleHotelSaved(actionElement);
+    } else if (action === 'view-saved-hotels') {
+      event.preventDefault();
+      handleViewSavedHotels(actionElement);
+    } else if (action === 'open-hotel-detail') {
+      event.preventDefault();
+      handleOpenHotelDetail(actionElement);
+    }
+  });
+
+  document.addEventListener('change', function (event) {
+    var target = event.target;
+    if (!target) {
+      return;
+    }
+    var action = target.getAttribute('data-action');
+    if (action === 'change-sort') {
+      handleChangeSort(target);
+    }
+  });
+
+  window.addEventListener('popstate', function () {
+    if (travelPageState && travelPageState.container) {
+      reinitializeFromUrl(travelPageState.container);
+    }
+  });
+});
+
+function initTravelPage(container) {
+  travelPageState.container = container;
+  reinitializeFromUrl(container);
+}
+
+function reinitializeFromUrl(container) {
+  var url;
+  try {
+    url = new URL(window.location.href);
+  } catch (error) {
+    url = { searchParams: new URLSearchParams(window.location.search) };
+  }
+  var params = url.searchParams;
+
+  var filterOptions;
+  try {
+    filterOptions = WebsiteSDK.getHotelsFilterOptions();
+  } catch (error) {
+    var listForError = container.querySelector('[data-component=\'hotels-list\']');
+    renderHotelsListError(listForError, 'Unable to load hotel filters right now. Please try again in a moment.');
+    return;
+  }
+
+  travelPageState.filterOptions = filterOptions;
+
+  var initialState = deriveStateFromUrl(params, filterOptions);
+  travelPageState.filters = initialState.filters;
+  travelPageState.sort = initialState.sort;
+  travelPageState.showSavedOnly = false;
+
+  loadHotelsAndRender(container);
+}
+
+function deriveStateFromUrl(params, filterOptions) {
+  var filters = {
+    distance_max_km: null,
+    price_max: null,
+    amenity: null,
+    rating_min: null
+  };
+  var sort = null;
+
+  var maxDistanceOption = typeof filterOptions.max_distance_km === 'number' ? filterOptions.max_distance_km : null;
+  var distanceStr = params.get('distance_max_km');
+  var distanceVal = distanceStr !== null ? parseFloat(distanceStr) : NaN;
+  if (!isNaN(distanceVal) && maxDistanceOption !== null && distanceVal > 0 && distanceVal <= maxDistanceOption) {
+    filters.distance_max_km = distanceVal;
+  } else if (maxDistanceOption !== null) {
+    filters.distance_max_km = maxDistanceOption;
+  }
+
+  var priceRange = filterOptions.price_range || {};
+  var maxRate = typeof priceRange.max_rate === 'number' ? priceRange.max_rate : null;
+  var minRate = typeof priceRange.min_rate === 'number' ? priceRange.min_rate : null;
+  var priceStr = params.get('price_max');
+  var priceVal = priceStr !== null ? parseFloat(priceStr) : NaN;
+  if (!isNaN(priceVal) && maxRate !== null && priceVal >= (minRate !== null ? minRate : 0) && priceVal <= maxRate) {
+    filters.price_max = priceVal;
+  } else if (maxRate !== null) {
+    filters.price_max = maxRate;
+  }
+
+  var amenityParam = params.get('amenity');
+  var amenityOptions = Array.isArray(filterOptions.amenity_options) ? filterOptions.amenity_options : [];
+  if (amenityParam) {
+    var amenityValid = amenityOptions.some(function (option) {
+      return option && option.value === amenityParam;
+    });
+    if (amenityValid) {
+      filters.amenity = amenityParam;
+    }
+  }
+
+  var ratingStr = params.get('rating_min');
+  var ratingVal = ratingStr !== null ? parseFloat(ratingStr) : NaN;
+  var ratingThresholds = Array.isArray(filterOptions.rating_thresholds) ? filterOptions.rating_thresholds : [];
+  if (!isNaN(ratingVal)) {
+    var ratingValid = ratingThresholds.indexOf(ratingVal) !== -1;
+    if (ratingValid) {
+      filters.rating_min = ratingVal;
+    }
+  }
+
+  var sortParam = params.get('sort');
+  var sortOptions = Array.isArray(filterOptions.sort_options) ? filterOptions.sort_options : [];
+  if (sortParam) {
+    var sortValid = sortOptions.some(function (option) {
+      return option && option.value === sortParam;
+    });
+    if (sortValid) {
+      sort = sortParam;
+    }
+  }
+  if (!sort && sortOptions.length > 0 && sortOptions[0] && sortOptions[0].value) {
+    sort = sortOptions[0].value;
+  }
+
+  return {
+    filters: filters,
+    sort: sort
+  };
+}
+
+function normalizeFilters(values, filterOptions) {
+  var params = new URLSearchParams('');
+  if (typeof values.distance_max_km === 'number' && !isNaN(values.distance_max_km)) {
+    params.set('distance_max_km', String(values.distance_max_km));
+  }
+  if (typeof values.price_max === 'number' && !isNaN(values.price_max)) {
+    params.set('price_max', String(values.price_max));
+  }
+  if (values.amenity) {
+    params.set('amenity', values.amenity);
+  }
+  if (typeof values.rating_min === 'number' && !isNaN(values.rating_min)) {
+    params.set('rating_min', String(values.rating_min));
+  }
+  var derived = deriveStateFromUrl(params, filterOptions);
+  return derived.filters;
+}
+
+function loadHotelsAndRender(container) {
+  var filtersForApi = {};
+  var f = travelPageState.filters || {};
+
+  if (typeof f.distance_max_km === 'number') {
+    filtersForApi.max_distance_km = f.distance_max_km;
+  }
+  if (typeof f.price_max === 'number') {
+    filtersForApi.max_nightly_rate = f.price_max;
+  }
+  if (typeof f.rating_min === 'number') {
+    filtersForApi.min_rating = f.rating_min;
+  }
+  if (f.amenity) {
+    filtersForApi.required_amenities = [f.amenity];
+  }
+
+  var hotels;
+  try {
+    hotels = WebsiteSDK.getHotelsListing(filtersForApi, travelPageState.sort || undefined);
+  } catch (error) {
+    var listForError = container.querySelector('[data-component=\'hotels-list\']');
+    renderHotelsListError(listForError, 'Unable to load hotels right now. Please try again in a moment.');
+    return;
+  }
+
+  travelPageState.hotels = Array.isArray(hotels) ? hotels : [];
+
+  var filterBar = container.querySelector('[data-component=\'hotels-filter-bar\']');
+  var sortControl = container.querySelector('[data-component=\'hotels-sorting-control\']');
+  var list = container.querySelector('[data-component=\'hotels-list\']');
+  var summary = container.querySelector('[data-component=\'saved-hotels-summary\']');
+
+  renderFilterBar(filterBar, travelPageState.filterOptions, travelPageState.filters);
+  renderSortControl(sortControl, travelPageState.filterOptions, travelPageState.sort);
+  renderHotelsList(list, travelPageState.hotels, travelPageState);
+  renderSavedSummary(summary, travelPageState.hotels, travelPageState.showSavedOnly);
+}
+
+function renderFilterBar(container, filterOptions, filters) {
+  if (!container || !filterOptions) {
+    return;
+  }
+  container.innerHTML = '';
+
+  var maxDistanceOption = typeof filterOptions.max_distance_km === 'number' ? filterOptions.max_distance_km : null;
+  var priceRange = filterOptions.price_range || {};
+  var maxRate = typeof priceRange.max_rate === 'number' ? priceRange.max_rate : null;
+  var currencyCode = priceRange.currency || 'usd';
+
+  var distanceGroup = document.createElement('div');
+  distanceGroup.className = 'hotels-filter-bar__group hotels-filter-bar__group--distance';
+  var distanceLabel = document.createElement('label');
+  distanceLabel.className = 'hotels-filter-bar__label';
+  distanceLabel.htmlFor = 'filter-distance-input';
+  distanceLabel.textContent = 'Max distance from venue';
+  distanceGroup.appendChild(distanceLabel);
+
+  var distanceField = document.createElement('div');
+  distanceField.className = 'hotels-filter-bar__field';
+  var distanceInput = document.createElement('input');
+  distanceInput.type = 'number';
+  distanceInput.id = 'filter-distance-input';
+  distanceInput.name = 'distance_max_km';
+  distanceInput.className = 'hotels-filter-bar__input hotels-filter-bar__input--number';
+  distanceInput.min = '0';
+  distanceInput.step = '0.1';
+  if (maxDistanceOption !== null) {
+    distanceInput.max = String(maxDistanceOption);
+  }
+  var distanceValue = typeof filters.distance_max_km === 'number' ? filters.distance_max_km : (maxDistanceOption !== null ? maxDistanceOption : '');
+  if (distanceValue !== '' && distanceValue !== null && !isNaN(distanceValue)) {
+    distanceInput.value = String(distanceValue);
+  }
+  var distanceSuffix = document.createElement('span');
+  distanceSuffix.className = 'hotels-filter-bar__suffix';
+  distanceSuffix.textContent = 'km';
+  distanceField.appendChild(distanceInput);
+  distanceField.appendChild(distanceSuffix);
+  distanceGroup.appendChild(distanceField);
+
+  container.appendChild(distanceGroup);
+
+  var priceGroup = document.createElement('div');
+  priceGroup.className = 'hotels-filter-bar__group hotels-filter-bar__group--price';
+  var priceLabel = document.createElement('label');
+  priceLabel.className = 'hotels-filter-bar__label';
+  priceLabel.htmlFor = 'filter-price-input';
+  priceLabel.textContent = 'Max nightly rate';
+  priceGroup.appendChild(priceLabel);
+
+  var priceField = document.createElement('div');
+  priceField.className = 'hotels-filter-bar__field';
+  var priceInput = document.createElement('input');
+  priceInput.type = 'number';
+  priceInput.id = 'filter-price-input';
+  priceInput.name = 'price_max';
+  priceInput.className = 'hotels-filter-bar__input hotels-filter-bar__input--number';
+  priceInput.min = '0';
+  priceInput.step = '1';
+  if (maxRate !== null) {
+    priceInput.max = String(maxRate);
+  }
+  var priceValue = typeof filters.price_max === 'number' ? filters.price_max : (maxRate !== null ? maxRate : '');
+  if (priceValue !== '' && priceValue !== null && !isNaN(priceValue)) {
+    priceInput.value = String(priceValue);
+  }
+  var priceSuffix = document.createElement('span');
+  priceSuffix.className = 'hotels-filter-bar__suffix hotels-filter-bar__suffix--currency';
+  priceSuffix.textContent = currencyCode === 'usd' ? 'USD' : String(currencyCode).toUpperCase();
+  priceField.appendChild(priceInput);
+  priceField.appendChild(priceSuffix);
+  priceGroup.appendChild(priceField);
+
+  container.appendChild(priceGroup);
+
+  var amenityGroup = document.createElement('div');
+  amenityGroup.className = 'hotels-filter-bar__group hotels-filter-bar__group--amenity';
+  var amenityLabel = document.createElement('label');
+  amenityLabel.className = 'hotels-filter-bar__label';
+  amenityLabel.htmlFor = 'filter-amenity-select';
+  amenityLabel.textContent = 'Amenity';
+  amenityGroup.appendChild(amenityLabel);
+
+  var amenityField = document.createElement('div');
+  amenityField.className = 'hotels-filter-bar__field';
+  var amenitySelect = document.createElement('select');
+  amenitySelect.id = 'filter-amenity-select';
+  amenitySelect.name = 'amenity';
+  amenitySelect.className = 'hotels-filter-bar__select';
+
+  var amenityAnyOption = document.createElement('option');
+  amenityAnyOption.value = '';
+  amenityAnyOption.textContent = 'Any amenity';
+  amenitySelect.appendChild(amenityAnyOption);
+
+  var amenityOptions = Array.isArray(filterOptions.amenity_options) ? filterOptions.amenity_options : [];
+  amenityOptions.forEach(function (option) {
+    if (!option || !option.value) {
+      return;
+    }
+    var opt = document.createElement('option');
+    opt.value = option.value;
+    opt.textContent = option.label || option.value;
+    if (filters.amenity && filters.amenity === option.value) {
+      opt.selected = true;
+    }
+    amenitySelect.appendChild(opt);
+  });
+
+  amenityField.appendChild(amenitySelect);
+  amenityGroup.appendChild(amenityField);
+
+  container.appendChild(amenityGroup);
+
+  var ratingGroup = document.createElement('div');
+  ratingGroup.className = 'hotels-filter-bar__group hotels-filter-bar__group--rating';
+  var ratingLabel = document.createElement('label');
+  ratingLabel.className = 'hotels-filter-bar__label';
+  ratingLabel.htmlFor = 'filter-rating-select';
+  ratingLabel.textContent = 'Minimum rating';
+  ratingGroup.appendChild(ratingLabel);
+
+  var ratingField = document.createElement('div');
+  ratingField.className = 'hotels-filter-bar__field';
+  var ratingSelect = document.createElement('select');
+  ratingSelect.id = 'filter-rating-select';
+  ratingSelect.name = 'rating_min';
+  ratingSelect.className = 'hotels-filter-bar__select';
+
+  var ratingAnyOption = document.createElement('option');
+  ratingAnyOption.value = '';
+  ratingAnyOption.textContent = 'Any rating';
+  ratingSelect.appendChild(ratingAnyOption);
+
+  var ratingThresholds = Array.isArray(filterOptions.rating_thresholds) ? filterOptions.rating_thresholds.slice() : [];
+  ratingThresholds.sort(function (a, b) { return a - b; });
+  ratingThresholds.forEach(function (threshold) {
+    if (typeof threshold !== 'number') {
+      return;
+    }
+    var opt = document.createElement('option');
+    opt.value = String(threshold);
+    opt.textContent = threshold.toFixed(1) + '+';
+    if (typeof filters.rating_min === 'number' && filters.rating_min === threshold) {
+      opt.selected = true;
+    }
+    ratingSelect.appendChild(opt);
+  });
+
+  ratingField.appendChild(ratingSelect);
+  ratingGroup.appendChild(ratingField);
+
+  container.appendChild(ratingGroup);
+
+  var actionsGroup = document.createElement('div');
+  actionsGroup.className = 'hotels-filter-bar__group hotels-filter-bar__group--actions';
+  var resetButton = document.createElement('button');
+  resetButton.type = 'button';
+  resetButton.className = 'btn btn-secondary hotels-filter-bar__button hotels-filter-bar__button--reset';
+  resetButton.setAttribute('data-action', 'reset-filters');
+  resetButton.textContent = 'Reset';
+  var applyButton = document.createElement('button');
+  applyButton.type = 'button';
+  applyButton.className = 'btn btn-primary hotels-filter-bar__button hotels-filter-bar__button--apply';
+  applyButton.setAttribute('data-action', 'apply-filters');
+  applyButton.textContent = 'Apply';
+
+  actionsGroup.appendChild(resetButton);
+  actionsGroup.appendChild(applyButton);
+
+  container.appendChild(actionsGroup);
+}
+
+function renderSortControl(container, filterOptions, currentSort) {
+  if (!container || !filterOptions) {
+    return;
+  }
+  container.innerHTML = '';
+
+  var label = document.createElement('label');
+  label.className = 'hotels-sorting-control__label';
+  label.htmlFor = 'hotels-sort-select';
+  label.textContent = 'Sort by';
+  container.appendChild(label);
+
+  var select = document.createElement('select');
+  select.id = 'hotels-sort-select';
+  select.className = 'hotels-sorting-control__select';
+  select.setAttribute('data-action', 'change-sort');
+
+  var sortOptions = Array.isArray(filterOptions.sort_options) ? filterOptions.sort_options : [];
+  sortOptions.forEach(function (option) {
+    if (!option || !option.value) {
+      return;
+    }
+    var opt = document.createElement('option');
+    opt.value = option.value;
+    opt.textContent = option.label || option.value;
+    if (currentSort && currentSort === option.value) {
+      opt.selected = true;
+    }
+    select.appendChild(opt);
+  });
+
+  container.appendChild(select);
+}
+
+function renderHotelsList(container, hotels, state) {
+  if (!container) {
+    return;
+  }
+  container.innerHTML = '';
+
+  var hotelsArray = Array.isArray(hotels) ? hotels : [];
+  var hotelsToShow;
+  if (state && state.showSavedOnly) {
+    hotelsToShow = hotelsArray.filter(function (hotel) {
+      return hotel && hotel.is_saved;
+    });
+  } else {
+    hotelsToShow = hotelsArray;
+  }
+
+  if (hotelsToShow.length === 0) {
+    var empty = document.createElement('div');
+    empty.className = 'hotels-list__empty';
+    if (state && state.showSavedOnly) {
+      empty.textContent = 'You have not saved any hotels yet. Browse all hotels to add options to your trip.';
+    } else {
+      empty.textContent = 'No hotels match your current filters. Try adjusting distance, price, amenities, or rating.';
+    }
+    container.appendChild(empty);
+    return;
+  }
+
+  var amenityLabels = {};
+  var filterOptions = travelPageState.filterOptions || {};
+  var amenityOptions = Array.isArray(filterOptions.amenity_options) ? filterOptions.amenity_options : [];
+  amenityOptions.forEach(function (option) {
+    if (option && option.value) {
+      amenityLabels[option.value] = option.label || option.value;
+    }
+  });
+
+  hotelsToShow.forEach(function (hotel) {
+    if (!hotel) {
+      return;
+    }
+
+    var card = document.createElement('article');
+    card.className = 'hotel-card';
+    card.setAttribute('data-hotel-id', hotel.id || '');
+
+    var body = document.createElement('div');
+    body.className = 'hotel-card__body';
+
+    var header = document.createElement('div');
+    header.className = 'hotel-card__header';
+
+    var titleButton = document.createElement('button');
+    titleButton.type = 'button';
+    titleButton.className = 'hotel-card__title-button';
+    titleButton.setAttribute('data-action', 'open-hotel-detail');
+    titleButton.setAttribute('data-hotel-id', hotel.id || '');
+
+    var title = document.createElement('h2');
+    title.className = 'hotel-card__title';
+    title.textContent = hotel.name || 'Hotel';
+    titleButton.appendChild(title);
+
+    header.appendChild(titleButton);
+
+    var saveButton = document.createElement('button');
+    saveButton.type = 'button';
+    saveButton.className = 'hotel-card__save-button';
+    saveButton.setAttribute('data-action', 'toggle-hotel-saved');
+    saveButton.setAttribute('data-hotel-id', hotel.id || '');
+    var isSaved = !!hotel.is_saved;
+    saveButton.setAttribute('data-saved', isSaved ? 'true' : 'false');
+    saveButton.textContent = isSaved ? 'Saved to trip' : 'Save to trip';
+    header.appendChild(saveButton);
+
+    body.appendChild(header);
+
+    var meta = document.createElement('div');
+    meta.className = 'hotel-card__meta';
+
+    var distanceText = formatDistance(hotel.distance_km);
+    if (distanceText) {
+      var distanceSpan = document.createElement('span');
+      distanceSpan.className = 'hotel-card__distance';
+      distanceSpan.textContent = distanceText;
+      meta.appendChild(distanceSpan);
+    }
+
+    if (typeof hotel.rating === 'number') {
+      if (distanceText) {
+        var separator = document.createElement('span');
+        separator.className = 'hotel-card__meta-separator';
+        separator.textContent = '\u2022';
+        meta.appendChild(separator);
+      }
+      var ratingSpan = document.createElement('span');
+      ratingSpan.className = 'hotel-card__rating';
+      ratingSpan.textContent = (Math.round(hotel.rating * 10) / 10).toString();
+      meta.appendChild(ratingSpan);
+
+      if (typeof hotel.rating_count === 'number' && hotel.rating_count > 0) {
+        var ratingCountSpan = document.createElement('span');
+        ratingCountSpan.className = 'hotel-card__rating-count';
+        ratingCountSpan.textContent = ' (' + hotel.rating_count + ' reviews)';
+        meta.appendChild(ratingCountSpan);
+      }
+    }
+
+    if (meta.childNodes.length > 0) {
+      body.appendChild(meta);
+    }
+
+    var addressParts = [];
+    if (hotel.address) {
+      addressParts.push(hotel.address);
+    }
+    if (hotel.city) {
+      addressParts.push(hotel.city);
+    }
+    if (addressParts.length > 0) {
+      var addressRow = document.createElement('div');
+      addressRow.className = 'hotel-card__address';
+      addressRow.textContent = addressParts.join(', ');
+      body.appendChild(addressRow);
+    }
+
+    var priceRow = document.createElement('div');
+    priceRow.className = 'hotel-card__price-row';
+    var priceAmount = document.createElement('span');
+    priceAmount.className = 'hotel-card__price-amount';
+    priceAmount.textContent = formatCurrency(hotel.nightly_rate, hotel.currency);
+    priceRow.appendChild(priceAmount);
+    var priceLabel = document.createElement('span');
+    priceLabel.className = 'hotel-card__price-label';
+    priceLabel.textContent = 'per night';
+    priceRow.appendChild(priceLabel);
+    body.appendChild(priceRow);
+
+    if (Array.isArray(hotel.amenities) && hotel.amenities.length > 0) {
+      var amenitiesRow = document.createElement('div');
+      amenitiesRow.className = 'hotel-card__amenities';
+      var count = 0;
+      hotel.amenities.forEach(function (amenity) {
+        if (!amenity || count >= 3) {
+          return;
+        }
+        var tag = document.createElement('span');
+        tag.className = 'hotel-card__amenity-tag';
+        tag.textContent = amenityLabels[amenity] || amenity;
+        amenitiesRow.appendChild(tag);
+        count += 1;
+      });
+      body.appendChild(amenitiesRow);
+    }
+
+    card.appendChild(body);
+    container.appendChild(card);
+  });
+}
+
+function renderHotelsListError(container, message) {
+  if (!container) {
+    return;
+  }
+  container.innerHTML = '';
+  var error = document.createElement('div');
+  error.className = 'hotels-list__error';
+  error.textContent = message || 'Something went wrong while loading hotels.';
+  container.appendChild(error);
+}
+
+function renderSavedSummary(container, hotels, showSavedOnly) {
+  if (!container) {
+    return;
+  }
+  container.innerHTML = '';
+
+  var hotelsArray = Array.isArray(hotels) ? hotels : [];
+  var savedCount = 0;
+  hotelsArray.forEach(function (hotel) {
+    if (hotel && hotel.is_saved) {
+      savedCount += 1;
+    }
+  });
+
+  var button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'saved-hotels-summary__button';
+  button.setAttribute('data-action', 'view-saved-hotels');
+
+  var countSpan = document.createElement('span');
+  countSpan.className = 'saved-hotels-summary__count';
+  countSpan.textContent = savedCount.toString();
+  button.appendChild(countSpan);
+
+  var labelSpan = document.createElement('span');
+  labelSpan.className = 'saved-hotels-summary__label';
+  labelSpan.textContent = 'Saved hotels';
+  button.appendChild(labelSpan);
+
+  var hintSpan = document.createElement('span');
+  hintSpan.className = 'saved-hotels-summary__hint';
+
+  if (savedCount === 0) {
+    hintSpan.textContent = 'Save hotels from the list to build your trip.';
+    button.disabled = true;
+    button.classList.add('saved-hotels-summary__button--disabled');
+  } else if (showSavedOnly) {
+    hintSpan.textContent = 'Showing saved only. Click to view all hotels.';
+  } else {
+    hintSpan.textContent = 'Click to view saved only.';
+  }
+
+  button.appendChild(hintSpan);
+
+  container.appendChild(button);
+}
+
+function handleApplyFilters(actionElement) {
+  if (!travelPageState || !travelPageState.container || !travelPageState.filterOptions) {
+    return;
+  }
+  var container = travelPageState.container;
+  var filterBar = container.querySelector('[data-component=\'hotels-filter-bar\']');
+  if (!filterBar) {
+    return;
+  }
+
+  var distanceInput = filterBar.querySelector('[name=\'distance_max_km\']');
+  var priceInput = filterBar.querySelector('[name=\'price_max\']');
+  var amenitySelect = filterBar.querySelector('[name=\'amenity\']');
+  var ratingSelect = filterBar.querySelector('[name=\'rating_min\']');
+
+  var values = {
+    distance_max_km: null,
+    price_max: null,
+    amenity: null,
+    rating_min: null
+  };
+
+  if (distanceInput && distanceInput.value !== '') {
+    var distanceVal = parseFloat(distanceInput.value);
+    if (!isNaN(distanceVal)) {
+      values.distance_max_km = distanceVal;
+    }
+  }
+  if (priceInput && priceInput.value !== '') {
+    var priceVal = parseFloat(priceInput.value);
+    if (!isNaN(priceVal)) {
+      values.price_max = priceVal;
+    }
+  }
+  if (amenitySelect && amenitySelect.value) {
+    values.amenity = amenitySelect.value;
+  }
+  if (ratingSelect && ratingSelect.value !== '') {
+    var ratingVal = parseFloat(ratingSelect.value);
+    if (!isNaN(ratingVal)) {
+      values.rating_min = ratingVal;
+    }
+  }
+
+  var normalizedFilters = normalizeFilters(values, travelPageState.filterOptions);
+  travelPageState.filters = normalizedFilters;
+  travelPageState.showSavedOnly = false;
+
+  syncUrlWithState();
+  loadHotelsAndRender(container);
+}
+
+function handleResetFilters(actionElement) {
+  if (!travelPageState || !travelPageState.container || !travelPageState.filterOptions) {
+    return;
+  }
+  var emptyParams = new URLSearchParams('');
+  var derived = deriveStateFromUrl(emptyParams, travelPageState.filterOptions);
+  travelPageState.filters = derived.filters;
+  travelPageState.showSavedOnly = false;
+
+  syncUrlWithState();
+  loadHotelsAndRender(travelPageState.container);
+}
+
+function handleChangeSort(target) {
+  if (!travelPageState || !travelPageState.container) {
+    return;
+  }
+  var newSort = target.value;
+  travelPageState.sort = newSort;
+
+  syncUrlWithState();
+  loadHotelsAndRender(travelPageState.container);
+}
+
+function handleToggleHotelSaved(actionElement) {
+  if (!travelPageState) {
+    return;
+  }
+  var hotelId = actionElement.getAttribute('data-hotel-id');
+  if (!hotelId) {
+    return;
+  }
+  var currentlySaved = actionElement.getAttribute('data-saved') === 'true';
+  var desiredState = !currentlySaved;
+
+  var updatedHotel;
+  try {
+    updatedHotel = WebsiteSDK.toggleHotelSaved(hotelId, desiredState);
+  } catch (error) {
+    window.alert('Unable to update saved hotels right now. Please try again.');
+    return;
+  }
+  if (!updatedHotel) {
+    return;
+  }
+
+  var hotels = Array.isArray(travelPageState.hotels) ? travelPageState.hotels.slice() : [];
+  var found = false;
+  for (var i = 0; i < hotels.length; i += 1) {
+    if (hotels[i] && hotels[i].id === updatedHotel.id) {
+      hotels[i] = updatedHotel;
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    hotels.push(updatedHotel);
+  }
+  travelPageState.hotels = hotels;
+
+  var container = travelPageState.container;
+  var list = container.querySelector('[data-component=\'hotels-list\']');
+  var summary = container.querySelector('[data-component=\'saved-hotels-summary\']');
+
+  renderHotelsList(list, travelPageState.hotels, travelPageState);
+  renderSavedSummary(summary, travelPageState.hotels, travelPageState.showSavedOnly);
+}
+
+function handleViewSavedHotels(actionElement) {
+  if (!travelPageState || !travelPageState.container) {
+    return;
+  }
+  travelPageState.showSavedOnly = !travelPageState.showSavedOnly;
+
+  var container = travelPageState.container;
+  var list = container.querySelector('[data-component=\'hotels-list\']');
+  var summary = container.querySelector('[data-component=\'saved-hotels-summary\']');
+
+  renderHotelsList(list, travelPageState.hotels, travelPageState);
+  renderSavedSummary(summary, travelPageState.hotels, travelPageState.showSavedOnly);
+}
+
+function handleOpenHotelDetail(actionElement) {
+  var hotelId = actionElement.getAttribute('data-hotel-id');
+  if (!hotelId) {
+    return;
+  }
+  var url = 'hotel_detail.html?hotelId=' + encodeURIComponent(hotelId);
+  window.location.href = url;
+}
+
+function syncUrlWithState() {
+  if (!travelPageState) {
+    return;
+  }
+  var url;
+  try {
+    url = new URL(window.location.href);
+  } catch (error) {
+    url = {
+      searchParams: new URLSearchParams(window.location.search),
+      toString: function () {
+        return window.location.pathname + '?' + this.searchParams.toString();
+      }
+    };
+  }
+  var params = url.searchParams;
+
+  params.set('section', 'hotels');
+
+  var f = travelPageState.filters || {};
+  if (typeof f.distance_max_km === 'number') {
+    params.set('distance_max_km', String(f.distance_max_km));
+  } else {
+    params.delete('distance_max_km');
+  }
+  if (typeof f.price_max === 'number') {
+    params.set('price_max', String(f.price_max));
+  } else {
+    params.delete('price_max');
+  }
+  if (f.amenity) {
+    params.set('amenity', f.amenity);
+  } else {
+    params.delete('amenity');
+  }
+  if (typeof f.rating_min === 'number') {
+    params.set('rating_min', String(f.rating_min));
+  } else {
+    params.delete('rating_min');
+  }
+
+  if (travelPageState.sort) {
+    params.set('sort', travelPageState.sort);
+  } else {
+    params.delete('sort');
+  }
+
+  var newUrlString = url.toString();
+  history.replaceState(null, '', newUrlString);
+}
+
+function formatCurrency(amount, currency) {
+  if (typeof amount !== 'number') {
+    return '';
+  }
+  var rounded = Math.round(amount);
+  var prefix = '';
+  var suffix = '';
+  if (currency === 'usd') {
+    prefix = '$';
+  } else if (currency) {
+    suffix = ' ' + String(currency).toUpperCase();
+  }
+  return prefix + rounded.toString() + suffix;
+}
+
+function formatDistance(distanceKm) {
+  if (typeof distanceKm !== 'number') {
+    return '';
+  }
+  var rounded = Math.round(distanceKm * 10) / 10;
+  return rounded.toString() + ' km from venue';
+}
+</script>

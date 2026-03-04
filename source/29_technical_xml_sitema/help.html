@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <title>XML Sitemap Manager</title>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='help.css'>
+</head>
+<body>
+  <header id='site-header'>
+    <h1 id='page-title'>Page Title</h1>
+    <nav id='primary-nav' aria-label='Main navigation'>
+      <ul>
+        <li><a href='index.html'>Dashboard</a></li>
+        <li><a href='sitemaps.html'>Sitemaps</a></li>
+        <li><a href='help.html'>Help</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id='content' role='main'>
+    <h1 class='page-heading'>Help</h1>
+
+    <p id='help-error' data-component='help-error' data-populate='error-message' class='help-error' aria-live='polite'></p>
+
+    <section id='help-topic-detail' data-component='help-topic-detail' aria-label='Active help topic'>
+      <h2 class='help-topic-title' data-populate='active-topic-title'></h2>
+      <p class='help-topic-summary' data-populate='active-topic-summary'></p>
+
+      <div class='help-topic-meta'>
+        <p><strong>Concepts covered:</strong></p>
+        <ul class='help-concepts-list' data-populate='active-topic-concepts'></ul>
+        <p>
+          <strong>Related tasks:</strong>
+          <span data-populate='active-topic-related-tasks'></span>
+        </p>
+        <p>
+          <strong>Related pages:</strong>
+          <span data-populate='active-topic-related-pages'></span>
+        </p>
+      </div>
+
+      <div data-component='help-step-list' class='help-steps'>
+        <h3>Steps</h3>
+        <ol class='help-step-list' data-populate='active-topic-steps'></ol>
+      </div>
+    </section>
+
+    <section id='help-topic-list-section' data-component='help-topic-list' aria-label='Help topics'>
+      <h2 class='visually-hidden'>All help topics</h2>
+      <table class='help-topic-table'>
+        <thead>
+          <tr>
+            <th scope='col'>Topic</th>
+            <th scope='col'>Summary</th>
+          </tr>
+        </thead>
+        <tbody data-populate='topic-list-rows'></tbody>
+      </table>
+      <p class='help-topic-hint'>Click a topic to view its detailed steps above.</p>
+    </section>
+
+    <nav id='help-contextual-navigation' data-component='help-contextual-navigation' aria-label='Contextual help navigation'>
+      <p class='help-contextual-text' data-populate='contextual-links'></p>
+    </nav>
+  </main>
+
+  <footer id='site-footer'>
+    <p class='footer-links'>
+      <a href='about.html'>About</a> |
+      <a href='help.html'>Help</a> |
+      <a href='index.html'>Dashboard</a>
+    </p>
+    <p class='footer-note'>
+      <!-- Optional footer note or legal text can be placed here. -->
+    </p>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      'use strict';
+
+      var urlParams = new URLSearchParams(window.location.search);
+      var pageState = {
+        topics: [],
+        activeTopicId: null,
+        urlParams: urlParams,
+        errorMessage: '',
+        initialized: false
+      };
+
+      function handleDataError(error) {
+        if (window && window.console && typeof window.console.error === 'function') {
+          console.error(error);
+        }
+        pageState.errorMessage = 'Unable to load help topics right now. Please try again later.';
+        renderAll();
+      }
+
+      function loadTopicsAndRender(requestedTopicId) {
+        var response;
+        try {
+          if (requestedTopicId) {
+            response = WebsiteSDK.getHelpContent(requestedTopicId);
+          } else {
+            response = WebsiteSDK.getHelpContent();
+          }
+        } catch (e) {
+          handleDataError(e);
+          return;
+        }
+
+        var topics = response && Array.isArray(response.topics) ? response.topics : [];
+        pageState.topics = topics;
+
+        var activeTopic = null;
+        if (requestedTopicId) {
+          activeTopic = topics.find(function(t) {
+            return t && t.id === requestedTopicId;
+          }) || null;
+        }
+        if (!activeTopic && topics.length > 0) {
+          activeTopic = topics[0];
+        }
+
+        pageState.activeTopicId = activeTopic ? activeTopic.id : null;
+
+        var shouldReplace = !pageState.initialized;
+        if (pageState.activeTopicId) {
+          syncUrlTopicId(pageState.activeTopicId, shouldReplace);
+        }
+        pageState.initialized = true;
+
+        renderAll();
+      }
+
+      function getActiveTopic() {
+        if (!pageState.activeTopicId) {
+          return null;
+        }
+        return pageState.topics.find(function(t) {
+          return t && t.id === pageState.activeTopicId;
+        }) || null;
+      }
+
+      function renderAll() {
+        var activeTopic = getActiveTopic();
+        var populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function(element) {
+          var key = element.dataset.populate;
+          switch (key) {
+            case 'active-topic-title':
+              renderActiveTopicTitle(element, activeTopic);
+              break;
+            case 'active-topic-summary':
+              renderActiveTopicSummary(element, activeTopic);
+              break;
+            case 'active-topic-concepts':
+              renderActiveTopicConcepts(element, activeTopic);
+              break;
+            case 'active-topic-steps':
+              renderActiveTopicSteps(element, activeTopic);
+              break;
+            case 'active-topic-related-pages':
+              renderActiveTopicRelatedPages(element, activeTopic);
+              break;
+            case 'active-topic-related-tasks':
+              renderActiveTopicRelatedTasks(element, activeTopic);
+              break;
+            case 'topic-list-rows':
+              renderTopicList(element, pageState.topics, pageState.activeTopicId);
+              break;
+            case 'contextual-links':
+              renderContextualLinks(element, activeTopic);
+              break;
+            case 'error-message':
+              renderErrorMessage(element, pageState.errorMessage);
+              break;
+            default:
+              break;
+          }
+        });
+
+        bindActionHandlers();
+      }
+
+      function renderErrorMessage(container, message) {
+        if (!container) {
+          return;
+        }
+        container.textContent = message || '';
+        if (message) {
+          container.style.display = 'block';
+        } else {
+          container.style.display = 'none';
+        }
+      }
+
+      function renderActiveTopicTitle(container, topic) {
+        if (!container) {
+          return;
+        }
+        if (!topic) {
+          container.textContent = 'Help topics';
+          return;
+        }
+        container.textContent = topic.title || '';
+      }
+
+      function renderActiveTopicSummary(container, topic) {
+        if (!container) {
+          return;
+        }
+        if (!topic) {
+          container.textContent = 'Select a help topic below to see detailed guidance.';
+          return;
+        }
+        container.textContent = topic.summary || '';
+      }
+
+      function renderActiveTopicConcepts(container, topic) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (!topic || !Array.isArray(topic.conceptsCovered) || topic.conceptsCovered.length === 0) {
+          var liEmpty = document.createElement('li');
+          liEmpty.textContent = 'None';
+          container.appendChild(liEmpty);
+          return;
+        }
+        topic.conceptsCovered.forEach(function(concept) {
+          var li = document.createElement('li');
+          li.textContent = concept;
+          container.appendChild(li);
+        });
+      }
+
+      function renderActiveTopicSteps(container, topic) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (!topic || !Array.isArray(topic.steps) || topic.steps.length === 0) {
+          var liEmpty = document.createElement('li');
+          liEmpty.textContent = 'No steps are available for this topic yet.';
+          container.appendChild(liEmpty);
+          return;
+        }
+        var sortedSteps = topic.steps.slice().sort(function(a, b) {
+          var aOrder = typeof a.order === 'number' ? a.order : 0;
+          var bOrder = typeof b.order === 'number' ? b.order : 0;
+          return aOrder - bOrder;
+        });
+        sortedSteps.forEach(function(step) {
+          var li = document.createElement('li');
+          var titleDiv = document.createElement('div');
+          titleDiv.className = 'help-step-title';
+          var orderLabel = step && typeof step.order === 'number' ? 'Step ' + step.order + ': ' : '';
+          var titleText = step && step.title ? step.title : '';
+          titleDiv.textContent = orderLabel + titleText;
+          var descP = document.createElement('p');
+          descP.className = 'help-step-description';
+          descP.textContent = step && step.description ? step.description : '';
+          li.appendChild(titleDiv);
+          li.appendChild(descP);
+          container.appendChild(li);
+        });
+      }
+
+      function renderActiveTopicRelatedPages(container, topic) {
+        if (!container) {
+          return;
+        }
+        if (!topic || !Array.isArray(topic.relatedPageNames) || topic.relatedPageNames.length === 0) {
+          container.textContent = 'None';
+          return;
+        }
+        container.textContent = topic.relatedPageNames.join(', ');
+      }
+
+      function renderActiveTopicRelatedTasks(container, topic) {
+        if (!container) {
+          return;
+        }
+        if (!topic || !Array.isArray(topic.relatedTaskIds) || topic.relatedTaskIds.length === 0) {
+          container.textContent = 'None';
+          return;
+        }
+        container.textContent = topic.relatedTaskIds.join(', ');
+      }
+
+      function renderTopicList(container, topics, activeTopicId) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (!topics || topics.length === 0) {
+          var row = document.createElement('tr');
+          var cell = document.createElement('td');
+          cell.colSpan = 2;
+          cell.textContent = 'No help topics are available.';
+          row.appendChild(cell);
+          container.appendChild(row);
+          return;
+        }
+        topics.forEach(function(topic) {
+          var tr = document.createElement('tr');
+          tr.dataset.action = 'select-topic';
+          tr.dataset.topicId = topic && topic.id ? topic.id : '';
+          if (topic && topic.id === activeTopicId) {
+            tr.className = 'active-topic-row';
+          }
+          var tdTitle = document.createElement('td');
+          tdTitle.textContent = topic && topic.title ? topic.title : '';
+          var tdSummary = document.createElement('td');
+          tdSummary.textContent = topic && topic.summary ? topic.summary : '';
+          tr.appendChild(tdTitle);
+          tr.appendChild(tdSummary);
+          container.appendChild(tr);
+        });
+      }
+
+      function createNavLink(label, action) {
+        var a = document.createElement('a');
+        a.href = 'javascript:void(0)';
+        a.textContent = label;
+        a.dataset.action = action;
+        return a;
+      }
+
+      function renderContextualLinks(container, topic) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (!topic) {
+          var span = document.createElement('span');
+          span.textContent = 'Use the sitemap manager pages to perform tasks, or choose a help topic above for guidance.';
+          container.appendChild(span);
+          return;
+        }
+        var related = Array.isArray(topic.relatedPageNames) ? topic.relatedPageNames : [];
+        var navItems = [];
+        var seen = {};
+        related.forEach(function(name) {
+          var normalized = String(name || '').toLowerCase();
+          if (normalized === 'dashboard' && !seen.dashboard) {
+            seen.dashboard = true;
+            navItems.push(createNavLink('Back to Dashboard', 'nav-dashboard'));
+          } else if (normalized === 'sitemap listing' && !seen.sitemaps) {
+            seen.sitemaps = true;
+            navItems.push(createNavLink('Open Sitemap Listing', 'nav-sitemaps'));
+          } else if (normalized === 'sitemap settings' && !seen.createSitemap) {
+            seen.createSitemap = true;
+            navItems.push(createNavLink('Create a sitemap now', 'nav-create-sitemap'));
+          } else if (normalized === 'sitemap url list' && !seen.sitemapUrls) {
+            seen.sitemapUrls = true;
+            navItems.push(createNavLink('Open this sitemap\'s URLs', 'nav-sitemap-urls'));
+          } else if (normalized === 'about' && !seen.about) {
+            seen.about = true;
+            navItems.push(createNavLink('Learn more about this tool', 'nav-about'));
+          }
+        });
+        if (navItems.length === 0) {
+          var fallback = document.createElement('span');
+          fallback.textContent = 'Choose another topic or return to the dashboard when you are done.';
+          container.appendChild(fallback);
+          return;
+        }
+        var prefix = document.createTextNode('From here you can: ');
+        container.appendChild(prefix);
+        navItems.forEach(function(link, index) {
+          if (index > 0) {
+            container.appendChild(document.createTextNode(' · '));
+          }
+          container.appendChild(link);
+        });
+      }
+
+      function bindActionHandlers() {
+        var actionElements = document.querySelectorAll('[data-action]');
+        actionElements.forEach(function(element) {
+          if (element.dataset.bound === 'true') {
+            return;
+          }
+          var action = element.dataset.action;
+          if (!action) {
+            return;
+          }
+          element.addEventListener('click', function(event) {
+            handleActionClick(event, element, action);
+          });
+          element.dataset.bound = 'true';
+        });
+      }
+
+      function handleActionClick(event, element, action) {
+        if (!action) {
+          return;
+        }
+        if (action === 'select-topic') {
+          event.preventDefault();
+          var topicId = element.dataset.topicId || null;
+          if (!topicId || topicId === pageState.activeTopicId) {
+            return;
+          }
+          pageState.activeTopicId = topicId;
+          syncUrlTopicId(topicId, false);
+          renderAll();
+        } else if (action === 'nav-dashboard') {
+          event.preventDefault();
+          window.location.href = 'index.html';
+        } else if (action === 'nav-sitemaps') {
+          event.preventDefault();
+          window.location.href = 'sitemaps.html';
+        } else if (action === 'nav-create-sitemap') {
+          event.preventDefault();
+          window.location.href = 'sitemap_settings.html?mode=create';
+        } else if (action === 'nav-sitemap-urls') {
+          event.preventDefault();
+          var params = new URLSearchParams();
+          var sitemapId = pageState.urlParams.get('sitemapId');
+          if (sitemapId) {
+            params.set('sitemapId', sitemapId);
+          } else {
+            params.set('sitemapId', 'exampleOrPreviouslyUsedSitemapId');
+          }
+          var query = params.toString();
+          var target = query ? 'sitemap_urls.html?' + query : 'sitemap_urls.html';
+          window.location.href = target;
+        } else if (action === 'nav-about') {
+          event.preventDefault();
+          window.location.href = 'about.html';
+        }
+      }
+
+      function syncUrlTopicId(topicId, replace) {
+        var url = new URL(window.location.href);
+        if (topicId) {
+          url.searchParams.set('topicId', topicId);
+        } else {
+          url.searchParams.delete('topicId');
+        }
+        if (replace) {
+          window.history.replaceState({}, '', url.toString());
+        } else {
+          window.history.pushState({}, '', url.toString());
+        }
+        pageState.urlParams = new URLSearchParams(url.search);
+      }
+
+      window.addEventListener('popstate', function() {
+        var params = new URLSearchParams(window.location.search);
+        pageState.urlParams = params;
+        var topicId = params.get('topicId');
+        if (!pageState.topics || pageState.topics.length === 0) {
+          loadTopicsAndRender(topicId || undefined);
+          return;
+        }
+        if (topicId) {
+          pageState.activeTopicId = topicId;
+        } else if (pageState.topics.length > 0) {
+          pageState.activeTopicId = pageState.topics[0].id;
+        } else {
+          pageState.activeTopicId = null;
+        }
+        renderAll();
+      });
+
+      var headerTitle = document.getElementById('page-title');
+      if (headerTitle) {
+        headerTitle.textContent = 'Help';
+      }
+
+      var initialTopicId = urlParams.get('topicId');
+      loadTopicsAndRender(initialTopicId || undefined);
+    });
+  </script>
+</body>
+</html>

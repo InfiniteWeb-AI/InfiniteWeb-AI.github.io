@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Artist Discography Framework</title>
+  
+  <link rel="stylesheet" href="queue.css">
+</head>
+<body>
+  <div class="page-background">
+    <div class="page-container">
+      <header class="site-header">
+        <h1 class="site-title">Artist Discography</h1>
+        <nav class="site-nav" aria-label="Primary">
+          <ul>
+            <li><a href="index.html">Home</a></li>
+            <li><a href="genres.html">Browse Genres</a></li>
+            <li><a href="library.html">Library</a></li>
+            <li><a href="playlists.html">Playlists</a></li>
+            <li><a href="favorites.html">Favorites</a></li>
+            <li><a href="queue.html">Queue</a></li>
+          </ul>
+        </nav>
+      </header>
+
+      <main id="content" class="site-main" role="main">
+        <section id="queue-panel" data-component="queue-page-init" data-populate="queue">
+          <h2>Queue</h2>
+
+          <div id="queue-error" class="queue-error" role="alert" aria-live="assertive"></div>
+          <div id="queue-loading" class="queue-loading">Loading queue…</div>
+
+          <div id="queue-toolbar" data-component="queue-toolbar">
+            <p>
+              <span id="queue-meta" data-populate="queue-meta"></span>
+              <span id="queue-view-toggle">
+                &nbsp;| View:
+                <a href="javascript:void(0)" data-action="set-view" data-view="detailed">Detailed</a>
+                |
+                <a href="javascript:void(0)" data-action="set-view" data-view="compact">Compact</a>
+              </span>
+              <span>
+                &nbsp;| <a href="javascript:void(0)" data-action="clear-queue">Clear queue</a>
+              </span>
+            </p>
+          </div>
+
+          <div id="queue-main">
+            <div id="queue-empty-state" data-component="queue-empty-state" hidden>
+              <p><strong>Your queue is empty.</strong></p>
+              <p>You can add tracks, albums, or playlists to see them here.</p>
+              <p><a href="javascript:void(0)" data-action="focus-add-form">Add items to your queue</a></p>
+            </div>
+
+            <ol id="queue-list" data-component="queue-list" aria-label="Playback queue"></ol>
+          </div>
+
+          <section id="queue-add-item-section" data-component="queue-add-item-form">
+            <h3>Add to queue</h3>
+            <form id="queue-add-item-form">
+              <fieldset>
+                <legend>Item type</legend>
+                <label>
+                  <input type="radio" name="itemType" value="track" checked>
+                  Track
+                </label>
+                <label>
+                  <input type="radio" name="itemType" value="album">
+                  Album
+                </label>
+                <label>
+                  <input type="radio" name="itemType" value="playlist">
+                  Playlist
+                </label>
+              </fieldset>
+
+              <p>
+                <label for="queue-item-id-input" id="queue-item-id-label">Track identifier:</label><br>
+                <input type="text" id="queue-item-id-input" name="itemId" required>
+              </p>
+
+              <p>
+                <label>
+                  <input type="checkbox" id="queue-play-next-input" name="playNext">
+                  Play next (instead of adding to the end)
+                </label>
+              </p>
+
+              <p>
+                <button type="submit" data-action="submit-add-item">Add</button>
+              </p>
+            </form>
+            <div id="queue-add-item-message" aria-live="polite"></div>
+          </section>
+
+          <div id="queue-url-state-manager" data-component="queue-url-state-manager" aria-hidden="true" hidden></div>
+
+          <hr>
+          <p><a href="javascript:void(0)" data-action="scroll-top">Back to top</a></p>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <hr class="footer-divider">
+        <nav class="footer-nav" aria-label="Footer">
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="help.html">Help / FAQ</a></li>
+            <li><a href="contact.html">Contact</a></li>
+            <li><a href="bookmarks.html">Bookmarks</a></li>
+            <li><a href="lists.html">Lists</a></li>
+          </ul>
+        </nav>
+        <p class="footer-meta">&copy; Artist Discography</p>
+      </footer>
+    </div>
+  </div>
+
+  <script src="business_logic.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const url = new URL(window.location.href);
+      const urlParams = url.searchParams;
+
+      let currentQueueData = { queueId: null, items: [] };
+      let currentViewMode = 'detailed';
+      let currentHighlightId = null;
+      let currentStartPosition = null;
+      let scrollUpdateTimeout = null;
+
+      const queuePanel = document.getElementById('queue-panel');
+      const queueListEl = document.getElementById('queue-list');
+      const queueEmptyEl = document.getElementById('queue-empty-state');
+      const queueMetaEl = document.getElementById('queue-meta');
+      const queueLoadingEl = document.getElementById('queue-loading');
+      const queueErrorEl = document.getElementById('queue-error');
+      const addItemForm = document.getElementById('queue-add-item-form');
+      const addItemMessageEl = document.getElementById('queue-add-item-message');
+      const itemIdLabelEl = document.getElementById('queue-item-id-label');
+      const itemIdInputEl = document.getElementById('queue-item-id-input');
+
+      function readUrlState() {
+        const view = urlParams.get('view');
+        if (view === 'compact' || view === 'detailed') {
+          currentViewMode = view;
+        } else {
+          currentViewMode = 'detailed';
+        }
+
+        const highlight = urlParams.get('highlightQueueItemId');
+        currentHighlightId = highlight || null;
+
+        const startPosParam = urlParams.get('startPosition');
+        const parsedStart = startPosParam ? parseInt(startPosParam, 10) : NaN;
+        currentStartPosition = Number.isFinite(parsedStart) && parsedStart > 0 ? parsedStart : null;
+      }
+
+      function updateUrlParam(key, value) {
+        const currentUrl = new URL(window.location.href);
+        if (value === null || value === undefined || value === '') {
+          currentUrl.searchParams.delete(key);
+        } else {
+          currentUrl.searchParams.set(key, String(value));
+        }
+        window.history.replaceState(null, '', currentUrl.toString());
+      }
+
+      function showError(message) {
+        if (!queueErrorEl) return;
+        queueErrorEl.textContent = message || 'An error occurred while loading the queue.';
+      }
+
+      function clearError() {
+        if (!queueErrorEl) return;
+        queueErrorEl.textContent = '';
+      }
+
+      function setLoading(isLoading) {
+        if (!queueLoadingEl) return;
+        queueLoadingEl.style.display = isLoading ? 'block' : 'none';
+      }
+
+      function renderQueueToolbarMeta(container, queueData) {
+        if (!container) return;
+        const items = queueData.items || [];
+        const count = items.length;
+        const countText = count === 1 ? '1 item in queue' : count + ' items in queue';
+        container.textContent = countText;
+      }
+
+      function updateViewModeLabel() {
+        if (!queuePanel) return;
+        queuePanel.setAttribute('data-view-mode', currentViewMode);
+      }
+
+      function handleQueueItemNavigationClick(event) {
+        const li = event.currentTarget;
+        const itemType = li.getAttribute('data-item-type');
+        const trackId = li.getAttribute('data-track-id');
+        const albumId = li.getAttribute('data-album-id');
+        const playlistId = li.getAttribute('data-playlist-id');
+
+        if (itemType === 'track' && trackId) {
+          window.location.href = 'track.html?trackId=' + encodeURIComponent(trackId);
+        } else if (itemType === 'album' && albumId) {
+          window.location.href = 'album.html?albumId=' + encodeURIComponent(albumId);
+        } else if (itemType === 'playlist' && playlistId) {
+          window.location.href = 'playlist_detail.html?playlistId=' + encodeURIComponent(playlistId);
+        }
+      }
+
+      function handleQueueItemNavigationKeydown(event) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        handleQueueItemNavigationClick(event);
+      }
+
+      function renderQueueList(container, items) {
+        if (!container) return;
+        container.innerHTML = '';
+
+        const sortedItems = (items || []).slice().sort(function(a, b) {
+          return (a.position || 0) - (b.position || 0);
+        });
+
+        sortedItems.forEach(function(item) {
+          const li = document.createElement('li');
+          li.setAttribute('data-queue-item-id', item.queue_item_id || '');
+          li.setAttribute('data-position', String(item.position || ''));
+          li.setAttribute('data-item-type', item.item_type || '');
+          if (item.track_id) {
+            li.setAttribute('data-track-id', item.track_id);
+          }
+          if (item.album_id) {
+            li.setAttribute('data-album-id', item.album_id);
+          }
+          if (item.playlist_id) {
+            li.setAttribute('data-playlist-id', item.playlist_id);
+          }
+          li.tabIndex = 0;
+
+          const mainSpan = document.createElement('span');
+          mainSpan.className = 'queue-item-main';
+
+          const positionText = item.position ? item.position + '. ' : '';
+          let typePrefix = '';
+          if (item.item_type === 'album') {
+            typePrefix = '[Album] ';
+          } else if (item.item_type === 'playlist') {
+            typePrefix = '[Playlist] ';
+          } else if (item.item_type === 'track') {
+            typePrefix = '[Track] ';
+          }
+
+          let titleText = '';
+          if (item.item_type === 'track' && item.track_title) {
+            titleText = item.track_title;
+          } else if (item.item_type === 'album' && item.album_title) {
+            titleText = item.album_title;
+          } else if (item.item_type === 'playlist' && item.playlist_name) {
+            titleText = item.playlist_name;
+          }
+
+          let lineParts = [];
+          if (positionText) {
+            lineParts.push(positionText.trim());
+          }
+          if (typePrefix) {
+            lineParts.push(typePrefix.trim());
+          }
+          if (titleText) {
+            lineParts.push('"' + titleText + '"');
+          }
+          if (item.primary_artist_name) {
+            lineParts.push('— ' + item.primary_artist_name);
+          }
+
+          if (currentViewMode === 'detailed') {
+            if (item.formatted_duration) {
+              lineParts.push('[' + item.formatted_duration + ']');
+            }
+            if (item.added_at) {
+              lineParts.push('(added ' + item.added_at + ')');
+            }
+          }
+
+          mainSpan.textContent = lineParts.join(' ');
+          li.appendChild(mainSpan);
+
+          const controlsSpan = document.createElement('span');
+          controlsSpan.className = 'queue-item-controls';
+
+          const upLink = document.createElement('a');
+          upLink.href = 'javascript:void(0)';
+          upLink.textContent = 'move up';
+          upLink.setAttribute('data-action', 'move-up');
+          upLink.setAttribute('data-queue-item-id', item.queue_item_id || '');
+
+          const downLink = document.createElement('a');
+          downLink.href = 'javascript:void(0)';
+          downLink.textContent = 'move down';
+          downLink.setAttribute('data-action', 'move-down');
+          downLink.setAttribute('data-queue-item-id', item.queue_item_id || '');
+
+          const removeLink = document.createElement('a');
+          removeLink.href = 'javascript:void(0)';
+          removeLink.textContent = 'remove';
+          removeLink.setAttribute('data-action', 'remove-queue-item');
+          removeLink.setAttribute('data-queue-item-id', item.queue_item_id || '');
+
+          controlsSpan.appendChild(document.createTextNode(' '));
+          controlsSpan.appendChild(document.createTextNode('['));
+          controlsSpan.appendChild(upLink);
+          controlsSpan.appendChild(document.createTextNode(' | '));
+          controlsSpan.appendChild(downLink);
+          controlsSpan.appendChild(document.createTextNode(' | '));
+          controlsSpan.appendChild(removeLink);
+          controlsSpan.appendChild(document.createTextNode(']'));
+
+          li.appendChild(document.createTextNode(' '));
+          li.appendChild(controlsSpan);
+
+          li.addEventListener('click', handleQueueItemNavigationClick);
+          li.addEventListener('keydown', handleQueueItemNavigationKeydown);
+
+          container.appendChild(li);
+        });
+      }
+
+      function applyHighlightAndScroll() {
+        if (!queueListEl) return;
+        const items = Array.prototype.slice.call(queueListEl.querySelectorAll('li'));
+
+        items.forEach(function(li) {
+          li.classList.remove('highlight-queue-item');
+        });
+
+        let highlighted = false;
+
+        if (currentHighlightId) {
+          const match = items.find(function(li) {
+            return li.getAttribute('data-queue-item-id') === currentHighlightId;
+          });
+          if (match) {
+            match.classList.add('highlight-queue-item');
+            match.scrollIntoView({ block: 'center' });
+            highlighted = true;
+          }
+        }
+
+        if (!highlighted && currentStartPosition != null) {
+          const target = items.find(function(li) {
+            return parseInt(li.getAttribute('data-position') || '0', 10) === currentStartPosition;
+          });
+          if (target) {
+            target.scrollIntoView({ block: 'start' });
+          }
+        }
+      }
+
+      function loadQueue() {
+        clearError();
+        setLoading(true);
+        try {
+          const response = WebsiteSDK.getQueue();
+          const items = Array.isArray(response && response.items) ? response.items : [];
+          currentQueueData.queueId = response && response.queue_id ? response.queue_id : null;
+          currentQueueData.items = items.slice();
+
+          if (queueMetaEl) {
+            renderQueueToolbarMeta(queueMetaEl, currentQueueData);
+          }
+
+          if (!items.length) {
+            if (queueEmptyEl) {
+              queueEmptyEl.hidden = false;
+            }
+            if (queueListEl) {
+              queueListEl.innerHTML = '';
+              queueListEl.style.display = 'none';
+            }
+            currentStartPosition = null;
+            updateUrlParam('startPosition', null);
+          } else {
+            if (queueEmptyEl) {
+              queueEmptyEl.hidden = true;
+            }
+            if (queueListEl) {
+              queueListEl.style.display = 'block';
+              renderQueueList(queueListEl, items);
+            }
+          }
+
+          if (currentHighlightId) {
+            const stillExists = items.some(function(it) {
+              return it.queue_item_id === currentHighlightId;
+            });
+            if (!stillExists) {
+              currentHighlightId = null;
+              updateUrlParam('highlightQueueItemId', null);
+            }
+          }
+
+          updateViewModeLabel();
+          bindActionHandlers(queuePanel);
+          applyHighlightAndScroll();
+        } catch (err) {
+          showError('Unable to load queue.');
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      function handleClearQueue(event) {
+        event.preventDefault();
+        if (!window.confirm('Clear all items from your queue?')) {
+          return;
+        }
+        try {
+          const res = WebsiteSDK.clearQueue();
+          if (res && res.cleared) {
+            currentHighlightId = null;
+            currentStartPosition = null;
+            updateUrlParam('highlightQueueItemId', null);
+            updateUrlParam('startPosition', null);
+            loadQueue();
+          } else {
+            showError(res && res.message ? res.message : 'Unable to clear queue.');
+          }
+        } catch (err) {
+          showError('Unable to clear queue.');
+        }
+      }
+
+      function handleRemoveQueueItem(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const el = event.currentTarget;
+        const queueItemId = el.getAttribute('data-queue-item-id');
+        if (!queueItemId) return;
+        try {
+          const res = WebsiteSDK.removeQueueItem(queueItemId);
+          if (res && res.removed) {
+            if (currentHighlightId === queueItemId) {
+              currentHighlightId = null;
+              updateUrlParam('highlightQueueItemId', null);
+            }
+            loadQueue();
+          } else {
+            showError(res && res.message ? res.message : 'Unable to remove item from queue.');
+          }
+        } catch (err) {
+          showError('Unable to remove item from queue.');
+        }
+      }
+
+      function handleReorderQueueItem(event, direction) {
+        event.preventDefault();
+        event.stopPropagation();
+        const el = event.currentTarget;
+        const queueItemId = el.getAttribute('data-queue-item-id');
+        if (!queueItemId) return;
+
+        const items = currentQueueData.items.slice().sort(function(a, b) {
+          return (a.position || 0) - (b.position || 0);
+        });
+        const index = items.findIndex(function(it) { return it.queue_item_id === queueItemId; });
+        if (index === -1) return;
+
+        let swapIndex;
+        if (direction === 'up') {
+          if (index === 0) return;
+          swapIndex = index - 1;
+        } else {
+          if (index === items.length - 1) return;
+          swapIndex = index + 1;
+        }
+
+        const currentItem = items[index];
+        const otherItem = items[swapIndex];
+        const reorderedItems = [
+          {
+            queueItemId: currentItem.queue_item_id,
+            position: otherItem.position
+          },
+          {
+            queueItemId: otherItem.queue_item_id,
+            position: currentItem.position
+          }
+        ];
+
+        try {
+          const res = WebsiteSDK.reorderQueueItems(reorderedItems);
+          if (res && res.updated) {
+            const firstPos = Math.min(currentItem.position, otherItem.position);
+            currentStartPosition = firstPos;
+            updateUrlParam('startPosition', firstPos);
+            loadQueue();
+          } else {
+            showError(res && res.message ? res.message : 'Unable to reorder items.');
+          }
+        } catch (err) {
+          showError('Unable to reorder items.');
+        }
+      }
+
+      function handleSetView(event) {
+        event.preventDefault();
+        const el = event.currentTarget;
+        const newView = el.getAttribute('data-view');
+        if (!newView || (newView !== 'compact' && newView !== 'detailed')) return;
+        if (currentViewMode === newView) return;
+        currentViewMode = newView;
+        updateUrlParam('view', newView);
+        updateViewModeLabel();
+        if (queueListEl && currentQueueData.items.length) {
+          renderQueueList(queueListEl, currentQueueData.items);
+          bindActionHandlers(queueListEl);
+          applyHighlightAndScroll();
+        }
+      }
+
+      function handleFocusAddForm(event) {
+        event.preventDefault();
+        const section = document.getElementById('queue-add-item-section');
+        if (section) {
+          section.scrollIntoView({ block: 'start' });
+        }
+        if (itemIdInputEl) {
+          itemIdInputEl.focus();
+        }
+      }
+
+      function handleScrollTop(event) {
+        event.preventDefault();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      function handleAddItemTypeChange() {
+        if (!addItemForm || !itemIdLabelEl) return;
+        const type = addItemForm.itemType.value;
+        if (type === 'album') {
+          itemIdLabelEl.textContent = 'Album identifier:';
+        } else if (type === 'playlist') {
+          itemIdLabelEl.textContent = 'Playlist identifier:';
+        } else {
+          itemIdLabelEl.textContent = 'Track identifier:';
+        }
+      }
+
+      function handleAddItemFormSubmit(event) {
+        event.preventDefault();
+        if (!addItemForm) return;
+        if (addItemMessageEl) {
+          addItemMessageEl.textContent = '';
+        }
+
+        const type = addItemForm.itemType.value;
+        const idValue = (addItemForm.itemId.value || '').trim();
+        const playNext = !!addItemForm.playNext.checked;
+
+        if (!type || !idValue) {
+          if (addItemMessageEl) {
+            addItemMessageEl.textContent = 'Please select an item type and enter an identifier.';
+          }
+          return;
+        }
+
+        try {
+          if (type === 'track') {
+            const res = WebsiteSDK.addTrackToQueue(idValue, playNext);
+            if (res && res.queue_item_id) {
+              currentHighlightId = res.queue_item_id;
+              updateUrlParam('highlightQueueItemId', res.queue_item_id);
+              if (res.position) {
+                currentStartPosition = res.position;
+                updateUrlParam('startPosition', res.position);
+              }
+            }
+            if (addItemMessageEl) {
+              addItemMessageEl.textContent = res && res.message ? res.message : 'Track added to queue.';
+            }
+          } else if (type === 'album') {
+            const res = WebsiteSDK.addAlbumToQueue(idValue, playNext);
+            if (res && res.queue_item_id) {
+              currentHighlightId = res.queue_item_id;
+              updateUrlParam('highlightQueueItemId', res.queue_item_id);
+              if (res.position) {
+                currentStartPosition = res.position;
+                updateUrlParam('startPosition', res.position);
+              }
+            }
+            if (addItemMessageEl) {
+              addItemMessageEl.textContent = res && res.message ? res.message : 'Album added to queue.';
+            }
+          } else if (type === 'playlist') {
+            const lastPositionBefore = currentQueueData.items.reduce(function(max, it) {
+              const pos = typeof it.position === 'number' ? it.position : 0;
+              return pos > max ? pos : max;
+            }, 0);
+            const res = WebsiteSDK.addPlaylistToQueue(idValue, playNext);
+            if (res && typeof res.added_item_count === 'number' && res.added_item_count > 0) {
+              const newStart = lastPositionBefore + 1;
+              currentStartPosition = newStart;
+              updateUrlParam('startPosition', newStart);
+            }
+            if (addItemMessageEl) {
+              addItemMessageEl.textContent = res && res.message ? res.message : 'Playlist added to queue.';
+            }
+          } else {
+            if (addItemMessageEl) {
+              addItemMessageEl.textContent = 'Unsupported item type.';
+            }
+            return;
+          }
+
+          loadQueue();
+          addItemForm.reset();
+          handleAddItemTypeChange();
+        } catch (err) {
+          showError('Unable to add item to queue.');
+        }
+      }
+
+      function handleQueueKeyboardReorder(event) {
+        const target = event.target;
+        if (!queueListEl) return;
+        if (queueListEl.contains(target)) {
+          if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+            const li = target.closest('li');
+            if (!li) return;
+            const queueItemId = li.getAttribute('data-queue-item-id');
+            if (!queueItemId) return;
+            const direction = event.key === 'ArrowUp' ? 'up' : 'down';
+            const fakeEvent = { preventDefault: function(){}, stopPropagation: function(){}, currentTarget: li };
+            handleReorderQueueItem(fakeEvent, direction);
+          }
+        }
+      }
+
+      function handleScrollUpdateStartPosition() {
+        if (!queueListEl || !currentQueueData.items.length) return;
+        if (scrollUpdateTimeout) {
+          window.clearTimeout(scrollUpdateTimeout);
+        }
+        scrollUpdateTimeout = window.setTimeout(function() {
+          const items = Array.prototype.slice.call(queueListEl.querySelectorAll('li'));
+          let firstVisiblePos = null;
+          const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+          items.some(function(li) {
+            const rect = li.getBoundingClientRect();
+            if (rect.bottom >= 0 && rect.top <= viewportHeight) {
+              const pos = parseInt(li.getAttribute('data-position') || '0', 10);
+              if (pos > 0) {
+                firstVisiblePos = pos;
+              }
+              return true;
+            }
+            return false;
+          });
+          if (firstVisiblePos && firstVisiblePos !== currentStartPosition) {
+            currentStartPosition = firstVisiblePos;
+            updateUrlParam('startPosition', firstVisiblePos);
+          }
+        }, 250);
+      }
+
+      function bindActionHandlers(context) {
+        const root = context || document;
+        const elements = root.querySelectorAll('[data-action]');
+        elements.forEach(function(el) {
+          if (el.getAttribute('data-bound') === 'true') {
+            return;
+          }
+          const action = el.getAttribute('data-action');
+          if (action === 'clear-queue') {
+            el.addEventListener('click', handleClearQueue);
+          } else if (action === 'remove-queue-item') {
+            el.addEventListener('click', handleRemoveQueueItem);
+          } else if (action === 'move-up') {
+            el.addEventListener('click', function(event) { handleReorderQueueItem(event, 'up'); });
+          } else if (action === 'move-down') {
+            el.addEventListener('click', function(event) { handleReorderQueueItem(event, 'down'); });
+          } else if (action === 'set-view') {
+            el.addEventListener('click', handleSetView);
+          } else if (action === 'focus-add-form') {
+            el.addEventListener('click', handleFocusAddForm);
+          } else if (action === 'scroll-top') {
+            el.addEventListener('click', handleScrollTop);
+          } else if (action === 'submit-add-item') {
+            if (addItemForm) {
+              addItemForm.addEventListener('submit', handleAddItemFormSubmit);
+            }
+          }
+          el.setAttribute('data-bound', 'true');
+        });
+      }
+
+      readUrlState();
+      updateViewModeLabel();
+
+      const populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function(element) {
+        const dataType = element.getAttribute('data-populate');
+        if (dataType === 'queue') {
+          loadQueue();
+        }
+      });
+
+      if (addItemForm) {
+        const typeInputs = addItemForm.querySelectorAll('input[name="itemType"]');
+        typeInputs.forEach(function(input) {
+          input.addEventListener('change', handleAddItemTypeChange);
+        });
+        addItemForm.addEventListener('submit', handleAddItemFormSubmit);
+        handleAddItemTypeChange();
+      }
+
+      bindActionHandlers(document);
+
+      window.addEventListener('keydown', handleQueueKeyboardReorder);
+      window.addEventListener('scroll', handleScrollUpdateStartPosition);
+    });
+  </script>
+</body>
+</html>

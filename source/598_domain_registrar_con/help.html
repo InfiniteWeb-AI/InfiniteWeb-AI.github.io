@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Help &amp; Support - Domain Registrar Portal</title>
+    
+    <link rel="stylesheet" href="help.css">
+</head>
+<body>
+    <header class="site-header">
+        <nav class="primary-nav" aria-label="Primary navigation">
+            <ul class="nav-list">
+                <li class="nav-item"><a href="index.html">Dashboard</a></li>
+                <li class="nav-item"><a href="my_domains.html">My Domains</a></li>
+                <li class="nav-item"><a href="contact_verification_center.html">Contact Verification</a></li>
+                <li class="nav-item"><a href="account_settings.html">Account Settings</a></li>
+                <li class="nav-item"><a href="help.html">Help</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" class="site-main" role="main">
+        <article data-component="help-page-controller">
+            <h1>Help &amp; Support</h1>
+            <p>Find self-service guidance for domain contact verification and related tasks.</p>
+        </article>
+
+        <p data-component="topic-filter-bar">
+            Topics:
+            <a href="javascript:void(0)" data-action="topic-clear">All topics</a>
+            <span data-topic-options></span>
+        </p>
+
+        <form data-component="help-search-form" data-action="search-form">
+            <label for="helpSearchInput">Search help</label>
+            <input type="text" id="helpSearchInput" name="q" data-action="search-query">
+            <button type="submit">Search</button>
+            <a href="javascript:void(0)" data-action="search-clear">Clear search</a>
+        </form>
+
+        <div data-component="static-info-block" data-populate="static-info-block"></div>
+
+        <div data-component="faq-section-list" data-populate="help-support-content"></div>
+
+        <p data-component="contact-support-link">
+            Still need help?
+            <a href="contact.html?topic=contact_verification">Contact support</a>.
+        </p>
+    </main>
+
+    <footer class="site-footer">
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul class="footer-nav-list">
+                <li class="footer-nav-item"><a href="about.html">About</a></li>
+                <li class="footer-nav-item"><a href="help.html">Help &amp; Support</a></li>
+                <li class="footer-nav-item"><a href="contact.html">Contact Us</a></li>
+                <li class="footer-nav-item"><a href="privacy.html">Privacy Policy</a></li>
+                <li class="footer-nav-item"><a href="terms.html">Terms of Service</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialTopicKey = urlParams.get('topicKey') || null;
+
+        const state = {
+            faqSections: [],
+            currentTopicKey: initialTopicKey,
+            searchQuery: '',
+            expandedArticleIds: new Set()
+        };
+
+        const faqContainer = document.querySelector('[data-populate="help-support-content"]');
+        const staticContainer = document.querySelector('[data-populate="static-info-block"]');
+        const topicFilterContainer = document.querySelector('[data-component="topic-filter-bar"]');
+        const searchForm = document.querySelector('[data-action="search-form"]');
+        const searchInput = document.querySelector('[data-action="search-query"]');
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function renderStaticInfo(container, content) {
+            if (!container) return;
+            if (!content) {
+                container.textContent = '';
+                return;
+            }
+
+            const bodyHtml = content.bodyHtml || '';
+            let lastUpdatedHtml = '';
+            if (content.lastUpdatedAt) {
+                const date = new Date(content.lastUpdatedAt);
+                const formatted = isNaN(date.getTime()) ? content.lastUpdatedAt : date.toLocaleString();
+                lastUpdatedHtml = `<p><small>Last updated: ${escapeHtml(formatted)}</small></p>`;
+            }
+
+            container.innerHTML = `${bodyHtml}${lastUpdatedHtml}`;
+        }
+
+        function buildTopicsFromFaqSections(sections) {
+            const topicSet = new Set();
+            if (!Array.isArray(sections)) return [];
+            sections.forEach(function(section) {
+                if (!section || !Array.isArray(section.articles)) return;
+                section.articles.forEach(function(article) {
+                    if (article && article.relatedTopicKey) {
+                        topicSet.add(article.relatedTopicKey);
+                    }
+                });
+            });
+            return Array.from(topicSet).sort();
+        }
+
+        function formatTopicLabel(topicKey) {
+            if (!topicKey) return '';
+            const parts = String(topicKey).split('_');
+            return parts.map(function(part) {
+                if (!part) return '';
+                return part.charAt(0).toUpperCase() + part.slice(1);
+            }).join(' ');
+        }
+
+        function renderTopicFilterBar(container, topics, activeTopicKey) {
+            if (!container) return;
+            const parts = [];
+            parts.push('Topics: ');
+            parts.push('<a href="javascript:void(0)" data-action="topic-clear">All topics</a>');
+
+            if (Array.isArray(topics) && topics.length > 0) {
+                topics.forEach(function(topicKey) {
+                    const label = escapeHtml(formatTopicLabel(topicKey));
+                    parts.push(' | ');
+                    if (topicKey === activeTopicKey) {
+                        parts.push(`<span data-topic-key="${escapeHtml(topicKey)}">${label}</span>`);
+                    } else {
+                        parts.push(`<a href="javascript:void(0)" data-action="topic-select" data-topic-key="${escapeHtml(topicKey)}">${label}</a>`);
+                    }
+                });
+            }
+
+            container.innerHTML = parts.join('');
+        }
+
+        function isContactVerificationTopic(topicKey) {
+            if (!topicKey) return false;
+            const lower = String(topicKey).toLowerCase();
+            if (lower === 'contact_verification') return true;
+            if (lower.indexOf('verification') !== -1) return true;
+            if (lower.indexOf('suspend') !== -1) return true;
+            return false;
+        }
+
+        function getFilteredSections() {
+            let sections = Array.isArray(state.faqSections) ? state.faqSections : [];
+
+            if (state.currentTopicKey) {
+                const topicKey = state.currentTopicKey;
+                sections = sections.map(function(section) {
+                    const filteredArticles = (section.articles || []).filter(function(article) {
+                        return article && article.relatedTopicKey === topicKey;
+                    });
+                    return Object.assign({}, section, { articles: filteredArticles });
+                }).filter(function(section) {
+                    return Array.isArray(section.articles) && section.articles.length > 0;
+                });
+            }
+
+            if (state.searchQuery) {
+                const q = state.searchQuery.toLowerCase();
+                sections = sections.map(function(section) {
+                    const filteredArticles = (section.articles || []).filter(function(article) {
+                        if (!article) return false;
+                        const question = (article.question || '').toLowerCase();
+                        const answer = (article.answerSummary || '').toLowerCase();
+                        return question.indexOf(q) !== -1 || answer.indexOf(q) !== -1;
+                    });
+                    return Object.assign({}, section, { articles: filteredArticles });
+                }).filter(function(section) {
+                    return Array.isArray(section.articles) && section.articles.length > 0;
+                });
+            }
+
+            return sections;
+        }
+
+        function renderFaqList(container) {
+            if (!container) return;
+
+            const filteredSections = getFilteredSections();
+
+            if (!filteredSections.length) {
+                container.innerHTML = '<p>No help articles match your current filters.</p>';
+                return;
+            }
+
+            let autoExpandArticleId = null;
+            const htmlParts = [];
+
+            filteredSections.forEach(function(section) {
+                const sectionId = section.sectionId ? escapeHtml(section.sectionId) : '';
+                htmlParts.push(`<section data-section-id="${sectionId}">`);
+                if (section.title) {
+                    htmlParts.push(`<h2>${escapeHtml(section.title)}</h2>`);
+                }
+
+                (section.articles || []).forEach(function(article) {
+                    if (!article) return;
+                    const articleIdRaw = article.articleId || '';
+                    const articleId = escapeHtml(articleIdRaw);
+                    const wasExpanded = state.expandedArticleIds.has(articleIdRaw);
+
+                    if (state.currentTopicKey && state.expandedArticleIds.size === 0 && !autoExpandArticleId) {
+                        autoExpandArticleId = articleIdRaw;
+                    }
+
+                    const expanded = wasExpanded || (autoExpandArticleId === articleIdRaw);
+                    if (expanded) {
+                        state.expandedArticleIds.add(articleIdRaw);
+                    }
+
+                    const contactLinkNeeded = isContactVerificationTopic(article.relatedTopicKey) || isContactVerificationTopic(state.currentTopicKey);
+
+                    const answerText = escapeHtml(article.answerSummary || '');
+                    const answerParts = [];
+                    answerParts.push(`<p>${answerText}</p>`);
+                    if (contactLinkNeeded) {
+                        answerParts.push(`<p><a href="javascript:void(0)" data-action="article-contact-support" data-article-id="${articleId}">Contact support</a></p>`);
+                    }
+
+                    htmlParts.push(
+                        `<article data-component="faq-article-item" data-article-id="${articleId}" data-related-topic-key="${escapeHtml(article.relatedTopicKey || '')}" data-expanded="${expanded ? 'true' : 'false'}">` +
+                            `<h3><a href="javascript:void(0)" data-action="toggle-article" data-article-id="${articleId}">${escapeHtml(article.question || '')}</a></h3>` +
+                            `<div data-article-answer ${expanded ? '' : 'hidden="hidden"'}>` +
+                                answerParts.join('') +
+                            `</div>` +
+                        `</article>`
+                    );
+                });
+
+                htmlParts.push('</section>');
+            });
+
+            container.innerHTML = htmlParts.join('');
+
+            if (state.currentTopicKey && autoExpandArticleId) {
+                const articles = container.querySelectorAll('[data-component="faq-article-item"]');
+                for (let i = 0; i < articles.length; i += 1) {
+                    const el = articles[i];
+                    if (el.dataset.articleId === autoExpandArticleId) {
+                        if (typeof el.scrollIntoView === 'function') {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        function setUrlTopicKey(topicKey) {
+            const url = new URL(window.location.href);
+            if (topicKey) {
+                url.searchParams.set('topicKey', topicKey);
+            } else {
+                url.searchParams.delete('topicKey');
+            }
+            window.history.replaceState({}, '', url.toString());
+        }
+
+        function initStaticContent() {
+            if (!staticContainer) return;
+            try {
+                const content = WebsiteSDK.getStaticPageContent('help_support_overview');
+                if (content) {
+                    renderStaticInfo(staticContainer, content);
+                } else {
+                    staticContainer.textContent = '';
+                }
+            } catch (error) {
+                staticContainer.textContent = '';
+            }
+        }
+
+        function initHelpContent() {
+            if (!faqContainer) return;
+            try {
+                const data = WebsiteSDK.getHelpSupportContent();
+                if (data && Array.isArray(data.faqSections)) {
+                    state.faqSections = data.faqSections;
+                } else {
+                    state.faqSections = [];
+                }
+
+                const topics = buildTopicsFromFaqSections(state.faqSections);
+                if (topicFilterContainer) {
+                    renderTopicFilterBar(topicFilterContainer, topics, state.currentTopicKey);
+                }
+
+                renderFaqList(faqContainer);
+            } catch (error) {
+                faqContainer.innerHTML = '<p>Help content is temporarily unavailable. Please try again later.</p>';
+                if (topicFilterContainer) {
+                    topicFilterContainer.textContent = '';
+                }
+            }
+        }
+
+        function handleSearchSubmit(event) {
+            event.preventDefault();
+            if (!faqContainer) return;
+            if (searchInput) {
+                state.searchQuery = searchInput.value.trim();
+            } else {
+                state.searchQuery = '';
+            }
+            state.expandedArticleIds.clear();
+            renderFaqList(faqContainer);
+        }
+
+        function handleSearchInputChange() {
+            if (!faqContainer || !searchInput) return;
+            state.searchQuery = searchInput.value.trim();
+            state.expandedArticleIds.clear();
+            renderFaqList(faqContainer);
+        }
+
+        function handleDocumentClick(event) {
+            const target = event.target.closest('[data-action]');
+            if (!target) return;
+            const action = target.dataset.action;
+            if (!action) return;
+
+            if (action === 'topic-select') {
+                event.preventDefault();
+                const topicKey = target.getAttribute('data-topic-key') || '';
+                state.currentTopicKey = topicKey || null;
+                state.expandedArticleIds.clear();
+                setUrlTopicKey(state.currentTopicKey);
+                const topics = buildTopicsFromFaqSections(state.faqSections);
+                if (topicFilterContainer) {
+                    renderTopicFilterBar(topicFilterContainer, topics, state.currentTopicKey);
+                }
+                if (faqContainer) {
+                    renderFaqList(faqContainer);
+                }
+            } else if (action === 'topic-clear') {
+                event.preventDefault();
+                state.currentTopicKey = null;
+                state.expandedArticleIds.clear();
+                setUrlTopicKey(null);
+                const topics = buildTopicsFromFaqSections(state.faqSections);
+                if (topicFilterContainer) {
+                    renderTopicFilterBar(topicFilterContainer, topics, state.currentTopicKey);
+                }
+                if (faqContainer) {
+                    renderFaqList(faqContainer);
+                }
+            } else if (action === 'search-clear') {
+                event.preventDefault();
+                if (searchInput) {
+                    searchInput.value = '';
+                }
+                state.searchQuery = '';
+                state.expandedArticleIds.clear();
+                if (faqContainer) {
+                    renderFaqList(faqContainer);
+                }
+            } else if (action === 'toggle-article') {
+                event.preventDefault();
+                const articleId = target.getAttribute('data-article-id') || '';
+                if (!articleId) return;
+                const currentlyExpanded = state.expandedArticleIds.has(articleId);
+                if (currentlyExpanded) {
+                    state.expandedArticleIds.delete(articleId);
+                } else {
+                    state.expandedArticleIds.add(articleId);
+                }
+                const articles = document.querySelectorAll('[data-component="faq-article-item"]');
+                for (let i = 0; i < articles.length; i += 1) {
+                    const articleEl = articles[i];
+                    if (articleEl.dataset.articleId === articleId) {
+                        const answerEl = articleEl.querySelector('[data-article-answer]');
+                        if (answerEl) {
+                            const nowExpanded = !currentlyExpanded;
+                            answerEl.hidden = !nowExpanded;
+                            articleEl.dataset.expanded = nowExpanded ? 'true' : 'false';
+                        }
+                        break;
+                    }
+                }
+            } else if (action === 'article-contact-support') {
+                event.preventDefault();
+                window.location.href = 'contact.html?topic=contact_verification';
+            }
+        }
+
+        initStaticContent();
+        initHelpContent();
+
+        if (searchForm) {
+            searchForm.addEventListener('submit', handleSearchSubmit);
+        }
+        if (searchInput) {
+            searchInput.addEventListener('input', handleSearchInputChange);
+        }
+
+        document.addEventListener('click', handleDocumentClick);
+
+        const actionElements = document.querySelectorAll('[data-action]');
+        actionElements.forEach(function(element) {
+            const action = element.dataset.action;
+            if (action === 'search-form') {
+                element.addEventListener('submit', handleSearchSubmit);
+            }
+        });
+    });
+    </script>
+</body>
+</html>

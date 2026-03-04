@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>XML Sitemap URLs</title>
+    <meta name='description' content='View, filter, sort, paginate, select, and copy URLs loaded from XML sitemap data, using sitemap attributes like priority, change frequency, and last modified date.'>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='xml_sitemap.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <div class='header-inner'>
+            <h1 class='site-title'>XML Sitemap</h1>
+            <nav class='site-nav' aria-label='Primary navigation'>
+                <a href='index.html' title='Homepage and overview of the SEO and sitemap tools'>Home</a>
+                |
+                <a href='seo_index.html' title='SEO Index with URL table, filters, and bulk SEO actions'>SEO</a>
+                |
+                <a href='sitemap_index.html' title='Index of XML sitemap files with URL counts'>Sitemap Index</a>
+                |
+                <a href='help.html' title='Help and documentation for using the site'>Help</a>
+            </nav>
+        </div>
+    </header>
+
+    <main id='content' class='site-content' role='main'>
+        <nav data-component='xml-sitemap-breadcrumbs' data-populate='breadcrumbs' aria-label='Breadcrumb'></nav>
+
+        <section data-component='xml-sitemap-page-controller' data-populate='page-controller'></section>
+
+        <nav data-component='xml-sitemap-header-nav' class='sub-nav' aria-label='Section navigation'>
+            <a href='index.html' title='Homepage and overview of the SEO and sitemap tools'>Home</a>
+            |
+            <a href='seo_index.html' title='SEO Index with URL table, filters, and bulk SEO actions'>SEO</a>
+            |
+            <a href='sitemap_index.html' title='Index of XML sitemap files with URL counts'>Sitemap Index</a>
+            |
+            <a href='help.html' title='Help and documentation for using the site'>Help</a>
+        </nav>
+
+        <section data-component='xml-sitemap-filter-bar' data-populate='filter-bar'></section>
+
+        <section data-component='xml-sitemap-sort-controls' data-populate='sort-controls'></section>
+
+        <section data-component='xml-sitemap-selection-toolbar' data-populate='selection-toolbar'></section>
+
+        <section data-component='xml-sitemap-url-table'>
+            <table>
+                <thead>
+                    <tr>
+                        <th><input type='checkbox' data-action='select-all'></th>
+                        <th>
+                            <button type='button' data-action='header-sort' data-sort-field='url'>URL</button>
+                        </th>
+                        <th>Content type</th>
+                        <th>
+                            <button type='button' data-action='header-sort' data-sort-field='priority'>Priority</button>
+                        </th>
+                        <th>Change frequency</th>
+                        <th>
+                            <button type='button' data-action='header-sort' data-sort-field='last_modified'>Last modified (GMT)</button>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody data-populate='url-rows'>
+                    <tr>
+                        <td colspan='6'>Loading URLs...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <nav data-component='xml-sitemap-pagination' data-populate='pagination' aria-label='Pagination'></nav>
+
+        <section data-component='xml-sitemap-footer-link'>
+            <p>
+                <a href='xml_sitemap.html' title='XML sitemap URL list with filters and copy-to-clipboard'>XML Sitemap</a>
+                URL list.
+            </p>
+        </section>
+
+        <div data-component='xml-sitemap-copy-confirm-dialog' data-populate='copy-dialog' class='modal-overlay' style='display:none;'></div>
+    </main>
+
+    <footer class='site-footer'>
+        <p class='footer-links' aria-label='Footer navigation'>
+            <a href='xml_sitemap.html' title='XML sitemap URL list with filters and copy-to-clipboard'>XML Sitemap</a>
+            |
+            <a href='seo_index.html' title='SEO index of URLs with advanced SEO filters and actions'>SEO Index</a>
+            |
+            <a href='sitemap_index.html' title='Overview of all sitemap files and their URL counts'>Sitemap Index</a>
+            |
+            <a href='seo_audit_list.html' title='List of URLs flagged for SEO auditing'>SEO Audit List</a>
+            |
+            <a href='title_fix_list.html' title='List of URLs flagged for title improvements'>Title Fix List</a>
+            |
+            <a href='help.html' title='Help and documentation'>Help</a>
+        </p>
+        <p class='footer-meta'>
+            Generated with an XML sitemap / SEO index framework. This layout is intentionally minimal and utilitarian so that search engines and technical users can easily consume the information.
+        </p>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var state = {
+            filterOptions: null,
+            urlsResult: null,
+            filters: {},
+            sort: {},
+            page: 1,
+            pageSize: 100,
+            selectedSeoUrlIds: new Set(),
+            selectionMode: 'selected',
+            copyDialog: {
+                open: false,
+                status: 'idle',
+                message: '',
+                copiedCount: 0,
+                success: null
+            }
+        };
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            return String(value).replace(/[&<>']/g, function(ch) {
+                switch (ch) {
+                    case '&': return '&amp;';
+                    case '<': return '&lt;';
+                    case '>': return '&gt;';
+                    case '\'': return '&#39;';
+                    default: return ch;
+                }
+            });
+        }
+
+        function getSitemapLabel() {
+            var id = state.filters.sitemapFileId;
+            if (!id) {
+                return 'All sitemap files';
+            }
+            var label = 'Sitemap file ' + id;
+            try {
+                var raw = window.localStorage.getItem('sitemap_files');
+                if (raw) {
+                    var files = JSON.parse(raw);
+                    if (Array.isArray(files)) {
+                        var match = files.find(function(item) { return item && item.id === id; });
+                        if (match) {
+                            label = (match.name || 'Sitemap') + ' (' + (match.filename || id) + ')';
+                        }
+                    }
+                }
+            } catch (e) {
+                // ignore storage errors
+            }
+            return label;
+        }
+
+        function parseUrlParams() {
+            var params = new URLSearchParams(window.location.search);
+            var filters = {};
+
+            var sitemapFileId = params.get('sitemapFileId');
+            if (sitemapFileId) {
+                filters.sitemapFileId = sitemapFileId;
+            }
+
+            var contentType = params.get('contentType');
+            if (contentType) {
+                filters.contentType = contentType;
+            }
+
+            var changefreq = params.get('changefreq');
+            if (changefreq) {
+                filters.changefreq = changefreq;
+            }
+
+            var lastModifiedPreset = params.get('lastModifiedPreset');
+            if (lastModifiedPreset) {
+                filters.lastModifiedPreset = lastModifiedPreset;
+            }
+
+            var lastModifiedFrom = params.get('lastModifiedFrom');
+            if (lastModifiedFrom) {
+                filters.lastModifiedFrom = lastModifiedFrom;
+            }
+
+            var lastModifiedTo = params.get('lastModifiedTo');
+            if (lastModifiedTo) {
+                filters.lastModifiedTo = lastModifiedTo;
+            }
+
+            var priorityMinParam = params.get('priorityMin');
+            if (priorityMinParam !== null && priorityMinParam !== '') {
+                var n = Number(priorityMinParam);
+                if (!Number.isNaN(n)) {
+                    filters.priorityMin = n;
+                }
+            }
+
+            state.filters = filters;
+
+            var sortField = params.get('sortField');
+            var sortDirection = params.get('sortDirection');
+            var sort = {};
+            if (sortField) {
+                sort.field = sortField;
+            }
+            if (sortDirection) {
+                sort.direction = sortDirection;
+            }
+            state.sort = sort;
+
+            var pageParam = params.get('page');
+            var pageSizeParam = params.get('pageSize');
+            var pageNum = pageParam ? parseInt(pageParam, 10) : 1;
+            if (!pageNum || pageNum < 1) {
+                pageNum = 1;
+            }
+            state.page = pageNum;
+
+            var sizeNum = pageSizeParam ? parseInt(pageSizeParam, 10) : 100;
+            if (!sizeNum || sizeNum < 1) {
+                sizeNum = 100;
+            }
+            state.pageSize = sizeNum;
+        }
+
+        function ensureSortDefaults() {
+            var sortableFields = state.filterOptions && Array.isArray(state.filterOptions.sortableFields)
+                ? state.filterOptions.sortableFields
+                : [];
+
+            if (!state.sort.field) {
+                state.sort.field = sortableFields.length ? sortableFields[0] : 'url';
+            } else if (sortableFields.length && sortableFields.indexOf(state.sort.field) === -1) {
+                state.sort.field = sortableFields[0];
+            }
+
+            if (state.sort.direction !== 'asc' && state.sort.direction !== 'desc') {
+                state.sort.direction = 'asc';
+            }
+        }
+
+        function buildFiltersForApi() {
+            var filtersForApi = {};
+            var f = state.filters || {};
+
+            if (f.sitemapFileId) {
+                filtersForApi.sitemapFileId = f.sitemapFileId;
+            }
+            if (f.contentType) {
+                filtersForApi.contentType = f.contentType;
+            }
+            if (typeof f.priorityMin === 'number') {
+                filtersForApi.priorityMin = f.priorityMin;
+            }
+            if (f.changefreq) {
+                filtersForApi.changefreq = f.changefreq;
+            }
+            if (f.lastModifiedFrom) {
+                filtersForApi.lastModifiedFrom = f.lastModifiedFrom;
+            }
+            if (f.lastModifiedTo) {
+                filtersForApi.lastModifiedTo = f.lastModifiedTo;
+            }
+            if (f.lastModifiedPreset && !f.lastModifiedFrom && !f.lastModifiedTo) {
+                filtersForApi.lastModifiedPreset = f.lastModifiedPreset;
+            }
+
+            return filtersForApi;
+        }
+
+        function fetchFilterOptionsIfNeeded() {
+            if (!state.filterOptions) {
+                try {
+                    state.filterOptions = WebsiteSDK.getXmlSitemapFilterOptions();
+                } catch (e) {
+                    console.error('Failed to load XML sitemap filter options', e);
+                    state.filterOptions = {
+                        contentTypes: [],
+                        changefreqOptions: [],
+                        lastModifiedPresets: [],
+                        priorityPresets: [],
+                        sortableFields: []
+                    };
+                }
+                ensureSortDefaults();
+            }
+        }
+
+        function fetchUrlsAndRender() {
+            fetchFilterOptionsIfNeeded();
+
+            var filtersForApi = buildFiltersForApi();
+            var sortForApi = {
+                field: state.sort.field,
+                direction: state.sort.direction
+            };
+
+            var result;
+            try {
+                result = WebsiteSDK.getXmlSitemapUrls(filtersForApi, sortForApi, state.page, state.pageSize);
+            } catch (e) {
+                console.error('Failed to load XML sitemap URLs', e);
+                result = {
+                    items: [],
+                    totalCount: 0,
+                    page: state.page,
+                    pageSize: state.pageSize,
+                    hasNextPage: false,
+                    hasPreviousPage: false
+                };
+            }
+
+            state.urlsResult = result;
+            state.selectedSeoUrlIds = new Set();
+            state.selectionMode = 'selected';
+
+            renderAllPopulate();
+        }
+
+        function formatDateTime(value) {
+            if (!value) {
+                return '';
+            }
+            try {
+                var d = new Date(value);
+                if (Number.isNaN(d.getTime())) {
+                    return String(value);
+                }
+                var iso = d.toISOString();
+                return iso.replace('T', ' ').replace(/\.\d+Z$/, '');
+            } catch (e) {
+                return String(value);
+            }
+        }
+
+        function renderBreadcrumbs(container) {
+            var sitemapLabel = getSitemapLabel();
+            container.innerHTML = `
+                <span><a href="sitemap_index.html" data-action="breadcrumb-sitemap-index">Back to Sitemap Index</a> &gt; XML Sitemap URLs</span>
+                <span class="breadcrumb-context"> ${escapeHtml(sitemapLabel)}</span>
+            `;
+        }
+
+        function renderPageController(container) {
+            var sitemapLabel = getSitemapLabel();
+            container.innerHTML = `
+                <h1>XML Sitemap URLs</h1>
+                <div class="info-box">
+                    <p>View, filter, sort, paginate, select, and copy URLs loaded from XML sitemap data.</p>
+                    <p>Current context: ${escapeHtml(sitemapLabel)}.</p>
+                </div>
+           `;
+        }
+
+        function renderFilterBar(container) {
+            fetchFilterOptionsIfNeeded();
+            var opts = state.filterOptions || {};
+            var f = state.filters || {};
+            var sitemapLabel = getSitemapLabel();
+
+            var contentTypeOptions = '';
+            (opts.contentTypes || []).forEach(function(opt) {
+                if (!opt || typeof opt.value === 'undefined') {
+                    return;
+                }
+                var selectedAttr = f.contentType === opt.value ? ' selected' : '';
+                contentTypeOptions += '<option value=\'' + escapeHtml(opt.value) + '\'' + selectedAttr + '>' + escapeHtml(opt.label || opt.value) + '</option>';
+            });
+
+            var changefreqOptions = '';
+            (opts.changefreqOptions || []).forEach(function(opt) {
+                if (!opt || typeof opt.value === 'undefined') {
+                    return;
+                }
+                var selectedAttr = f.changefreq === opt.value ? ' selected' : '';
+                changefreqOptions += '<option value=\'' + escapeHtml(opt.value) + '\'' + selectedAttr + '>' + escapeHtml(opt.label || opt.value) + '</option>';
+            });
+
+            var lastModifiedPresetOptions = '';
+            (opts.lastModifiedPresets || []).forEach(function(opt) {
+                if (!opt || typeof opt.value === 'undefined') {
+                    return;
+                }
+                var selectedAttr = f.lastModifiedPreset === opt.value ? ' selected' : '';
+                lastModifiedPresetOptions += '<option value=\'' + escapeHtml(opt.value) + '\'' + selectedAttr + '>' + escapeHtml(opt.label || opt.value) + '</option>';
+            });
+
+            var priorityPresetOptions = '';
+            (opts.priorityPresets || []).forEach(function(opt, index) {
+                if (!opt) {
+                    return;
+                }
+                var label = opt.label || '';
+                var minVal = typeof opt.min === 'number' ? String(opt.min) : '';
+                var maxVal = typeof opt.max === 'number' ? String(opt.max) : '';
+                var selectedAttr = '';
+                if (typeof f.priorityMin === 'number' && minVal && String(f.priorityMin) === minVal) {
+                    selectedAttr = ' selected';
+                }
+                priorityPresetOptions += '<option value=\'' + String(index) + '\' data-min=\'' + escapeHtml(minVal) + '\' data-max=\'' + escapeHtml(maxVal) + '\'' + selectedAttr + '>' + escapeHtml(label) + '</option>';
+            });
+
+            var lastFromVal = f.lastModifiedFrom || '';
+            var lastToVal = f.lastModifiedTo || '';
+            var priorityMinVal = typeof f.priorityMin === 'number' ? String(f.priorityMin) : '';
+
+            container.innerHTML = `
+                <form data-action="filters-form">
+                    <div class="filter-row">
+                        <strong>Sitemap file:</strong> ${escapeHtml(sitemapLabel)}
+                    </div>
+                    <div class="filter-row">
+                        <label for="contentTypeFilter">Content type:</label>
+                        <select id="contentTypeFilter" name="contentType">
+                            <option value="">All types</option>
+                            ${contentTypeOptions}
+                        </select>
+
+                        <label for="changefreqFilter">Change frequency:</label>
+                        <select id="changefreqFilter" name="changefreq">
+                            <option value="">All frequencies</option>
+                            ${changefreqOptions}
+                        </select>
+                    </div>
+                    <div class="filter-row">
+                        <label for="lastModifiedPresetFilter">Last modified:</label>
+                        <select id="lastModifiedPresetFilter" name="lastModifiedPreset">
+                            <option value="">Any time</option>
+                            ${lastModifiedPresetOptions}
+                        </select>
+
+                        <span>or custom range:</span>
+                        <label for="lastModifiedFrom">From</label>
+                        <input type="date" id="lastModifiedFrom" name="lastModifiedFrom" value="${escapeHtml(lastFromVal)}">
+                        <label for="lastModifiedTo">to</label>
+                        <input type="date" id="lastModifiedTo" name="lastModifiedTo" value="${escapeHtml(lastToVal)}">
+                    </div>
+                    <div class="filter-row">
+                        <label for="priorityPresetFilter">Priority preset:</label>
+                        <select id="priorityPresetFilter" name="priorityPreset">
+                            <option value="">None</option>
+                            ${priorityPresetOptions}
+                        </select>
+
+                        <label for="priorityMinFilter">Min priority:</label>
+                        <input type="number" step="0.1" min="0" max="1" id="priorityMinFilter" name="priorityMin" value="${escapeHtml(priorityMinVal)}">
+
+                        <button type="submit">Apply filters</button>
+                        <button type="button" data-action="reset-filters">Reset</button>
+                    </div>
+                </form>
+            `;
+        }
+
+        function renderSortControls(container) {
+            fetchFilterOptionsIfNeeded();
+            var opts = state.filterOptions || {};
+            var sortFields = opts.sortableFields || [];
+
+            var optionsHtml = '';
+            sortFields.forEach(function(field) {
+                if (!field) {
+                    return;
+                }
+                var label = field.replace(/_/g, ' ');
+                label = label.charAt(0).toUpperCase() + label.slice(1);
+                var selectedAttr = state.sort.field === field ? ' selected' : '';
+                optionsHtml += '<option value=\'' + escapeHtml(field) + '\'' + selectedAttr + '>' + escapeHtml(label) + '</option>';
+            });
+
+            var dir = state.sort.direction === 'desc' ? 'desc' : 'asc';
+
+            container.innerHTML = `
+                <form data-action="sort-form">
+                    <label for="sortFieldSelect">Sort by:</label>
+                    <select id="sortFieldSelect" name="sortField">
+                        ${optionsHtml}
+                    </select>
+                    <select id="sortDirectionSelect" name="sortDirection">
+                        <option value="asc"${dir === 'asc' ? ' selected' : ''}>Ascending</option>
+                        <option value="desc"${dir === 'desc' ? ' selected' : ''}>Descending</option>
+                    </select>
+                </form>
+            `;
+        }
+
+        function renderSelectionToolbar(container) {
+            if (!state.urlsResult) {
+                container.style.display = 'none';
+                container.innerHTML = '';
+                return;
+            }
+
+            var selectedCount = state.selectedSeoUrlIds.size;
+            var totalCount = state.urlsResult.totalCount || 0;
+            var show = selectedCount > 0 || state.selectionMode === 'filtered';
+
+            if (!show) {
+                container.style.display = 'none';
+                container.innerHTML = '';
+                return;
+            }
+
+            container.style.display = 'block';
+
+            var selectedChecked = state.selectionMode === 'selected' ? ' checked' : '';
+            var filteredChecked = state.selectionMode === 'filtered' ? ' checked' : '';
+
+            var modeDescription = state.selectionMode === 'selected'
+                ? 'Copying will include only the selected URLs on this page.'
+                : 'Copying will include all URLs matching the current filters.';
+
+            container.innerHTML = `
+                <div class="selection-toolbar-inner">
+                    <span>${selectedCount} URL${selectedCount === 1 ? '' : 's'} selected (out of ${totalCount} matching URLs).</span>
+                    <span>
+                        <label><input type="radio" name="selectionMode" value="selected" data-action="selection-mode"${selectedChecked}> Selected rows</label>
+                        <label><input type="radio" name="selectionMode" value="filtered" data-action="selection-mode"${filteredChecked}> All matching filters</label>
+                    </span>
+                    <span>
+                        <button type="button" data-action="copy-urls">Copy URLs</button>
+                        <button type="button" data-action="clear-selection">Clear selection</button>
+                    </span>
+                    <div class="selection-help"> ${escapeHtml(modeDescription)}</div>
+                </div>
+            `;
+        }
+
+        function renderUrlRows(container) {
+            if (!state.urlsResult) {
+                container.innerHTML = '\n                    <tr><td colspan=\'6\'>Loading URLs...</td></tr>\n                ';
+                return;
+            }
+
+            var items = state.urlsResult.items || [];
+            if (!items.length) {
+                container.innerHTML = '\n                    <tr><td colspan=\'6\'>No URLs match the current filters.</td></tr>\n                ';
+                return;
+            }
+
+            var rowsHtml = '';
+            items.forEach(function(item) {
+                if (!item) {
+                    return;
+                }
+                var id = item.id;
+                var url = item.url;
+                var contentType = item.contentType || '';
+                var priority = (typeof item.priority === 'number') ? String(item.priority) : '';
+                var changefreq = item.changefreq || '';
+                var lastModified = item.lastModified ? formatDateTime(item.lastModified) : '';
+                var checkedAttr = state.selectedSeoUrlIds.has(id) ? ' checked' : '';
+
+                rowsHtml += '\n                    <tr data-seo-url-id=\'' + escapeHtml(id) + '\'>\n' +
+                    '                        <td><input type=\'checkbox\' data-action=\'row-select\' value=\'' + escapeHtml(id) + '\'' + checkedAttr + '></td>\n' +
+                    '                        <td><a href=\'' + escapeHtml(url) + '\' data-action=\'url-click\'>' + escapeHtml(url) + '</a></td>\n' +
+                    '                        <td>' + escapeHtml(contentType) + '</td>\n' +
+                    '                        <td>' + escapeHtml(priority) + '</td>\n' +
+                    '                        <td>' + escapeHtml(changefreq) + '</td>\n' +
+                    '                        <td>' + escapeHtml(lastModified) + '</td>\n' +
+                    '                    </tr>\n';
+            });
+
+            container.innerHTML = rowsHtml;
+        }
+
+        function renderPagination(container) {
+            if (!state.urlsResult) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var r = state.urlsResult;
+            var totalCount = r.totalCount || 0;
+            var page = r.page || 1;
+            var pageSize = r.pageSize || state.pageSize || 100;
+            var totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 1;
+
+            var pageLinksHtml = '';
+            var maxToShow = 10;
+            var start = Math.max(1, page - 4);
+            var end = Math.min(totalPages, start + maxToShow - 1);
+            for (var p = start; p <= end; p++) {
+                if (p === page) {
+                    pageLinksHtml += '<strong>' + p + '</strong> ';
+                } else {
+                    pageLinksHtml += '<a href=\'javascript:void(0)\' data-action=\'page-number\' data-page=\'' + p + '\'>' + p + '</a> ';
+                }
+            }
+
+            var sizes = [25, 50, 100, 200];
+            var sizeOptions = '';
+            sizes.forEach(function(size) {
+                var selectedAttr = size === pageSize ? ' selected' : '';
+                sizeOptions += '<option value=\'' + size + '\'' + selectedAttr + '>' + size + '</option>';
+            });
+
+            var prevDisabledAttr = r.hasPreviousPage ? '' : ' aria-disabled=\'true\'';
+            var nextDisabledAttr = r.hasNextPage ? '' : ' aria-disabled=\'true\'';
+
+            container.innerHTML = '\n                <div class=\'pagination-row\'>\n' +
+                '                    <span>Page ' + page + ' of ' + totalPages + ' (' + totalCount + ' URLs)</span>\n' +
+                '                    <span>\n' +
+                '                        <a href=\'javascript:void(0)\' data-action=\'page-prev\'' + prevDisabledAttr + '>Previous</a>\n' +
+                '                        ' + pageLinksHtml + '\n' +
+                '                        <a href=\'javascript:void(0)\' data-action=\'page-next\'' + nextDisabledAttr + '>Next</a>\n' +
+                '                        <label for=\'pageSizeSelect\'>Per page:</label>\n' +
+                '                        <select id=\'pageSizeSelect\' data-action=\'page-size\'>\n' +
+                '                            ' + sizeOptions + '\n' +
+                '                        </select>\n' +
+                '                    </span>\n' +
+                '                </div>\n';
+        }
+
+        function renderCopyDialog(container) {
+            if (!state.copyDialog.open) {
+                container.style.display = 'none';
+                container.innerHTML = '';
+                return;
+            }
+
+            container.style.display = 'block';
+
+            var mode = state.selectionMode;
+            var selectedCount = state.selectedSeoUrlIds.size;
+            var totalCount = state.urlsResult ? (state.urlsResult.totalCount || 0) : 0;
+            var summary;
+            if (mode === 'selected') {
+                summary = 'You are about to copy ' + selectedCount + ' selected URL' + (selectedCount === 1 ? '' : 's') + ' to the clipboard.';
+            } else {
+                summary = 'You are about to copy up to ' + totalCount + ' URL' + (totalCount === 1 ? '' : 's') + ' matching the current filters.';
+            }
+
+            var inner = '\n                <div class=\'modal-backdrop\'></div>\n' +
+                '                <div class=\'modal-dialog\'>\n' +
+                '                    <p>' + escapeHtml(summary) + '</p>\n';
+
+            if (state.copyDialog.status === 'result') {
+                var msg = state.copyDialog.message || (state.copyDialog.success ? 'URLs copied to clipboard.' : 'Copy failed.');
+                inner += '                    <p>' + escapeHtml(msg) + '</p>\n' +
+                    '                    <p>Copied count: ' + state.copyDialog.copiedCount + '</p>\n' +
+                    '                    <div class=\'modal-actions\'>\n' +
+                    '                        <button type=\'button\' data-action=\'copy-result-close\'>Close</button>\n' +
+                    '                    </div>\n';
+            } else {
+                inner += '                    <div class=\'modal-actions\'>\n' +
+                    '                        <button type=\'button\' data-action=\'confirm-copy\'>Confirm</button>\n' +
+                    '                        <button type=\'button\' data-action=\'cancel-copy\'>Cancel</button>\n' +
+                    '                    </div>\n';
+            }
+
+            inner += '                </div>';
+
+            container.innerHTML = inner;
+        }
+
+        var populateHandlers = {
+            'breadcrumbs': renderBreadcrumbs,
+            'page-controller': renderPageController,
+            'filter-bar': renderFilterBar,
+            'sort-controls': renderSortControls,
+            'selection-toolbar': renderSelectionToolbar,
+            'url-rows': renderUrlRows,
+            'pagination': renderPagination,
+            'copy-dialog': renderCopyDialog
+        };
+
+        function renderAllPopulate() {
+            var elements = document.querySelectorAll('[data-populate]');
+            elements.forEach(function(el) {
+                var key = el.dataset.populate;
+                var fn = populateHandlers[key];
+                if (typeof fn === 'function') {
+                    fn(el);
+                }
+            });
+        }
+
+        function renderSinglePopulate(key) {
+            var elements = document.querySelectorAll('[data-populate]');
+            elements.forEach(function(el) {
+                if (el.dataset.populate === key) {
+                    var fn = populateHandlers[key];
+                    if (typeof fn === 'function') {
+                        fn(el);
+                    }
+                }
+            });
+        }
+
+        function navigateWithParams(params) {
+            var qs = params.toString();
+            var newUrl = window.location.pathname + (qs ? '?' + qs : '');
+            window.history.pushState(null, '', newUrl);
+            onUrlChanged();
+        }
+
+        function onUrlChanged() {
+            parseUrlParams();
+            fetchUrlsAndRender();
+        }
+
+        window.addEventListener('popstate', function() {
+            onUrlChanged();
+        });
+
+        document.addEventListener('submit', function(event) {
+            var form = event.target;
+            var action = form.dataset.action;
+            if (action === 'filters-form') {
+                event.preventDefault();
+                var params = new URLSearchParams(window.location.search);
+
+                var contentType = form.elements.contentType ? form.elements.contentType.value : '';
+                if (contentType) {
+                    params.set('contentType', contentType);
+                } else {
+                    params.delete('contentType');
+                }
+
+                var changefreq = form.elements.changefreq ? form.elements.changefreq.value : '';
+                if (changefreq) {
+                    params.set('changefreq', changefreq);
+                } else {
+                    params.delete('changefreq');
+                }
+
+                var lastPreset = form.elements.lastModifiedPreset ? form.elements.lastModifiedPreset.value : '';
+                var lastFrom = form.elements.lastModifiedFrom ? form.elements.lastModifiedFrom.value : '';
+                var lastTo = form.elements.lastModifiedTo ? form.elements.lastModifiedTo.value : '';
+
+                if (lastFrom || lastTo) {
+                    params.delete('lastModifiedPreset');
+                    if (lastFrom) {
+                        params.set('lastModifiedFrom', lastFrom);
+                    } else {
+                        params.delete('lastModifiedFrom');
+                    }
+                    if (lastTo) {
+                        params.set('lastModifiedTo', lastTo);
+                    } else {
+                        params.delete('lastModifiedTo');
+                    }
+                } else {
+                    if (lastPreset) {
+                        params.set('lastModifiedPreset', lastPreset);
+                    } else {
+                        params.delete('lastModifiedPreset');
+                    }
+                    params.delete('lastModifiedFrom');
+                    params.delete('lastModifiedTo');
+                }
+
+                var priorityMinField = form.elements.priorityMin;
+                var priorityPresetSelect = form.elements.priorityPreset;
+                var priorityMinVal = priorityMinField ? priorityMinField.value : '';
+
+                if (priorityPresetSelect && priorityPresetSelect.value) {
+                    var selIndex = priorityPresetSelect.selectedIndex;
+                    if (selIndex >= 0) {
+                        var opt = priorityPresetSelect.options[selIndex];
+                        var minAttr = opt.getAttribute('data-min');
+                        if (minAttr !== null && minAttr !== '') {
+                            priorityMinVal = minAttr;
+                        }
+                    }
+                }
+
+                if (priorityMinVal !== '') {
+                    params.set('priorityMin', priorityMinVal);
+                } else {
+                    params.delete('priorityMin');
+                }
+
+                params.set('page', '1');
+                navigateWithParams(params);
+            }
+        });
+
+        document.addEventListener('change', function(event) {
+            var target = event.target;
+            var action = target.dataset.action;
+
+            if (target.form && target.form.dataset.action === 'sort-form' && (target.name === 'sortField' || target.name === 'sortDirection')) {
+                var form = target.form;
+                var params = new URLSearchParams(window.location.search);
+                var sortField = form.elements.sortField ? form.elements.sortField.value : '';
+                var sortDirection = form.elements.sortDirection ? form.elements.sortDirection.value : '';
+                if (sortField) {
+                    params.set('sortField', sortField);
+                } else {
+                    params.delete('sortField');
+                }
+                if (sortDirection) {
+                    params.set('sortDirection', sortDirection);
+                } else {
+                    params.delete('sortDirection');
+                }
+                params.set('page', '1');
+                navigateWithParams(params);
+                return;
+            }
+
+            if (action === 'page-size') {
+                var size = parseInt(target.value, 10);
+                if (!size || size < 1) {
+                    return;
+                }
+                var params2 = new URLSearchParams(window.location.search);
+                params2.set('pageSize', String(size));
+                params2.set('page', '1');
+                navigateWithParams(params2);
+                return;
+            }
+
+            if (action === 'selection-mode') {
+                var mode = target.value === 'filtered' ? 'filtered' : 'selected';
+                state.selectionMode = mode;
+                renderSinglePopulate('selection-toolbar');
+                return;
+            }
+        });
+
+        document.addEventListener('click', function(event) {
+            var target = event.target;
+            var actionEl = target.closest('[data-action]');
+            if (!actionEl) {
+                return;
+            }
+            var action = actionEl.dataset.action;
+
+            if (action === 'breadcrumb-sitemap-index') {
+                event.preventDefault();
+                window.location.href = 'sitemap_index.html';
+                return;
+            }
+
+            if (action === 'reset-filters') {
+                event.preventDefault();
+                var params = new URLSearchParams(window.location.search);
+                params.delete('contentType');
+                params.delete('changefreq');
+                params.delete('lastModifiedPreset');
+                params.delete('lastModifiedFrom');
+                params.delete('lastModifiedTo');
+                params.delete('priorityMin');
+                params.set('page', '1');
+                navigateWithParams(params);
+                return;
+            }
+
+            if (action === 'header-sort') {
+                event.preventDefault();
+                var field = actionEl.dataset.sortField;
+                if (!field) {
+                    return;
+                }
+                fetchFilterOptionsIfNeeded();
+                var sortableFields = state.filterOptions && Array.isArray(state.filterOptions.sortableFields)
+                    ? state.filterOptions.sortableFields
+                    : [];
+                if (sortableFields.length && sortableFields.indexOf(field) === -1) {
+                    return;
+                }
+                var params2 = new URLSearchParams(window.location.search);
+                var currentField = params2.get('sortField') || state.sort.field;
+                var currentDir = params2.get('sortDirection') || state.sort.direction || 'asc';
+                var newDir = 'asc';
+                if (currentField === field && currentDir === 'asc') {
+                    newDir = 'desc';
+                }
+                params2.set('sortField', field);
+                params2.set('sortDirection', newDir);
+                params2.set('page', '1');
+                navigateWithParams(params2);
+                return;
+            }
+
+            if (action === 'row-select') {
+                var id = actionEl.value;
+                if (!id) {
+                    return;
+                }
+                if (actionEl.checked) {
+                    state.selectedSeoUrlIds.add(id);
+                } else {
+                    state.selectedSeoUrlIds.delete(id);
+                }
+                renderSinglePopulate('selection-toolbar');
+                return;
+            }
+
+            if (action === 'select-all') {
+                var checked = actionEl.checked;
+                if (!state.urlsResult || !Array.isArray(state.urlsResult.items)) {
+                    return;
+                }
+                state.selectedSeoUrlIds = new Set();
+                if (checked) {
+                    state.urlsResult.items.forEach(function(item) {
+                        if (item && item.id) {
+                            state.selectedSeoUrlIds.add(item.id);
+                        }
+                    });
+                }
+                var body = document.querySelector('[data-populate="url-rows"]');
+                if (body) {
+                    var boxes = body.querySelectorAll('input[data-action=\'row-select\']');
+                    boxes.forEach(function(box) {
+                        box.checked = checked;
+                    });
+                }
+                renderSinglePopulate('selection-toolbar');
+                return;
+            }
+
+            if (action === 'page-prev') {
+                event.preventDefault();
+                if (!state.urlsResult || !state.urlsResult.hasPreviousPage) {
+                    return;
+                }
+                var params3 = new URLSearchParams(window.location.search);
+                var page = state.page > 1 ? state.page - 1 : 1;
+                params3.set('page', String(page));
+                navigateWithParams(params3);
+                return;
+            }
+
+            if (action === 'page-next') {
+                event.preventDefault();
+                if (!state.urlsResult || !state.urlsResult.hasNextPage) {
+                    return;
+                }
+                var params4 = new URLSearchParams(window.location.search);
+                var nextPage = state.page + 1;
+                params4.set('page', String(nextPage));
+                navigateWithParams(params4);
+                return;
+            }
+
+            if (action === 'page-number') {
+                event.preventDefault();
+                var pageStr = actionEl.dataset.page;
+                var pageNum = pageStr ? parseInt(pageStr, 10) : 1;
+                if (!pageNum || pageNum < 1) {
+                    return;
+                }
+                var params5 = new URLSearchParams(window.location.search);
+                params5.set('page', String(pageNum));
+                navigateWithParams(params5);
+                return;
+            }
+
+            if (action === 'clear-selection') {
+                event.preventDefault();
+                state.selectedSeoUrlIds = new Set();
+                state.selectionMode = 'selected';
+                var headerCheckbox = document.querySelector('input[data-action=\'select-all\']');
+                if (headerCheckbox) {
+                    headerCheckbox.checked = false;
+                }
+                var body2 = document.querySelector('[data-populate="url-rows"]');
+                if (body2) {
+                    var boxes2 = body2.querySelectorAll('input[data-action=\'row-select\']');
+                    boxes2.forEach(function(box) {
+                        box.checked = false;
+                    });
+                }
+                renderSinglePopulate('selection-toolbar');
+                return;
+            }
+
+            if (action === 'copy-urls') {
+                event.preventDefault();
+                if (state.selectionMode === 'selected' && state.selectedSeoUrlIds.size === 0) {
+                    window.alert('Select at least one URL or switch to All matching filters before copying.');
+                    return;
+                }
+                state.copyDialog.open = true;
+                state.copyDialog.status = 'confirm';
+                state.copyDialog.message = '';
+                state.copyDialog.copiedCount = 0;
+                state.copyDialog.success = null;
+                renderSinglePopulate('copy-dialog');
+                return;
+            }
+
+            if (action === 'cancel-copy') {
+                event.preventDefault();
+                state.copyDialog.open = false;
+                state.copyDialog.status = 'idle';
+                state.copyDialog.message = '';
+                state.copyDialog.copiedCount = 0;
+                state.copyDialog.success = null;
+                renderSinglePopulate('copy-dialog');
+                return;
+            }
+
+            if (action === 'confirm-copy') {
+                event.preventDefault();
+                var selectionModeForApi = state.selectionMode === 'filtered' ? 'filters' : 'ids';
+                var seoUrlIdsParam = undefined;
+                if (selectionModeForApi === 'ids') {
+                    seoUrlIdsParam = Array.from(state.selectedSeoUrlIds);
+                }
+                var filtersForCopy = buildFiltersForApi();
+                var result;
+                try {
+                    result = WebsiteSDK.copySitemapUrlsToClipboard(selectionModeForApi, seoUrlIdsParam, filtersForCopy);
+                } catch (e) {
+                    console.error('Copy sitemap URLs failed', e);
+                    result = {
+                        success: false,
+                        copiedCount: 0,
+                        message: 'Copy failed due to an unexpected error.'
+                    };
+                }
+                state.copyDialog.status = 'result';
+                state.copyDialog.success = !!(result && result.success);
+                state.copyDialog.message = result && result.message ? result.message : '';
+                state.copyDialog.copiedCount = result && typeof result.copiedCount === 'number' ? result.copiedCount : 0;
+                renderSinglePopulate('copy-dialog');
+                return;
+            }
+
+            if (action === 'copy-result-close') {
+                event.preventDefault();
+                state.copyDialog.open = false;
+                state.copyDialog.status = 'idle';
+                state.copyDialog.message = '';
+                state.copyDialog.copiedCount = 0;
+                state.copyDialog.success = null;
+                renderSinglePopulate('copy-dialog');
+                return;
+            }
+        });
+
+        parseUrlParams();
+        fetchUrlsAndRender();
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<link rel="stylesheet" href="reading_list.css">
+
+<section class="reading-list-page" data-component="reading-list-page-init">
+    <header class="reading-list-header">
+        <h1 class="reading-list-title">My Reading List</h1>
+        <p class="reading-list-description">Articles you have saved from the newsletter for later reading.</p>
+    </header>
+
+    <section class="reading-list-toolbar" data-component="reading-list-toolbar" aria-label="Reading list sorting and grouping controls">
+        <form class="reading-list-toolbar-form" action="javascript:void(0);">
+            <span class="toolbar-intro">View:</span>
+            <label for="reading-list-sort" class="toolbar-label">Sort by</label>
+            <select id="reading-list-sort" name="sortBy" class="toolbar-select">
+                <option value="date_saved_newest">Date saved (newest first)</option>
+                <option value="date_saved_oldest">Date saved (oldest first)</option>
+                <option value="article_date_newest">Article date (newest first)</option>
+                <option value="article_date_oldest">Article date (oldest first)</option>
+            </select>
+
+            <span class="toolbar-separator" aria-hidden="true">·</span>
+
+            <label for="reading-list-group" class="toolbar-label">Group by</label>
+            <select id="reading-list-group" name="groupBy" class="toolbar-select">
+                <option value="none">No grouping</option>
+                <option value="topic">Topic</option>
+                <option value="issue">Issue</option>
+                <option value="year">Year</option>
+            </select>
+
+            <button type="button" class="reading-list-apply" data-action="apply-sorting-grouping">Apply</button>
+        </form>
+    </section>
+
+    <section class="reading-list-loading" data-component="reading-list-loading-indicator" aria-live="polite" hidden>
+        <p>Loading your reading list</p>
+    </section>
+
+    <section class="reading-list-error" data-component="reading-list-error-state" aria-live="polite" hidden>
+        <p class="reading-list-error-heading">We couldn't load your reading list.</p>
+        <p class="reading-list-error-body">Please check your connection and try again.</p>
+        <button type="button" class="reading-list-retry" data-action="retry-fetch">Retry</button>
+    </section>
+
+    <section class="reading-list-empty" data-component="reading-list-empty-state" hidden>
+        <p class="reading-list-empty-heading">No articles saved to your Reading List.</p>
+        <p class="reading-list-empty-body">When you save articles from the newsletter, they will appear here for quick access.</p>
+    </section>
+
+    <section class="reading-list-groups" data-component="reading-list-grouped-list" aria-label="Saved articles">
+        <div data-populate="readingList"></div>
+    </section>
+</section>
+
+<script src="business_logic.js"></script>
+<script>
+(function() {
+    const DEFAULT_SORT = 'date_saved_newest';
+    const DEFAULT_GROUP = 'none';
+
+    let currentSortBy = DEFAULT_SORT;
+    let currentGroupBy = DEFAULT_GROUP;
+    let currentItems = [];
+    let readingListContainer = null;
+
+    function getUrlState() {
+        const params = new URLSearchParams(window.location.search || '');
+        const sortParam = params.get('sortBy') || DEFAULT_SORT;
+        const groupParam = params.get('groupBy') || DEFAULT_GROUP;
+
+        const allowedSort = ['date_saved_newest', 'date_saved_oldest', 'article_date_newest', 'article_date_oldest'];
+        const allowedGroup = ['none', 'topic', 'issue', 'year'];
+
+        const sortBy = allowedSort.indexOf(sortParam) !== -1 ? sortParam : DEFAULT_SORT;
+        const groupBy = allowedGroup.indexOf(groupParam) !== -1 ? groupParam : DEFAULT_GROUP;
+
+        return { sortBy, groupBy };
+    }
+
+    function setUrlState(sortBy, groupBy) {
+        const params = new URLSearchParams(window.location.search || '');
+        if (sortBy && sortBy !== DEFAULT_SORT) {
+            params.set('sortBy', sortBy);
+        } else {
+            params.delete('sortBy');
+        }
+        if (groupBy && groupBy !== DEFAULT_GROUP) {
+            params.set('groupBy', groupBy);
+        } else {
+            params.delete('groupBy');
+        }
+        const queryString = params.toString();
+        const newUrl = queryString ? (window.location.pathname + '?' + queryString) : window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+    }
+
+    function setToolbarValues(sortBy, groupBy) {
+        const sortSelect = document.getElementById('reading-list-sort');
+        const groupSelect = document.getElementById('reading-list-group');
+        if (sortSelect) {
+            sortSelect.value = sortBy || DEFAULT_SORT;
+        }
+        if (groupSelect) {
+            groupSelect.value = groupBy || DEFAULT_GROUP;
+        }
+    }
+
+    function setLoading(isLoading) {
+        const loadingEl = document.querySelector('[data-component="reading-list-loading-indicator"]');
+        const listSection = document.querySelector('[data-component="reading-list-grouped-list"]');
+        const emptySection = document.querySelector('[data-component="reading-list-empty-state"]');
+        const errorSection = document.querySelector('[data-component="reading-list-error-state"]');
+        const sortSelect = document.getElementById('reading-list-sort');
+        const groupSelect = document.getElementById('reading-list-group');
+        const toolbar = document.querySelector('[data-component="reading-list-toolbar"]');
+        const applyButton = toolbar ? toolbar.querySelector('[data-action="apply-sorting-grouping"]') : null;
+
+        if (loadingEl) {
+            loadingEl.hidden = !isLoading;
+        }
+        if (listSection) {
+            listSection.hidden = isLoading;
+        }
+        if (emptySection && isLoading) {
+            emptySection.hidden = true;
+        }
+        if (errorSection && isLoading) {
+            errorSection.hidden = true;
+        }
+        if (sortSelect) {
+            sortSelect.disabled = isLoading;
+        }
+        if (groupSelect) {
+            groupSelect.disabled = isLoading;
+        }
+        if (applyButton) {
+            applyButton.disabled = isLoading;
+        }
+    }
+
+    function showEmptyState() {
+        const emptySection = document.querySelector('[data-component="reading-list-empty-state"]');
+        const listSection = document.querySelector('[data-component="reading-list-grouped-list"]');
+        const errorSection = document.querySelector('[data-component="reading-list-error-state"]');
+        if (emptySection) {
+            emptySection.hidden = false;
+        }
+        if (listSection) {
+            listSection.hidden = true;
+        }
+        if (errorSection) {
+            errorSection.hidden = true;
+        }
+    }
+
+    function hideEmptyState() {
+        const emptySection = document.querySelector('[data-component="reading-list-empty-state"]');
+        if (emptySection) {
+            emptySection.hidden = true;
+        }
+    }
+
+    function showErrorState() {
+        const errorSection = document.querySelector('[data-component="reading-list-error-state"]');
+        const listSection = document.querySelector('[data-component="reading-list-grouped-list"]');
+        const emptySection = document.querySelector('[data-component="reading-list-empty-state"]');
+        if (errorSection) {
+            errorSection.hidden = false;
+        }
+        if (listSection) {
+            listSection.hidden = true;
+        }
+        if (emptySection) {
+            emptySection.hidden = true;
+        }
+    }
+
+    function hideErrorState() {
+        const errorSection = document.querySelector('[data-component="reading-list-error-state"]');
+        if (errorSection) {
+            errorSection.hidden = true;
+        }
+    }
+
+    function formatDate(value) {
+        if (!value) return '';
+        try {
+            const d = new Date(value);
+            if (Number.isNaN(d.getTime())) {
+                return '';
+            }
+            return d.toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function topicLabel(value) {
+        if (!value) return '';
+        const map = {
+            'litigation': 'Litigation',
+            'court_practice': 'Court practice',
+            'ethics': 'Ethics',
+            'intellectual_property': 'Intellectual property',
+            'compliance': 'Compliance',
+            'corporate_compliance': 'Corporate compliance',
+            'supreme_court': 'Supreme Court',
+            'general': 'General'
+        };
+        return map[value] || value;
+    }
+
+    function getGroupKey(item, groupBy) {
+        const article = item && item.article ? item.article : {};
+        if (groupBy === 'topic') {
+            const topic = article.primaryTopic || 'general';
+            return { id: topic, label: topicLabel(topic) || 'Other topics' };
+        }
+        if (groupBy === 'issue') {
+            const issueId = article.issueId || 'unknown_issue';
+            const label = article.issueId ? ('Issue ' + article.issueId) : 'Issue not specified';
+            return { id: issueId, label: label };
+        }
+        if (groupBy === 'year') {
+            const baseDate = article.publishedAt || item.savedAt;
+            const d = baseDate ? new Date(baseDate) : null;
+            const year = d && !Number.isNaN(d.getTime()) ? String(d.getFullYear()) : 'Unknown year';
+            return { id: year, label: year };
+        }
+        return { id: 'all', label: '' };
+    }
+
+    function createReadingListItem(item) {
+        const article = item && item.article ? item.article : {};
+        const preferences = item && item.preferences ? item.preferences : {};
+        const savedAt = item && item.savedAt ? item.savedAt : (preferences && preferences.createdAt ? preferences.createdAt : null);
+
+        const wrapper = document.createElement('article');
+        wrapper.className = 'reading-list-item';
+        if (article.id) {
+            wrapper.dataset.articleId = article.id;
+        }
+
+        const title = document.createElement('a');
+        title.href = 'javascript:void(0)';
+        title.className = 'reading-list-item-title';
+        title.dataset.action = 'open-article';
+        if (article.id) {
+            title.dataset.articleId = article.id;
+        }
+        title.textContent = article.title || 'Untitled article';
+        wrapper.appendChild(title);
+
+        const metaLine = document.createElement('div');
+        metaLine.className = 'reading-list-item-meta';
+        const metaParts = [];
+
+        const savedDate = formatDate(savedAt);
+        if (savedDate) {
+            metaParts.push('Saved ' + savedDate);
+        }
+        const publishedDate = formatDate(article.publishedAt);
+        if (publishedDate) {
+            metaParts.push('Published ' + publishedDate);
+        }
+        if (article.primaryTopic) {
+            metaParts.push(topicLabel(article.primaryTopic));
+        }
+        if (metaParts.length) {
+            metaLine.textContent = metaParts.join(' · ');
+            wrapper.appendChild(metaLine);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'reading-list-item-actions';
+
+        const openButton = document.createElement('button');
+        openButton.type = 'button';
+        openButton.className = 'reading-list-open';
+        openButton.dataset.action = 'open-article';
+        if (article.id) {
+            openButton.dataset.articleId = article.id;
+        }
+        openButton.textContent = 'Open article';
+        actions.appendChild(openButton);
+
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.className = 'reading-list-remove';
+        removeButton.dataset.action = 'remove-from-reading-list';
+        if (article.id) {
+            removeButton.dataset.articleId = article.id;
+        }
+        removeButton.textContent = 'Remove from Reading List';
+        actions.appendChild(removeButton);
+
+        wrapper.appendChild(actions);
+
+        return wrapper;
+    }
+
+    function renderReadingList(container, data) {
+        container.innerHTML = '';
+        if (!data || !Array.isArray(data.items) || data.items.length === 0) {
+            return;
+        }
+        const groupBy = data.groupBy || DEFAULT_GROUP;
+        const groups = new Map();
+
+        data.items.forEach(function(item) {
+            const key = getGroupKey(item, groupBy);
+            if (!groups.has(key.id)) {
+                groups.set(key.id, { label: key.label, items: [] });
+            }
+            groups.get(key.id).items.push(item);
+        });
+
+        groups.forEach(function(group) {
+            if (groupBy !== 'none') {
+                const heading = document.createElement('h2');
+                heading.className = 'reading-list-group-heading';
+                heading.textContent = group.label || '';
+                container.appendChild(heading);
+            }
+
+            const groupItemsContainer = document.createElement('div');
+            groupItemsContainer.className = 'reading-list-group-items';
+
+            group.items.forEach(function(item) {
+                const node = createReadingListItem(item);
+                groupItemsContainer.appendChild(node);
+            });
+
+            container.appendChild(groupItemsContainer);
+        });
+    }
+
+    function loadReadingList() {
+        if (!readingListContainer) return;
+
+        const state = getUrlState();
+        currentSortBy = state.sortBy;
+        currentGroupBy = state.groupBy;
+        setToolbarValues(currentSortBy, currentGroupBy);
+
+        setLoading(true);
+        hideErrorState();
+        hideEmptyState();
+
+        try {
+            const response = WebsiteSDK.getReadingListArticles(currentSortBy, currentGroupBy);
+
+            if (response && typeof response.sortBy === 'string') {
+                currentSortBy = response.sortBy;
+            }
+            if (response && typeof response.groupBy === 'string') {
+                currentGroupBy = response.groupBy;
+            }
+
+            currentItems = response && Array.isArray(response.items) ? response.items : [];
+            setLoading(false);
+
+            if (!currentItems.length) {
+                readingListContainer.innerHTML = '';
+                showEmptyState();
+            } else {
+                hideEmptyState();
+                renderReadingList(readingListContainer, {
+                    items: currentItems,
+                    sortBy: currentSortBy,
+                    groupBy: currentGroupBy
+                });
+            }
+        } catch (error) {
+            console.error('Error loading reading list', error);
+            setLoading(false);
+            showErrorState();
+        }
+    }
+
+    function handleApplySortingAndGrouping() {
+        const sortSelect = document.getElementById('reading-list-sort');
+        const groupSelect = document.getElementById('reading-list-group');
+        if (!sortSelect || !groupSelect) return;
+
+        const newSort = sortSelect.value || DEFAULT_SORT;
+        const newGroup = groupSelect.value || DEFAULT_GROUP;
+
+        currentSortBy = newSort;
+        currentGroupBy = newGroup;
+
+        setUrlState(newSort, newGroup);
+        loadReadingList();
+    }
+
+    function handleRetryFetch() {
+        loadReadingList();
+    }
+
+    function handleOpenArticle(articleId) {
+        if (!articleId) return;
+        const targetUrl = 'article.html?articleId=' + encodeURIComponent(articleId) + '&returnTo=reading_list';
+        window.location.href = targetUrl;
+    }
+
+    function handleRemoveFromReadingList(articleId) {
+        if (!articleId) return;
+
+        currentItems = currentItems.filter(function(item) {
+            return item && item.article && item.article.id !== articleId;
+        });
+
+        if (!currentItems.length) {
+            if (readingListContainer) {
+                readingListContainer.innerHTML = '';
+            }
+            showEmptyState();
+        } else if (readingListContainer) {
+            renderReadingList(readingListContainer, {
+                items: currentItems,
+                sortBy: currentSortBy,
+                groupBy: currentGroupBy
+            });
+        }
+    }
+
+    function setupActionHandlers() {
+        document.addEventListener('click', function(event) {
+            const actionElement = event.target.closest('[data-action]');
+            if (!actionElement) return;
+
+            const action = actionElement.dataset.action;
+
+            if (action === 'apply-sorting-grouping') {
+                event.preventDefault();
+                handleApplySortingAndGrouping();
+                return;
+            }
+
+            if (action === 'retry-fetch') {
+                event.preventDefault();
+                handleRetryFetch();
+                return;
+            }
+
+            if (action === 'open-article') {
+                event.preventDefault();
+                const articleId = actionElement.dataset.articleId || (actionElement.closest('[data-article-id]') ? actionElement.closest('[data-article-id]').dataset.articleId : '');
+                handleOpenArticle(articleId);
+                return;
+            }
+
+            if (action === 'remove-from-reading-list') {
+                event.preventDefault();
+                const articleId = actionElement.dataset.articleId || (actionElement.closest('[data-article-id]') ? actionElement.closest('[data-article-id]').dataset.articleId : '');
+                handleRemoveFromReadingList(articleId);
+            }
+        });
+
+        window.addEventListener('popstate', function() {
+            loadReadingList();
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function(element) {
+            const dataType = element.dataset.populate;
+            if (dataType === 'readingList') {
+                readingListContainer = element;
+            }
+        });
+
+        const initialState = getUrlState();
+        currentSortBy = initialState.sortBy;
+        currentGroupBy = initialState.groupBy;
+        setToolbarValues(currentSortBy, currentGroupBy);
+
+        setupActionHandlers();
+        loadReadingList();
+    });
+})();
+</script>

@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Account Settings  Notifications</title>
+    
+    <link rel="stylesheet" href="account_settings.css">
+</head>
+<body>
+    <header class="site-header">
+        <nav class="primary-nav" aria-label="Primary navigation">
+            <ul class="nav-list">
+                <li class="nav-item"><a href="index.html">Dashboard</a></li>
+                <li class="nav-item"><a href="my_domains.html">My Domains</a></li>
+                <li class="nav-item"><a href="contact_verification_center.html">Contact Verification</a></li>
+                <li class="nav-item"><a href="account_settings.html">Account Settings</a></li>
+                <li class="nav-item"><a href="help.html">Help</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" class="site-main" role="main">
+        <link rel="stylesheet" href="account_settings.css">
+
+        <div class="account-settings-layout">
+            <nav aria-label="Account settings" data-component="settings-sidebar">
+                <a href="javascript:void(0)" data-action="change-section" data-section-key="profile">Profile</a><br>
+                <a href="javascript:void(0)" data-action="change-section" data-section-key="security">Security</a><br>
+                <a href="javascript:void(0)" data-action="change-section" data-section-key="notifications" data-section-default="true">Notifications</a>
+            </nav>
+
+            <section id="notifications-section" aria-labelledby="notifications-heading" data-component="notifications-section-container">
+                <h1 id="notifications-heading">Account Settings &amp; Notifications</h1>
+
+                <p>Manage how contact verification notices are sent for domains in your account, including how often you hear from us, which channels we use, and which domains are included.</p>
+
+                <div id="notifications-messages">
+                    <p data-role="loading-message" hidden>Loading notification preferences</p>
+                    <p data-role="load-error-message" hidden></p>
+                    <button type="button" data-action="retry-load-preferences" hidden>Retry loading preferences</button>
+                    <p data-role="submit-success-message" hidden></p>
+                    <p data-role="submit-error-message" hidden></p>
+                </div>
+
+                <form id="contact-verification-notification-form" data-component="contact-verification-notification-form" novalidate>
+                    <div class="form-group" data-component="frequency-selector">
+                        <label for="notification-frequency">Notification frequency</label><br>
+                        <select id="notification-frequency" name="frequency">
+                            <!-- Options populated via JavaScript -->
+                        </select>
+                        <p class="field-error" data-field-error="frequency" hidden></p>
+                    </div>
+
+                    <div class="form-group" data-component="delivery-channels-selector">
+                        <span>Delivery channels</span><br>
+                        <div data-role="delivery-channels">
+                            <!-- Delivery channel checkboxes populated via JavaScript -->
+                        </div>
+                        <p class="field-note" data-role="email-required-note" hidden>Email delivery is required and cannot be turned off.</p>
+                        <p class="field-error" data-field-error="deliveryChannels" hidden></p>
+                    </div>
+
+                    <div class="form-group" data-component="apply-to-scope-selector">
+                        <span>Apply to</span><br>
+                        <div data-role="apply-to-scope-options">
+                            <!-- Apply-to scope radio buttons populated via JavaScript -->
+                        </div>
+                        <p class="field-error" data-field-error="applyToScope" hidden></p>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" data-component="notification-preferences-save-button" data-action="save-notification-preferences">Save Notification Preferences</button>
+                    </div>
+                </form>
+
+                <p class="secondary-link">
+                    You can also
+                    <a href="javascript:void(0)" data-component="manage-collaborators-link" data-action="navigate-manage-collaborators">manage collaborators</a>
+                    to help with contact verification notices.
+                </p>
+            </section>
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul class="footer-nav-list">
+                <li class="footer-nav-item"><a href="about.html">About</a></li>
+                <li class="footer-nav-item"><a href="help.html">Help &amp; Support</a></li>
+                <li class="footer-nav-item"><a href="contact.html">Contact Us</a></li>
+                <li class="footer-nav-item"><a href="privacy.html">Privacy Policy</a></li>
+                <li class="footer-nav-item"><a href="terms.html">Terms of Service</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const state = {
+            activeSection: null,
+            notificationsLoaded: false,
+            isLoadingPreferences: false,
+            loadErrorMessage: '',
+            isSubmitting: false,
+            submitErrorMessage: '',
+            submitSuccessMessage: '',
+            preference: null,
+            frequencyOptions: [],
+            deliveryChannelOptions: [],
+            applyToScopeOptions: [],
+            form: {
+                frequency: '',
+                deliveryChannels: [],
+                applyToScope: ''
+            }
+        };
+
+        const notificationsSection = document.querySelector('[data-component="notifications-section-container"]');
+        const sidebar = document.querySelector('[data-component="settings-sidebar"]');
+        const form = document.getElementById('contact-verification-notification-form');
+
+        const loadingMessageEl = notificationsSection ? notificationsSection.querySelector('[data-role="loading-message"]') : null;
+        const loadErrorEl = notificationsSection ? notificationsSection.querySelector('[data-role="load-error-message"]') : null;
+        const submitSuccessEl = notificationsSection ? notificationsSection.querySelector('[data-role="submit-success-message"]') : null;
+        const submitErrorEl = notificationsSection ? notificationsSection.querySelector('[data-role="submit-error-message"]') : null;
+
+        function init() {
+            const urlParams = new URLSearchParams(window.location.search);
+            initSidebarFromUrl(urlParams);
+            setupEventHandlers();
+
+            if (state.activeSection === 'notifications') {
+                activateNotificationsSection();
+            }
+        }
+
+        function initSidebarFromUrl(urlParams) {
+            const defaultSectionKey = 'notifications';
+            const supportedSections = ['profile', 'security', 'notifications'];
+
+            let sectionParam = urlParams.get('section');
+            if (!sectionParam || supportedSections.indexOf(sectionParam) === -1) {
+                sectionParam = defaultSectionKey;
+            }
+
+            state.activeSection = sectionParam;
+            updateSidebarActive();
+        }
+
+        function updateSidebarActive() {
+            if (!sidebar) {
+                return;
+            }
+            const links = sidebar.querySelectorAll('[data-action="change-section"]');
+            links.forEach(function(link) {
+                const key = link.getAttribute('data-section-key');
+                if (key === state.activeSection) {
+                    link.setAttribute('aria-current', 'page');
+                } else {
+                    link.removeAttribute('aria-current');
+                }
+            });
+        }
+
+        function syncSectionParamInUrl(sectionKey) {
+            try {
+                const url = new URL(window.location.href);
+                if (sectionKey) {
+                    url.searchParams.set('section', sectionKey);
+                } else {
+                    url.searchParams.delete('section');
+                }
+                window.history.replaceState({}, '', url.toString());
+            } catch (e) {
+                // If URL API is not available, silently ignore
+            }
+        }
+
+        function activateNotificationsSection() {
+            if (!notificationsSection) {
+                return;
+            }
+
+            if (typeof notificationsSection.scrollIntoView === 'function') {
+                notificationsSection.scrollIntoView({ behavior: 'auto', block: 'start' });
+            }
+
+            if (!state.notificationsLoaded && !state.isLoadingPreferences) {
+                loadContactVerificationNotificationPreferences();
+            }
+        }
+
+        function setLoadingState(isLoading) {
+            state.isLoadingPreferences = isLoading;
+            if (loadingMessageEl) {
+                loadingMessageEl.hidden = !isLoading;
+            }
+
+            if (form) {
+                Array.prototype.forEach.call(form.elements, function(element) {
+                    element.disabled = isLoading || state.isSubmitting;
+                });
+            }
+        }
+
+        function showLoadError(message) {
+            if (loadErrorEl) {
+                loadErrorEl.textContent = message;
+                loadErrorEl.hidden = !message;
+            }
+            if (notificationsSection) {
+                const retryButton = notificationsSection.querySelector('[data-action="retry-load-preferences"]');
+                if (retryButton) {
+                    retryButton.hidden = !message;
+                }
+            }
+        }
+
+        function loadContactVerificationNotificationPreferences() {
+            if (!notificationsSection) {
+                return;
+            }
+
+            state.loadErrorMessage = '';
+            showLoadError('');
+            setLoadingState(true);
+
+            try {
+                const response = WebsiteSDK.getContactVerificationNotificationPreferences();
+
+                if (!response || !response.preference) {
+                    throw new Error('No preferences returned');
+                }
+
+                state.preference = response.preference;
+                state.frequencyOptions = Array.isArray(response.frequencyOptions) ? response.frequencyOptions : [];
+                state.deliveryChannelOptions = Array.isArray(response.deliveryChannelOptions) ? response.deliveryChannelOptions : [];
+                state.applyToScopeOptions = Array.isArray(response.applyToScopeOptions) ? response.applyToScopeOptions : [];
+
+                state.form.frequency = state.preference.frequency || '';
+                state.form.deliveryChannels = Array.isArray(state.preference.deliveryChannels) ? state.preference.deliveryChannels.slice() : [];
+                state.form.applyToScope = state.preference.applyToScope || '';
+
+                // Ensure required email channel is present in local state
+                if (state.form.deliveryChannels.indexOf('email') === -1) {
+                    state.form.deliveryChannels.push('email');
+                }
+
+                state.notificationsLoaded = true;
+
+                renderNotificationForm();
+            } catch (error) {
+                state.loadErrorMessage = 'Unable to load notification preferences. Please try again.';
+                showLoadError(state.loadErrorMessage);
+            }
+
+            setLoadingState(false);
+        }
+
+        function renderNotificationForm() {
+            if (!form) {
+                return;
+            }
+
+            clearAllFieldErrors();
+
+            const frequencySelect = document.getElementById('notification-frequency');
+            const deliveryChannelsContainer = form.querySelector('[data-role="delivery-channels"]');
+            const applyToScopeContainer = form.querySelector('[data-role="apply-to-scope-options"]');
+
+            renderFrequencySelector(frequencySelect, state.frequencyOptions, state.form.frequency);
+            renderDeliveryChannels(deliveryChannelsContainer, state.deliveryChannelOptions, state.form.deliveryChannels);
+            renderApplyToScope(applyToScopeContainer, state.applyToScopeOptions, state.form.applyToScope);
+
+            if (submitSuccessEl) {
+                if (state.submitSuccessMessage) {
+                    submitSuccessEl.textContent = state.submitSuccessMessage;
+                    submitSuccessEl.hidden = false;
+                } else {
+                    submitSuccessEl.hidden = true;
+                }
+            }
+
+            if (submitErrorEl) {
+                if (state.submitErrorMessage) {
+                    submitErrorEl.textContent = state.submitErrorMessage;
+                    submitErrorEl.hidden = false;
+                } else {
+                    submitErrorEl.hidden = true;
+                }
+            }
+        }
+
+        function renderFrequencySelector(container, options, selectedValue) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+
+            const placeholderOption = document.createElement('option');
+            placeholderOption.value = '';
+            placeholderOption.textContent = 'Select frequency';
+            container.appendChild(placeholderOption);
+
+            options.forEach(function(opt) {
+                const optionEl = document.createElement('option');
+                optionEl.value = opt.value;
+                optionEl.textContent = opt.label;
+                if (opt.value === selectedValue) {
+                    optionEl.selected = true;
+                }
+                container.appendChild(optionEl);
+            });
+        }
+
+        function renderDeliveryChannels(container, options, selectedValues) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+
+            const selectedSet = new Set(Array.isArray(selectedValues) ? selectedValues : []);
+
+            options.forEach(function(opt) {
+                const labelEl = document.createElement('label');
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.name = 'deliveryChannels';
+                checkbox.value = opt.value;
+                checkbox.checked = selectedSet.has(opt.value);
+
+                labelEl.appendChild(checkbox);
+                labelEl.appendChild(document.createTextNode(' ' + opt.label));
+
+                container.appendChild(labelEl);
+                container.appendChild(document.createElement('br'));
+            });
+        }
+
+        function renderApplyToScope(container, options, selectedValue) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+
+            options.forEach(function(opt) {
+                const labelEl = document.createElement('label');
+                const radio = document.createElement('input');
+                radio.type = 'radio';
+                radio.name = 'applyToScope';
+                radio.value = opt.value;
+                radio.checked = opt.value === selectedValue;
+
+                labelEl.appendChild(radio);
+                labelEl.appendChild(document.createTextNode(' ' + opt.label));
+
+                container.appendChild(labelEl);
+                container.appendChild(document.createElement('br'));
+            });
+        }
+
+        function clearAllFieldErrors() {
+            if (!form) {
+                return;
+            }
+            const errorEls = form.querySelectorAll('.field-error');
+            errorEls.forEach(function(el) {
+                el.textContent = '';
+                el.hidden = true;
+            });
+            const emailNote = form.querySelector('[data-role="email-required-note"]');
+            if (emailNote) {
+                emailNote.hidden = true;
+            }
+        }
+
+        function showFieldError(fieldName, message) {
+            if (!form) {
+                return;
+            }
+            const errorEl = form.querySelector('[data-field-error="' + fieldName + '"]');
+            if (errorEl) {
+                errorEl.textContent = message;
+                errorEl.hidden = false;
+            }
+        }
+
+        function clearFieldError(fieldName) {
+            if (!form) {
+                return;
+            }
+            const errorEl = form.querySelector('[data-field-error="' + fieldName + '"]');
+            if (errorEl) {
+                errorEl.textContent = '';
+                errorEl.hidden = true;
+            }
+        }
+
+        function validateForm() {
+            if (!form) {
+                return false;
+            }
+
+            let valid = true;
+            clearAllFieldErrors();
+
+            const frequency = state.form.frequency;
+            if (!frequency) {
+                showFieldError('frequency', 'Select a notification frequency.');
+                valid = false;
+            }
+
+            const channels = Array.isArray(state.form.deliveryChannels) ? state.form.deliveryChannels : [];
+            if (channels.indexOf('email') === -1) {
+                showFieldError('deliveryChannels', 'Email delivery must remain enabled.');
+                valid = false;
+            }
+
+            const applyToScope = state.form.applyToScope;
+            if (!applyToScope) {
+                showFieldError('applyToScope', 'Select which domains these notifications apply to.');
+                valid = false;
+            }
+
+            return valid;
+        }
+
+        function setFormSubmittingState(isSubmitting) {
+            state.isSubmitting = isSubmitting;
+            if (!form) {
+                return;
+            }
+
+            const saveButton = form.querySelector('[data-action="save-notification-preferences"]');
+
+            Array.prototype.forEach.call(form.elements, function(element) {
+                if (element === saveButton) {
+                    element.disabled = isSubmitting || state.isLoadingPreferences;
+                } else {
+                    element.disabled = isSubmitting || state.isLoadingPreferences;
+                }
+            });
+        }
+
+        function submitPreferences() {
+            if (!form) {
+                return;
+            }
+
+            setFormSubmittingState(true);
+            state.submitErrorMessage = '';
+            state.submitSuccessMessage = '';
+
+            try {
+                const response = WebsiteSDK.updateContactVerificationNotificationPreferences(
+                    state.form.frequency,
+                    state.form.deliveryChannels,
+                    state.form.applyToScope
+                );
+
+                if (response && response.success) {
+                    if (response.preference) {
+                        state.preference = response.preference;
+                        state.form.frequency = state.preference.frequency || '';
+                        state.form.deliveryChannels = Array.isArray(state.preference.deliveryChannels) ? state.preference.deliveryChannels.slice() : [];
+                        if (state.form.deliveryChannels.indexOf('email') === -1) {
+                            state.form.deliveryChannels.push('email');
+                        }
+                        state.form.applyToScope = state.preference.applyToScope || '';
+                    }
+
+                    state.submitSuccessMessage = response.message || 'Notification preferences saved.';
+                    state.submitErrorMessage = '';
+                } else {
+                    const message = response && response.message ? response.message : 'Unable to save notification preferences. Please try again.';
+                    state.submitErrorMessage = message;
+                    state.submitSuccessMessage = '';
+                }
+            } catch (e) {
+                state.submitErrorMessage = 'An error occurred while saving your preferences. Please try again.';
+                state.submitSuccessMessage = '';
+            }
+
+            setFormSubmittingState(false);
+            renderNotificationForm();
+        }
+
+        function setupEventHandlers() {
+            const actionElements = document.querySelectorAll('[data-action]');
+            actionElements.forEach(function(element) {
+                const action = element.getAttribute('data-action');
+
+                if (action === 'change-section') {
+                    element.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        const key = element.getAttribute('data-section-key');
+                        if (!key || key === state.activeSection) {
+                            return;
+                        }
+                        state.activeSection = key;
+                        syncSectionParamInUrl(key);
+                        updateSidebarActive();
+                        if (key === 'notifications') {
+                            activateNotificationsSection();
+                        }
+                    });
+                } else if (action === 'save-notification-preferences') {
+                    element.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        if (state.isLoadingPreferences || state.isSubmitting) {
+                            return;
+                        }
+                        if (!state.notificationsLoaded) {
+                            return;
+                        }
+                        const isValid = validateForm();
+                        if (!isValid) {
+                            return;
+                        }
+                        submitPreferences();
+                    });
+                } else if (action === 'navigate-manage-collaborators') {
+                    element.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        window.location.href = 'user_management.html?tab=collaborators';
+                    });
+                } else if (action === 'retry-load-preferences') {
+                    element.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        if (!state.isLoadingPreferences) {
+                            loadContactVerificationNotificationPreferences();
+                        }
+                    });
+                }
+            });
+
+            if (form) {
+                const frequencySelect = document.getElementById('notification-frequency');
+                if (frequencySelect) {
+                    frequencySelect.addEventListener('change', function(event) {
+                        state.form.frequency = event.target.value;
+                        clearFieldError('frequency');
+                    });
+                }
+
+                const deliveryChannelsContainer = form.querySelector('[data-role="delivery-channels"]');
+                if (deliveryChannelsContainer) {
+                    deliveryChannelsContainer.addEventListener('change', function(event) {
+                        const target = event.target;
+                        if (!target || target.name !== 'deliveryChannels' || target.type !== 'checkbox') {
+                            return;
+                        }
+                        const value = target.value;
+                        const checked = target.checked;
+
+                        if (value === 'email') {
+                            if (!checked) {
+                                target.checked = true;
+                                const emailNote = form.querySelector('[data-role="email-required-note"]');
+                                if (emailNote) {
+                                    emailNote.hidden = false;
+                                }
+                            }
+                            return;
+                        }
+
+                        const channelsSet = new Set(Array.isArray(state.form.deliveryChannels) ? state.form.deliveryChannels : []);
+                        if (checked) {
+                            channelsSet.add(value);
+                        } else {
+                            channelsSet.delete(value);
+                        }
+                        if (channelsSet.size === 0 || !channelsSet.has('email')) {
+                            channelsSet.add('email');
+                        }
+                        state.form.deliveryChannels = Array.from(channelsSet);
+                        clearFieldError('deliveryChannels');
+                    });
+                }
+
+                const applyToScopeContainer = form.querySelector('[data-role="apply-to-scope-options"]');
+                if (applyToScopeContainer) {
+                    applyToScopeContainer.addEventListener('change', function(event) {
+                        const target = event.target;
+                        if (!target || target.name !== 'applyToScope' || target.type !== 'radio') {
+                            return;
+                        }
+                        state.form.applyToScope = target.value;
+                        clearFieldError('applyToScope');
+                    });
+                }
+            }
+        }
+
+        init();
+    });
+    </script>
+</body>
+</html>

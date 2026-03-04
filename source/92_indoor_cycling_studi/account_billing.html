@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>MOXX Cycling Studio</title>
+
+  <!-- Typography -->
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Work+Sans:wght@300;400;500;600&amp;display=swap' rel='stylesheet'>
+
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='account_billing.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='container header-container'>
+      <a href='index.html' class='site-logo' aria-label='MOXX Cycling home'>
+        <span class='site-logo-mark'>MC</span>
+        <span class='site-logo-text'>MOXX CYCLING</span>
+      </a>
+
+      <nav class='main-nav' aria-label='Primary navigation'>
+        <ul class='main-nav-list'>
+          <li class='main-nav-item'><a href='index.html'>Home</a></li>
+          <li class='main-nav-item'><a href='schedule.html'>Schedule</a></li>
+          <li class='main-nav-item'><a href='instructors.html'>Instructors</a></li>
+          <li class='main-nav-item'><a href='pricing.html'>Pricing</a></li>
+          <li class='main-nav-item'><a href='my_schedule.html'>My Schedule</a></li>
+          <li class='main-nav-item'><a href='profile.html'>Profile</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-main' role='main'>
+    <section class='billing-messages-wrapper'>
+      <div class='container'>
+        <div class='billing-messages-inner' data-component='billing-page-messages' aria-live='polite'></div>
+      </div>
+    </section>
+
+    <section class='billing-page-main'>
+      <div data-component='url-state-manager' hidden></div>
+      <section class='billing-summary-loader' data-component='billing-summary-loader' data-populate='billing-summary' aria-busy='true'></section>
+    </section>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='container footer-inner'>
+      <div class='footer-brand'>
+        <div class='footer-logo-mark'>MC</div>
+        <div class='footer-brand-text'>
+          <div class='footer-brand-name'>MOXX CYCLING</div>
+          <div class='footer-brand-tagline'>Indoor cycling studio</div>
+        </div>
+      </div>
+
+      <nav class='footer-nav' aria-label='Footer navigation'>
+        <ul class='footer-nav-list'>
+          <li class='footer-nav-item'><a href='about.html'>About Us</a></li>
+          <li class='footer-nav-item'><a href='studios.html'>Studios</a></li>
+          <li class='footer-nav-item'><a href='faq.html'>FAQ &amp; Policies</a></li>
+          <li class='footer-nav-item'><a href='contact.html'>Contact</a></li>
+          <li class='footer-nav-item'><a href='pricing.html'>Pricing</a></li>
+          <li class='footer-nav-item'><a href='account_billing.html'>Billing &amp; Memberships</a></li>
+          <li class='footer-nav-item'><a href='terms.html'>Terms of Service</a></li>
+          <li class='footer-nav-item'><a href='privacy.html'>Privacy Policy</a></li>
+        </ul>
+      </nav>
+    </div>
+
+    <div class='footer-bottom'>
+      <div class='container footer-bottom-inner'>
+        <p class='footer-copy'>&copy; <span id='year'>2026</span> MOXX Cycling. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Lightweight year sync without adding framework-specific JS
+    (function () {
+      var yEl = document.getElementById('year');
+      if (yEl) {
+        yEl.textContent = new Date().getFullYear();
+      }
+    })();
+  </script>
+
+  <script src='business_logic.js'></script>
+  <script>
+    (function () {
+      'use strict';
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&#34;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function formatDate(value) {
+        if (!value) return '—';
+        var d = new Date(value);
+        if (isNaN(d)) return '—';
+        return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+      }
+
+      function formatDateTime(value) {
+        if (!value) return '';
+        var d = new Date(value);
+        if (isNaN(d)) return '';
+        return d.toLocaleString(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit'
+        });
+      }
+
+      function formatCurrency(amount, currency) {
+        if (amount === null || amount === undefined) return '';
+        var curr = currency || 'USD';
+        try {
+          return new Intl.NumberFormat(undefined, { style: 'currency', currency: curr }).format(amount);
+        } catch (e) {
+          var num = typeof amount === 'number' ? amount.toFixed(2) : String(amount);
+          return num + (curr ? ' ' + curr : '');
+        }
+      }
+
+      var pageState = {
+        highlightSubscriptionId: null,
+        billingSummary: null,
+        billingHistoryFilterStatus: '',
+        billingHistorySort: 'newest'
+      };
+
+      function parseUrlState() {
+        var params = new URLSearchParams(window.location.search);
+        pageState.highlightSubscriptionId = params.get('highlightSubscriptionId');
+      }
+
+      function showMessage(type, text) {
+        var container = document.querySelector('[data-component="billing-page-messages"]');
+        if (!container || !text) return;
+        var role = type === 'error' ? 'alert' : 'status';
+        var message = document.createElement('div');
+        message.className = 'billing-message billing-message--' + type;
+        message.setAttribute('role', role);
+        message.innerHTML = `
+          <div class="billing-message-inner">
+            <span class="billing-message-text">${escapeHtml(text)}</span>
+            <button type="button" class="billing-message-dismiss" data-action="dismiss-message" aria-label="Dismiss message">&times;</button>
+          </div>
+        `;
+        container.appendChild(message);
+      }
+
+      function clearMessages() {
+        var container = document.querySelector('[data-component="billing-page-messages"]');
+        if (!container) return;
+        container.innerHTML = '';
+      }
+
+      function renderBillingLayout(container, summary) {
+        var memberships = Array.isArray(summary.membership_subscriptions) ? summary.membership_subscriptions : [];
+        var classPacks = Array.isArray(summary.owned_class_packs) ? summary.owned_class_packs : [];
+        var guestPasses = Array.isArray(summary.owned_guest_passes) ? summary.owned_guest_passes : [];
+
+        var activeMemberships = memberships.filter(function (m) {
+          return m && m.subscription && (m.subscription.status === 'active' || m.subscription.status === 'scheduled');
+        });
+
+        var recurringMemberships = activeMemberships.filter(function (m) {
+          return m.plan && m.plan.billing_frequency === 'recurring';
+        });
+
+        var heroSubscriptionObj = recurringMemberships[0] || activeMemberships[0] || null;
+        var heroSubscription = heroSubscriptionObj ? heroSubscriptionObj.subscription : null;
+        var heroPlan = heroSubscriptionObj ? heroSubscriptionObj.plan : null;
+
+        var totalRemainingRides = classPacks.reduce(function (sum, cp) {
+          if (cp && cp.owned_class_pack && typeof cp.owned_class_pack.remaining_rides === 'number') {
+            return sum + cp.owned_class_pack.remaining_rides;
+          }
+          return sum;
+        }, 0);
+
+        var totalGuestUses = guestPasses.reduce(function (sum, gp) {
+          if (gp && gp.owned_guest_pass && typeof gp.owned_guest_pass.remaining_uses === 'number') {
+            return sum + gp.owned_guest_pass.remaining_uses;
+          }
+          return sum;
+        }, 0);
+
+        var nextRenewalDisplay = '';
+        var upcomingRenewalDate = null;
+        activeMemberships.forEach(function (m) {
+          var dStr = m.subscription && m.subscription.next_renewal_date;
+          if (dStr) {
+            var d = new Date(dStr);
+            if (!isNaN(d)) {
+              if (!upcomingRenewalDate || d < upcomingRenewalDate) {
+                upcomingRenewalDate = d;
+              }
+            }
+          }
+        });
+        if (upcomingRenewalDate) {
+          nextRenewalDisplay = upcomingRenewalDate.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        }
+
+        var membershipCount = memberships.length;
+        var heroText = (membershipCount || classPacks.length || guestPasses.length)
+          ? 'Review your current memberships, ride balances, guest passes, and recent payments in one place.'
+          : 'You don\'t have any memberships or packs yet. When you purchase a plan, it will appear here.';
+
+        var heroAutoRenewMarkup = '';
+        if (heroSubscription && heroPlan && heroPlan.billing_frequency === 'recurring' && (heroSubscription.status === 'active' || heroSubscription.status === 'scheduled')) {
+          var autoRenewEnabled = !!heroSubscription.auto_renew_enabled;
+          var autoRenewStatusText = autoRenewEnabled ? 'On' : 'Off';
+          var helperText = autoRenewEnabled
+            ? 'Auto-renew is on. Your membership will renew automatically at the end of each period.'
+            : 'Auto-renew is off. Your membership will not renew after the current period ends.';
+          heroAutoRenewMarkup = `
+            <div class="hero-autorenew" data-component="membership-auto-renew-toggle" data-context="hero">
+              <div class="hero-autorenew-header">
+                <div class="hero-autorenew-plan">
+                  <span class="hero-autorenew-label">Auto-renew</span>
+                  <span class="hero-autorenew-plan-name">${escapeHtml(heroPlan.name || 'Membership')}</span>
+                </div>
+                <div class="hero-autorenew-status">
+                  <span class="hero-autorenew-status-label" data-role="auto-renew-status" data-subscription-id="${escapeHtml(heroSubscription.id)}">${escapeHtml(autoRenewStatusText)}</span>
+                </div>
+              </div>
+              <p class="hero-autorenew-helper" data-role="hero-auto-renew-helper">${escapeHtml(helperText)}</p>
+              <button
+                type="button"
+                class="toggle-switch ${autoRenewEnabled ? 'toggle-switch--on' : 'toggle-switch--off'}"
+                aria-pressed="${autoRenewEnabled ? 'true' : 'false'}"
+                data-action="toggle-auto-renew"
+                data-subscription-id="${escapeHtml(heroSubscription.id)}"
+                data-autorenew="${autoRenewEnabled ? 'true' : 'false'}"
+              >
+                <span class="toggle-switch-track"></span>
+                <span class="toggle-switch-handle"></span>
+              </button>
+            </div>
+          `;
+        } else {
+          heroAutoRenewMarkup = `
+            <div class="hero-autorenew hero-autorenew--empty">
+              <p>Add a recurring membership to enable auto-renew and keep your rides uninterrupted.</p>
+            </div>
+          `;
+        }
+
+        container.innerHTML = `
+          <div class="container billing-layout">
+            <section class="billing-hero-band">
+              <div class="billing-hero-panel billing-hero-panel--label">
+                <h1 class="billing-hero-title">Billing &amp; Memberships</h1>
+                <p class="billing-hero-subtitle">Manage class packs, memberships, guest passes, and your billing details.</p>
+              </div>
+              <div class="billing-hero-panel billing-hero-panel--overview">
+                <div class="billing-hero-main">
+                  <h2 class="billing-hero-heading">Billing overview</h2>
+                  <p class="billing-hero-copy">${escapeHtml(heroText)}</p>
+                  <dl class="billing-hero-metrics">
+                    <div class="billing-hero-metric">
+                      <dt>Memberships</dt>
+                      <dd>${membershipCount}</dd>
+                    </div>
+                    <div class="billing-hero-metric">
+                      <dt>Remaining rides</dt>
+                      <dd>${totalRemainingRides}</dd>
+                    </div>
+                    <div class="billing-hero-metric">
+                      <dt>Guest passes</dt>
+                      <dd>${totalGuestUses}</dd>
+                    </div>
+                    <div class="billing-hero-metric">
+                      <dt>Next renewal</dt>
+                      <dd>${escapeHtml(nextRenewalDisplay)}</dd>
+                    </div>
+                  </dl>
+                  ${heroAutoRenewMarkup}
+                  <div class="billing-hero-pricing-cta">
+                    <button type="button" class="btn btn-ghost-primary" data-component="pricing-navigation-link" data-action="navigate-pricing">
+                      Explore packs &amp; memberships
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="billing-products-row" aria-label="Current products">
+              <article class="billing-card billing-card--memberships">
+                <header class="billing-card-header">
+                  <h2 class="billing-card-title">Memberships</h2>
+                </header>
+                <div class="billing-card-body">
+                  <p class="billing-empty-state" data-role="empty-memberships">No memberships found yet. When you purchase a membership, it will appear here.</p>
+                  <ul class="billing-list" data-component="membership-list" aria-label="Membership subscriptions"></ul>
+                </div>
+              </article>
+
+              <article class="billing-card billing-card--class-packs">
+                <header class="billing-card-header">
+                  <h2 class="billing-card-title">Class packs</h2>
+                </header>
+                <div class="billing-card-body">
+                  <p class="billing-empty-state" data-role="empty-class-packs">No class packs found. Packs that you purchase will appear here.</p>
+                  <ul class="billing-list" data-component="class-pack-list" aria-label="Owned class packs"></ul>
+                </div>
+              </article>
+
+              <article class="billing-card billing-card--guest-passes">
+                <header class="billing-card-header">
+                  <h2 class="billing-card-title">Guest passes</h2>
+                </header>
+                <div class="billing-card-body">
+                  <p class="billing-empty-state" data-role="empty-guest-passes">No guest passes found. Guest passes that you purchase will appear here.</p>
+                  <ul class="billing-list" data-component="guest-pass-list" aria-label="Owned guest passes"></ul>
+                </div>
+              </article>
+            </section>
+
+            <section class="billing-history-section" aria-labelledby="billing-history-heading">
+              <header class="billing-history-header">
+                <h2 id="billing-history-heading" class="billing-history-title">Billing history</h2>
+                <div class="billing-history-controls">
+                  <label class="billing-history-filter-label">
+                    Status
+                    <select data-action="billing-history-filter">
+                      <option value="">All</option>
+                      <option value="completed">Completed</option>
+                      <option value="pending">Pending</option>
+                      <option value="canceled">Canceled</option>
+                      <option value="failed">Failed</option>
+                    </select>
+                  </label>
+                  <label class="billing-history-sort-label">
+                    Sort
+                    <select data-action="billing-history-sort">
+                      <option value="newest">Newest first</option>
+                      <option value="oldest">Oldest first</option>
+                    </select>
+                  </label>
+                </div>
+              </header>
+              <div class="billing-history-table-wrapper" data-component="billing-history-table">
+                <table class="billing-history-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Date</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Total</th>
+                      <th scope="col">Payment method</th>
+                      <th scope="col">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody data-component="billing-history-rows"></tbody>
+                </table>
+                <p class="billing-history-hint">Select a row to view additional order details.</p>
+                <div class="billing-history-context" data-component="billing-history-context" aria-live="polite"></div>
+              </div>
+            </section>
+          </div>
+        `;
+      }
+
+      function renderMembershipList(listContainer, emptyStateContainer, memberships, highlightSubscriptionId) {
+        if (!listContainer || !emptyStateContainer) return;
+        var items = Array.isArray(memberships) ? memberships : [];
+        if (!items.length) {
+          listContainer.innerHTML = '';
+          emptyStateContainer.style.display = '';
+          return;
+        }
+        emptyStateContainer.style.display = 'none';
+        var html = items.map(function (entry) {
+          if (!entry || !entry.subscription || !entry.plan) return '';
+          var sub = entry.subscription;
+          var plan = entry.plan;
+          var isHighlighted = !!(highlightSubscriptionId && sub.id === highlightSubscriptionId);
+          var statusLabel = sub.status ? sub.status.replace(/_/g, ' ') : 'unknown';
+          var price = typeof sub.price_per_period === 'number' ? sub.price_per_period : plan.price;
+          var currency = sub.currency || plan.currency || 'USD';
+          var priceText = price !== null && price !== undefined ? formatCurrency(price, currency) : '';
+          var nextRenewalText = sub.next_renewal_date ? formatDate(sub.next_renewal_date) : '';
+          var lastBilledText = sub.last_billed_at ? formatDate(sub.last_billed_at) : '';
+
+          var isRecurringPlan = plan.billing_frequency === 'recurring';
+          var isAutoRenewEligible = isRecurringPlan && (sub.status === 'active' || sub.status === 'scheduled');
+          var autoRenewBlock = '';
+          if (isAutoRenewEligible) {
+            var autoEnabled = !!sub.auto_renew_enabled;
+            var statusText = autoEnabled ? 'On' : 'Off';
+            autoRenewBlock = `
+              <div class="membership-item-autorenew">
+                <span class="membership-item-autorenew-label">Auto-renew</span>
+                <button
+                  type="button"
+                  class="toggle-switch ${autoEnabled ? 'toggle-switch--on' : 'toggle-switch--off'}"
+                  aria-pressed="${autoEnabled ? 'true' : 'false'}"
+                  data-action="toggle-auto-renew"
+                  data-subscription-id="${escapeHtml(sub.id)}"
+                  data-autorenew="${autoEnabled ? 'true' : 'false'}"
+                >
+                  <span class="toggle-switch-track"></span>
+                  <span class="toggle-switch-handle"></span>
+                </button>
+                <span class="membership-item-autorenew-status" data-role="auto-renew-status" data-subscription-id="${escapeHtml(sub.id)}">
+                  ${escapeHtml(statusText)}
+                </span>
+              </div>
+            `;
+          } else {
+            autoRenewBlock = `
+              <div class="membership-item-autorenew membership-item-autorenew--disabled">
+                <span class="membership-item-autorenew-label">Auto-renew</span>
+                <span class="membership-item-autorenew-status">Not available for this subscription</span>
+              </div>
+            `;
+          }
+
+          return `
+            <li class="membership-item${isHighlighted ? ' membership-item--highlight' : ''}" data-subscription-id="${escapeHtml(sub.id)}">
+              <div class="membership-item-main">
+                <button type="button" class="link-button membership-item-plan-name" data-action="navigate-membership-detail" data-membership-plan-id="${escapeHtml(plan.id)}">
+                  ${escapeHtml(plan.name || 'Membership')}
+                </button>
+                <span class="membership-item-status membership-item-status--${escapeHtml(sub.status || 'unknown')}">
+                  ${escapeHtml(statusLabel)}
+                </span>
+              </div>
+              <dl class="membership-item-meta">
+                <div class="membership-item-meta-row">
+                  <dt>Price</dt>
+                  <dd>${escapeHtml(priceText)}</dd>
+                </div>
+                <div class="membership-item-meta-row">
+                  <dt>Last billed</dt>
+                  <dd>${escapeHtml(lastBilledText)}</dd>
+                </div>
+                <div class="membership-item-meta-row">
+                  <dt>Next renewal</dt>
+                  <dd>${escapeHtml(nextRenewalText)}</dd>
+                </div>
+              </dl>
+              ${autoRenewBlock}
+            </li>
+          `;
+        }).join('');
+        listContainer.innerHTML = html;
+      }
+
+      function renderClassPackList(listContainer, emptyStateContainer, classPacks) {
+        if (!listContainer || !emptyStateContainer) return;
+        var items = Array.isArray(classPacks) ? classPacks : [];
+        if (!items.length) {
+          listContainer.innerHTML = '';
+          emptyStateContainer.style.display = '';
+          return;
+        }
+        emptyStateContainer.style.display = 'none';
+        var html = items.map(function (entry) {
+          if (!entry || !entry.owned_class_pack || !entry.plan) return '';
+          var pack = entry.owned_class_pack;
+          var plan = entry.plan;
+          var remaining = typeof pack.remaining_rides === 'number' ? pack.remaining_rides : 0;
+          var original = typeof pack.original_number_of_rides === 'number' ? pack.original_number_of_rides : plan.number_of_rides;
+          var expiration = pack.expiration_date ? formatDate(pack.expiration_date) : 'No expiration';
+          var canUseForGuests = pack.can_use_for_guests || plan.can_use_for_guests;
+          var statusLabel = pack.status ? pack.status.replace(/_/g, ' ') : 'unknown';
+          var usageText = original !== null && original !== undefined
+            ? remaining + '/' + original + ' rides remaining'
+            : remaining + ' rides remaining';
+
+          return `
+            <li class="billing-list-item class-pack-item" data-owned-class-pack-id="${escapeHtml(pack.id)}">
+              <div class="billing-list-item-main">
+                <button type="button" class="link-button class-pack-name" data-action="navigate-package-detail" data-class-pack-plan-id="${escapeHtml(plan.id)}">
+                  ${escapeHtml(plan.name || 'Class pack')}
+                </button>
+                <span class="billing-list-item-status billing-list-item-status--${escapeHtml(pack.status || 'unknown')}">
+                  ${escapeHtml(statusLabel)}
+                </span>
+              </div>
+              <dl class="billing-list-item-meta">
+                <div class="billing-list-item-meta-row">
+                  <dt>Rides</dt>
+                  <dd>${escapeHtml(usageText)}</dd>
+                </div>
+                <div class="billing-list-item-meta-row">
+                  <dt>Expires</dt>
+                  <dd>${escapeHtml(expiration)}</dd>
+                </div>
+                <div class="billing-list-item-meta-row">
+                  <dt>Guests</dt>
+                  <dd>${canUseForGuests ? 'Can be used for guests' : 'Primary rider only'}</dd>
+                </div>
+              </dl>
+            </li>
+          `;
+        }).join('');
+        listContainer.innerHTML = html;
+      }
+
+      function renderGuestPassList(listContainer, emptyStateContainer, guestPasses) {
+        if (!listContainer || !emptyStateContainer) return;
+        var items = Array.isArray(guestPasses) ? guestPasses : [];
+        if (!items.length) {
+          listContainer.innerHTML = '';
+          emptyStateContainer.style.display = '';
+          return;
+        }
+        emptyStateContainer.style.display = 'none';
+        var html = items.map(function (entry) {
+          if (!entry || !entry.owned_guest_pass || !entry.plan) return '';
+          var pass = entry.owned_guest_pass;
+          var plan = entry.plan;
+          var remaining = typeof pass.remaining_uses === 'number' ? pass.remaining_uses : 0;
+          var expiration = pass.expiration_date ? formatDate(pass.expiration_date) : 'No expiration';
+          var statusLabel = pass.status ? pass.status.replace(/_/g, ' ') : 'unknown';
+          var maxGuests = typeof plan.max_guests_per_use === 'number' ? plan.max_guests_per_use : null;
+          var constraintText = maxGuests
+            ? 'Up to ' + maxGuests + ' guest' + (maxGuests > 1 ? 's' : '') + ' per class'
+            : 'Standard guest usage';
+
+          return `
+            <li class="billing-list-item guest-pass-item" data-owned-guest-pass-id="${escapeHtml(pass.id)}">
+              <div class="billing-list-item-main">
+                <span class="guest-pass-name">${escapeHtml(plan.name || 'Guest pass')}</span>
+                <span class="billing-list-item-status billing-list-item-status--${escapeHtml(pass.status || 'unknown')}">
+                  ${escapeHtml(statusLabel)}
+                </span>
+              </div>
+              <dl class="billing-list-item-meta">
+                <div class="billing-list-item-meta-row">
+                  <dt>Remaining uses</dt>
+                  <dd>${remaining}</dd>
+                </div>
+                <div class="billing-list-item-meta-row">
+                  <dt>Expires</dt>
+                  <dd>${escapeHtml(expiration)}</dd>
+                </div>
+                <div class="billing-list-item-meta-row">
+                  <dt>Usage</dt>
+                  <dd>${escapeHtml(constraintText)}</dd>
+                </div>
+              </dl>
+            </li>
+          `;
+        }).join('');
+        listContainer.innerHTML = html;
+      }
+
+      function formatPaymentMethod(order) {
+        if (!order) return '';
+        if (order.payment_method_type === 'card') {
+          var brand = order.card_brand || 'Card';
+          var last4 = order.card_last4 ? 'b7b7b7b7 ' + order.card_last4 : '';
+          return (brand + ' ' + last4).trim();
+        }
+        if (order.payment_method_type === 'class_pack') {
+          return 'Class pack credit';
+        }
+        if (order.payment_method_type === 'membership') {
+          return 'Membership';
+        }
+        if (order.payment_method_type === 'guest_pass') {
+          return 'Guest pass credit';
+        }
+        return '';
+      }
+
+      function renderBillingHistoryRows(tbody, orders, filterStatus, sortOrder) {
+        if (!tbody) return;
+        var list = Array.isArray(orders) ? orders.slice() : [];
+        var filtered = list;
+        if (filterStatus) {
+          filtered = filtered.filter(function (o) { return o.status === filterStatus; });
+        }
+        filtered.sort(function (a, b) {
+          var aTime = a && a.created_at ? new Date(a.created_at).getTime() : 0;
+          var bTime = b && b.created_at ? new Date(b.created_at).getTime() : 0;
+          return sortOrder === 'oldest' ? aTime - bTime : bTime - aTime;
+        });
+        if (!filtered.length) {
+          tbody.innerHTML = `
+            <tr class="billing-history-empty">
+              <td colspan="5">No orders found for the selected filters.</td>
+            </tr>
+          `;
+          return;
+        }
+        var rowsHtml = filtered.map(function (order) {
+          var dateText = order.created_at ? formatDate(order.created_at) : '';
+          var statusLabel = order.status ? order.status.replace(/_/g, ' ') : 'unknown';
+          var totalText = order.total_amount !== null && order.total_amount !== undefined
+            ? formatCurrency(order.total_amount, order.currency || 'USD')
+            : '';
+          var paymentText = formatPaymentMethod(order);
+          var description = order.notes ? order.notes : '';
+
+          return (
+            '<tr class="billing-history-row" data-order-id="' + escapeHtml(order.id) + '" data-action="billing-history-row-click">' +
+              '<td>' + escapeHtml(dateText) + '</td>' +
+              '<td>' + escapeHtml(statusLabel) + '</td>' +
+              '<td>' + escapeHtml(totalText) + '</td>' +
+              '<td>' + escapeHtml(paymentText) + '</td>' +
+              '<td>' + escapeHtml(description || 'View details') + '</td>' +
+            '</tr>'
+          );
+        }).join('');
+        tbody.innerHTML = rowsHtml;
+      }
+
+      function updateBillingHistoryContext(orderId) {
+        var contextContainer = document.querySelector('[data-component="billing-history-context"]');
+        if (!contextContainer || !pageState.billingSummary) return;
+        var orders = Array.isArray(pageState.billingSummary.billing_history) ? pageState.billingSummary.billing_history : [];
+        var order = orders.find(function (o) { return o.id === orderId; });
+        if (!order) {
+          contextContainer.textContent = '';
+          return;
+        }
+        var created = order.created_at ? formatDateTime(order.created_at) : '';
+        var completed = order.completed_at ? formatDateTime(order.completed_at) : '';
+        var total = order.total_amount !== null && order.total_amount !== undefined
+          ? formatCurrency(order.total_amount, order.currency || 'USD')
+          : '';
+        var payment = formatPaymentMethod(order);
+        var notes = order.notes ? order.notes : '';
+
+        contextContainer.innerHTML = `
+          <div class="billing-history-context-panel">
+            <h3 class="billing-history-context-title">Order details</h3>
+            <dl class="billing-history-context-meta">
+              <div class="billing-history-context-row">
+                <dt>Order ID</dt>
+                <dd>${escapeHtml(order.id)}</dd>
+              </div>
+              <div class="billing-history-context-row">
+                <dt>Placed</dt>
+                <dd>${escapeHtml(created)}</dd>
+              </div>
+              <div class="billing-history-context-row">
+                <dt>Completed</dt>
+                <dd>${escapeHtml(completed)}</dd>
+              </div>
+              <div class="billing-history-context-row">
+                <dt>Status</dt>
+                <dd>${escapeHtml(order.status || 'unknown')}</dd>
+              </div>
+              <div class="billing-history-context-row">
+                <dt>Total</dt>
+                <dd>${escapeHtml(total)}</dd>
+              </div>
+              <div class="billing-history-context-row">
+                <dt>Payment method</dt>
+                <dd>${escapeHtml(payment)}</dd>
+              </div>
+              ${notes ? `
+                <div class="billing-history-context-row">
+                  <dt>Notes</dt>
+                  <dd>${escapeHtml(notes)}</dd>
+                </div>
+              ` : ''}
+            </dl>
+          </div>
+        `;
+      }
+
+      function syncAutoRenewUI(updatedSubscription) {
+        if (!updatedSubscription) return;
+        var subId = updatedSubscription.id;
+        var autoEnabled = !!updatedSubscription.auto_renew_enabled;
+        var statusText = autoEnabled ? 'On' : 'Off';
+
+        if (!subId) return;
+
+        var selectorToggle = '[data-action="toggle-auto-renew"][data-subscription-id="' + CSS.escape(subId) + '"]';
+        var toggles = document.querySelectorAll(selectorToggle);
+        toggles.forEach(function (toggle) {
+          toggle.dataset.autorenew = autoEnabled ? 'true' : 'false';
+          toggle.setAttribute('aria-pressed', autoEnabled ? 'true' : 'false');
+          toggle.classList.remove('toggle-switch--on', 'toggle-switch--off', 'is-updating');
+          toggle.classList.add(autoEnabled ? 'toggle-switch--on' : 'toggle-switch--off');
+          toggle.removeAttribute('aria-busy');
+        });
+
+        var selectorStatus = '[data-role="auto-renew-status"][data-subscription-id="' + CSS.escape(subId) + '"]';
+        var statusEls = document.querySelectorAll(selectorStatus);
+        statusEls.forEach(function (el) {
+          el.textContent = statusText;
+        });
+
+        var heroHelper = document.querySelector('[data-role="hero-auto-renew-helper"]');
+        if (heroHelper) {
+          heroHelper.textContent = autoEnabled
+            ? 'Auto-renew is on. Your membership will renew automatically at the end of each period.'
+            : 'Auto-renew is off. Your membership will not renew after the current period ends.';
+        }
+      }
+
+      function updateLocalSubscription(subscription) {
+        if (!pageState.billingSummary || !subscription) return;
+        var arr = Array.isArray(pageState.billingSummary.membership_subscriptions)
+          ? pageState.billingSummary.membership_subscriptions
+          : [];
+        for (var i = 0; i < arr.length; i++) {
+          if (arr[i] && arr[i].subscription && arr[i].subscription.id === subscription.id) {
+            arr[i].subscription = Object.assign({}, arr[i].subscription, subscription);
+            break;
+          }
+        }
+      }
+
+      function handleToggleAutoRenew(target) {
+        if (!target) return;
+        var subscriptionId = target.getAttribute('data-subscription-id');
+        if (!subscriptionId) return;
+        if (target.classList.contains('is-updating')) {
+          return;
+        }
+        var currentValue = target.dataset.autorenew === 'true';
+        var newValue = !currentValue;
+
+        target.classList.add('is-updating');
+        target.setAttribute('aria-busy', 'true');
+
+        var response;
+        try {
+          response = WebsiteSDK.updateMembershipAutoRenew(subscriptionId, newValue);
+        } catch (error) {
+          target.classList.remove('is-updating');
+          target.removeAttribute('aria-busy');
+          showMessage('error', 'There was a problem updating your auto-renew setting. Please try again.');
+          return;
+        }
+
+        if (response && response.success && response.subscription) {
+          updateLocalSubscription(response.subscription);
+          syncAutoRenewUI(response.subscription);
+          if (response.message) {
+            showMessage('success', response.message);
+          } else {
+            showMessage('success', 'Auto-renew setting updated.');
+          }
+        } else {
+          target.classList.remove('is-updating');
+          target.removeAttribute('aria-busy');
+          var message = response && response.message ? response.message : 'Unable to update auto-renew right now.';
+          showMessage('error', message);
+        }
+      }
+
+      function initializePage() {
+        parseUrlState();
+        clearMessages();
+
+        var urlStateComponent = document.querySelector('[data-component="url-state-manager"]');
+        if (urlStateComponent) {
+          urlStateComponent.dataset.highlightSubscriptionId = pageState.highlightSubscriptionId || '';
+        }
+
+        var loaderContainer = document.querySelector('[data-component="billing-summary-loader"][data-populate="billing-summary"]');
+        if (loaderContainer) {
+          loaderContainer.textContent = 'Loading your billing summary...';
+        }
+
+        var summary = null;
+        try {
+          summary = WebsiteSDK.getBillingSummary();
+          pageState.billingSummary = summary;
+        } catch (error) {
+          if (loaderContainer) {
+            loaderContainer.textContent = '';
+          }
+          showMessage('error', 'We couldn\'t load your billing information. Please refresh the page to try again.');
+          return;
+        }
+
+        if (!loaderContainer) {
+          return;
+        }
+
+        renderBillingLayout(loaderContainer, summary);
+
+        var membershipListContainer = document.querySelector('[data-component="membership-list"]');
+        var membershipEmptyState = document.querySelector('[data-role="empty-memberships"]');
+        renderMembershipList(membershipListContainer, membershipEmptyState, summary.membership_subscriptions || [], pageState.highlightSubscriptionId);
+
+        if (pageState.highlightSubscriptionId && membershipListContainer) {
+          try {
+            var highlighted = membershipListContainer.querySelector('[data-subscription-id="' + CSS.escape(pageState.highlightSubscriptionId) + '"]');
+            if (highlighted) {
+              highlighted.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          } catch (e) {
+            // CSS.escape not supported or invalid id; fail silently
+          }
+        }
+
+        var classPackListContainer = document.querySelector('[data-component="class-pack-list"]');
+        var classPackEmptyState = document.querySelector('[data-role="empty-class-packs"]');
+        renderClassPackList(classPackListContainer, classPackEmptyState, summary.owned_class_packs || []);
+
+        var guestPassListContainer = document.querySelector('[data-component="guest-pass-list"]');
+        var guestPassEmptyState = document.querySelector('[data-role="empty-guest-passes"]');
+        renderGuestPassList(guestPassListContainer, guestPassEmptyState, summary.owned_guest_passes || []);
+
+        var historyBody = document.querySelector('[data-component="billing-history-rows"]');
+        pageState.billingHistoryFilterStatus = '';
+        pageState.billingHistorySort = 'newest';
+        renderBillingHistoryRows(historyBody, summary.billing_history || [], pageState.billingHistoryFilterStatus, pageState.billingHistorySort);
+      }
+
+      document.addEventListener('DOMContentLoaded', function () {
+        initializePage();
+
+        document.addEventListener('click', function (event) {
+          var actionEl = event.target.closest('[data-action]');
+          if (!actionEl) return;
+          var action = actionEl.dataset.action;
+
+          if (action === 'navigate-pricing') {
+            event.preventDefault();
+            window.location.href = 'pricing.html';
+          } else if (action === 'navigate-membership-detail') {
+            event.preventDefault();
+            var planId = actionEl.getAttribute('data-membership-plan-id');
+            if (planId) {
+              window.location.href = 'membership_detail.html?membershipPlanId=' + encodeURIComponent(planId);
+            }
+          } else if (action === 'navigate-package-detail') {
+            event.preventDefault();
+            var classPackPlanId = actionEl.getAttribute('data-class-pack-plan-id');
+            if (classPackPlanId) {
+              window.location.href = 'package_detail.html?classPackPlanId=' + encodeURIComponent(classPackPlanId);
+            }
+          } else if (action === 'toggle-auto-renew') {
+            event.preventDefault();
+            handleToggleAutoRenew(actionEl);
+          } else if (action === 'dismiss-message') {
+            event.preventDefault();
+            var msg = actionEl.closest('.billing-message');
+            if (msg && msg.parentNode) {
+              msg.parentNode.removeChild(msg);
+            }
+          } else if (action === 'billing-history-row-click') {
+            var row = actionEl.closest('.billing-history-row');
+            if (!row) return;
+            var orderId = row.getAttribute('data-order-id');
+            if (orderId) {
+              updateBillingHistoryContext(orderId);
+            }
+          }
+        });
+
+        document.addEventListener('change', function (event) {
+          var actionEl = event.target.closest('[data-action]');
+          if (!actionEl) return;
+          var action = actionEl.dataset.action;
+          if (!pageState.billingSummary) return;
+
+          if (action === 'billing-history-filter') {
+            pageState.billingHistoryFilterStatus = actionEl.value || '';
+            var tbodyFilter = document.querySelector('[data-component="billing-history-rows"]');
+            renderBillingHistoryRows(tbodyFilter, pageState.billingSummary.billing_history || [], pageState.billingHistoryFilterStatus, pageState.billingHistorySort);
+          } else if (action === 'billing-history-sort') {
+            pageState.billingHistorySort = actionEl.value || 'newest';
+            var tbodySort = document.querySelector('[data-component="billing-history-rows"]');
+            renderBillingHistoryRows(tbodySort, pageState.billingSummary.billing_history || [], pageState.billingHistoryFilterStatus, pageState.billingHistorySort);
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

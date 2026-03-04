@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='meal_plan_editor.css'>
+
+<section class='missing-meal-plan' data-component='missing-meal-plan' hidden>
+  <div class='container'>
+    <h1 class='editor-title'>Meal Plan Editor</h1>
+    <p>No meal plan was selected. To edit a plan, open this page from the Meal Planner.</p>
+    <button type='button' class='btn-primary' data-action='go-to-planner'>Go to Meal Planner</button>
+  </div>
+</section>
+
+<section class='meal-plan-editor' data-component='meal-plan-editor-root'>
+  <div class='editor-loading-overlay' data-component='meal-plan-initializer' aria-hidden='true'>
+    <div class='loading-backdrop'></div>
+    <div class='loading-modal' role='status' aria-live='polite'>
+      <div class='spinner' aria-hidden='true'></div>
+      <p class='loading-text'>Loading meal plana0a0a0</p>
+    </div>
+  </div>
+
+  <div class='editor-error-banner' data-component='meal-plan-error' role='alert' aria-live='assertive'></div>
+
+  <section class='editor-hero'>
+    <div class='editor-hero-inner container'>
+      <nav class='breadcrumb' aria-label='Breadcrumb'>
+        <ol class='breadcrumb-list'>
+          <li class='breadcrumb-item'><a href='meal_planner.html'>Meal Planner</a></li>
+          <li class='breadcrumb-item' aria-current='page'>Meal Plan Editor</li>
+        </ol>
+      </nav>
+      <h1 class='editor-title'>Meal Plan Editor</h1>
+      <p class='editor-subtitle' data-populate='hero-plan-name'></p>
+    </div>
+  </section>
+
+  <div class='editor-main container'>
+    <section class='meta-section card' data-component='meal-plan-meta-form' data-populate='meal-plan-meta'></section>
+
+    <nav class='day-selector' data-component='meal-plan-day-selector' data-populate='meal-plan-day-selector' aria-label='Select plan day'></nav>
+
+    <div class='editor-workspace'>
+      <div class='editor-columns'>
+        <section class='editor-left' data-component='meal-slot-list' data-populate='meal-slots' aria-label='Meal slots for selected day'></section>
+
+        <aside class='editor-right'>
+          <section class='card search-panel' data-component='slot-recipe-search-panel' data-populate='recipe-search-panel' aria-label='Search recipes for current meal slot'></section>
+
+          <section class='card staged-panel' data-component='staged-selection-panel' data-populate='staged-selection' aria-label='Staged recipes ready to add to plan'></section>
+
+          <section class='card nutrition-panel' data-component='nutrition-summary-panel' data-populate='nutrition-summary' aria-label='Daily nutrition summary'></section>
+        </aside>
+      </div>
+    </div>
+
+    <section class='actions-bar' data-component='meal-plan-actions-bar'>
+      <div class='actions-bar-inner'>
+        <div class='actions-left'>
+          <button type='button' class='btn-tertiary' data-action='back-to-planner'>Back to Meal Planner</button>
+        </div>
+        <div class='actions-right'>
+          <span class='save-status' data-component='save-status' aria-live='polite'></span>
+          <button type='button' class='btn-primary' data-action='save-plan'>Save plan</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>
+
+<script src='business_logic.js'></script>
+<script>
+(function() {
+  'use strict';
+
+  document.addEventListener('DOMContentLoaded', function() {
+    var state = {
+      mealPlanId: null,
+      mealPlan: null,
+      items: [],
+      currentDayIndex: null,
+      filterOptions: null,
+      stagedRecipes: [],
+      nutritionSummary: null,
+      recipeIndex: {},
+      activeSlotMealType: null,
+      metaDirty: false,
+      isLoading: false,
+      slotSearchStates: {}
+    };
+
+    var root = document.querySelector('[data-component=meal-plan-editor-root]');
+    var missingSection = document.querySelector('[data-component=missing-meal-plan]');
+    var errorBanner = root ? root.querySelector('[data-component=meal-plan-error]') : null;
+    var saveStatusEl = root ? root.querySelector('[data-component=save-status]') : null;
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      var map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;'
+      };
+      map['\x22'] = '&quot;';
+      return String(str).replace(/[&<>\'\x22]/g, function(ch) {
+        return map[ch] || ch;
+      });
+    }
+
+    function setLoading(isLoading) {
+      state.isLoading = !!isLoading;
+      if (!root) return;
+      var overlay = root.querySelector('[data-component=meal-plan-initializer]');
+      if (!overlay) return;
+      if (state.isLoading) {
+        overlay.classList.add('is-visible');
+        overlay.setAttribute('aria-hidden', 'false');
+      } else {
+        overlay.classList.remove('is-visible');
+        overlay.setAttribute('aria-hidden', 'true');
+      }
+    }
+
+    function showError(message) {
+      if (!errorBanner) return;
+      errorBanner.textContent = message || 'Something went wrong while loading this meal plan.';
+      errorBanner.classList.add('is-visible');
+    }
+
+    function clearError() {
+      if (!errorBanner) return;
+      errorBanner.textContent = '';
+      errorBanner.classList.remove('is-visible');
+    }
+
+    function syncMetaDirty(isDirty) {
+      state.metaDirty = !!isDirty;
+      if (saveStatusEl) {
+        saveStatusEl.textContent = state.metaDirty ? 'Unsaved changes' : '';
+      }
+    }
+
+    function parseUrlParams() {
+      var params = new URLSearchParams(window.location.search);
+      var idParam = params.get('id');
+      var dayParamRaw = params.get('day');
+      var dayIndex = null;
+      if (dayParamRaw !== null && dayParamRaw !== '') {
+        var parsed = Number(dayParamRaw);
+        if (!Number.isNaN(parsed) && parsed > 0) {
+          dayIndex = parsed;
+        }
+      }
+      state.mealPlanId = idParam;
+      state.currentDayIndex = dayIndex;
+    }
+
+    function updateUrlDayParam(push) {
+      if (!state.mealPlanId || !state.currentDayIndex) return;
+      var url = new URL(window.location.href);
+      url.searchParams.set('id', state.mealPlanId);
+      url.searchParams.set('day', String(state.currentDayIndex));
+      if (push) {
+        window.history.pushState({ day_index: state.currentDayIndex }, '', url.toString());
+      } else {
+        window.history.replaceState({ day_index: state.currentDayIndex }, '', url.toString());
+      }
+    }
+
+    function loadRecipesFromStorage() {
+      try {
+        var json = window.localStorage.getItem('recipes');
+        if (!json) return;
+        var arr = JSON.parse(json);
+        if (!Array.isArray(arr)) return;
+        arr.forEach(function(r) {
+          if (r && r.id) {
+            state.recipeIndex[r.id] = r;
+          }
+        });
+      } catch (err) {
+        console.error('Error parsing recipes from localStorage', err);
+      }
+    }
+
+    function deriveAvailableDays() {
+      var indices = [];
+      state.items.forEach(function(item) {
+        if (!item) return;
+        var idx = item.day_index || 1;
+        if (!indices.includes(idx)) {
+          indices.push(idx);
+        }
+      });
+      if (indices.length === 0) {
+        indices.push(1);
+      }
+      indices.sort(function(a, b) { return a - b; });
+      return indices;
+    }
+
+    function getMealTypes() {
+      return ['breakfast', 'lunch', 'dinner', 'snack', 'dessert', 'other'];
+    }
+
+    function getDietPreferenceOptions() {
+      if (state.filterOptions && Array.isArray(state.filterOptions.diet_tags) && state.filterOptions.diet_tags.length > 0) {
+        return state.filterOptions.diet_tags.map(function(tag) {
+          return { value: tag.value, label: tag.label };
+        });
+      }
+      return [
+        { value: 'gut_friendly', label: 'Gut-friendly' },
+        { value: 'low_fodmap', label: 'Low-FODMAP' },
+        { value: 'vegan', label: 'Vegan' },
+        { value: 'dairy_free', label: 'Dairy-free' },
+        { value: 'gluten_free', label: 'Gluten-free' },
+        { value: 'high_fiber', label: 'High fiber' },
+        { value: 'low_sugar', label: 'Low sugar' }
+      ];
+    }
+
+    function ensureSlotSearchState(mealType) {
+      if (!mealType) return null;
+      if (!state.slotSearchStates[mealType]) {
+        var defaults = {};
+        if (state.mealPlan && Array.isArray(state.mealPlan.dietary_preferences) && state.mealPlan.dietary_preferences.length > 0) {
+          defaults.diet_tags_any = state.mealPlan.dietary_preferences.slice();
+        }
+        state.slotSearchStates[mealType] = {
+          mealType: mealType,
+          query: '',
+          filters: defaults,
+          results: [],
+          total: 0,
+          hasSearched: false,
+          selectedTimeRangeIndex: null,
+          selectedCalorieRangeIndex: null
+        };
+      }
+      return state.slotSearchStates[mealType];
+    }
+
+    function renderHeroPlanName(container) {
+      if (!container) return;
+      if (!state.mealPlan) {
+        container.textContent = '';
+        return;
+      }
+      var name = state.mealPlan.name || 'Untitled plan';
+      var typeLabel = state.mealPlan.plan_type === 'week_plan' ? 'Week plan' : (state.mealPlan.plan_type === 'recipe_set' ? 'Recipe set' : 'Day plan');
+      container.textContent = name + ' b7 ' + typeLabel;
+    }
+
+    function renderMealPlanMeta(container) {
+      if (!container) return;
+      if (!state.mealPlan) {
+        container.innerHTML = '';
+        return;
+      }
+      var m = state.mealPlan;
+      var dietOptions = getDietPreferenceOptions();
+      var selectedPrefs = Array.isArray(m.dietary_preferences) ? m.dietary_preferences : [];
+      var dietCheckboxes = dietOptions.map(function(opt) {
+        var checked = selectedPrefs.includes(opt.value) ? ' checked' : '';
+        return '<label class=\'checkbox-pill\'><input type=\'checkbox\' name=\'dietary_preferences\' value=\'' + escapeHtml(opt.value) + '\'' + checked + '><span>' + escapeHtml(opt.label) + '</span></label>';
+      }).join('');
+
+      var startValue = m.start_date ? String(m.start_date).slice(0, 10) : '';
+      var endValue = m.end_date ? String(m.end_date).slice(0, 10) : '';
+      var minCal = (m.total_calories_target_min !== null && m.total_calories_target_min !== undefined) ? String(m.total_calories_target_min) : '';
+      var maxCal = (m.total_calories_target_max !== null && m.total_calories_target_max !== undefined) ? String(m.total_calories_target_max) : '';
+
+      container.innerHTML = `
+        <form class='meta-form' data-action='update-meta'>
+          <div class='meta-form-header'>
+            <h2 class='section-title'>Plan details</h2>
+            <p class='section-description'>Name your plan and set overall gut-health preferences.</p>
+          </div>
+
+          <div class='meta-form-body'>
+            <div class='form-row'>
+              <label class='form-field'>
+                <span class='form-label'>Plan name</span>
+                <input type='text' name='name' required value='${escapeHtml(m.name || '')}' placeholder='e.g., 7-Day Low-FODMAP Reset'>
+              </label>
+            </div>
+
+            <div class='form-row form-row-inline'>
+              <label class='form-field'>
+                <span class='form-label'>Start date (optional)</span>
+                <input type='date' name='start_date' value='${escapeHtml(startValue)}'>
+              </label>
+              <label class='form-field'>
+                <span class='form-label'>End date (optional)</span>
+                <input type='date' name='end_date' value='${escapeHtml(endValue)}'>
+              </label>
+            </div>
+
+            <div class='form-row'>
+              <span class='form-label'>Dietary preferences</span>
+              <div class='pill-group'>
+                ${dietCheckboxes}
+              </div>
+              <p class='field-help'>These preferences are applied by default when searching for recipes.</p>
+            </div>
+
+            <div class='form-row form-row-inline'>
+              <label class='form-field'>
+                <span class='form-label'>Daily calories minimum (optional)</span>
+                <input type='number' name='total_calories_target_min' min='0' step='10' value='${escapeHtml(minCal)}' placeholder='e.g., 1600'>
+              </label>
+              <label class='form-field'>
+                <span class='form-label'>Daily calories maximum (optional)</span>
+                <input type='number' name='total_calories_target_max' min='0' step='10' value='${escapeHtml(maxCal)}' placeholder='e.g., 1900'>
+              </label>
+            </div>
+          </div>
+
+          <div class='meta-form-footer'>
+            <button type='submit' class='btn-secondary'>Save details</button>
+            <p class='meta-note'>These details apply to the whole plan; recipes can vary by day.</p>
+          </div>
+        </form>
+      `;
+    }
+
+    function renderDaySelector(container) {
+      if (!container) return;
+      if (!state.mealPlan) {
+        container.innerHTML = '';
+        return;
+      }
+      var days = deriveAvailableDays();
+      if (!state.currentDayIndex) {
+        state.currentDayIndex = days[0];
+      }
+      var pills = days.map(function(day) {
+        var isActive = state.currentDayIndex === day;
+        return '<button type=\'button\' class=\'day-pill' + (isActive ? ' is-active' : '') + '\' data-action=\'select-day\' data-day-index=\'' + String(day) + '\'>Day ' + String(day) + '</button>';
+      }).join('');
+      container.innerHTML = `
+        <div class='day-selector-inner'>
+          <div class='day-selector-label'>
+            <span>Editing day</span>
+          </div>
+          <div class='day-selector-pills'>
+            ${pills}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderMealSlots(container) {
+      if (!container) return;
+      if (!state.mealPlan) {
+        container.innerHTML = '';
+        return;
+      }
+      var dayIndex = state.currentDayIndex || 1;
+      var mealTypes = getMealTypes();
+      var html = mealTypes.map(function(mealType) {
+        var prettyLabel = mealType.charAt(0).toUpperCase() + mealType.slice(1);
+        var slotItems = state.items.filter(function(item) {
+          if (!item) return false;
+          var idx = item.day_index || 1;
+          return idx === dayIndex && item.meal_type === mealType;
+        }).sort(function(a, b) {
+          var pa = (a.position !== null && a.position !== undefined) ? a.position : 0;
+          var pb = (b.position !== null && b.position !== undefined) ? b.position : 0;
+          return pa - pb;
+        });
+
+        var itemsHtml = '';
+        if (slotItems.length === 0) {
+          itemsHtml = '<li class=\'slot-item-empty\'>No recipes yet. Add a recipe to this ' + escapeHtml(prettyLabel.toLowerCase()) + '.</li>';
+        } else {
+          itemsHtml = slotItems.map(function(item) {
+            var recipe = state.recipeIndex[item.recipe_id] || null;
+            var title = recipe ? recipe.title : 'Recipe';
+            var calories = recipe && recipe.nutrition_calories_per_serving !== undefined && recipe.nutrition_calories_per_serving !== null
+              ? String(recipe.nutrition_calories_per_serving) + ' kcal'
+              : '';
+            var category = recipe && recipe.category ? recipe.category : '';
+            var timeLabel = recipe && recipe.total_time_minutes !== undefined && recipe.total_time_minutes !== null
+              ? String(recipe.total_time_minutes) + ' min'
+              : '';
+            var metaBits = [];
+            if (category) metaBits.push(category.replace(/_/g, ' '));
+            if (calories) metaBits.push(calories);
+            if (timeLabel) metaBits.push(timeLabel);
+            var metaText = metaBits.join(' b7 ');
+
+            return `
+              <li class='slot-item' data-meal-plan-item-id='${escapeHtml(item.id)}'>
+                <div class='slot-item-main'>
+                  <button type='button' class='link-button slot-item-title' data-action='view-recipe-detail' data-recipe-id='${escapeHtml(item.recipe_id)}'>
+                    ${escapeHtml(title)}
+                  </button>
+                  ${metaText ? `<div class='slot-item-meta'>${escapeHtml(metaText)}</div>` : ''}
+                </div>
+                <div class='slot-item-actions'>
+                  <button type='button' class='btn-tertiary btn-small' data-action='remove-meal-item' data-meal-plan-item-id='${escapeHtml(item.id)}'>Remove</button>
+                </div>
+              </li>
+            `;
+          }).join('');
+        }
+
+        var isActive = state.activeSlotMealType === mealType;
+        return `
+          <article class='meal-slot-card${isActive ? ' is-active-slot' : ''}' data-meal-type='${escapeHtml(mealType)}'>
+            <header class='meal-slot-header'>
+              <h2 class='meal-slot-title'>${escapeHtml(prettyLabel)}</h2>
+              <button type='button' class='link-button add-recipe-link' data-action='open-slot-search' data-meal-type='${escapeHtml(mealType)}'>
+                Add recipe
+              </button>
+            </header>
+            <ul class='slot-items-list'>
+              ${itemsHtml}
+            </ul>
+          </article>
+        `;
+      }).join('');
+
+      container.innerHTML = html;
+    }
+
+    function renderRecipeSearchPanel(container) {
+      if (!container) return;
+      if (!state.mealPlan) {
+        container.innerHTML = '';
+        return;
+      }
+
+      var activeType = state.activeSlotMealType;
+      if (!activeType) {
+        container.innerHTML = `
+          <div class='search-panel-inner search-panel-empty'>
+            <h2 class='section-title'>Search recipes</h2>
+            <p class='section-description'>Choose a meal slot on the left to start searching for gut-friendly recipes.</p>
+          </div>
+        `;
+        return;
+      }
+
+      var searchState = ensureSlotSearchState(activeType);
+      var mealLabel = activeType.charAt(0).toUpperCase() + activeType.slice(1);
+
+      var categories = (state.filterOptions && Array.isArray(state.filterOptions.categories)) ? state.filterOptions.categories : [];
+      var categoryOptions = ['<option value=\'\'>All categories</option>'];
+      var selectedCategory = searchState && searchState.filters && searchState.filters.category ? searchState.filters.category : '';
+      categories.forEach(function(cat) {
+        var selected = selectedCategory === cat.value ? ' selected' : '';
+        categoryOptions.push('<option value=\'' + escapeHtml(cat.value) + '\'' + selected + '>' + escapeHtml(cat.label) + '</option>');
+      });
+
+      var timeRanges = (state.filterOptions && Array.isArray(state.filterOptions.time_ranges)) ? state.filterOptions.time_ranges : [];
+      var timeOptions = ['<option value=\'\'>Any time</option>'];
+      timeRanges.forEach(function(tr, idx) {
+        var selected = (searchState && searchState.selectedTimeRangeIndex === idx) ? ' selected' : '';
+        var label = tr.label || '';
+        timeOptions.push('<option value=\'' + String(idx) + '\'' + selected + '>' + escapeHtml(label) + '</option>');
+      });
+
+      var calorieRanges = (state.filterOptions && Array.isArray(state.filterOptions.calorie_ranges)) ? state.filterOptions.calorie_ranges : [];
+      var calorieOptions = ['<option value=\'\'>Any calories</option>'];
+      calorieRanges.forEach(function(cr, idx) {
+        var selected = (searchState && searchState.selectedCalorieRangeIndex === idx) ? ' selected' : '';
+        var label = cr.label || '';
+        calorieOptions.push('<option value=\'' + String(idx) + '\'' + selected + '>' + escapeHtml(label) + '</option>');
+      });
+
+      var dietOptions = getDietPreferenceOptions();
+      var selectedDietTags = [];
+      if (searchState && searchState.hasSearched && searchState.filters && Array.isArray(searchState.filters.diet_tags_any)) {
+        selectedDietTags = searchState.filters.diet_tags_any.slice();
+      } else if (state.mealPlan && Array.isArray(state.mealPlan.dietary_preferences)) {
+        selectedDietTags = state.mealPlan.dietary_preferences.slice();
+      }
+
+      var dietCheckboxes = dietOptions.map(function(opt) {
+        var checked = selectedDietTags.includes(opt.value) ? ' checked' : '';
+        return '<label class=\'checkbox-pill\'><input type=\'checkbox\' name=\'diet_tags_any\' value=\'' + escapeHtml(opt.value) + '\'' + checked + '><span>' + escapeHtml(opt.label) + '</span></label>';
+      }).join('');
+
+      var resultsHtml = '';
+      if (!searchState || !searchState.hasSearched) {
+        resultsHtml = '<p class=\'search-empty-message\'>Adjust filters and run a search to see recipes for this meal.</p>';
+      } else if (!searchState.results || searchState.results.length === 0) {
+        resultsHtml = '<p class=\'search-empty-message\'>No recipes matched your filters. Try widening your criteria.</p>';
+      } else {
+        resultsHtml = searchState.results.map(function(recipe) {
+          if (recipe && recipe.id) {
+            state.recipeIndex[recipe.id] = recipe;
+          }
+          var calories = (recipe && recipe.nutrition_calories_per_serving !== null && recipe.nutrition_calories_per_serving !== undefined)
+            ? String(recipe.nutrition_calories_per_serving) + ' kcal'
+            : '';
+          var timeLabel = (recipe && recipe.total_time_minutes !== null && recipe.total_time_minutes !== undefined)
+            ? String(recipe.total_time_minutes) + ' min'
+            : '';
+          var metaBits = [];
+          if (recipe && recipe.category) metaBits.push(recipe.category.replace(/_/g, ' '));
+          if (calories) metaBits.push(calories);
+          if (timeLabel) metaBits.push(timeLabel);
+          var metaText = metaBits.join(' b7 ');
+          return `
+            <li class='search-result-item'>
+              <div class='search-result-main'>
+                <button type='button' class='link-button search-result-title' data-action='view-recipe-detail' data-recipe-id='${escapeHtml(recipe.id)}'>
+                  ${escapeHtml(recipe.title || 'Recipe')}
+                </button>
+                ${metaText ? `<div class='search-result-meta'>${escapeHtml(metaText)}</div>` : ''}
+              </div>
+              <div class='search-result-actions'>
+                <button type='button' class='btn-secondary btn-small' data-action='add-search-result' data-recipe-id='${escapeHtml(recipe.id)}'>Add to ${escapeHtml(mealLabel)}</button>
+              </div>
+            </li>
+          `;
+        }).join('');
+      }
+
+      var queryVal = searchState && searchState.query ? searchState.query : '';
+
+      container.innerHTML = `
+        <div class='search-panel-inner'>
+          <div class='search-panel-header'>
+            <h2 class='section-title'>Search recipes for ${escapeHtml(mealLabel.toLowerCase())}</h2>
+            <p class='section-description'>Filters default to your plan's dietary preferences.</p>
+          </div>
+
+          <form class='slot-search-form' data-action='search-slot-recipes'>
+            <div class='form-row'>
+              <label class='form-field'>
+                <span class='form-label'>Keyword</span>
+                <input type='search' name='query' value='${escapeHtml(queryVal)}' placeholder='e.g., oats, soup, smoothie'>
+              </label>
+            </div>
+
+            <div class='form-row form-row-inline'>
+              <label class='form-field'>
+                <span class='form-label'>Category</span>
+                <select name='category'>
+                  ${categoryOptions.join('')}
+                </select>
+              </label>
+              <label class='form-field'>
+                <span class='form-label'>Total time</span>
+                <select name='time_range'>
+                  ${timeOptions.join('')}
+                </select>
+              </label>
+            </div>
+
+            <div class='form-row form-row-inline'>
+              <label class='form-field'>
+                <span class='form-label'>Calories per serving</span>
+                <select name='calorie_range'>
+                  ${calorieOptions.join('')}
+                </select>
+              </label>
+            </div>
+
+            <div class='form-row'>
+              <span class='form-label'>Diet tags</span>
+              <div class='pill-group'>
+                ${dietCheckboxes}
+              </div>
+            </div>
+
+            <div class='search-form-footer'>
+              <button type='submit' class='btn-primary'>Search</button>
+              <button type='button' class='btn-tertiary' data-action='browse-all-recipes'>Browse all recipes</button>
+            </div>
+          </form>
+
+          <div class='search-results'>
+            <ul class='search-results-list'>
+              ${resultsHtml}
+            </ul>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderStagedSelection(container) {
+      if (!container) return;
+      var recipes = Array.isArray(state.stagedRecipes) ? state.stagedRecipes : [];
+      var days = deriveAvailableDays();
+      var mealTypes = getMealTypes();
+
+      if (recipes.length === 0) {
+        container.innerHTML = `
+          <div class='staged-panel-inner staged-panel-empty'>
+            <div class='staged-header'>
+              <h2 class='section-title'>Staged recipes</h2>
+            </div>
+            <p class='section-description'>No recipes are currently staged. From the Recipes page, you can stage items to quickly add them into your meal plan.</p>
+            <button type='button' class='btn-tertiary' data-action='browse-all-recipes'>Browse recipes</button>
+          </div>
+        `;
+        return;
+      }
+
+      var dayOptionsHtml = function(selectedDay) {
+        return days.map(function(day) {
+          var selected = selectedDay === day ? ' selected' : '';
+          return '<option value=\'' + String(day) + '\'' + selected + '>Day ' + String(day) + '</option>';
+        }).join('');
+      };
+
+      var mealTypeOptionsHtml = mealTypes.map(function(mt) {
+        var label = mt.charAt(0).toUpperCase() + mt.slice(1);
+        return '<option value=\'' + escapeHtml(mt) + '\'>' + escapeHtml(label) + '</option>';
+      }).join('');
+
+      var itemsHtml = recipes.map(function(recipe) {
+        if (recipe && recipe.id) {
+          state.recipeIndex[recipe.id] = recipe;
+        }
+        var calories = (recipe && recipe.nutrition_calories_per_serving !== null && recipe.nutrition_calories_per_serving !== undefined)
+          ? String(recipe.nutrition_calories_per_serving) + ' kcal'
+          : '';
+        var metaBits = [];
+        if (recipe && recipe.category) metaBits.push(recipe.category.replace(/_/g, ' '));
+        if (calories) metaBits.push(calories);
+        var metaText = metaBits.join(' b7 ');
+        var defaultDay = state.currentDayIndex || days[0];
+        return `
+          <li class='staged-item' data-recipe-id='${escapeHtml(recipe.id)}'>
+            <div class='staged-item-main'>
+              <button type='button' class='link-button staged-item-title' data-action='view-recipe-detail' data-recipe-id='${escapeHtml(recipe.id)}'>
+                ${escapeHtml(recipe.title || 'Recipe')}
+              </button>
+              ${metaText ? `<div class='staged-item-meta'>${escapeHtml(metaText)}</div>` : ''}
+            </div>
+            <div class='staged-item-controls'>
+              <label class='form-field staged-inline-field'>
+                <span class='form-label'>Day</span>
+                <select class='staged-day-select'>
+                  ${dayOptionsHtml(defaultDay)}
+                </select>
+              </label>
+              <label class='form-field staged-inline-field'>
+                <span class='form-label'>Meal</span>
+                <select class='staged-meal-type-select'>
+                  ${mealTypeOptionsHtml}
+                </select>
+              </label>
+              <button type='button' class='btn-secondary btn-small' data-action='add-staged-recipe'>Add</button>
+            </div>
+          </li>
+        `;
+      }).join('');
+
+      container.innerHTML = `
+        <div class='staged-panel-inner'>
+          <div class='staged-header'>
+            <h2 class='section-title'>Staged recipes</h2>
+            <button type='button' class='btn-tertiary btn-small' data-action='clear-staged-selection'>Clear staged selection</button>
+          </div>
+          <ul class='staged-list'>
+            ${itemsHtml}
+          </ul>
+        </div>
+      `;
+    }
+
+    function renderNutritionSummary(container) {
+      if (!container) return;
+      if (!state.mealPlan) {
+        container.innerHTML = '';
+        return;
+      }
+      var summary = state.nutritionSummary;
+      if (!summary) {
+        container.innerHTML = `
+          <div class='nutrition-panel-inner'>
+            <h2 class='section-title'>Daily nutrition</h2>
+            <p class='section-description'>Loading daily nutrition for this plana0a0a0</p>
+          </div>
+        `;
+        return;
+      }
+
+      var totalCalories = summary.total_calories || 0;
+      var totalFiber = summary.total_fiber_g || 0;
+      var totalSugar = summary.total_sugar_g || 0;
+      var totalProtein = summary.total_protein_g || 0;
+      var totalFat = summary.total_fat_g || 0;
+
+      var minTarget = state.mealPlan.total_calories_target_min || null;
+      var maxTarget = state.mealPlan.total_calories_target_max || null;
+      var targetText = '';
+      if (minTarget && maxTarget) {
+        targetText = String(minTarget) + ' b7 ' + String(maxTarget) + ' kcal target';
+      } else if (minTarget) {
+        targetText = String(minTarget) + '+ kcal target';
+      } else if (maxTarget) {
+        targetText = 'Up to ' + String(maxTarget) + ' kcal target';
+      }
+
+      container.innerHTML = `
+        <div class='nutrition-panel-inner'>
+          <h2 class='section-title'>Daily nutrition</h2>
+          <p class='section-description'>Totals for Day ${escapeHtml(String(state.currentDayIndex || 1))}.</p>
+
+          <dl class='nutrition-grid'>
+            <div class='nutrition-item nutrition-item-primary'>
+              <dt>Calories</dt>
+              <dd>${escapeHtml(String(Math.round(totalCalories)))} kcal</dd>
+            </div>
+            <div class='nutrition-item'>
+              <dt>Fiber</dt>
+              <dd>${escapeHtml(String(totalFiber))} g</dd>
+            </div>
+            <div class='nutrition-item'>
+              <dt>Sugar</dt>
+              <dd>${escapeHtml(String(totalSugar))} g</dd>
+            </div>
+            <div class='nutrition-item'>
+              <dt>Protein</dt>
+              <dd>${escapeHtml(String(totalProtein))} g</dd>
+            </div>
+            <div class='nutrition-item'>
+              <dt>Fat</dt>
+              <dd>${escapeHtml(String(totalFat))} g</dd>
+            </div>
+          </dl>
+
+          ${targetText ? `<p class='nutrition-target'>${escapeHtml(targetText)}</p>` : ''}
+        </div>
+      `;
+    }
+
+    function renderAll() {
+      if (!root || !state.mealPlan) return;
+      clearError();
+      var populateElements = root.querySelectorAll('[data-populate]');
+      populateElements.forEach(function(el) {
+        var type = el.getAttribute('data-populate');
+        if (type === 'hero-plan-name') {
+          renderHeroPlanName(el);
+        } else if (type === 'meal-plan-meta') {
+          renderMealPlanMeta(el);
+        } else if (type === 'meal-plan-day-selector') {
+          renderDaySelector(el);
+        } else if (type === 'meal-slots') {
+          renderMealSlots(el);
+        } else if (type === 'recipe-search-panel') {
+          renderRecipeSearchPanel(el);
+        } else if (type === 'staged-selection') {
+          renderStagedSelection(el);
+        } else if (type === 'nutrition-summary') {
+          renderNutritionSummary(el);
+        }
+      });
+    }
+
+    function loadInitialData() {
+      if (!state.mealPlanId) return;
+      setLoading(true);
+      try {
+        clearError();
+        loadRecipesFromStorage();
+        var detail = WebsiteSDK.getMealPlanDetail(state.mealPlanId);
+        state.mealPlan = detail && detail.meal_plan ? detail.meal_plan : null;
+        state.items = detail && Array.isArray(detail.items) ? detail.items : [];
+
+        if (!state.mealPlan) {
+          showError('Could not find this meal plan.');
+          return;
+        }
+
+        var days = deriveAvailableDays();
+        if (!state.currentDayIndex || !days.includes(state.currentDayIndex)) {
+          state.currentDayIndex = days[0];
+          updateUrlDayParam(false);
+        }
+
+        state.nutritionSummary = WebsiteSDK.getMealPlanNutritionSummary(state.mealPlanId, state.currentDayIndex);
+        state.filterOptions = WebsiteSDK.getRecipeFilterOptions();
+
+        var staged = WebsiteSDK.getStagedMealSelection();
+        state.stagedRecipes = staged && Array.isArray(staged.staged_recipes) ? staged.staged_recipes : [];
+
+        state.activeSlotMealType = 'breakfast';
+        ensureSlotSearchState(state.activeSlotMealType);
+
+        syncMetaDirty(false);
+        renderAll();
+      } catch (err) {
+        console.error('Error loading meal plan detail', err);
+        showError('There was a problem loading this meal plan. Please refresh the page.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function saveMeta(options) {
+      var navigateAfter = options && options.navigateAfter;
+      if (!state.mealPlanId || !root) return;
+      var metaContainer = root.querySelector('[data-component=meal-plan-meta-form]');
+      if (!metaContainer) return;
+      var form = metaContainer.querySelector('form');
+      if (!form) return;
+      var formData = new window.FormData(form);
+      var name = (formData.get('name') || '').trim();
+      var startDate = formData.get('start_date') || '';
+      var endDate = formData.get('end_date') || '';
+      var minStr = formData.get('total_calories_target_min') || '';
+      var maxStr = formData.get('total_calories_target_max') || '';
+      var dietPrefs = formData.getAll('dietary_preferences');
+      var minVal = minStr ? Number(minStr) : NaN;
+      var maxVal = maxStr ? Number(maxStr) : NaN;
+
+      if (saveStatusEl) {
+        saveStatusEl.textContent = 'Savinga0a0a0';
+      }
+
+      try {
+        var updatedPlan = WebsiteSDK.updateMealPlanMeta(
+          state.mealPlanId,
+          name || undefined,
+          startDate || undefined,
+          endDate || undefined,
+          dietPrefs.length ? dietPrefs : undefined,
+          Number.isNaN(minVal) ? undefined : minVal,
+          Number.isNaN(maxVal) ? undefined : maxVal
+        );
+        state.mealPlan = updatedPlan;
+        syncMetaDirty(false);
+        if (saveStatusEl) {
+          saveStatusEl.textContent = 'Saved';
+        }
+        renderAll();
+        if (navigateAfter) {
+          window.location.href = 'meal_planner.html';
+        }
+      } catch (err) {
+        console.error('Error saving meal plan meta', err);
+        if (saveStatusEl) {
+          saveStatusEl.textContent = 'Save failed';
+        }
+        showError('Could not save meal plan details. Please try again.');
+      }
+    }
+
+    function handleSearchSubmit(form) {
+      if (!state.mealPlanId) return;
+      if (!state.activeSlotMealType) {
+        showError('Choose a meal slot before searching for recipes.');
+        return;
+      }
+      var searchState = ensureSlotSearchState(state.activeSlotMealType);
+      var data = new window.FormData(form);
+      var query = (data.get('query') || '').trim();
+      var category = data.get('category') || '';
+      var timeIndexStr = data.get('time_range') || '';
+      var calIndexStr = data.get('calorie_range') || '';
+      var dietTags = data.getAll('diet_tags_any');
+
+      var filters = {};
+      if (category) {
+        filters.category = category;
+      }
+
+      var timeRanges = (state.filterOptions && Array.isArray(state.filterOptions.time_ranges)) ? state.filterOptions.time_ranges : [];
+      if (timeIndexStr !== '') {
+        var tIdx = Number(timeIndexStr);
+        if (!Number.isNaN(tIdx) && timeRanges[tIdx]) {
+          var tr = timeRanges[tIdx];
+          if (tr && tr.max_minutes !== null && tr.max_minutes !== undefined) {
+            filters.max_total_time_minutes = tr.max_minutes;
+            searchState.selectedTimeRangeIndex = tIdx;
+          }
+        }
+      } else {
+        searchState.selectedTimeRangeIndex = null;
+      }
+
+      var calorieRanges = (state.filterOptions && Array.isArray(state.filterOptions.calorie_ranges)) ? state.filterOptions.calorie_ranges : [];
+      if (calIndexStr !== '') {
+        var cIdx = Number(calIndexStr);
+        if (!Number.isNaN(cIdx) && calorieRanges[cIdx]) {
+          var cr = calorieRanges[cIdx];
+          if (cr && (cr.min_calories !== null && cr.min_calories !== undefined)) {
+            filters.min_calories = cr.min_calories;
+          }
+          if (cr && (cr.max_calories !== null && cr.max_calories !== undefined)) {
+            filters.max_calories = cr.max_calories;
+          }
+          searchState.selectedCalorieRangeIndex = cIdx;
+        }
+      } else {
+        searchState.selectedCalorieRangeIndex = null;
+      }
+
+      if (dietTags && dietTags.length > 0) {
+        filters.diet_tags_any = dietTags;
+      } else if (state.mealPlan && Array.isArray(state.mealPlan.dietary_preferences) && state.mealPlan.dietary_preferences.length > 0) {
+        filters.diet_tags_any = state.mealPlan.dietary_preferences.slice();
+      }
+
+      try {
+        var result = WebsiteSDK.searchRecipesForMealPlan(
+          state.mealPlanId,
+          state.activeSlotMealType,
+          query || undefined,
+          Object.keys(filters).length ? filters : undefined
+        );
+        searchState.query = query;
+        searchState.filters = filters;
+        searchState.results = result && Array.isArray(result.results) ? result.results : [];
+        searchState.total = result && result.total !== null && result.total !== undefined ? result.total : 0;
+        searchState.hasSearched = true;
+        renderAll();
+      } catch (err) {
+        console.error('Error searching recipes', err);
+        showError('There was a problem searching recipes. Please try again.');
+      }
+    }
+
+    function handleAddRecipeToSlot(recipeId, dayIndex, mealType) {
+      if (!state.mealPlanId || !recipeId || !mealType) return;
+      var targetDay = dayIndex || state.currentDayIndex || 1;
+      var existing = state.items.filter(function(item) {
+        if (!item) return false;
+        var idx = item.day_index || 1;
+        return idx === targetDay && item.meal_type === mealType;
+      });
+      var maxPos = 0;
+      existing.forEach(function(item) {
+        if (item.position !== null && item.position !== undefined && item.position > maxPos) {
+          maxPos = item.position;
+        }
+      });
+      var newPos = maxPos + 1;
+      try {
+        var resp = WebsiteSDK.addRecipeToMealPlanSlot(
+          state.mealPlanId,
+          targetDay,
+          mealType,
+          recipeId,
+          newPos
+        );
+        if (resp && resp.meal_plan_item) {
+          state.items.push(resp.meal_plan_item);
+        }
+        if (resp && resp.updated_nutrition_summary) {
+          state.nutritionSummary = resp.updated_nutrition_summary;
+        }
+        state.currentDayIndex = targetDay;
+        updateUrlDayParam(true);
+        renderAll();
+      } catch (err) {
+        console.error('Error adding recipe to meal plan slot', err);
+        showError('Could not add that recipe to the meal plan.');
+      }
+    }
+
+    function handleRemoveMealPlanItem(mealPlanItemId) {
+      if (!state.mealPlanId || !mealPlanItemId) return;
+      try {
+        var resp = WebsiteSDK.removeMealPlanItem(mealPlanItemId);
+        if (!resp || !resp.success) {
+          showError('Could not remove that recipe from the plan.');
+          return;
+        }
+        state.items = state.items.filter(function(item) { return item && item.id !== mealPlanItemId; });
+        state.nutritionSummary = WebsiteSDK.getMealPlanNutritionSummary(state.mealPlanId, state.currentDayIndex || undefined);
+        renderAll();
+      } catch (err) {
+        console.error('Error removing meal plan item', err);
+        showError('Could not remove that recipe from the plan.');
+      }
+    }
+
+    function navigateToRecipeDetail(recipeId) {
+      if (!recipeId) return;
+      window.location.href = 'recipe_detail.html?id=' + encodeURIComponent(String(recipeId));
+    }
+
+    function navigateToBrowseRecipes(selectedCategory) {
+      var url = 'recipes.html';
+      if (selectedCategory) {
+        url += '?category=' + encodeURIComponent(String(selectedCategory));
+      }
+      window.location.href = url;
+    }
+
+    function handleClick(e) {
+      var el = e.target.closest('[data-action]');
+      if (!el) return;
+      var action = el.getAttribute('data-action');
+      if (!action) return;
+
+      if (action === 'select-day') {
+        e.preventDefault();
+        var dayStr = el.getAttribute('data-day-index');
+        var day = Number(dayStr);
+        if (!Number.isNaN(day) && day > 0 && day !== state.currentDayIndex) {
+          state.currentDayIndex = day;
+          try {
+            state.nutritionSummary = WebsiteSDK.getMealPlanNutritionSummary(state.mealPlanId, state.currentDayIndex);
+          } catch (err) {
+            console.error('Error refreshing nutrition summary', err);
+            showError('Could not refresh nutrition totals for this day.');
+          }
+          updateUrlDayParam(true);
+          renderAll();
+        }
+      } else if (action === 'open-slot-search') {
+        e.preventDefault();
+        var mealType = el.getAttribute('data-meal-type');
+        state.activeSlotMealType = mealType || null;
+        ensureSlotSearchState(state.activeSlotMealType);
+        renderAll();
+        var searchPanel = root.querySelector('[data-component=slot-recipe-search-panel]');
+        if (searchPanel && typeof searchPanel.scrollIntoView === 'function') {
+          searchPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      } else if (action === 'view-recipe-detail') {
+        e.preventDefault();
+        var recipeId = el.getAttribute('data-recipe-id');
+        navigateToRecipeDetail(recipeId);
+      } else if (action === 'remove-meal-item') {
+        e.preventDefault();
+        var itemId = el.getAttribute('data-meal-plan-item-id');
+        if (itemId) {
+          var confirmed = window.confirm('Remove this recipe from the plan?');
+          if (confirmed) {
+            handleRemoveMealPlanItem(itemId);
+          }
+        }
+      } else if (action === 'add-search-result') {
+        e.preventDefault();
+        var recipeId2 = el.getAttribute('data-recipe-id');
+        if (!state.activeSlotMealType) {
+          showError('Choose a meal slot before adding a recipe.');
+          return;
+        }
+        handleAddRecipeToSlot(recipeId2, state.currentDayIndex || 1, state.activeSlotMealType);
+      } else if (action === 'browse-all-recipes') {
+        e.preventDefault();
+        var category = null;
+        if (state.activeSlotMealType && state.slotSearchStates[state.activeSlotMealType] && state.slotSearchStates[state.activeSlotMealType].filters) {
+          category = state.slotSearchStates[state.activeSlotMealType].filters.category || null;
+        }
+        navigateToBrowseRecipes(category);
+      } else if (action === 'add-staged-recipe') {
+        e.preventDefault();
+        var stagedItem = el.closest('.staged-item');
+        if (!stagedItem) return;
+        var rid = stagedItem.getAttribute('data-recipe-id');
+        var daySelect = stagedItem.querySelector('.staged-day-select');
+        var mealSelect = stagedItem.querySelector('.staged-meal-type-select');
+        var dayVal = daySelect ? Number(daySelect.value) : (state.currentDayIndex || 1);
+        if (!dayVal || Number.isNaN(dayVal)) {
+          dayVal = state.currentDayIndex || 1;
+        }
+        var mtVal = mealSelect && mealSelect.value ? mealSelect.value : (state.activeSlotMealType || 'dinner');
+        handleAddRecipeToSlot(rid, dayVal, mtVal);
+      } else if (action === 'clear-staged-selection') {
+        e.preventDefault();
+        try {
+          var resp = WebsiteSDK.clearStagedMealSelection();
+          if (!resp || !resp.success) {
+            showError('Could not clear staged recipes.');
+            return;
+          }
+          state.stagedRecipes = [];
+          renderAll();
+        } catch (err) {
+          console.error('Error clearing staged selection', err);
+          showError('Could not clear staged recipes.');
+        }
+      } else if (action === 'back-to-planner') {
+        e.preventDefault();
+        if (state.metaDirty) {
+          var answer = window.confirm('You have unsaved changes to the plan details. Save before leaving?');
+          if (answer) {
+            saveMeta({ navigateAfter: true });
+          } else {
+            window.location.href = 'meal_planner.html';
+          }
+        } else {
+          window.location.href = 'meal_planner.html';
+        }
+      } else if (action === 'save-plan') {
+        e.preventDefault();
+        saveMeta({ navigateAfter: true });
+      } else if (action === 'go-to-planner') {
+        e.preventDefault();
+        window.location.href = 'meal_planner.html';
+      }
+    }
+
+    function handleSubmit(e) {
+      var form = e.target;
+      if (!form || !form.getAttribute) return;
+      var action = form.getAttribute('data-action');
+      if (!action) return;
+      if (action === 'search-slot-recipes') {
+        e.preventDefault();
+        handleSearchSubmit(form);
+      } else if (action === 'update-meta') {
+        e.preventDefault();
+        saveMeta({ navigateAfter: false });
+      }
+    }
+
+    function bindMetaDirtyTracking() {
+      if (!root) return;
+      var metaContainer = root.querySelector('[data-component=meal-plan-meta-form]');
+      if (!metaContainer) return;
+      metaContainer.addEventListener('input', function(ev) {
+        var target = ev.target;
+        if (!target || !target.name) return;
+        syncMetaDirty(true);
+      });
+      metaContainer.addEventListener('change', function(ev) {
+        var target = ev.target;
+        if (!target || !target.name) return;
+        syncMetaDirty(true);
+      });
+    }
+
+    function init() {
+      parseUrlParams();
+      if (!state.mealPlanId) {
+        if (root) {
+          root.style.display = 'none';
+        }
+        if (missingSection) {
+          missingSection.hidden = false;
+        }
+        return;
+      }
+      if (missingSection) {
+        missingSection.hidden = true;
+      }
+      if (root) {
+        root.style.display = '';
+      }
+
+      document.addEventListener('click', handleClick);
+      document.addEventListener('submit', handleSubmit);
+
+      loadInitialData();
+
+      if (root) {
+        bindMetaDirtyTracking();
+      }
+    }
+
+    init();
+  });
+})();
+</script>

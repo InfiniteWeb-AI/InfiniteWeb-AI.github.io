@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Domain Registrar Portal</title>
+    <meta name="description" content="View detailed information for a single domain, including registration, expiration, status, nameservers, and contact verification.">
+    
+    <link rel="stylesheet" href="domain_details.css">
+</head>
+<body>
+    <header class="site-header">
+        <nav class="primary-nav" aria-label="Primary navigation">
+            <ul class="nav-list">
+                <li class="nav-item"><a href="index.html">Dashboard</a></li>
+                <li class="nav-item"><a href="my_domains.html">My Domains</a></li>
+                <li class="nav-item"><a href="contact_verification_center.html">Contact Verification</a></li>
+                <li class="nav-item"><a href="account_settings.html">Account Settings</a></li>
+                <li class="nav-item"><a href="help.html">Help</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" class="site-main" role="main">
+        <div data-component="domain-details-controller" id="domain-details-controller">
+            <p data-component="loading-message" data-populate="loading-message" aria-live="polite">Loading domain details85</p>
+            <p data-component="error-message" data-populate="error-message" aria-live="polite"></p>
+            <p data-populate="error-help-link">
+                <a href="javascript:void(0)" data-action="back-to-domains-from-error">Back to My Domains</a>
+            </p>
+
+            <div data-component="domain-content" hidden>
+                <p data-component="back-link">
+                    <a href="javascript:void(0)" data-action="back-to-domains">Back to My Domains</a>
+                </p>
+
+                <h1 data-component="domain-header-bar" data-populate="domain-name"></h1>
+
+                <p data-component="domain-status-panel" data-populate="domain-status-summary"></p>
+
+                <p data-component="verification-callout" data-populate="verification-callout-text"></p>
+
+                <h2>Domain details</h2>
+                <p data-populate="domain-registration-date"></p>
+                <p data-populate="domain-expiration-date"></p>
+                <p data-populate="domain-auto-renew"></p>
+                <p data-populate="domain-created-at"></p>
+                <p data-populate="domain-updated-at"></p>
+                <p data-populate="contact-profile-summary"></p>
+
+                <h2>Nameservers</h2>
+                <div data-component="nameserver-list" data-populate="nameserver-list"></div>
+
+                <h2>More actions</h2>
+                <p data-component="sidebar-navigation">
+                    <a href="javascript:void(0)" data-action="open-contact-information">Contact Information</a><span data-populate="verification-action-link-wrapper"></span>
+                </p>
+            </div>
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul class="footer-nav-list">
+                <li class="footer-nav-item"><a href="about.html">About</a></li>
+                <li class="footer-nav-item"><a href="help.html">Help &amp; Support</a></li>
+                <li class="footer-nav-item"><a href="contact.html">Contact Us</a></li>
+                <li class="footer-nav-item"><a href="privacy.html">Privacy Policy</a></li>
+                <li class="footer-nav-item"><a href="terms.html">Terms of Service</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const controllerState = {
+            domainId: null,
+            domain: null,
+            contactProfileSummary: null,
+            loading: false,
+            error: null
+        };
+
+        const domainStatusLabels = {
+            active: 'Active',
+            suspended: 'Suspended',
+            expired: 'Expired',
+            pending_transfer: 'Pending transfer',
+            pending_registration: 'Pending registration'
+        };
+
+        const verificationStatusLabels = {
+            unverified: 'Unverified',
+            pending_verification: 'Pending verification',
+            pending_review: 'Pending review',
+            verified: 'Verified',
+            suspended: 'Suspended'
+        };
+
+        const contactTypeLabels = {
+            individual: 'Individual',
+            business_organization: 'Business / organization'
+        };
+
+        function formatDateTime(value) {
+            if (!value) {
+                return '';
+            }
+            const d = new Date(value);
+            if (isNaN(d.getTime())) {
+                return String(value);
+            }
+            return d.toLocaleString();
+        }
+
+        function isVerificationComplete(state) {
+            const domain = state.domain;
+            const cps = state.contactProfileSummary;
+            const domainVerified = !!(domain && domain.contactVerificationStatus === 'verified');
+            const contactVerified = !!(cps && cps.verificationStatus === 'verified');
+            return domainVerified && contactVerified;
+        }
+
+        const populateHandlers = {
+            'loading-message': function(element, state) {
+                if (state.loading && !state.error) {
+                    element.textContent = 'Loading domain details185';
+                    element.hidden = false;
+                } else {
+                    element.textContent = '';
+                    element.hidden = true;
+                }
+            },
+            'error-message': function(element, state) {
+                if (state.error) {
+                    element.textContent = state.error;
+                    element.hidden = false;
+                } else {
+                    element.textContent = '';
+                    element.hidden = true;
+                }
+            },
+            'error-help-link': function(element, state) {
+                element.hidden = !state.error;
+            },
+            'domain-name': function(element, state) {
+                if (state.domain && state.domain.name) {
+                    element.textContent = state.domain.name;
+                } else {
+                    element.textContent = 'Domain details';
+                }
+            },
+            'domain-status-summary': function(element, state) {
+                const domain = state.domain;
+                if (!domain) {
+                    element.textContent = '';
+                    return;
+                }
+                const cps = state.contactProfileSummary;
+                const parts = [];
+
+                if (domain.domainStatus) {
+                    const label = domainStatusLabels[domain.domainStatus] || domain.domainStatus;
+                    parts.push('Domain status: ' + label + '.');
+                }
+
+                if (domain.expirationDate) {
+                    const expiration = formatDateTime(domain.expirationDate);
+                    const autoRenewText = domain.autoRenewEnabled ? 'auto-renew is on' : 'auto-renew is off';
+                    parts.push('Expires on ' + expiration + ' (' + autoRenewText + ').');
+                }
+
+                const domainVerificationStatus = domain.contactVerificationStatus;
+                const profileVerificationStatus = cps && cps.verificationStatus ? cps.verificationStatus : null;
+                if (domainVerificationStatus || profileVerificationStatus) {
+                    const domainLabel = domainVerificationStatus ? (verificationStatusLabels[domainVerificationStatus] || domainVerificationStatus) : '';
+                    const profileLabel = profileVerificationStatus ? (verificationStatusLabels[profileVerificationStatus] || profileVerificationStatus) : '';
+                    if (domainLabel && profileLabel) {
+                        parts.push('Contact verification: domain ' + domainLabel + ', contact profile ' + profileLabel + '.');
+                    } else if (domainLabel) {
+                        parts.push('Contact verification status: ' + domainLabel + '.');
+                    } else if (profileLabel) {
+                        parts.push('Contact profile verification status: ' + profileLabel + '.');
+                    }
+                }
+
+                element.textContent = parts.join(' ');
+            },
+            'verification-callout-text': function(element, state) {
+                const domain = state.domain;
+                if (!domain) {
+                    element.textContent = '';
+                    return;
+                }
+                const complete = isVerificationComplete(state);
+                if (complete) {
+                    element.textContent = 'Contact verification is complete for this domain.';
+                    return;
+                }
+
+                let details = '';
+                if (domain.lastVerificationEmailSentAt) {
+                    details += ' The last verification email was sent on ' + formatDateTime(domain.lastVerificationEmailSentAt) + '.';
+                }
+                if (domain.lastVerificationReminderSentAt) {
+                    details += ' The most recent reminder was sent on ' + formatDateTime(domain.lastVerificationReminderSentAt) + '.';
+                }
+                const additional = details ? ' ' + details : '';
+                element.innerHTML = 'Contact verification for this domain is not complete. <a href="javascript:void(0)" data-action="open-verification">Review contact verification</a>.' + additional;
+            },
+            'domain-registration-date': function(element, state) {
+                const domain = state.domain;
+                if (!domain || !domain.registrationDate) {
+                    element.textContent = '';
+                    return;
+                }
+                element.textContent = 'Registration date: ' + formatDateTime(domain.registrationDate) + '.';
+            },
+            'domain-expiration-date': function(element, state) {
+                const domain = state.domain;
+                if (!domain || !domain.expirationDate) {
+                    element.textContent = '';
+                    return;
+                }
+                element.textContent = 'Expiration date: ' + formatDateTime(domain.expirationDate) + '.';
+            },
+            'domain-auto-renew': function(element, state) {
+                const domain = state.domain;
+                if (!domain) {
+                    element.textContent = '';
+                    return;
+                }
+                const text = domain.autoRenewEnabled ? 'Auto-renew: enabled.' : 'Auto-renew: disabled.';
+                element.textContent = text;
+            },
+            'domain-created-at': function(element, state) {
+                const domain = state.domain;
+                if (!domain || !domain.createdAt) {
+                    element.textContent = '';
+                    return;
+                }
+                element.textContent = 'Created in this account: ' + formatDateTime(domain.createdAt) + '.';
+            },
+            'domain-updated-at': function(element, state) {
+                const domain = state.domain;
+                if (!domain || !domain.updatedAt) {
+                    element.textContent = '';
+                    return;
+                }
+                element.textContent = 'Last updated: ' + formatDateTime(domain.updatedAt) + '.';
+            },
+            'contact-profile-summary': function(element, state) {
+                const cps = state.contactProfileSummary;
+                if (!cps) {
+                    element.textContent = '';
+                    return;
+                }
+                const name = cps.displayName || '';
+                const typeLabel = cps.contactType ? (contactTypeLabels[cps.contactType] || cps.contactType) : '';
+                const verificationLabel = cps.verificationStatus ? (verificationStatusLabels[cps.verificationStatus] || cps.verificationStatus) : '';
+                let text = 'Contact profile: ' + name;
+                if (typeLabel) {
+                    text += ' (' + typeLabel + ')';
+                }
+                if (verificationLabel) {
+                    text += ', verification status: ' + verificationLabel + '.';
+                } else {
+                    text += '.';
+                }
+                element.textContent = text;
+            },
+            'nameserver-list': function(element, state) {
+                const domain = state.domain;
+                element.innerHTML = '';
+                if (!domain || !Array.isArray(domain.nameservers)) {
+                    element.textContent = '';
+                    return;
+                }
+                if (domain.nameservers.length === 0) {
+                    element.textContent = 'No nameservers are configured for this domain.';
+                    return;
+                }
+                domain.nameservers.forEach(function(ns) {
+                    const p = document.createElement('p');
+                    p.textContent = ns;
+                    element.appendChild(p);
+                });
+            },
+            'verification-action-link-wrapper': function(element, state) {
+                if (!state.domain) {
+                    element.innerHTML = '';
+                    return;
+                }
+                const complete = isVerificationComplete(state);
+                if (complete) {
+                    element.innerHTML = '';
+                    return;
+                }
+                element.innerHTML = ' · <a href="javascript:void(0)" data-action="open-verification-secondary">Review contact verification</a>';
+            }
+        };
+
+        function setState(partial) {
+            for (var key in partial) {
+                if (Object.prototype.hasOwnProperty.call(partial, key)) {
+                    controllerState[key] = partial[key];
+                }
+            }
+            renderAll();
+            attachActionHandlers();
+        }
+
+        function renderAll() {
+            var elements = document.querySelectorAll('[data-populate]');
+            elements.forEach(function(element) {
+                var key = element.dataset.populate;
+                var handler = populateHandlers[key];
+                if (handler) {
+                    handler(element, controllerState);
+                }
+            });
+
+            var contentContainer = document.querySelector('[data-component="domain-content"]');
+            if (contentContainer) {
+                if (controllerState.error || controllerState.loading || !controllerState.domain) {
+                    contentContainer.hidden = true;
+                } else {
+                    contentContainer.hidden = false;
+                }
+            }
+        }
+
+        function currentDomainId() {
+            if (controllerState.domain && controllerState.domain.id) {
+                return controllerState.domain.id;
+            }
+            return controllerState.domainId;
+        }
+
+        function readDomainIdFromUrl() {
+            var params = new URLSearchParams(window.location.search);
+            var id = params.get('domainId');
+            if (!id) {
+                return null;
+            }
+            var trimmed = id.trim();
+            return trimmed === '' ? null : trimmed;
+        }
+
+        function loadDomainForCurrentUrl() {
+            var newDomainId = readDomainIdFromUrl();
+            if (!newDomainId) {
+                setState({
+                    domainId: null,
+                    domain: null,
+                    contactProfileSummary: null,
+                    loading: false,
+                    error: 'No domain is selected. To view domain details, open this page from My Domains or provide a domainId in the URL.'
+                });
+                document.title = 'Domain Details';
+                return;
+            }
+
+            if (controllerState.domainId === newDomainId && controllerState.domain && !controllerState.error) {
+                return;
+            }
+
+            setState({
+                domainId: newDomainId,
+                domain: null,
+                contactProfileSummary: null,
+                loading: true,
+                error: null
+            });
+
+            var response = null;
+            try {
+                response = WebsiteSDK.getDomainDetails(newDomainId);
+            } catch (e) {
+                setState({
+                    loading: false,
+                    error: 'We could not load details for this domain. Please try again from My Domains.'
+                });
+                document.title = 'Domain Details';
+                return;
+            }
+
+            if (!response || !response.domain) {
+                setState({
+                    loading: false,
+                    error: 'We could not find a domain matching this link. It may have been removed or the link is outdated.'
+                });
+                document.title = 'Domain Details';
+                return;
+            }
+
+            setState({
+                domain: response.domain,
+                contactProfileSummary: response.contactProfileSummary || null,
+                loading: false,
+                error: null
+            });
+
+            if (response.domain && response.domain.name) {
+                document.title = response.domain.name + ' 113 Domain Details';
+            } else {
+                document.title = 'Domain Details';
+            }
+        }
+
+        function attachActionHandlers() {
+            var elements = document.querySelectorAll('[data-action]');
+            elements.forEach(function(element) {
+                if (element.dataset.bound === 'true') {
+                    return;
+                }
+                var action = element.dataset.action;
+                if (action === 'back-to-domains' || action === 'back-to-domains-from-error') {
+                    element.addEventListener('click', function() {
+                        window.location.href = 'my_domains.html';
+                    });
+                } else if (action === 'open-contact-information') {
+                    element.addEventListener('click', function() {
+                        var id = currentDomainId();
+                        if (!id) {
+                            return;
+                        }
+                        window.location.href = 'domain_contact_info.html?domainId=' + encodeURIComponent(id);
+                    });
+                } else if (action === 'open-verification' || action === 'open-verification-secondary') {
+                    element.addEventListener('click', function() {
+                        var id = currentDomainId();
+                        if (!id) {
+                            return;
+                        }
+                        window.location.href = 'contact_verification_notice.html?domainId=' + encodeURIComponent(id);
+                    });
+                }
+                element.dataset.bound = 'true';
+            });
+        }
+
+        window.addEventListener('popstate', function() {
+            loadDomainForCurrentUrl();
+        });
+
+        loadDomainForCurrentUrl();
+    });
+    </script>
+</body>
+</html>

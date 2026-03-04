@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Playlist Detail - Artist Discography</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='playlist_detail.css'>
+</head>
+<body>
+  <div class='page-background'>
+    <div class='page-container'>
+      <header class='site-header'>
+        <h1 class='site-title'>Artist Discography</h1>
+        <nav class='site-nav' aria-label='Primary'>
+          <ul>
+            <li><a href='index.html'>Home</a></li>
+            <li><a href='genres.html'>Browse Genres</a></li>
+            <li><a href='library.html'>Library</a></li>
+            <li><a href='playlists.html'>Playlists</a></li>
+            <li><a href='favorites.html'>Favorites</a></li>
+            <li><a href='queue.html'>Queue</a></li>
+          </ul>
+        </nav>
+      </header>
+
+      <main id='content' class='site-main' role='main'>
+        <section class='playlist-detail-panel' data-populate='playlist-detail' aria-labelledby='playlist-detail-title'>
+          <div data-component='playlist-detail-loader' class='playlist-detail-loader'></div>
+
+          <section data-component='playlist-header' class='playlist-header'></section>
+
+          <section data-component='playlist-playback-controls' class='playlist-playback-controls'></section>
+
+          <section data-component='playlist-track-list' class='playlist-track-list'></section>
+
+          <section data-component='add-track-to-playlist-form' class='add-track-to-playlist-form'></section>
+
+          <section data-component='playlist-feedback-messages' class='playlist-feedback-messages' aria-live='polite'></section>
+        </section>
+      </main>
+
+      <footer class='site-footer'>
+        <hr class='footer-divider'>
+        <nav class='footer-nav' aria-label='Footer'>
+          <ul>
+            <li><a href='about.html'>About</a></li>
+            <li><a href='help.html'>Help / FAQ</a></li>
+            <li><a href='contact.html'>Contact</a></li>
+            <li><a href='bookmarks.html'>Bookmarks</a></li>
+            <li><a href='lists.html'>Lists</a></li>
+          </ul>
+        </nav>
+        <p class='footer-meta'>&copy; Artist Discography</p>
+      </footer>
+    </div>
+  </div>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var urlParams = new URLSearchParams(window.location.search);
+      var playlistIdFromUrl = urlParams.get('playlistId');
+      var prefillTrackIdFromUrl = urlParams.get('trackId');
+
+      var state = {
+        playlistId: playlistIdFromUrl,
+        playlist: null,
+        tracks: [],
+        lastConfirmedOrder: null,
+        messages: [],
+        isLoading: false,
+        isRenaming: false,
+        isQueueActionInProgress: false,
+        prefillTrackId: prefillTrackIdFromUrl || ''
+      };
+
+      var loaderEl = document.querySelector('[data-component=playlist-detail-loader]');
+      var headerEl = document.querySelector('[data-component=playlist-header]');
+      var controlsEl = document.querySelector('[data-component=playlist-playback-controls]');
+      var trackListEl = document.querySelector('[data-component=playlist-track-list]');
+      var addTrackFormEl = document.querySelector('[data-component=add-track-to-playlist-form]');
+      var feedbackEl = document.querySelector('[data-component=playlist-feedback-messages]');
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+
+      function escapeAttr(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/'/g, '&#39;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+
+      function renderLoader(message, isError) {
+        if (!loaderEl) {
+          return;
+        }
+        if (!message) {
+          loaderEl.innerHTML = '';
+          return;
+        }
+        var cls = 'loader-message';
+        if (isError) {
+          cls += ' loader-error';
+        }
+        loaderEl.innerHTML = '<p class=' + cls + '>' + escapeHtml(message) + '</p>';
+      }
+
+      function addMessage(type, text) {
+        if (!text) {
+          return;
+        }
+        var id = String(Date.now()) + '_' + Math.random().toString(16).slice(2);
+        state.messages.push({ id: id, type: type, text: text });
+        renderMessages();
+      }
+
+      function removeMessageById(id) {
+        state.messages = state.messages.filter(function(msg) { return msg.id !== id; });
+        renderMessages();
+      }
+
+      function clearMessages() {
+        state.messages = [];
+        renderMessages();
+      }
+
+      function renderMessages() {
+        if (!feedbackEl) {
+          return;
+        }
+        if (!state.messages.length) {
+          feedbackEl.innerHTML = '';
+          return;
+        }
+        var itemsHtml = state.messages.map(function(msg) {
+          var typeCls = msg.type === 'error' ? 'feedback-message-error' : 'feedback-message-success';
+          return (
+            '<li class=' + typeCls + ' data-message-id=' + escapeAttr(msg.id) + '>' +
+              '<span class=' + 'feedback-message-text' + '>' + escapeHtml(msg.text) + '</span> ' +
+              '<a href=' + 'javascript:void(0)' + ' data-action=' + 'dismiss-message' + ' data-message-id=' + escapeAttr(msg.id) + '>Dismiss</a>' +
+            '</li>'
+          );
+        }).join('');
+
+        feedbackEl.innerHTML = (
+          '<section class=' + 'feedback-messages-inner' + '>' +
+            '<h3>Messages</h3>' +
+            '<ul class=' + 'feedback-messages-list' + '>' + itemsHtml + '</ul>' +
+            '<p><a href=' + 'javascript:void(0)' + ' data-action=' + 'clear-messages' + '>Clear all</a></p>' +
+          '</section>'
+        );
+      }
+
+      function renderHeader(container, playlist) {
+        if (!container) {
+          return;
+        }
+        if (!playlist) {
+          container.innerHTML = '';
+          return;
+        }
+        var isRenaming = state.isRenaming;
+        var nameHtml;
+        if (isRenaming) {
+          nameHtml = (
+            '<form data-action=' + 'rename-playlist' + ' class=' + 'playlist-rename-form' + '>' +
+              '<label for=' + 'playlist-rename-input' + '>Name</label> ' +
+              '<input type=' + 'text' + ' id=' + 'playlist-rename-input' + ' name=' + 'newName' + ' required value=' + '\'' + escapeAttr(playlist.name || '') + '\'' + '> ' +
+              '<button type=' + 'submit' + '>Save</button> ' +
+              '<button type=' + 'button' + ' data-action=' + 'cancel-rename-playlist' + '>Cancel</button>' +
+            '</form>'
+          );
+        } else {
+          nameHtml = (
+            '<span class=' + 'playlist-title-text' + '>' + escapeHtml(playlist.name || '') + '</span> ' +
+            '<a href=' + 'javascript:void(0)' + ' data-action=' + 'start-rename-playlist' + ' class=' + 'playlist-rename-link' + '>Edit name</a>'
+          );
+        }
+
+        var descText = playlist.description ? escapeHtml(playlist.description) : 'No description';
+        var trackCount = typeof playlist.track_count === 'number' ? playlist.track_count : state.tracks.length;
+
+        container.innerHTML = (
+          '<section class=' + 'playlist-header-inner' + '>' +
+            '<h1 id=' + 'playlist-detail-title' + '>Playlist detail</h1>' +
+            '<div class=' + 'playlist-title-row' + '>' + nameHtml + '</div>' +
+            '<p class=' + 'playlist-description' + '>' + descText + '</p>' +
+            '<p class=' + 'playlist-track-count' + '>Tracks: ' + trackCount + '</p>' +
+          '</section>'
+        );
+      }
+
+      function renderPlaybackControls(container, playlist) {
+        if (!container) {
+          return;
+        }
+        if (!playlist) {
+          container.innerHTML = '';
+          return;
+        }
+        container.innerHTML = (
+          '<section class=' + 'playlist-playback-controls-inner' + ' aria-label=' + 'Playlist playback controls' + '>' +
+            '<p>Playback</p>' +
+            '<p>' +
+              '<a href=' + 'javascript:void(0)' + ' data-action=' + 'play-next-playlist' + '>Play next</a>' +
+              ' | ' +
+              '<a href=' + 'javascript:void(0)' + ' data-action=' + 'queue-playlist' + '>Add to queue</a>' +
+            '</p>' +
+          '</section>'
+        );
+      }
+
+      function renderTrackList(container, tracks) {
+        if (!container) {
+          return;
+        }
+        if (!state.playlist) {
+          container.innerHTML = '';
+          return;
+        }
+        if (!tracks || !tracks.length) {
+          container.innerHTML = (
+            '<section class=' + 'playlist-track-list-inner' + '>' +
+              '<h2>Tracks</h2>' +
+              '<p>No tracks in this playlist yet.</p>' +
+            '</section>'
+          );
+          return;
+        }
+
+        var rowsHtml = tracks.map(function(track, index) {
+          var pos = typeof track.position === 'number' ? track.position : (index + 1);
+          var playlistTrackId = track.playlist_track_id || '';
+          var albumId = track.album_id || '';
+          var title = track.track_title || '';
+          var artistName = track.primary_artist_name || '';
+          var albumTitle = track.album_title || '';
+          var duration = track.formatted_duration || '';
+
+          return (
+            '<tr draggable=' + 'true' + ' data-playlist-track-id=' + '\'' + escapeAttr(playlistTrackId) + '\'' + ' data-position=' + '\'' + escapeAttr(String(pos)) + '\'' + ' data-index=' + '\'' + escapeAttr(String(index)) + '\'' + '>' +
+              '<td class=' + 'col-position' + '>' + pos + '</td>' +
+              '<td class=' + 'col-title' + '>' +
+                '<a href=' + 'javascript:void(0)' + ' data-action=' + 'go-track-detail' + ' data-playlist-track-id=' + '\'' + escapeAttr(playlistTrackId) + '\'' + '>' + escapeHtml(title) + '</a>' +
+                (artistName ? '  ' + '<span class=' + 'track-artist' + '>' + escapeHtml(artistName) + '</span>' : '') +
+              '</td>' +
+              '<td class=' + 'col-album' + '>' +
+                (albumId ? '<a href=' + 'javascript:void(0)' + ' data-action=' + 'go-album-detail' + ' data-album-id=' + '\'' + escapeAttr(albumId) + '\'' + '>' + escapeHtml(albumTitle) + '</a>' : '') +
+              '</td>' +
+              '<td class=' + 'col-duration' + '>' + escapeHtml(duration) + '</td>' +
+              '<td class=' + 'col-actions' + '>' +
+                '<a href=' + 'javascript:void(0)' + ' data-action=' + 'move-up' + ' data-playlist-track-id=' + '\'' + escapeAttr(playlistTrackId) + '\'' + '>2</a> ' +
+                '<a href=' + 'javascript:void(0)' + ' data-action=' + 'move-down' + ' data-playlist-track-id=' + '\'' + escapeAttr(playlistTrackId) + '\'' + '>3</a> ' +
+                '<a href=' + 'javascript:void(0)' + ' data-action=' + 'remove-track' + ' data-playlist-track-id=' + '\'' + escapeAttr(playlistTrackId) + '\'' + '>Remove</a>' +
+              '</td>' +
+            '</tr>'
+          );
+        }).join('');
+
+        container.innerHTML = (
+          '<section class=' + 'playlist-track-list-inner' + '>' +
+            '<h2>Tracks</h2>' +
+            '<table class=' + 'playlist-track-table' + '>' +
+              '<thead>' +
+                '<tr>' +
+                  '<th>#</th>' +
+                  '<th>Title</th>' +
+                  '<th>Album</th>' +
+                  '<th>Duration</th>' +
+                  '<th>Actions</th>' +
+                '</tr>' +
+              '</thead>' +
+              '<tbody>' + rowsHtml + '</tbody>' +
+            '</table>' +
+            '<p class=' + 'reorder-hint' + '>Drag rows or use arrows to reorder; changes are saved after each move.</p>' +
+          '</section>'
+        );
+      }
+
+      function renderAddTrackForm(container) {
+        if (!container) {
+          return;
+        }
+        var preset = state.prefillTrackId ? escapeAttr(state.prefillTrackId) : '';
+        container.innerHTML = (
+          '<section class=' + 'add-track-form-inner' + '>' +
+            '<h3>Add track to this playlist</h3>' +
+            '<form data-action=' + 'add-track-to-playlist' + '>' +
+              '<label for=' + 'add-track-id-input' + '>Track ID</label> ' +
+              '<input type=' + 'text' + ' id=' + 'add-track-id-input' + ' name=' + 'trackId' + ' required value=' + '\'' + preset + '\'' + '> ' +
+              '<button type=' + 'submit' + '>Add</button>' +
+            '</form>' +
+          '</section>'
+        );
+      }
+
+      function normalizePositions() {
+        state.tracks.forEach(function(track, index) {
+          track.position = index + 1;
+        });
+      }
+
+      function orderTracksByIdArray(idArray) {
+        state.tracks.sort(function(a, b) {
+          var ai = idArray.indexOf(a.playlist_track_id);
+          var bi = idArray.indexOf(b.playlist_track_id);
+          return ai - bi;
+        });
+        normalizePositions();
+      }
+
+      function commitReorder() {
+        if (!state.tracks || !state.tracks.length) {
+          return;
+        }
+        var reorderedItems = state.tracks.map(function(track) {
+          return {
+            playlistTrackId: track.playlist_track_id,
+            position: track.position
+          };
+        });
+        try {
+          var response = WebsiteSDK.reorderPlaylistTracks(reorderedItems);
+          if (response && response.updated) {
+            state.lastConfirmedOrder = state.tracks.map(function(track) { return track.playlist_track_id; });
+            renderTrackList(trackListEl, state.tracks);
+            setupTrackListInteractions();
+            addMessage('success', response.message || 'Playlist order updated.');
+          } else {
+            if (state.lastConfirmedOrder) {
+              orderTracksByIdArray(state.lastConfirmedOrder);
+            }
+            renderTrackList(trackListEl, state.tracks);
+            setupTrackListInteractions();
+            addMessage('error', response && response.message ? response.message : 'Unable to reorder playlist.');
+          }
+        } catch (err) {
+          if (state.lastConfirmedOrder) {
+            orderTracksByIdArray(state.lastConfirmedOrder);
+          }
+          renderTrackList(trackListEl, state.tracks);
+          setupTrackListInteractions();
+          addMessage('error', 'Unexpected error reordering playlist.');
+        }
+      }
+
+      var dragSourcePlaylistTrackId = null;
+
+      function handleDragStart(event) {
+        var row = event.target.closest('tr[data-playlist-track-id]');
+        if (!row) {
+          return;
+        }
+        dragSourcePlaylistTrackId = row.getAttribute('data-playlist-track-id');
+        try {
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', dragSourcePlaylistTrackId || '');
+        } catch (e) {}
+      }
+
+      function handleDragOver(event) {
+        event.preventDefault();
+      }
+
+      function handleDrop(event) {
+        event.preventDefault();
+        var targetRow = event.target.closest('tr[data-playlist-track-id]');
+        if (!targetRow || !dragSourcePlaylistTrackId) {
+          return;
+        }
+        var targetId = targetRow.getAttribute('data-playlist-track-id');
+        if (!targetId || targetId === dragSourcePlaylistTrackId) {
+          return;
+        }
+        var fromIndex = state.tracks.findIndex(function(track) { return track.playlist_track_id === dragSourcePlaylistTrackId; });
+        var toIndex = state.tracks.findIndex(function(track) { return track.playlist_track_id === targetId; });
+        if (fromIndex === -1 || toIndex === -1) {
+          return;
+        }
+        var moved = state.tracks.splice(fromIndex, 1)[0];
+        state.tracks.splice(toIndex, 0, moved);
+        normalizePositions();
+        commitReorder();
+      }
+
+      function setupTrackListInteractions() {
+        if (!trackListEl) {
+          return;
+        }
+        var tbody = trackListEl.querySelector('tbody');
+        if (!tbody) {
+          return;
+        }
+        tbody.addEventListener('dragstart', handleDragStart);
+        tbody.addEventListener('dragover', handleDragOver);
+        tbody.addEventListener('drop', handleDrop);
+      }
+
+      function moveTrack(playlistTrackId, direction) {
+        if (!playlistTrackId || !state.tracks || !state.tracks.length) {
+          return;
+        }
+        var index = state.tracks.findIndex(function(track) { return track.playlist_track_id === playlistTrackId; });
+        if (index === -1) {
+          return;
+        }
+        var newIndex = index + direction;
+        if (newIndex < 0 || newIndex >= state.tracks.length) {
+          return;
+        }
+        var moved = state.tracks.splice(index, 1)[0];
+        state.tracks.splice(newIndex, 0, moved);
+        normalizePositions();
+        commitReorder();
+      }
+
+      function handleRemoveTrack(playlistTrackId) {
+        if (!playlistTrackId || !state.playlist) {
+          return;
+        }
+        try {
+          var response = WebsiteSDK.removeTrackFromPlaylist(playlistTrackId);
+          if (response && response.removed) {
+            var index = state.tracks.findIndex(function(track) { return track.playlist_track_id === playlistTrackId; });
+            if (index !== -1) {
+              state.tracks.splice(index, 1);
+              normalizePositions();
+              state.playlist.track_count = state.tracks.length;
+            }
+            state.lastConfirmedOrder = state.tracks.map(function(track) { return track.playlist_track_id; });
+            renderHeader(headerEl, state.playlist);
+            renderTrackList(trackListEl, state.tracks);
+            setupTrackListInteractions();
+            addMessage('success', response.message || 'Track removed from playlist.');
+          } else {
+            addMessage('error', response && response.message ? response.message : 'Track could not be removed from playlist.');
+          }
+        } catch (err) {
+          addMessage('error', 'Unexpected error removing track from playlist.');
+        }
+      }
+
+      function startRename() {
+        if (!state.playlist) {
+          return;
+        }
+        state.isRenaming = true;
+        renderHeader(headerEl, state.playlist);
+        if (headerEl) {
+          var input = headerEl.querySelector('#playlist-rename-input');
+          if (input) {
+            input.focus();
+            try { input.select(); } catch (e) {}
+          }
+        }
+      }
+
+      function cancelRename() {
+        if (!state.playlist) {
+          return;
+        }
+        state.isRenaming = false;
+        renderHeader(headerEl, state.playlist);
+      }
+
+      function handleRenameSubmit(form) {
+        if (!state.playlistId || !state.playlist) {
+          return;
+        }
+        var input = form.querySelector('input[name=newName]');
+        if (!input) {
+          return;
+        }
+        var newName = (input.value || '').trim();
+        if (!newName) {
+          addMessage('error', 'Playlist name cannot be empty.');
+          input.focus();
+          return;
+        }
+        try {
+          var response = WebsiteSDK.renamePlaylist(state.playlistId, newName);
+          var updatedName = response && response.name ? response.name : newName;
+          state.playlist.name = updatedName;
+          state.isRenaming = false;
+          renderHeader(headerEl, state.playlist);
+          addMessage('success', 'Playlist renamed.');
+        } catch (err) {
+          addMessage('error', 'Unable to rename playlist.');
+        }
+      }
+
+      function handleQueuePlaylist(playNext) {
+        if (!state.playlistId) {
+          return;
+        }
+        if (state.isQueueActionInProgress) {
+          return;
+        }
+        state.isQueueActionInProgress = true;
+        try {
+          var response = WebsiteSDK.addPlaylistToQueue(state.playlistId, playNext === true);
+          var count = response && typeof response.added_item_count === 'number' ? response.added_item_count : 0;
+          var message = response && response.message ? response.message : 'Added ' + count + ' item(s) to queue.';
+          addMessage('success', message);
+        } catch (err) {
+          addMessage('error', 'Unable to update queue.');
+        } finally {
+          state.isQueueActionInProgress = false;
+        }
+      }
+
+      function handleAddTrackSubmit(form) {
+        if (!state.playlistId) {
+          return;
+        }
+        var input = form.querySelector('input[name=trackId]');
+        if (!input) {
+          return;
+        }
+        var trackId = (input.value || '').trim();
+        if (!trackId) {
+          addMessage('error', 'Please provide a track ID.');
+          input.focus();
+          return;
+        }
+        var submitBtn = form.querySelector('button[type=submit]');
+        if (submitBtn) {
+          submitBtn.disabled = true;
+        }
+        try {
+          var response = WebsiteSDK.addTrackToPlaylist(state.playlistId, trackId);
+          addMessage('success', response && response.message ? response.message : 'Track added to playlist.');
+          input.value = '';
+          reloadPlaylist();
+        } catch (err) {
+          addMessage('error', 'Unable to add track to playlist.');
+        } finally {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+          }
+        }
+      }
+
+      function reloadPlaylist() {
+        if (!state.playlistId) {
+          return;
+        }
+        state.isLoading = true;
+        renderLoader('Loading playlist', false);
+        try {
+          var data = WebsiteSDK.getPlaylistDetail(state.playlistId);
+          if (!data || !data.playlist_id) {
+            renderLoader('Playlist not found.', true);
+            headerEl.innerHTML = '';
+            controlsEl.innerHTML = '';
+            trackListEl.innerHTML = '';
+            addTrackFormEl.innerHTML = '';
+            return;
+          }
+          state.playlistId = data.playlist_id;
+          state.playlist = {
+            playlist_id: data.playlist_id,
+            name: data.name || '',
+            description: data.description || '',
+            track_count: typeof data.track_count === 'number' ? data.track_count : (data.tracks ? data.tracks.length : 0)
+          };
+          state.tracks = Array.isArray(data.tracks) ? data.tracks.slice().sort(function(a, b) {
+            return (a.position || 0) - (b.position || 0);
+          }) : [];
+          state.lastConfirmedOrder = state.tracks.map(function(track) { return track.playlist_track_id; });
+
+          renderLoader('', false);
+          state.isRenaming = false;
+          renderHeader(headerEl, state.playlist);
+          renderPlaybackControls(controlsEl, state.playlist);
+          renderTrackList(trackListEl, state.tracks);
+          renderAddTrackForm(addTrackFormEl);
+          setupTrackListInteractions();
+        } catch (err) {
+          renderLoader('Unable to load playlist.', true);
+          headerEl.innerHTML = '';
+          controlsEl.innerHTML = '';
+          trackListEl.innerHTML = '';
+          addTrackFormEl.innerHTML = '';
+        } finally {
+          state.isLoading = false;
+        }
+      }
+
+      document.body.addEventListener('click', function(event) {
+        var actionEl = event.target.closest('[data-action]');
+        if (!actionEl) {
+          return;
+        }
+        var action = actionEl.getAttribute('data-action');
+        if (!action) {
+          return;
+        }
+        if (action === 'start-rename-playlist') {
+          event.preventDefault();
+          startRename();
+        } else if (action === 'cancel-rename-playlist') {
+          event.preventDefault();
+          cancelRename();
+        } else if (action === 'play-next-playlist') {
+          event.preventDefault();
+          handleQueuePlaylist(true);
+        } else if (action === 'queue-playlist') {
+          event.preventDefault();
+          handleQueuePlaylist(false);
+        } else if (action === 'go-track-detail') {
+          event.preventDefault();
+          var playlistTrackId = actionEl.getAttribute('data-playlist-track-id');
+          if (playlistTrackId) {
+            window.location.href = 'track.html?trackId=' + encodeURIComponent(playlistTrackId);
+          }
+        } else if (action === 'go-album-detail') {
+          event.preventDefault();
+          var albumId = actionEl.getAttribute('data-album-id');
+          if (albumId) {
+            window.location.href = 'album.html?albumId=' + encodeURIComponent(albumId);
+          }
+        } else if (action === 'remove-track') {
+          event.preventDefault();
+          var playlistTrackIdForRemove = actionEl.getAttribute('data-playlist-track-id');
+          if (!playlistTrackIdForRemove) {
+            return;
+          }
+          var confirmed = window.confirm('Remove this track from the playlist?');
+          if (!confirmed) {
+            return;
+          }
+          handleRemoveTrack(playlistTrackIdForRemove);
+        } else if (action === 'move-up') {
+          event.preventDefault();
+          var playlistTrackIdUp = actionEl.getAttribute('data-playlist-track-id');
+          moveTrack(playlistTrackIdUp, -1);
+        } else if (action === 'move-down') {
+          event.preventDefault();
+          var playlistTrackIdDown = actionEl.getAttribute('data-playlist-track-id');
+          moveTrack(playlistTrackIdDown, 1);
+        } else if (action === 'dismiss-message') {
+          event.preventDefault();
+          var msgId = actionEl.getAttribute('data-message-id');
+          if (msgId) {
+            removeMessageById(msgId);
+          }
+        } else if (action === 'clear-messages') {
+          event.preventDefault();
+          clearMessages();
+        }
+      });
+
+      document.body.addEventListener('submit', function(event) {
+        var form = event.target;
+        if (!form || !form.getAttribute) {
+          return;
+        }
+        var action = form.getAttribute('data-action');
+        if (!action) {
+          return;
+        }
+        if (action === 'rename-playlist') {
+          event.preventDefault();
+          handleRenameSubmit(form);
+        } else if (action === 'add-track-to-playlist') {
+          event.preventDefault();
+          handleAddTrackSubmit(form);
+        }
+      });
+
+      if (!state.playlistId) {
+        renderLoader('No playlist selected. Open this page from Playlists or Library with a playlistId parameter.', true);
+        headerEl.innerHTML = '';
+        controlsEl.innerHTML = '';
+        trackListEl.innerHTML = '';
+        renderAddTrackForm(addTrackFormEl);
+        return;
+      }
+
+      reloadPlaylist();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8' />
+    <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+    <title>Domain Registrar Layout</title>
+
+    <!-- Typography -->
+    <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=IBM+Plex+Sans:wght@300;400;500;600&amp;display=swap' rel='stylesheet' />
+
+    <!-- Framework styles -->
+    <link rel='stylesheet' href='framework.css' />
+    <link rel='stylesheet' href='order_confirmation.css' />
+</head>
+<body class='layout-body'>
+    <header class='site-header' role='banner'>
+        <div class='header-inner'>
+            <div class='brand-lockup' aria-label='Site identity'>
+                <span class='brand-mark'></span>
+                <span class='brand-text'>Parked Domains</span>
+            </div>
+            <nav class='main-nav' aria-label='Primary navigation'>
+                <ul class='nav-list'>
+                    <li class='nav-item'>
+                        <a href='index.html' class='nav-link'>Dashboard</a>
+                    </li>
+                    <li class='nav-item'>
+                        <a href='domain_search.html' class='nav-link'>Search Domains</a>
+                    </li>
+                    <li class='nav-item'>
+                        <a href='domain_list.html' class='nav-link'>My Domains</a>
+                    </li>
+                    <li class='nav-item'>
+                        <a href='pricing.html' class='nav-link'>Pricing</a>
+                    </li>
+                    <li class='nav-item'>
+                        <a href='help.html' class='nav-link'>Help</a>
+                    </li>
+                    <li class='nav-item'>
+                        <a href='cart.html' class='nav-link'>Cart</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id='content' class='site-main' role='main'>
+        <div class='order-confirmation-page' data-page='order-confirmation'>
+            <div class='order-confirmation-inner'>
+                <!-- Loader and error state container -->
+                <section class='order-loader-section' data-component='order-details-loader'>
+                    <div class='order-loading-state' data-component='order-loading-state' aria-live='polite' aria-busy='true'>
+                        <div class='loading-indicator' aria-hidden='true'></div>
+                        <p class='loading-text'>Loading your order...</p>
+                    </div>
+                    <div class='order-error-state' data-component='order-error-state' data-populate='order-error' hidden></div>
+                </section>
+
+                <!-- Main content, shown after successful load -->
+                <section class='order-main-section' data-component='order-main' hidden>
+                    <header class='order-status-header' data-component='order-status-header' data-populate='order-status'></header>
+
+                    <div class='order-main-body'>
+                        <section class='order-summary-section' data-component='order-summary-section' data-populate='order-summary'></section>
+
+                        <aside class='order-metadata-panel' data-component='order-metadata-panel' data-populate='order-metadata'></aside>
+                    </div>
+
+                    <section class='domains-section' data-component='domains-in-order-list' data-populate='domains-in-order'></section>
+
+                    <footer class='order-actions-footer' data-component='order-actions-footer'>
+                        <div class='order-actions'>
+                            <button type='button' class='btn-text' data-action='back-to-dashboard'>Back to dashboard</button>
+                            <button type='button' class='btn-text' data-action='view-all-domains'>View all my domains</button>
+                            <button type='button' class='btn-text' data-action='refresh-order'>Refresh order status</button>
+                        </div>
+                    </footer>
+                </section>
+            </div>
+        </div>
+    </main>
+
+    <footer class='site-footer' role='contentinfo'>
+        <div class='footer-inner'>
+            <nav class='footer-nav' aria-label='Footer navigation'>
+                <ul class='footer-links'>
+                    <li class='footer-item'><a href='about.html' class='footer-link'>About</a></li>
+                    <li class='footer-item'><a href='pricing.html' class='footer-link'>Pricing</a></li>
+                    <li class='footer-item'><a href='help.html' class='footer-link'>Help &amp; Support</a></li>
+                    <li class='footer-item'><a href='contact.html' class='footer-link'>Contact</a></li>
+                    <li class='footer-item'><a href='terms.html' class='footer-link'>Terms of Service</a></li>
+                    <li class='footer-item'><a href='privacy.html' class='footer-link'>Privacy Policy</a></li>
+                </ul>
+            </nav>
+            <p class='footer-meta'>&copy; <span data-year='current-year'>2024</span> Parked Domains. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var pageState = {
+                orderId: null,
+                loading: false,
+                errorType: null,
+                errorMessage: '',
+                data: {
+                    order: null,
+                    items: [],
+                    domains: []
+                }
+            };
+
+            var urlParams = new URLSearchParams(window.location.search);
+            var orderIdParam = urlParams.get('orderId');
+            if (orderIdParam && orderIdParam.trim() !== '') {
+                pageState.orderId = orderIdParam;
+            }
+
+            var loaderSection = document.querySelector('[data-component=order-details-loader]');
+            var loadingState = loaderSection ? loaderSection.querySelector('[data-component=order-loading-state]') : null;
+            var errorState = loaderSection ? loaderSection.querySelector('[data-component=order-error-state]') : null;
+            var mainSection = document.querySelector('[data-component=order-main]');
+
+            function setLoading(isLoading) {
+                pageState.loading = isLoading;
+            }
+
+            function formatCurrency(amount, currency) {
+                if (typeof amount !== 'number') {
+                    return '';
+                }
+                var prefix = currency === 'usd' ? '$' : '';
+                return prefix + amount.toFixed(2);
+            }
+
+            function formatDate(value) {
+                if (!value) {
+                    return '';
+                }
+                var date = new Date(value);
+                if (isNaN(date.getTime())) {
+                    return '';
+                }
+                return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+            }
+
+            function getStatusLabel(status) {
+                if (status === 'paid') return 'Paid';
+                if (status === 'pending') return 'Pending';
+                if (status === 'failed') return 'Failed';
+                if (status === 'cancelled') return 'Cancelled';
+                return '';
+            }
+
+            function getStatusHeadline(status) {
+                if (status === 'paid') return 'Order confirmed';
+                if (status === 'pending') return 'Order processing';
+                if (status === 'failed') return 'Order not completed';
+                if (status === 'cancelled') return 'Order cancelled';
+                return 'Order details';
+            }
+
+            function getStatusHelperText(status) {
+                if (status === 'paid') return 'Your domains are ready to manage below.';
+                if (status === 'pending') return 'We are still processing this order. You can refresh to check for updates.';
+                if (status === 'failed') return 'This order did not complete successfully. No charges should apply.';
+                if (status === 'cancelled') return 'This order was cancelled. No new domains were created.';
+                return '';
+            }
+
+            function renderOrderStatus(container, state) {
+                var order = state.data.order;
+                if (!order) {
+                    container.innerHTML = '';
+                    return;
+                }
+                var headline = getStatusHeadline(order.status);
+                var statusLabel = getStatusLabel(order.status);
+                var helperText = getStatusHelperText(order.status);
+                var placedDate = formatDate(order.created_at);
+                var metaParts = [];
+                if (order.order_number) {
+                    metaParts.push('Order #' + order.order_number);
+                }
+                if (placedDate) {
+                    metaParts.push('Placed on ' + placedDate);
+                }
+                var metaLine = metaParts.join(' • ');
+                var confirmationMessage = order.confirmation_message || '';
+
+                container.innerHTML = `
+                    <div class='order-status-chip status-${order.status}'>${statusLabel}</div>
+                    <h1 class='order-status-heading'>${headline}</h1>
+                    ${metaLine ? `<p class='order-status-meta'>${metaLine}</p>` : ''}
+                    ${confirmationMessage ? `<p class='order-status-message'>${confirmationMessage}</p>` : ''}
+                    ${helperText ? `<p class='order-status-helper'>${helperText}</p>` : ''}
+                `;
+            }
+
+            function renderOrderSummary(container, state) {
+                var order = state.data.order;
+                var items = state.data.items || [];
+                if (!order) {
+                    container.innerHTML = '';
+                    return;
+                }
+                var registrations = items.filter(function(item) { return item && item.item_type === 'domain_registration'; });
+                var addons = items.filter(function(item) { return item && item.item_type === 'domain_addon'; });
+                var currency = order.currency || 'usd';
+
+                var registrationsHtml = '';
+                if (registrations.length > 0) {
+                    registrationsHtml = `
+                        <div class='order-items-group order-items-registrations'>
+                            <h2 class='section-title'>Order summary</h2>
+                            <h3 class='section-subtitle'>Domain registrations</h3>
+                            <ul class='order-items-list'>
+                                ${registrations.map(function(item) {
+                                    var lineAmount = typeof item.line_subtotal === 'number' ? formatCurrency(item.line_subtotal, currency) : '';
+                                    var termYears = item.registration_term_years || item.term_years;
+                                    var termText = termYears ? termYears + ' yr' + (termYears > 1 ? 's' : '') : '';
+                                    var description = item.description || '';
+                                    var pieces = [];
+                                    if (termText) pieces.push(termText);
+                                    if (description) pieces.push(description);
+                                    var detailLine = pieces.join(' • ');
+                                    return `
+                                        <li class='order-item-row'>
+                                            <div class='order-item-main'>
+                                                <div class='order-item-title'>${item.domain_name || ''}</div>
+                                                ${detailLine ? `<div class='order-item-details'>${detailLine}</div>` : ''}
+                                            </div>
+                                            <div class='order-item-amount'>${lineAmount}</div>
+                                        </li>
+                                    `;
+                                }).join('')}
+                            </ul>
+                        </div>
+                    `;
+                }
+
+                var addonsHtml = '';
+                if (addons.length > 0) {
+                    addonsHtml = `
+                        <div class='order-items-group order-items-addons'>
+                            <h3 class='section-subtitle'>Domain add ons</h3>
+                            <ul class='order-items-list'>
+                                ${addons.map(function(item) {
+                                    var lineAmount = typeof item.line_subtotal === 'number' ? formatCurrency(item.line_subtotal, currency) : '';
+                                    var description = item.description || '';
+                                    var addonLabel = '';
+                                    if (item.addon_code === 'whois_privacy') addonLabel = 'WHOIS privacy';
+                                    if (item.addon_code === 'email_forwarding') addonLabel = 'Email forwarding';
+                                    var label = addonLabel || 'Add on';
+                                    var detailParts = [];
+                                    if (description) detailParts.push(description);
+                                    var detailLine = detailParts.join(' • ');
+                                    return `
+                                        <li class='order-item-row'>
+                                            <div class='order-item-main'>
+                                                <div class='order-item-title'>${label} for ${item.domain_name || ''}</div>
+                                                ${detailLine ? `<div class='order-item-details'>${detailLine}</div>` : ''}
+                                            </div>
+                                            <div class='order-item-amount'>${lineAmount}</div>
+                                        </li>
+                                    `;
+                                }).join('')}
+                            </ul>
+                        </div>
+                    `;
+                }
+
+                var totalsParts = [];
+                var subtotalLine = typeof order.subtotal === 'number' ? formatCurrency(order.subtotal, currency) : '';
+                var taxLine = typeof order.tax === 'number' ? formatCurrency(order.tax, currency) : '';
+                var totalLine = typeof order.total === 'number' ? formatCurrency(order.total, currency) : '';
+                if (subtotalLine) {
+                    totalsParts.push(`
+                        <div class='order-total-row'>
+                            <span class='order-total-label'>Subtotal</span>
+                            <span class='order-total-value'>${subtotalLine}</span>
+                        </div>
+                    `);
+                }
+                if (taxLine) {
+                    totalsParts.push(`
+                        <div class='order-total-row'>
+                            <span class='order-total-label'>Tax</span>
+                            <span class='order-total-value'>${taxLine}</span>
+                        </div>
+                    `);
+                }
+                if (totalLine) {
+                    totalsParts.push(`
+                        <div class='order-total-row order-total-row-emphasis'>
+                            <span class='order-total-label'>Total</span>
+                            <span class='order-total-value'>${totalLine}</span>
+                        </div>
+                    `);
+                }
+
+                container.innerHTML = `
+                    <div class='order-summary-card-inner'>
+                        ${registrationsHtml || (!addonsHtml ? `<h2 class='section-title'>Order summary</h2>` : '')}
+                        ${addonsHtml}
+                        <div class='order-totals'>
+                            ${totalsParts.join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderDomainsInOrder(container, state) {
+                var domains = state.data.domains || [];
+                var order = state.data.order;
+                if (!order) {
+                    container.innerHTML = '';
+                    return;
+                }
+
+                if (!domains.length) {
+                    var message = '';
+                    if (order.status === 'pending') {
+                        message = 'Domains from this order will appear here once processing is complete.';
+                    } else if (order.status === 'paid') {
+                        message = 'No domains were returned with this order yet.';
+                    } else if (order.status === 'failed' || order.status === 'cancelled') {
+                        message = 'No domains were created for this order.';
+                    } else {
+                        message = 'No domains are associated with this order.';
+                    }
+                    container.innerHTML = `
+                        <h2 class='section-title'>Domains in this order</h2>
+                        <p class='domains-empty-state'>${message}</p>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = `
+                    <h2 class='section-title'>Domains in this order</h2>
+                    <ul class='domains-list'>
+                        ${domains.map(function(domain) {
+                            var status = domain.status || '';
+                            var statusLabel = '';
+                            if (status === 'active') statusLabel = 'Active';
+                            else if (status === 'expired') statusLabel = 'Expired';
+                            else if (status === 'pending_setup') statusLabel = 'Pending setup';
+                            else if (status === 'parked') statusLabel = 'Parked';
+                            else if (status === 'forwarding_only') statusLabel = 'Forwarding only';
+                            var registrationEnd = formatDate(domain.registration_end);
+                            var metaParts = [];
+                            if (statusLabel) metaParts.push(statusLabel);
+                            if (registrationEnd) metaParts.push('Renews ' + registrationEnd);
+                            var metaLine = metaParts.join(' • ');
+                            return `
+                                <li class='domain-row'>
+                                    <div class='domain-main'>
+                                        <div class='domain-name'>${domain.domain_name || ''}</div>
+                                        ${metaLine ? `<div class='domain-meta'>${metaLine}</div>` : ''}
+                                    </div>
+                                    <div class='domain-actions'>
+                                        <button type='button' class='domain-manage-link' data-action='manage-domain' data-domain-id='${domain.id}'>Manage</button>
+                                    </div>
+                                </li>
+                            `;
+                        }).join('')}
+                    </ul>
+                `;
+            }
+
+            function renderOrderMetadata(container, state) {
+                var order = state.data.order;
+                if (!order) {
+                    container.innerHTML = '';
+                    return;
+                }
+                var created = formatDate(order.created_at);
+                var updated = formatDate(order.updated_at);
+                var currency = order.currency || 'usd';
+                container.innerHTML = `
+                    <div class='order-metadata-card-inner'>
+                        <h2 class='metadata-title'>Order details</h2>
+                        <dl class='metadata-list'>
+                            <div class='metadata-row'>
+                                <dt>Order number</dt>
+                                <dd>${order.order_number || ''}</dd>
+                            </div>
+                            <div class='metadata-row'>
+                                <dt>Order reference</dt>
+                                <dd>${order.id || ''}</dd>
+                            </div>
+                            <div class='metadata-row'>
+                                <dt>Currency</dt>
+                                <dd>${currency.toUpperCase()}</dd>
+                            </div>
+                            <div class='metadata-row'>
+                                <dt>Created</dt>
+                                <dd>${created || '-'}</dd>
+                            </div>
+                            <div class='metadata-row'>
+                                <dt>Last updated</dt>
+                                <dd>${updated || '-'}</dd>
+                            </div>
+                        </dl>
+                    </div>
+                `;
+            }
+
+            function renderOrderError(container, state) {
+                if (!state.errorType) {
+                    container.innerHTML = '';
+                    return;
+                }
+                var heading = 'We could not load your order';
+                var message = state.errorMessage || '';
+                if (state.errorType === 'missing_order_id') {
+                    heading = 'Order reference missing';
+                    if (!message) {
+                        message = 'We could not load your order because no orderId parameter was provided in the link.';
+                    }
+                }
+                container.innerHTML = `
+                    <div class='order-error-card'>
+                        <h1 class='order-error-title'>${heading}</h1>
+                        ${message ? `<p class='order-error-message'>${message}</p>` : ''}
+                        <p class='order-error-helper'>You can refresh the page or return to your dashboard.</p>
+                        <div class='order-error-actions'>
+                            <button type='button' class='btn-text' data-action='retry-load'>Refresh order</button>
+                            <button type='button' class='btn-text' data-action='back-to-dashboard'>Back to dashboard</button>
+                            <button type='button' class='btn-text' data-action='view-all-domains'>View all my domains</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            var populateRenderers = {
+                'order-status': renderOrderStatus,
+                'order-summary': renderOrderSummary,
+                'domains-in-order': renderDomainsInOrder,
+                'order-metadata': renderOrderMetadata,
+                'order-error': renderOrderError
+            };
+
+            function updateUI() {
+                if (loaderSection) {
+                    if (pageState.loading) {
+                        loaderSection.removeAttribute('hidden');
+                        if (loadingState) {
+                            loadingState.removeAttribute('hidden');
+                        }
+                        if (errorState) {
+                            errorState.setAttribute('hidden', 'hidden');
+                        }
+                    } else if (pageState.errorType) {
+                        loaderSection.removeAttribute('hidden');
+                        if (loadingState) {
+                            loadingState.setAttribute('hidden', 'hidden');
+                        }
+                        if (errorState) {
+                            errorState.removeAttribute('hidden');
+                        }
+                    } else {
+                        loaderSection.setAttribute('hidden', 'hidden');
+                    }
+                }
+
+                if (mainSection) {
+                    if (!pageState.loading && !pageState.errorType && pageState.data.order) {
+                        mainSection.removeAttribute('hidden');
+                    } else {
+                        mainSection.setAttribute('hidden', 'hidden');
+                    }
+                }
+
+                var populateElements = document.querySelectorAll('[data-populate]');
+                populateElements.forEach(function(element) {
+                    var key = element.getAttribute('data-populate');
+                    var renderer = populateRenderers[key];
+                    if (typeof renderer === 'function') {
+                        renderer(element, pageState);
+                    }
+                });
+            }
+
+            function loadOrderDetails() {
+                if (!pageState.orderId) {
+                    pageState.errorType = 'missing_order_id';
+                    pageState.errorMessage = 'We could not load your order because no order reference was provided.';
+                    pageState.data.order = null;
+                    pageState.data.items = [];
+                    pageState.data.domains = [];
+                    setLoading(false);
+                    updateUI();
+                    return;
+                }
+
+                pageState.errorType = null;
+                pageState.errorMessage = '';
+                setLoading(true);
+                updateUI();
+
+                try {
+                    var result = WebsiteSDK.getOrderDetails(pageState.orderId);
+                    if (!result || !result.order) {
+                        pageState.errorType = 'order_load_error';
+                        pageState.errorMessage = 'We could not find an order for this reference.';
+                        pageState.data.order = null;
+                        pageState.data.items = [];
+                        pageState.data.domains = [];
+                    } else {
+                        pageState.data.order = result.order || null;
+                        pageState.data.items = Array.isArray(result.items) ? result.items : [];
+                        pageState.data.domains = Array.isArray(result.domains) ? result.domains : [];
+                    }
+                } catch (e) {
+                    console.error('Error loading order details', e);
+                    pageState.errorType = 'order_load_error';
+                    pageState.errorMessage = 'Something went wrong while loading your order. Please try again.';
+                    pageState.data.order = null;
+                    pageState.data.items = [];
+                    pageState.data.domains = [];
+                }
+
+                setLoading(false);
+                updateUI();
+            }
+
+            document.addEventListener('click', function(event) {
+                var target = event.target;
+                if (!target) return;
+                var actionEl = target.closest('[data-action]');
+                if (!actionEl) return;
+                var action = actionEl.getAttribute('data-action');
+                if (!action) return;
+
+                if (action === 'back-to-dashboard') {
+                    event.preventDefault();
+                    window.location.href = 'index.html';
+                } else if (action === 'view-all-domains') {
+                    event.preventDefault();
+                    window.location.href = 'domain_list.html';
+                } else if (action === 'refresh-order' || action === 'retry-load') {
+                    event.preventDefault();
+                    loadOrderDetails();
+                } else if (action === 'manage-domain') {
+                    event.preventDefault();
+                    var domainId = actionEl.getAttribute('data-domain-id');
+                    if (domainId) {
+                        window.location.href = 'domain_overview.html?domainId=' + encodeURIComponent(domainId);
+                    }
+                }
+            });
+
+            loadOrderDetails();
+        });
+    </script>
+    <script>
+        (function () {
+            var yearNode = document.querySelector('[data-year=current-year]');
+            if (yearNode) {
+                yearNode.textContent = String(new Date().getFullYear());
+            }
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8' />
+    <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+    <title>Artist Podcast &amp; Blog</title>
+    <link rel='stylesheet' href='styles.css' />
+    <link rel='stylesheet' href='tag.css' />
+</head>
+<body>
+    <header class='site-header'>
+        <div class='header-inner'>
+            <div class='site-branding'>
+                <a href='index.html' class='site-title'>Gajos Del Oficio</a>
+                <p class='site-tagline'>Artist-focused podcasts &amp; stories</p>
+            </div>
+            <nav class='primary-navigation' aria-label='Primary'>
+                <ul class='nav-row nav-row-top'>
+                    <li class='nav-item'>
+                        <a href='index.html' class='nav-link' title='Homepage with personalized artist-focused feed'>Home</a>
+                    </li>
+                    <li class='nav-item'>
+                        <a href='podcasts.html' class='nav-link' title='Browse and filter all podcast episodes'>Podcasts</a>
+                    </li>
+                    <li class='nav-item'>
+                        <a href='blog.html' class='nav-link' title='Browse and search all blog articles'>Blog</a>
+                    </li>
+                    <li class='nav-item'>
+                        <a href='series.html' class='nav-link' title='Directory of podcast series and shows'>Series</a>
+                    </li>
+                    <li class='nav-item'>
+                        <a href='tags.html' class='nav-link' title='Browse topics and open tag-specific content pages'>Tags</a>
+                    </li>
+                </ul>
+                <ul class='nav-row nav-row-bottom'>
+                    <li class='nav-item'>
+                        <a href='playlists.html' class='nav-link' title='View and manage podcast playlists'>Playlists</a>
+                    </li>
+                    <li class='nav-item'>
+                        <a href='reading_list.html' class='nav-link' title='View bookmarks and named reading lists'>Reading List</a>
+                    </li>
+                    <li class='nav-item nav-item-highlight'>
+                        <a href='queue.html' class='nav-link nav-link-highlight' title='View and manage the current listening queue'>Queue</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id='content' class='site-content' role='main'>
+        <div class='content-inner'>
+            <div class='tag-page' data-component='tag-page-initializer' data-populate='tag-detail'>
+                <section class='tag-loading-state'>
+                    <p>Loading tag content...</p>
+                </section>
+            </div>
+        </div>
+    </main>
+
+    <footer class='site-footer'>
+        <div class='footer-inner'>
+            <nav class='footer-navigation' aria-label='Footer'>
+                <ul class='footer-menu'>
+                    <li class='footer-item'>
+                        <a href='about.html' class='footer-link' title='Learn more about this artist-focused podcast and blog'>About</a>
+                    </li>
+                    <li class='footer-item'>
+                        <a href='contact.html' class='footer-link' title='Send feedback or questions to the site owner'>Contact</a>
+                    </li>
+                    <li class='footer-item'>
+                        <a href='help.html' class='footer-link' title='Get help using playlists, bookmarks, comments and other features'>Help / FAQ</a>
+                    </li>
+                    <li class='footer-item'>
+                        <a href='feed_settings.html' class='footer-link' title='Adjust homepage topics and content type preferences'>Customize Feed</a>
+                    </li>
+                </ul>
+            </nav>
+            <p class='footer-copy'>&copy; <span class='footer-year'>2024</span> Gajos Del Oficio. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var tagContainer = document.querySelector('[data-populate=tag-detail]');
+      if (!tagContainer) {
+        return;
+      }
+
+      function escapeHtml(str) {
+        if (str == null) {
+          return '';
+        }
+        return String(str).replace(/[&<>']/g, function(ch) {
+          switch (ch) {
+            case '&': return '&amp;';
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '\'': return '&#39;';
+            default: return ch;
+          }
+        });
+      }
+
+      function getUrlState() {
+        var params = new URLSearchParams(window.location.search);
+        var id = params.get('id');
+        var contentTypesParam = params.get('content_types');
+        var sort = params.get('sort');
+        var contentTypesArray = null;
+        if (contentTypesParam && contentTypesParam.trim() !== '') {
+          contentTypesArray = contentTypesParam.split(',').map(function(v) { return v.trim(); }).filter(function(v) { return v; });
+        }
+        return {
+          id: id,
+          contentTypesArray: contentTypesArray,
+          sort: sort
+        };
+      }
+
+      function loadTagContent() {
+        var state = getUrlState();
+        var tagId = state.id;
+        var contentTypesArray = state.contentTypesArray;
+        var sort = state.sort;
+
+        if (!tagId) {
+          tagContainer.innerHTML = '<section class=\'tag-empty-param\'><h1 class=\'tag-title\'>Browse by topic</h1><p>No tag selected. Use the Tags item in the main navigation to choose a topic.</p></section>';
+          return;
+        }
+
+        tagContainer.innerHTML = '<section class=\'tag-loading-state\'><p>Loading tag content...</p></section>';
+
+        try {
+          var result = WebsiteSDK.getTagDetailContent(tagId, contentTypesArray || undefined, sort || undefined);
+          renderTagDetail(tagContainer, result, {
+            tagId: tagId,
+            contentTypesArray: contentTypesArray,
+            sort: sort
+          });
+        } catch (err) {
+          console.error(err);
+          tagContainer.innerHTML = '<section class=\'tag-error\'><h1 class=\'tag-title\'>Unable to load this topic</h1><p>Please refresh the page or try again in a moment.</p></section>';
+        }
+      }
+
+      function renderTagDetail(container, payload, options) {
+        var tag = payload.tag || {};
+        var blogArticles = payload.blog_articles || [];
+        var podcastEpisodes = payload.podcast_episodes || [];
+        var tagId = options.tagId;
+        var contentTypesArray = options.contentTypesArray;
+        var sort = options.sort;
+
+        var effectiveContentTypes;
+        if (contentTypesArray && contentTypesArray.length) {
+          effectiveContentTypes = contentTypesArray;
+        } else {
+          effectiveContentTypes = ['blog_posts', 'podcasts'];
+        }
+        var sortValue = sort && sort.length ? sort : 'rating_highest';
+
+        var totalCount = blogArticles.length + podcastEpisodes.length;
+
+        var readingListsJson = localStorage.getItem('reading_lists') || '[]';
+        var playlistsJson = localStorage.getItem('playlists') || '[]';
+        var readingLists;
+        var playlists;
+        try {
+          readingLists = JSON.parse(readingListsJson);
+        } catch (e) {
+          readingLists = [];
+        }
+        try {
+          playlists = JSON.parse(playlistsJson);
+        } catch (e2) {
+          playlists = [];
+        }
+
+        var readingListOptionsHtml = readingLists.length ? readingLists.map(function(list) {
+          return '<option value=\'' + escapeHtml(list.id) + '\'>' + escapeHtml(list.name) + '</option>';
+        }).join('') : '';
+
+        var playlistOptionsHtml = playlists.length ? playlists.map(function(pl) {
+          return '<option value=\'' + escapeHtml(pl.id) + '\'>' + escapeHtml(pl.name) + '</option>';
+        }).join('') : '';
+
+        var episodesHtml = podcastEpisodes.map(function(ep) {
+          var favoriteLabel = ep.is_favorite ? 'Remove from favorites' : 'Add to favorites';
+          return (
+            '<article class=\'tag-item tag-episode-list-item\' data-component=\'tag-episode-list-item\' data-episode-id=\'' + escapeHtml(ep.id) + '\'>' +
+              '<div class=\'tag-item-main\'>' +
+                '<header class=\'tag-item-header\'>' +
+                  '<h2 class=\'tag-item-title tag-episode-title\'>' +
+                    '<a href=\'javascript:void(0)\' data-action=\'open-episode\' data-episode-id=\'' + escapeHtml(ep.id) + '\'>' + escapeHtml(ep.title) + '</a>' +
+                  '</h2>' +
+                '</header>' +
+                '<div class=\'tag-item-meta tag-episode-meta\'>' +
+                  (ep.duration_minutes ? '<span class=\'tag-meta-item tag-meta-duration\'>' + escapeHtml(ep.duration_minutes) + ' min</span>' : '') +
+                  (ep.release_date ? '<span class=\'tag-meta-item tag-meta-date\'>' + escapeHtml(new Date(ep.release_date).toLocaleDateString()) + '</span>' : '') +
+                  (ep.rating ? '<span class=\'tag-meta-item tag-meta-rating\'>Rating ' + escapeHtml(ep.rating) + '</span>' : '') +
+                '</div>' +
+              '</div>' +
+              '<div class=\'tag-item-actions tag-episode-actions\'>' +
+                '<button type=\'button\' class=\'icon-button episode-favorite-toggle\' data-component=\'episode-favorite-toggle\' data-action=\'toggle-episode-favorite\' data-episode-id=\'' + escapeHtml(ep.id) + '\' aria-pressed=\'' + (ep.is_favorite ? 'true' : 'false') + '\' title=\'' + escapeHtml(favoriteLabel) + '\'>' +
+                  '<span class=\'icon\' aria-hidden=\'true\'></span>' +
+                  '<span class=\'sr-only\'>' + escapeHtml(favoriteLabel) + '</span>' +
+                '</button>' +
+                '<div class=\'episode-queue-controls\' data-component=\'episode-queue-controls\'>' +
+                  '<button type=\'button\' class=\'queue-button\' data-action=\'episode-add-to-queue\' data-episode-id=\'' + escapeHtml(ep.id) + '\'>' +
+                    'Add to queue' +
+                  '</button>' +
+                  '<button type=\'button\' class=\'queue-button\' data-action=\'episode-add-and-play\' data-episode-id=\'' + escapeHtml(ep.id) + '\'>' +
+                    'Play next' +
+                  '</button>' +
+                '</div>' +
+                '<div class=\'episode-playlist-selector\' data-component=\'episode-playlist-selector\'>' +
+                  '<button type=\'button\' class=\'playlist-toggle\' data-action=\'open-episode-playlist-selector\' data-episode-id=\'' + escapeHtml(ep.id) + '\'>' +
+                    'Add to playlist' +
+                  '</button>' +
+                  '<div class=\'playlist-menu\' hidden>' +
+                    (playlists.length ? (
+                      '<label class=\'playlist-label\'>Choose playlist</label>' +
+                      '<select class=\'playlist-select\' data-role=\'playlist-select\'>' +
+                        '<option value=\'\'>Select playlist</option>' +
+                        playlistOptionsHtml +
+                      '</select>' +
+                      '<div class=\'playlist-actions-row\'>' +
+                        '<button type=\'button\' class=\'playlist-add-button\' data-action=\'confirm-add-to-playlist\' data-episode-id=\'' + escapeHtml(ep.id) + '\'>Add</button>' +
+                      '</div>' +
+                      '<div class=\'playlist-separator\'>or</div>'
+                    ) : '<p class=\'playlist-empty-message\'>No playlists yet.</p>') +
+                    '<button type=\'button\' class=\'playlist-create-toggle\' data-action=\'select-create-new-playlist\' data-episode-id=\'' + escapeHtml(ep.id) + '\'>Create new playlist</button>' +
+                    '<form class=\'playlist-create-form\' data-role=\'playlist-create-form\' hidden>' +
+                      '<div class=\'form-group\'>' +
+                        '<label for=\'playlist-name-' + escapeHtml(ep.id) + '\'>Playlist name</label>' +
+                        '<input id=\'playlist-name-' + escapeHtml(ep.id) + '\' type=\'text\' name=\'playlist_name\' required />' +
+                      '</div>' +
+                      '<div class=\'form-group\'>' +
+                        '<label for=\'playlist-description-' + escapeHtml(ep.id) + '\'>Description (optional)</label>' +
+                        '<textarea id=\'playlist-description-' + escapeHtml(ep.id) + '\' name=\'playlist_description\' rows=\'2\'></textarea>' +
+                      '</div>' +
+                      '<div class=\'playlist-create-actions-row\'>' +
+                        '<button type=\'submit\' data-action=\'submit-create-playlist\' data-episode-id=\'' + escapeHtml(ep.id) + '\'>Create &amp; add</button>' +
+                        '<button type=\'button\' data-action=\'cancel-playlist-create\'>Cancel</button>' +
+                      '</div>' +
+                    '</form>' +
+                    '<p class=\'tag-inline-feedback playlist-feedback\' aria-live=\'polite\'></p>' +
+                  '</div>' +
+                '</div>' +
+                '<p class=\'tag-inline-feedback queue-feedback\' aria-live=\'polite\'></p>' +
+              '</div>' +
+            '</article>'
+          );
+        }).join('');
+
+        var articlesHtml = blogArticles.map(function(article) {
+          var bookmarkLabel = article.is_bookmarked ? 'Remove bookmark' : 'Save article';
+          return (
+            '<article class=\'tag-item tag-article-list-item\' data-component=\'tag-article-list-item\' data-article-id=\'' + escapeHtml(article.id) + '\'>' +
+              '<div class=\'tag-item-main\'>' +
+                '<header class=\'tag-item-header\'>' +
+                  '<h2 class=\'tag-item-title tag-article-title\'>' +
+                    '<a href=\'javascript:void(0)\' data-action=\'open-article\' data-article-id=\'' + escapeHtml(article.id) + '\'>' + escapeHtml(article.title) + '</a>' +
+                  '</h2>' +
+                '</header>' +
+                '<div class=\'tag-item-meta tag-article-meta\'>' +
+                  (article.author_name ? '<span class=\'tag-meta-item tag-meta-author\'>By ' + escapeHtml(article.author_name) + '</span>' : '') +
+                  (article.publication_date ? '<span class=\'tag-meta-item tag-meta-date\'>' + escapeHtml(new Date(article.publication_date).toLocaleDateString()) + '</span>' : '') +
+                  (article.reading_time_minutes ? '<span class=\'tag-meta-item tag-meta-reading-time\'>' + escapeHtml(article.reading_time_minutes) + ' min read</span>' : '') +
+                  (article.level ? '<span class=\'tag-meta-item tag-meta-level\'>' + escapeHtml(article.level) + '</span>' : '') +
+                  (article.rating ? '<span class=\'tag-meta-item tag-meta-rating\'>Rating ' + escapeHtml(article.rating) + '</span>' : '') +
+                  (article.comments_count ? '<span class=\'tag-meta-item tag-meta-comments\'>' + escapeHtml(article.comments_count) + ' comments</span>' : '') +
+                '</div>' +
+                (article.summary ? '<p class=\'tag-item-summary\'>' + escapeHtml(article.summary) + '</p>' : '') +
+              '</div>' +
+              '<div class=\'tag-item-actions tag-article-actions\'>' +
+                '<button type=\'button\' class=\'icon-button article-bookmark-toggle\' data-component=\'article-bookmark-toggle\' data-action=\'toggle-article-bookmark\' data-article-id=\'' + escapeHtml(article.id) + '\' aria-pressed=\'' + (article.is_bookmarked ? 'true' : 'false') + '\' title=\'' + escapeHtml(bookmarkLabel) + '\'>' +
+                  '<span class=\'icon\' aria-hidden=\'true\'></span>' +
+                  '<span class=\'sr-only\'>' + escapeHtml(bookmarkLabel) + '</span>' +
+                '</button>' +
+                '<div class=\'article-readinglist-selector\' data-component=\'article-readinglist-selector\'>' +
+                  '<button type=\'button\' class=\'readinglist-toggle\' data-action=\'open-readinglist-selector\' data-article-id=\'' + escapeHtml(article.id) + '\'>' +
+                    'Add to reading list' +
+                  '</button>' +
+                  '<div class=\'readinglist-menu\' hidden>' +
+                    (readingLists.length ? (
+                      '<label class=\'readinglist-label\'>Choose reading list</label>' +
+                      '<select class=\'readinglist-select\' data-role=\'readinglist-select\'>' +
+                        '<option value=\'\'>Select reading list</option>' +
+                        readingListOptionsHtml +
+                      '</select>' +
+                      '<div class=\'readinglist-actions-row\'>' +
+                        '<button type=\'button\' class=\'readinglist-add-button\' data-action=\'confirm-add-to-readinglist\' data-article-id=\'' + escapeHtml(article.id) + '\'>Add</button>' +
+                        '<button type=\'button\' data-action=\'cancel-readinglist-select\'>Cancel</button>' +
+                      '</div>'
+                    ) : '<p class=\'readinglist-empty-message\'>No reading lists available.</p>') +
+                    '<p class=\'tag-inline-feedback readinglist-feedback\' aria-live=\'polite\'></p>' +
+                  '</div>' +
+                '</div>' +
+              '</div>' +
+            '</article>'
+          );
+        }).join('');
+
+        var hasEpisodes = podcastEpisodes.length > 0 && effectiveContentTypes.indexOf('podcasts') !== -1;
+        var hasArticles = blogArticles.length > 0 && effectiveContentTypes.indexOf('blog_posts') !== -1;
+        var hasAnyContent = hasEpisodes || hasArticles;
+
+        if (!hasAnyContent) {
+          container.innerHTML =
+            '<div class=\'tag-layout\'>' +
+              '<section class=\'tag-main-column\'>' +
+                '<header class=\'tag-header\' data-component=\'tag-header\'>' +
+                  '<h1 class=\'tag-title\'>Episodes &amp; articles tagged \'\' + escapeHtml(tag.name || '') + '\'\'</h1>' +
+                  (tag.description ? '<p class=\'tag-description\'>' + escapeHtml(tag.description) + '</p>' : '') +
+                  '<p class=\'tag-count\'>No items found for this combination of filters.</p>' +
+                  '<div class=\'tag-header-links\'>' +
+                    '<button type=\'button\' class=\'tag-header-link\' data-action=\'navigate-blog-listing\' data-tag-id=\'' + escapeHtml(tagId) + '\'>View all blog posts for this tag</button>' +
+                    '<button type=\'button\' class=\'tag-header-link\' data-action=\'navigate-podcast-listing\' data-tag-id=\'' + escapeHtml(tagId) + '\'>View all podcast episodes for this tag</button>' +
+                  '</div>' +
+                '</header>' +
+                '<section class=\'tag-filter-bar\' data-component=\'tag-filter-bar\'>' +
+                  '<div class=\'filter-group filter-group-types\'>' +
+                    '<span class=\'filter-label\'>Show</span>' +
+                    '<label class=\'filter-pill\'>' +
+                      '<input type=\'checkbox\' data-action=\'toggle-content-type\' value=\'podcasts\' ' + (effectiveContentTypes.indexOf('podcasts') !== -1 ? 'checked' : '') + ' />' +
+                      '<span>Episodes</span>' +
+                    '</label>' +
+                    '<label class=\'filter-pill\'>' +
+                      '<input type=\'checkbox\' data-action=\'toggle-content-type\' value=\'blog_posts\' ' + (effectiveContentTypes.indexOf('blog_posts') !== -1 ? 'checked' : '') + ' />' +
+                      '<span>Articles</span>' +
+                    '</label>' +
+                  '</div>' +
+                  '<div class=\'filter-group filter-group-sort\'>' +
+                    '<label class=\'filter-label\' for=\'tag-sort-select\'>Sort by</label>' +
+                    '<select id=\'tag-sort-select\' class=\'filter-select\' data-action=\'change-sort\'>' +
+                      '<option value=\'rating_highest\' ' + (sortValue === 'rating_highest' ? 'selected' : '') + '>Top rated</option>' +
+                      '<option value=\'newest\' ' + (sortValue === 'newest' ? 'selected' : '') + '>Newest</option>' +
+                      '<option value=\'oldest\' ' + (sortValue === 'oldest' ? 'selected' : '') + '>Oldest</option>' +
+                      '<option value=\'most_commented\' ' + (sortValue === 'most_commented' ? 'selected' : '') + '>Most commented</option>' +
+                    '</select>' +
+                  '</div>' +
+                '</section>' +
+                '<section class=\'tag-content-empty-state\' data-component=\'tag-content-empty-state\'>' +
+                  '<div class=\'empty-state-inner\'>' +
+                    '<h2 class=\'empty-state-title\'>Nothing here yet</h2>' +
+                    '<p class=\'empty-state-body\'>Try adjusting the filters above or explore all content for this tag in the blog or podcast sections.</p>' +
+                    '<div class=\'empty-state-actions\'>' +
+                      '<button type=\'button\' class=\'empty-state-button\' data-action=\'reset-filters\'>Reset filters</button>' +
+                      '<button type=\'button\' class=\'empty-state-button\' data-action=\'navigate-blog-listing\' data-tag-id=\'' + escapeHtml(tagId) + '\'>Go to blog</button>' +
+                      '<button type=\'button\' class=\'empty-state-button\' data-action=\'navigate-podcast-listing\' data-tag-id=\'' + escapeHtml(tagId) + '\'>Go to podcasts</button>' +
+                    '</div>' +
+                  '</div>' +
+                '</section>' +
+              '</section>' +
+              '<aside class=\'tag-sidebar\'>' +
+                '<aside class=\'widget widget-search\'>' +
+                  '<h2 class=\'widget-title\'>Search site</h2>' +
+                  '<div class=\'widget-content\'>' +
+                    '<form class=\'search-form\' onsubmit=\'return false;\'>' +
+                      '<div class=\'form-group\'>' +
+                        '<label for=\'search-query\'>Search episodes and articles</label>' +
+                        '<input id=\'search-query\' type=\'text\' name=\'q\' />' +
+                      '</div>' +
+                    '</form>' +
+                  '</div>' +
+                '</aside>' +
+              '</aside>' +
+            '</div>';
+          return;
+        }
+
+        container.innerHTML =
+          '<div class=\'tag-layout\'>' +
+            '<section class=\'tag-main-column\'>' +
+              '<header class=\'tag-header\' data-component=\'tag-header\'>' +
+                '<h1 class=\'tag-title\'>Episodes &amp; articles tagged \'\' + escapeHtml(tag.name || '') + '\'\'</h1>' +
+                (tag.description ? '<p class=\'tag-description\'>' + escapeHtml(tag.description) + '</p>' : '') +
+                '<p class=\'tag-count\'>' + escapeHtml(totalCount) + ' item' + (totalCount === 1 ? '' : 's') + ' for this topic</p>' +
+                '<div class=\'tag-header-links\'>' +
+                  '<button type=\'button\' class=\'tag-header-link\' data-action=\'navigate-blog-listing\' data-tag-id=\'' + escapeHtml(tagId) + '\'>View all blog posts for this tag</button>' +
+                  '<button type=\'button\' class=\'tag-header-link\' data-action=\'navigate-podcast-listing\' data-tag-id=\'' + escapeHtml(tagId) + '\'>View all podcast episodes for this tag</button>' +
+                '</div>' +
+              '</header>' +
+              '<section class=\'tag-filter-bar\' data-component=\'tag-filter-bar\'>' +
+                '<div class=\'filter-group filter-group-types\'>' +
+                  '<span class=\'filter-label\'>Show</span>' +
+                  '<label class=\'filter-pill\'>' +
+                    '<input type=\'checkbox\' data-action=\'toggle-content-type\' value=\'podcasts\' ' + (effectiveContentTypes.indexOf('podcasts') !== -1 ? 'checked' : '') + ' />' +
+                    '<span>Episodes</span>' +
+                  '</label>' +
+                  '<label class=\'filter-pill\'>' +
+                    '<input type=\'checkbox\' data-action=\'toggle-content-type\' value=\'blog_posts\' ' + (effectiveContentTypes.indexOf('blog_posts') !== -1 ? 'checked' : '') + ' />' +
+                    '<span>Articles</span>' +
+                  '</label>' +
+                '</div>' +
+                '<div class=\'filter-group filter-group-sort\'>' +
+                  '<label class=\'filter-label\' for=\'tag-sort-select\'>Sort by</label>' +
+                  '<select id=\'tag-sort-select\' class=\'filter-select\' data-action=\'change-sort\'>' +
+                    '<option value=\'rating_highest\' ' + (sortValue === 'rating_highest' ? 'selected' : '') + '>Top rated</option>' +
+                    '<option value=\'newest\' ' + (sortValue === 'newest' ? 'selected' : '') + '>Newest</option>' +
+                    '<option value=\'oldest\' ' + (sortValue === 'oldest' ? 'selected' : '') + '>Oldest</option>' +
+                    '<option value=\'most_commented\' ' + (sortValue === 'most_commented' ? 'selected' : '') + '>Most commented</option>' +
+                  '</select>' +
+                '</div>' +
+              '</section>' +
+              '<section class=\'tagged-content-list\' data-component=\'tagged-content-list\'>' +
+                (hasEpisodes ? (
+                  '<section class=\'tag-section tag-section-episodes\' aria-label=\'Podcast episodes\'>' +
+                    '<h2 class=\'tag-section-title\'>Episodes</h2>' +
+                    episodesHtml +
+                  '</section>'
+                ) : '') +
+                (hasArticles ? (
+                  '<section class=\'tag-section tag-section-articles\' aria-label=\'Blog articles\'>' +
+                    '<h2 class=\'tag-section-title\'>Articles</h2>' +
+                    articlesHtml +
+                  '</section>'
+                ) : '') +
+              '</section>' +
+            '</section>' +
+            '<aside class=\'tag-sidebar\'>' +
+              '<aside class=\'widget widget-search\'>' +
+                '<h2 class=\'widget-title\'>Search site</h2>' +
+                '<div class=\'widget-content\'>' +
+                  '<form class=\'search-form\' onsubmit=\'return false;\'>' +
+                    '<div class=\'form-group\'>' +
+                      '<label for=\'search-query\'>Search episodes and articles</label>' +
+                      '<input id=\'search-query\' type=\'text\' name=\'q\' />' +
+                    '</div>' +
+                  '</form>' +
+                '</div>' +
+              '</aside>' +
+            '</aside>' +
+          '</div>';
+      }
+
+      function updateUrlForFilters(newContentTypesArray, newSort) {
+        var state = getUrlState();
+        var id = state.id;
+        var params = new URLSearchParams(window.location.search);
+        if (id) {
+          params.set('id', id);
+        }
+        if (newContentTypesArray && newContentTypesArray.length) {
+          params.set('content_types', newContentTypesArray.join(','));
+        } else {
+          params.delete('content_types');
+        }
+        if (newSort && newSort.length) {
+          params.set('sort', newSort);
+        } else {
+          params.delete('sort');
+        }
+        var newUrl = window.location.pathname + '?' + params.toString();
+        window.history.pushState({ id: id, contentTypesArray: newContentTypesArray, sort: newSort }, '', newUrl);
+      }
+
+      tagContainer.addEventListener('click', function(event) {
+        var actionElement = event.target.closest('[data-action]');
+        if (!actionElement) {
+          return;
+        }
+        var action = actionElement.getAttribute('data-action');
+
+        if (action === 'open-article') {
+          var articleId = actionElement.getAttribute('data-article-id');
+          if (articleId) {
+            window.location.href = 'article.html?id=' + encodeURIComponent(articleId);
+          }
+        } else if (action === 'open-episode') {
+          var episodeId = actionElement.getAttribute('data-episode-id');
+          if (episodeId) {
+            window.location.href = 'podcast_episode.html?id=' + encodeURIComponent(episodeId);
+          }
+        } else if (action === 'toggle-article-bookmark') {
+          var articleId2 = actionElement.getAttribute('data-article-id');
+          if (!articleId2) {
+            return;
+          }
+          var currentPressed = actionElement.getAttribute('aria-pressed') === 'true';
+          var nextState = !currentPressed;
+          try {
+            var updatedArticle = WebsiteSDK.setArticleBookmark(articleId2, nextState);
+            var isBookmarked = !!updatedArticle.is_bookmarked;
+            actionElement.setAttribute('aria-pressed', isBookmarked ? 'true' : 'false');
+            if (isBookmarked) {
+              actionElement.classList.add('is-active');
+            } else {
+              actionElement.classList.remove('is-active');
+            }
+          } catch (e) {
+            console.error(e);
+            window.alert('Unable to update bookmark. Please try again.');
+          }
+        } else if (action === 'open-readinglist-selector') {
+          var selector = actionElement.closest('.article-readinglist-selector');
+          if (!selector) {
+            return;
+          }
+          var menu = selector.querySelector('.readinglist-menu');
+          if (menu) {
+            menu.hidden = !menu.hidden;
+          }
+        } else if (action === 'cancel-readinglist-select') {
+          var selector2 = actionElement.closest('.article-readinglist-selector');
+          if (!selector2) {
+            return;
+          }
+          var menu2 = selector2.querySelector('.readinglist-menu');
+          if (menu2) {
+            menu2.hidden = true;
+          }
+        } else if (action === 'confirm-add-to-readinglist') {
+          var selector3 = actionElement.closest('.article-readinglist-selector');
+          if (!selector3) {
+            return;
+          }
+          var selectEl = selector3.querySelector('[data-role=readinglist-select]');
+          var feedback = selector3.querySelector('.readinglist-feedback');
+          if (!selectEl) {
+            return;
+          }
+          var readingListId = selectEl.value;
+          var articleId3 = actionElement.getAttribute('data-article-id');
+          if (!readingListId) {
+            if (feedback) {
+              feedback.textContent = 'Choose a reading list first.';
+            }
+            return;
+          }
+          try {
+            WebsiteSDK.addArticleToReadingList(readingListId, articleId3);
+            if (feedback) {
+              feedback.textContent = 'Added to reading list.';
+            }
+          } catch (e2) {
+            console.error(e2);
+            if (feedback) {
+              feedback.textContent = 'Could not add to reading list. Please try again.';
+            }
+          }
+        } else if (action === 'toggle-episode-favorite') {
+          var episodeId2 = actionElement.getAttribute('data-episode-id');
+          if (!episodeId2) {
+            return;
+          }
+          var currentFav = actionElement.getAttribute('aria-pressed') === 'true';
+          var nextFav = !currentFav;
+          try {
+            var updatedEpisode = WebsiteSDK.setEpisodeFavorite(episodeId2, nextFav);
+            var isFav = !!updatedEpisode.is_favorite;
+            actionElement.setAttribute('aria-pressed', isFav ? 'true' : 'false');
+            if (isFav) {
+              actionElement.classList.add('is-active');
+            } else {
+              actionElement.classList.remove('is-active');
+            }
+          } catch (e3) {
+            console.error(e3);
+            window.alert('Unable to update favorite. Please try again.');
+          }
+        } else if (action === 'episode-add-to-queue' || action === 'episode-add-and-play') {
+          var episodeId3 = actionElement.getAttribute('data-episode-id');
+          if (!episodeId3) {
+            return;
+          }
+          var playNow = action === 'episode-add-and-play';
+          try {
+            WebsiteSDK.addEpisodeToListeningQueue(episodeId3, playNow);
+            var parent = actionElement.closest('.tag-item-actions');
+            var feedback2 = parent ? parent.querySelector('.queue-feedback') : null;
+            if (feedback2) {
+              feedback2.textContent = playNow ? 'Added and will play next.' : 'Added to queue.';
+            }
+          } catch (e4) {
+            console.error(e4);
+            window.alert('Unable to update queue. Please try again.');
+          }
+        } else if (action === 'open-episode-playlist-selector') {
+          var wrapper = actionElement.closest('.episode-playlist-selector');
+          if (!wrapper) {
+            return;
+          }
+          var menu3 = wrapper.querySelector('.playlist-menu');
+          if (menu3) {
+            menu3.hidden = !menu3.hidden;
+          }
+        } else if (action === 'confirm-add-to-playlist') {
+          var wrapper2 = actionElement.closest('.episode-playlist-selector');
+          if (!wrapper2) {
+            return;
+          }
+          var selectEl2 = wrapper2.querySelector('[data-role=playlist-select]');
+          var feedback3 = wrapper2.querySelector('.playlist-feedback');
+          if (!selectEl2) {
+            return;
+          }
+          var playlistId = selectEl2.value;
+          var episodeId4 = actionElement.getAttribute('data-episode-id');
+          if (!playlistId) {
+            if (feedback3) {
+              feedback3.textContent = 'Choose a playlist first.';
+            }
+            return;
+          }
+          try {
+            WebsiteSDK.addEpisodeToPlaylist(episodeId4, playlistId);
+            if (feedback3) {
+              feedback3.textContent = 'Added to playlist.';
+            }
+          } catch (e5) {
+            console.error(e5);
+            if (feedback3) {
+              feedback3.textContent = 'Could not add to playlist. Please try again.';
+            }
+          }
+        } else if (action === 'select-create-new-playlist') {
+          var wrapper3 = actionElement.closest('.episode-playlist-selector');
+          if (!wrapper3) {
+            return;
+          }
+          var form = wrapper3.querySelector('[data-role=playlist-create-form]');
+          if (form) {
+            form.hidden = false;
+          }
+        } else if (action === 'cancel-playlist-create') {
+          var wrapper4 = actionElement.closest('.episode-playlist-selector');
+          if (!wrapper4) {
+            return;
+          }
+          var form2 = wrapper4.querySelector('[data-role=playlist-create-form]');
+          if (form2) {
+            form2.hidden = true;
+          }
+        } else if (action === 'navigate-blog-listing') {
+          var tagIdNav = actionElement.getAttribute('data-tag-id');
+          var url = 'blog.html';
+          if (tagIdNav) {
+            url += '?tag_id=' + encodeURIComponent(tagIdNav);
+          }
+          window.location.href = url;
+        } else if (action === 'navigate-podcast-listing') {
+          var tagIdNav2 = actionElement.getAttribute('data-tag-id');
+          var url2 = 'podcasts.html';
+          if (tagIdNav2) {
+            url2 += '?tag_id=' + encodeURIComponent(tagIdNav2);
+          }
+          window.location.href = url2;
+        } else if (action === 'reset-filters') {
+          var state2 = getUrlState();
+          var id2 = state2.id;
+          var params2 = new URLSearchParams(window.location.search);
+          if (id2) {
+            params2.set('id', id2);
+          }
+          params2.delete('content_types');
+          params2.delete('sort');
+          var newUrl2 = window.location.pathname + '?' + params2.toString();
+          window.history.pushState({ id: id2, contentTypesArray: null, sort: null }, '', newUrl2);
+          loadTagContent();
+        }
+      });
+
+      tagContainer.addEventListener('change', function(event) {
+        var target = event.target;
+        var action = target.getAttribute('data-action');
+        if (!action) {
+          return;
+        }
+
+        if (action === 'toggle-content-type') {
+          var checkboxes = tagContainer.querySelectorAll('input[data-action=toggle-content-type]');
+          var selected = [];
+          checkboxes.forEach(function(cb) {
+            if (cb.checked) {
+              selected.push(cb.value);
+            }
+          });
+          if (!selected.length) {
+            target.checked = true;
+            return;
+          }
+          var state = getUrlState();
+          var currentSort = state.sort && state.sort.length ? state.sort : 'rating_highest';
+          updateUrlForFilters(selected, currentSort);
+          loadTagContent();
+        } else if (action === 'change-sort') {
+          var newSort = target.value;
+          var state2 = getUrlState();
+          var contentTypesArray = state2.contentTypesArray;
+          updateUrlForFilters(contentTypesArray, newSort);
+          loadTagContent();
+        }
+      });
+
+      window.addEventListener('popstate', function() {
+        loadTagContent();
+      });
+
+      loadTagContent();
+    });
+    </script>
+</body>
+</html>

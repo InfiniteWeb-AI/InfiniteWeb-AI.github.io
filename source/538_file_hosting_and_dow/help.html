@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Hosting Service - Help &amp; Support</title>
+    
+    <link rel="stylesheet" href="help.css">
+</head>
+<body>
+    <header class="site-header">
+        <nav class="main-nav" aria-label="Main navigation">
+            <ul class="main-nav__list">
+                <li class="main-nav__item"><a href="index.html">Dashboard</a></li>
+                <li class="main-nav__item"><a href="explore.html">Explore</a></li>
+                <li class="main-nav__item"><a href="collections.html">Collections</a></li>
+                <li class="main-nav__item"><a href="download_queue.html">Download Queue</a></li>
+                <li class="main-nav__item"><a href="settings.html">Settings</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" class="site-content" role="main">
+        <section data-component="help-topic-state-controller" hidden></section>
+
+        <section data-component="topic-selector">
+            <label for="helpTopicInput">Topic:</label>
+            <input type="text" id="helpTopicInput" name="topic" data-action="topic-input">
+            <button type="button" data-action="topic-submit">Apply</button>
+        </section>
+
+        <form data-component="help-search-form" data-action="help-search-form">
+            <label for="helpSearchInput">Search:</label>
+            <input type="text" id="helpSearchInput" name="helpSearch" data-action="search-input">
+            <button type="button" data-action="clear-search">Clear</button>
+        </form>
+
+        <p data-component="help-loading-status" data-populate="help-status"></p>
+
+        <h1>Help &amp; Support</h1>
+
+        <section data-component="faq-list-wrapper">
+            <h2>FAQs</h2>
+            <div data-component="faq-list" data-populate="faq-list"></div>
+        </section>
+
+        <section data-component="guide-list-wrapper">
+            <h2>Guides</h2>
+            <div data-component="guide-list" data-populate="guide-list"></div>
+        </section>
+
+        <section data-component="support-contact-block-wrapper">
+            <h2>Support contact</h2>
+            <div data-component="support-contact-block" data-populate="support-contact-block"></div>
+        </section>
+
+        <section data-component="support-contact-form-wrapper">
+            <h2>Contact form</h2>
+            <div data-component="support-contact-form" data-populate="support-contact-form"></div>
+        </section>
+
+        <div data-component="help-router-link-handler" hidden></div>
+    </main>
+
+    <footer class="site-footer">
+        <p class="site-footer__copy">
+            &copy; 2010&ndash;2026 Example File Hosting Service
+        </p>
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul class="footer-nav__list">
+                <li class="footer-nav__item"><a href="about.html">About</a></li>
+                <li class="footer-nav__item"><a href="help.html">Help &amp; Support</a></li>
+                <li class="footer-nav__item"><a href="terms.html">Terms of Service</a></li>
+                <li class="footer-nav__item"><a href="privacy.html">Privacy Policy</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var state = {
+            topic: null,
+            helpData: {
+                faqs: [],
+                guides: []
+            },
+            filteredFaqs: [],
+            filteredGuides: [],
+            searchQuery: '',
+            expandedFaqIds: {},
+            expandedGuideIds: {},
+            apiStatus: {
+                getHelpArticles: {
+                    loading: false,
+                    error: null
+                },
+                getSupportContactOptions: {
+                    loading: false,
+                    error: null
+                }
+            },
+            supportOptions: {
+                supportEmail: null,
+                contactFormEnabled: false,
+                contactFormFields: []
+            },
+            form: {
+                values: {},
+                validationErrors: {},
+                submitStatus: ''
+            }
+        };
+
+        var searchDebounceTimeout = null;
+
+        function getTopicFromLocation() {
+            var params = new URLSearchParams(window.location.search);
+            var topic = params.get('topic');
+            if (topic && topic.trim() !== '') {
+                return topic.trim();
+            }
+            return null;
+        }
+
+        function updateUrlForTopic(newTopic, options) {
+            var currentUrl = new URL(window.location.href);
+            var params = currentUrl.searchParams;
+            if (newTopic && newTopic.trim() !== '') {
+                params.set('topic', newTopic.trim());
+            } else {
+                params.delete('topic');
+            }
+            currentUrl.search = params.toString() ? '?' + params.toString() : '';
+            var relativeUrl = currentUrl.pathname + currentUrl.search + currentUrl.hash;
+            var useReplace = options && options.replace === true;
+            if (useReplace) {
+                window.history.replaceState({ topic: newTopic }, '', relativeUrl);
+            } else {
+                window.history.pushState({ topic: newTopic }, '', relativeUrl);
+            }
+        }
+
+        function setTopic(newTopic, options) {
+            state.topic = newTopic;
+            var topicInput = document.getElementById('helpTopicInput');
+            if (topicInput) {
+                topicInput.value = newTopic || '';
+            }
+            updateUrlForTopic(newTopic, options);
+        }
+
+        function applySearchFilter() {
+            var query = state.searchQuery;
+            var trimmed = query ? query.trim().toLowerCase() : '';
+            if (!trimmed) {
+                state.filteredFaqs = state.helpData.faqs.slice();
+                state.filteredGuides = state.helpData.guides.slice();
+                return;
+            }
+            var filteredFaqs = [];
+            for (var i = 0; i < state.helpData.faqs.length; i += 1) {
+                var faq = state.helpData.faqs[i];
+                var relatedTasksText = '';
+                if (Array.isArray(faq.relatedTasks)) {
+                    relatedTasksText = faq.relatedTasks.join(' ');
+                }
+                var text = (faq.question || '') + ' ' + (faq.answer || '') + ' ' + relatedTasksText;
+                if (text.toLowerCase().indexOf(trimmed) !== -1) {
+                    filteredFaqs.push(faq);
+                }
+            }
+            var filteredGuides = [];
+            for (var j = 0; j < state.helpData.guides.length; j += 1) {
+                var guide = state.helpData.guides[j];
+                var stepsText = '';
+                if (Array.isArray(guide.steps)) {
+                    stepsText = guide.steps.join(' ');
+                }
+                var guideText = (guide.title || '') + ' ' + (guide.summary || '') + ' ' + stepsText;
+                if (guideText.toLowerCase().indexOf(trimmed) !== -1) {
+                    filteredGuides.push(guide);
+                }
+            }
+            state.filteredFaqs = filteredFaqs;
+            state.filteredGuides = filteredGuides;
+        }
+
+        function loadHelpArticles() {
+            state.apiStatus.getHelpArticles.loading = true;
+            state.apiStatus.getHelpArticles.error = null;
+            renderAll();
+            try {
+                var result;
+                if (state.topic) {
+                    result = WebsiteSDK.getHelpArticles(state.topic);
+                } else {
+                    result = WebsiteSDK.getHelpArticles();
+                }
+                var faqs = Array.isArray(result.faqs) ? result.faqs : [];
+                var guides = Array.isArray(result.guides) ? result.guides : [];
+                state.helpData.faqs = faqs;
+                state.helpData.guides = guides;
+                applySearchFilter();
+            } catch (error) {
+                var message = 'Unable to load help articles.';
+                if (error && error.message) {
+                    message = error.message;
+                }
+                state.apiStatus.getHelpArticles.error = message;
+                state.filteredFaqs = [];
+                state.filteredGuides = [];
+            }
+            state.apiStatus.getHelpArticles.loading = false;
+            renderAll();
+        }
+
+        function loadSupportContactOptions() {
+            state.apiStatus.getSupportContactOptions.loading = true;
+            state.apiStatus.getSupportContactOptions.error = null;
+            renderAll();
+            try {
+                var result = WebsiteSDK.getSupportContactOptions();
+                state.supportOptions.supportEmail = result && result.supportEmail ? result.supportEmail : null;
+                state.supportOptions.contactFormEnabled = !!(result && result.contactFormEnabled);
+                if (result && Array.isArray(result.contactFormFields)) {
+                    state.supportOptions.contactFormFields = result.contactFormFields;
+                } else {
+                    state.supportOptions.contactFormFields = [];
+                }
+            } catch (error) {
+                var message = 'Unable to load support contact options.';
+                if (error && error.message) {
+                    message = error.message;
+                }
+                state.apiStatus.getSupportContactOptions.error = message;
+            }
+            state.apiStatus.getSupportContactOptions.loading = false;
+            renderAll();
+        }
+
+        function renderHelpStatus(container) {
+            container.innerHTML = '';
+            var helpLoading = state.apiStatus.getHelpArticles.loading;
+            var supportLoading = state.apiStatus.getSupportContactOptions.loading;
+            var helpError = state.apiStatus.getHelpArticles.error;
+            var supportError = state.apiStatus.getSupportContactOptions.error;
+            var hasLoading = helpLoading || supportLoading;
+            var hasError = !!helpError || !!supportError;
+            if (!hasLoading && !hasError) {
+                return;
+            }
+            var text = '';
+            if (hasLoading) {
+                text = 'Loading help content, please wait...';
+            }
+            if (hasError) {
+                var parts = [];
+                if (helpError) {
+                    parts.push('Help articles: ' + helpError);
+                }
+                if (supportError) {
+                    parts.push('Support options: ' + supportError);
+                }
+                text = parts.join(' ');
+            }
+            var span = document.createElement('span');
+            span.textContent = text + ' ';
+            container.appendChild(span);
+            if (helpError) {
+                var retryHelpButton = document.createElement('button');
+                retryHelpButton.type = 'button';
+                retryHelpButton.textContent = 'Retry help content';
+                retryHelpButton.dataset.action = 'retry-help-articles';
+                container.appendChild(retryHelpButton);
+            }
+            if (supportError) {
+                var retrySupportButton = document.createElement('button');
+                retrySupportButton.type = 'button';
+                retrySupportButton.textContent = 'Retry support options';
+                retrySupportButton.dataset.action = 'retry-support-options';
+                container.appendChild(retrySupportButton);
+            }
+        }
+
+        function renderFaqList(container, faqs) {
+            container.innerHTML = '';
+            if (state.apiStatus.getHelpArticles.loading && (!faqs || faqs.length === 0)) {
+                var loadingParagraph = document.createElement('p');
+                loadingParagraph.textContent = 'Loading FAQs...';
+                container.appendChild(loadingParagraph);
+                return;
+            }
+            if (!faqs || faqs.length === 0) {
+                var emptyParagraph = document.createElement('p');
+                emptyParagraph.textContent = 'No FAQs found for this topic.';
+                container.appendChild(emptyParagraph);
+                return;
+            }
+            for (var i = 0; i < faqs.length; i += 1) {
+                var faq = faqs[i];
+                var itemDiv = document.createElement('div');
+
+                var questionButton = document.createElement('button');
+                questionButton.type = 'button';
+                questionButton.textContent = faq.question || '';
+                questionButton.dataset.action = 'toggle-faq';
+                if (faq.id) {
+                    questionButton.dataset.faqId = faq.id;
+                }
+                itemDiv.appendChild(questionButton);
+
+                var isExpanded = false;
+                if (faq.id && state.expandedFaqIds[faq.id]) {
+                    isExpanded = true;
+                }
+
+                if (isExpanded) {
+                    var answerDiv = document.createElement('div');
+                    answerDiv.innerHTML = faq.answer || '';
+                    itemDiv.appendChild(answerDiv);
+
+                    if (Array.isArray(faq.relatedTasks) && faq.relatedTasks.length > 0) {
+                        var relatedLabel = document.createElement('p');
+                        relatedLabel.textContent = 'Related topics:';
+                        itemDiv.appendChild(relatedLabel);
+
+                        var relatedList = document.createElement('ul');
+                        for (var j = 0; j < faq.relatedTasks.length; j += 1) {
+                            var task = faq.relatedTasks[j];
+                            var li = document.createElement('li');
+                            var link = document.createElement('a');
+                            link.href = 'javascript:void(0)';
+                            link.textContent = task;
+                            link.dataset.action = 'related-task-topic';
+                            link.dataset.topic = task;
+                            li.appendChild(link);
+                            relatedList.appendChild(li);
+                        }
+                        itemDiv.appendChild(relatedList);
+                    }
+                }
+
+                container.appendChild(itemDiv);
+            }
+        }
+
+        function renderGuideList(container, guides) {
+            container.innerHTML = '';
+            if (state.apiStatus.getHelpArticles.loading && (!guides || guides.length === 0)) {
+                var loadingParagraph = document.createElement('p');
+                loadingParagraph.textContent = 'Loading guides...';
+                container.appendChild(loadingParagraph);
+                return;
+            }
+            if (!guides || guides.length === 0) {
+                var emptyParagraph = document.createElement('p');
+                emptyParagraph.textContent = 'No guides found for this topic.';
+                container.appendChild(emptyParagraph);
+                return;
+            }
+            for (var i = 0; i < guides.length; i += 1) {
+                var guide = guides[i];
+                var itemDiv = document.createElement('div');
+
+                var titleButton = document.createElement('button');
+                titleButton.type = 'button';
+                titleButton.textContent = guide.title || '';
+                titleButton.dataset.action = 'toggle-guide';
+                if (guide.id) {
+                    titleButton.dataset.guideId = guide.id;
+                }
+                itemDiv.appendChild(titleButton);
+
+                if (guide.summary) {
+                    var summaryParagraph = document.createElement('p');
+                    summaryParagraph.textContent = guide.summary;
+                    itemDiv.appendChild(summaryParagraph);
+                }
+
+                var isExpanded = false;
+                if (guide.id && state.expandedGuideIds[guide.id]) {
+                    isExpanded = true;
+                }
+
+                if (isExpanded && Array.isArray(guide.steps)) {
+                    var stepsList = document.createElement('ol');
+                    for (var j = 0; j < guide.steps.length; j += 1) {
+                        var stepText = guide.steps[j];
+                        var li = document.createElement('li');
+                        li.innerHTML = stepText || '';
+                        stepsList.appendChild(li);
+                    }
+                    itemDiv.appendChild(stepsList);
+                }
+
+                container.appendChild(itemDiv);
+            }
+        }
+
+        function renderSupportContactBlock(container) {
+            container.innerHTML = '';
+            var supportEmail = state.supportOptions.supportEmail;
+            var contactFormEnabled = state.supportOptions.contactFormEnabled;
+            if (!supportEmail && !contactFormEnabled) {
+                if (state.apiStatus.getSupportContactOptions.loading) {
+                    var loadingParagraph = document.createElement('p');
+                    loadingParagraph.textContent = 'Loading support contact options...';
+                    container.appendChild(loadingParagraph);
+                    return;
+                }
+                var noOptionsParagraph = document.createElement('p');
+                noOptionsParagraph.textContent = 'No direct support options are currently configured.';
+                container.appendChild(noOptionsParagraph);
+                return;
+            }
+            if (supportEmail) {
+                var emailParagraph = document.createElement('p');
+                var strong = document.createElement('strong');
+                strong.textContent = 'Email: ';
+                emailParagraph.appendChild(strong);
+                var link = document.createElement('a');
+                link.href = 'mailto:' + supportEmail;
+                link.textContent = supportEmail;
+                emailParagraph.appendChild(link);
+                container.appendChild(emailParagraph);
+            }
+            if (contactFormEnabled) {
+                var formNote = document.createElement('p');
+                formNote.textContent = 'You can also send us a message using the contact form below.';
+                container.appendChild(formNote);
+            }
+        }
+
+        function renderSupportContactForm(container) {
+            container.innerHTML = '';
+            if (!state.supportOptions.contactFormEnabled) {
+                var disabledParagraph = document.createElement('p');
+                disabledParagraph.textContent = 'The contact form is not available.';
+                container.appendChild(disabledParagraph);
+                return;
+            }
+            var fields = state.supportOptions.contactFormFields;
+            if (!fields || fields.length === 0) {
+                var emptyParagraph = document.createElement('p');
+                emptyParagraph.textContent = 'The contact form configuration is empty.';
+                container.appendChild(emptyParagraph);
+                return;
+            }
+            var form = document.createElement('form');
+            form.dataset.action = 'support-form';
+            form.noValidate = true;
+
+            for (var i = 0; i < fields.length; i += 1) {
+                var field = fields[i];
+                var name = field.name || '';
+                var labelText = field.label || field.name || '';
+                var type = field.type || 'text';
+                var required = !!field.required;
+
+                var fieldWrapper = document.createElement('div');
+                var label = document.createElement('label');
+                label.textContent = labelText + ':';
+
+                var inputElement;
+                if (type === 'textarea') {
+                    inputElement = document.createElement('textarea');
+                } else {
+                    inputElement = document.createElement('input');
+                    inputElement.type = type;
+                }
+                inputElement.name = name;
+                inputElement.dataset.action = 'support-field-change';
+                inputElement.dataset.fieldName = name;
+                if (required) {
+                    inputElement.required = true;
+                }
+                var currentValue = state.form.values[name];
+                if (typeof currentValue === 'string') {
+                    inputElement.value = currentValue;
+                }
+
+                label.appendChild(document.createTextNode(' '));
+                label.appendChild(inputElement);
+                fieldWrapper.appendChild(label);
+
+                if (state.form.validationErrors[name]) {
+                    var errorDiv = document.createElement('div');
+                    errorDiv.textContent = state.form.validationErrors[name];
+                    errorDiv.style.color = 'red';
+                    fieldWrapper.appendChild(errorDiv);
+                }
+
+                form.appendChild(fieldWrapper);
+            }
+
+            var submitButton = document.createElement('button');
+            submitButton.type = 'submit';
+            submitButton.textContent = 'Send message';
+            form.appendChild(submitButton);
+
+            if (state.form.submitStatus === 'success') {
+                var successParagraph = document.createElement('p');
+                successParagraph.textContent = 'Your message has been submitted.';
+                form.appendChild(successParagraph);
+            } else if (state.form.submitStatus === 'error') {
+                var errorParagraph = document.createElement('p');
+                errorParagraph.textContent = 'Please correct the errors above and try again.';
+                errorParagraph.style.color = 'red';
+                form.appendChild(errorParagraph);
+            }
+
+            container.appendChild(form);
+        }
+
+        function renderAll() {
+            var populateElements = document.querySelectorAll('[data-populate]');
+            for (var i = 0; i < populateElements.length; i += 1) {
+                var element = populateElements[i];
+                var type = element.dataset.populate;
+                if (type === 'help-status') {
+                    renderHelpStatus(element);
+                } else if (type === 'faq-list') {
+                    renderFaqList(element, state.filteredFaqs);
+                } else if (type === 'guide-list') {
+                    renderGuideList(element, state.filteredGuides);
+                } else if (type === 'support-contact-block') {
+                    renderSupportContactBlock(element);
+                } else if (type === 'support-contact-form') {
+                    renderSupportContactForm(element);
+                }
+            }
+        }
+
+        function handleTopicSubmit() {
+            var topicInput = document.getElementById('helpTopicInput');
+            var newTopic = '';
+            if (topicInput && topicInput.value) {
+                newTopic = topicInput.value.trim();
+            }
+            if (newTopic === '') {
+                newTopic = null;
+            }
+            state.expandedFaqIds = {};
+            state.expandedGuideIds = {};
+            setTopic(newTopic, { replace: false });
+            loadHelpArticles();
+        }
+
+        function handleTopicInputKeydown(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                handleTopicSubmit();
+            }
+        }
+
+        function handleSearchInputChange(value) {
+            if (searchDebounceTimeout) {
+                window.clearTimeout(searchDebounceTimeout);
+            }
+            searchDebounceTimeout = window.setTimeout(function() {
+                state.searchQuery = value || '';
+                applySearchFilter();
+                renderAll();
+            }, 200);
+        }
+
+        function handleClearSearch() {
+            var searchInput = document.getElementById('helpSearchInput');
+            if (searchInput) {
+                searchInput.value = '';
+            }
+            state.searchQuery = '';
+            applySearchFilter();
+            renderAll();
+        }
+
+        function handleToggleFaq(faqId) {
+            if (!faqId) {
+                return;
+            }
+            if (state.expandedFaqIds[faqId]) {
+                delete state.expandedFaqIds[faqId];
+            } else {
+                state.expandedFaqIds[faqId] = true;
+            }
+            renderAll();
+        }
+
+        function handleToggleGuide(guideId) {
+            if (!guideId) {
+                return;
+            }
+            if (state.expandedGuideIds[guideId]) {
+                delete state.expandedGuideIds[guideId];
+            } else {
+                state.expandedGuideIds[guideId] = true;
+            }
+            renderAll();
+        }
+
+        function handleRelatedTaskClick(topicLabel) {
+            if (!topicLabel) {
+                return;
+            }
+            var normalized = topicLabel.trim();
+            if (normalized === '') {
+                return;
+            }
+            var topicInput = document.getElementById('helpTopicInput');
+            if (topicInput) {
+                topicInput.value = normalized;
+            }
+            state.expandedFaqIds = {};
+            state.expandedGuideIds = {};
+            setTopic(normalized, { replace: false });
+            loadHelpArticles();
+        }
+
+        function handleSupportFieldChange(fieldName, value) {
+            if (!fieldName) {
+                return;
+            }
+            state.form.values[fieldName] = value;
+            if (state.form.validationErrors[fieldName]) {
+                if (value && value.trim() !== '') {
+                    delete state.form.validationErrors[fieldName];
+                }
+            }
+            state.form.submitStatus = '';
+            var containers = document.querySelectorAll('[data-populate="support-contact-form"]');
+            for (var i = 0; i < containers.length; i += 1) {
+                renderSupportContactForm(containers[i]);
+            }
+        }
+
+        function validateSupportForm() {
+            var errors = {};
+            var fields = state.supportOptions.contactFormFields;
+            for (var i = 0; i < fields.length; i += 1) {
+                var field = fields[i];
+                var name = field.name || '';
+                var required = !!field.required;
+                if (!name) {
+                    continue;
+                }
+                if (required) {
+                    var value = state.form.values[name];
+                    var trimmed = value ? value.trim() : '';
+                    if (!trimmed) {
+                        errors[name] = 'This field is required.';
+                    }
+                }
+            }
+            state.form.validationErrors = errors;
+            var valid = Object.keys(errors).length === 0;
+            return valid;
+        }
+
+        function handleSupportFormSubmit(formElement) {
+            var isValid = validateSupportForm();
+            if (!isValid) {
+                state.form.submitStatus = 'error';
+                renderAll();
+                return;
+            }
+            var payload = {};
+            var fields = state.supportOptions.contactFormFields;
+            for (var i = 0; i < fields.length; i += 1) {
+                var field = fields[i];
+                var name = field.name || '';
+                if (!name) {
+                    continue;
+                }
+                payload[name] = state.form.values[name] || '';
+            }
+            console.log('Submitting support form payload:', payload);
+            state.form.submitStatus = 'success';
+            renderAll();
+        }
+
+        document.addEventListener('click', function(event) {
+            var target = event.target;
+            var action = target.dataset ? target.dataset.action : null;
+            if (action === 'topic-submit') {
+                handleTopicSubmit();
+                return;
+            }
+            if (action === 'clear-search') {
+                handleClearSearch();
+                return;
+            }
+            if (action === 'toggle-faq') {
+                var faqId = target.dataset.faqId;
+                handleToggleFaq(faqId);
+                return;
+            }
+            if (action === 'toggle-guide') {
+                var guideId = target.dataset.guideId;
+                handleToggleGuide(guideId);
+                return;
+            }
+            if (action === 'related-task-topic') {
+                var topicLabel = target.dataset.topic;
+                handleRelatedTaskClick(topicLabel);
+                return;
+            }
+            if (action === 'retry-help-articles') {
+                loadHelpArticles();
+                return;
+            }
+            if (action === 'retry-support-options') {
+                loadSupportContactOptions();
+                return;
+            }
+        });
+
+        document.addEventListener('input', function(event) {
+            var target = event.target;
+            var action = target.dataset ? target.dataset.action : null;
+            if (action === 'search-input') {
+                handleSearchInputChange(target.value || '');
+                return;
+            }
+            if (action === 'support-field-change') {
+                var fieldName = target.dataset.fieldName;
+                handleSupportFieldChange(fieldName, target.value || '');
+                return;
+            }
+            if (action === 'topic-input') {
+                return;
+            }
+        });
+
+        document.addEventListener('keydown', function(event) {
+            var target = event.target;
+            if (target && target.id === 'helpTopicInput') {
+                handleTopicInputKeydown(event);
+            }
+        });
+
+        document.addEventListener('submit', function(event) {
+            var form = event.target;
+            if (form && form.dataset && form.dataset.action === 'support-form') {
+                event.preventDefault();
+                handleSupportFormSubmit(form);
+            }
+        });
+
+        var mainContent = document.getElementById('content');
+        if (mainContent) {
+            mainContent.addEventListener('click', function(event) {
+                var target = event.target;
+                var anchor = null;
+                if (target && target.tagName === 'A') {
+                    anchor = target;
+                } else if (target && target.closest) {
+                    anchor = target.closest('a');
+                }
+                if (!anchor) {
+                    return;
+                }
+                var href = anchor.getAttribute('href');
+                if (!href) {
+                    return;
+                }
+                if (href.indexOf('index.html') === 0) {
+                    var url = new URL(href, window.location.origin);
+                    var section = url.searchParams.get('section');
+                    if (url.pathname.indexOf('index.html') !== -1 && section === 'my_files') {
+                        return;
+                    }
+                }
+            });
+        }
+
+        window.addEventListener('popstate', function() {
+            var topicFromUrl = getTopicFromLocation();
+            state.topic = topicFromUrl;
+            var topicInput = document.getElementById('helpTopicInput');
+            if (topicInput) {
+                topicInput.value = topicFromUrl || '';
+            }
+            state.expandedFaqIds = {};
+            state.expandedGuideIds = {};
+            loadHelpArticles();
+        });
+
+        var initialTopic = getTopicFromLocation();
+        state.topic = initialTopic;
+        var topicInputElement = document.getElementById('helpTopicInput');
+        if (topicInputElement) {
+            topicInputElement.value = initialTopic || '';
+        }
+        updateUrlForTopic(initialTopic, { replace: true });
+
+        loadSupportContactOptions();
+        loadHelpArticles();
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search Articles | Legal Association Newsletter</title>
+    
+    <link rel="stylesheet" href="search_results.css">
+</head>
+<body>
+    <header class="site-header" role="banner">
+        <div class="site-header-inner">
+            <div class="site-branding">
+                <div class="site-logo-mark" aria-hidden="true"></div>
+                <div class="site-brand-text">
+                    <div class="site-parent-org">Deutscher Anwaltverein</div>
+                    <hr class="site-brand-divider">
+                    <div class="site-title">Arbeitsgemeinschaft<br>Insolvenzrecht &amp; Sanierung</div>
+                </div>
+            </div>
+        </div>
+        <nav class="primary-nav" aria-label="Primary navigation">
+            <ul>
+                <li><a href="index.html" title="Association homepage">Home</a></li>
+                <li><a href="newsletter.html" title="Newsletter hub with latest articles and topics">Newsletter</a></li>
+                <li><a href="newsletter_issue.html?issueId=latest" title="Most recent newsletter issue table of contents">Latest Issue</a></li>
+                <li><a href="newsletter_archive.html" title="Browse all past newsletter issues">Archive</a></li>
+                <li><a href="search_results.html" title="Search and filter newsletter articles">Search Articles</a></li>
+                <li><a href="events.html" title="Continuing legal education and events listing">CLE &amp; Events</a></li>
+                <li><a href="jobs.html" title="Legal job highlights and listings">Careers</a></li>
+                <li><a href="reading_list.html" title="View and manage saved newsletter articles">My Reading List</a></li>
+                <li><a href="my_events.html" title="View and manage saved CLE and events">My Events</a></li>
+                <li><a href="saved_jobs.html" title="View and manage bookmarked job postings">Saved Jobs</a></li>
+                <li><a href="display_settings.html" title="Adjust theme, text size, and line spacing">Display Settings</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" role="main">
+        <div class="page-inner">
+            <header class="page-header">
+                <h1 class="page-title">Rundbrief Artikelsuche</h1>
+                <p class="page-description">Durchsuchen Sie die Newsletter-Artikel nach Stichwort, Zeitraum, Thema und Inhaltstyp.</p>
+            </header>
+
+            <section class="search-section" aria-labelledby="search-form-heading" data-component="search-query-form">
+                <h2 id="search-form-heading" class="visually-hidden">Artikelsuche</h2>
+                <form class="search-form" data-action="search-form">
+                    <label for="searchQueryInput">Suchbegriff</label>
+                    <div class="search-input-row">
+                        <input type="search" id="searchQueryInput" name="query" autocomplete="off">
+                        <button type="submit">Suchen</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="filters-section" aria-labelledby="filters-heading" data-component="filter-panel" data-populate="filter-panel">
+                <h2 id="filters-heading" class="section-heading">Filter</h2>
+                <!-- Filter-Inhalte werden durch JavaScript eingeffcllt -->
+            </section>
+
+            <section class="applied-filters-section" aria-live="polite" data-component="applied-filters-bar" data-populate="applied-filters"></section>
+
+            <section class="results-meta-section">
+                <div class="results-summary" data-component="results-summary" data-populate="results-summary"></div>
+                <div class="sort-control" data-component="sort-control" data-populate="sort-control"></div>
+            </section>
+
+            <section class="results-section" aria-label="Suchergebnisse">
+                <div class="loading-indicator" data-component="loading-indicator" aria-live="polite" hidden>
+                    Laden ...
+                </div>
+                <div class="no-results-message" data-component="no-results-message" data-populate="no-results"></div>
+                <div class="results-list" data-component="results-list" data-populate="results-list"></div>
+            </section>
+
+            <nav class="pagination-section" aria-label="Seitennavigation">
+                <div data-component="pagination-controls" data-populate="pagination"></div>
+            </nav>
+        </div>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul>
+                <li><a href="about.html" title="Information about the legal association and newsletter">About the Association</a></li>
+                <li><a href="help.html" title="FAQs and contact information for assistance">Help &amp; Support</a></li>
+                <li><a href="subscription.html" title="Manage newsletter topics and email delivery settings">Newsletter Preferences</a></li>
+                <li><a href="collections.html" title="View and manage article collections">Collections</a></li>
+                <li><a href="events.html" title="Browse continuing legal education and events">CLE &amp; Events</a></li>
+                <li><a href="jobs.html" title="Browse legal job listings and opportunities">Careers</a></li>
+                <li><a href="display_settings.html" title="Configure appearance and accessibility options">Display Settings</a></li>
+            </ul>
+        </nav>
+        <div class="site-footer-meta">
+            <p>&copy; <span class="footer-year">2025</span> Legal Association Newsletter.</p>
+        </div>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const PAGE_SIZE = 20;
+        const urlState = getStateFromUrl();
+        let filterOptions = null;
+        let effectiveDates = { startDate: null, endDate: null };
+        let searchResult = null;
+        let sortDefault = 'relevance';
+
+        const loadingEl = document.querySelector('[data-component="loading-indicator"]');
+        if (loadingEl) {
+            loadingEl.hidden = false;
+        }
+
+        try {
+            filterOptions = WebsiteSDK.getArticleSearchFilterOptions();
+            if (filterOptions && Array.isArray(filterOptions.sortOptions) && filterOptions.sortOptions.length > 0) {
+                sortDefault = filterOptions.sortOptions[0].key || sortDefault;
+            }
+
+            if (!urlState.sortBy) {
+                urlState.sortBy = sortDefault;
+            }
+
+            effectiveDates = computeEffectiveDates(urlState, filterOptions);
+            const filters = buildSearchFilters(urlState, effectiveDates);
+            const page = urlState.page && urlState.page > 0 ? urlState.page : 1;
+
+            searchResult = WebsiteSDK.searchArticles(urlState.query || '', filters, urlState.sortBy, page, PAGE_SIZE);
+        } catch (err) {
+            console.error('Error loading search page data', err);
+            const noResultsContainer = document.querySelector('[data-component="no-results-message"]');
+            if (noResultsContainer) {
+                noResultsContainer.textContent = 'Beim Laden der Suchergebnisse ist ein Fehler aufgetreten. Bitte versuchen Sie es spe4ter erneut.';
+            }
+        } finally {
+            if (loadingEl) {
+                loadingEl.hidden = true;
+            }
+        }
+
+        if (filterOptions && searchResult) {
+            const populateElements = document.querySelectorAll('[data-populate]');
+            populateElements.forEach(function (element) {
+                const populateType = element.dataset.populate;
+                switch (populateType) {
+                    case 'filter-panel':
+                        renderFilterPanel(element, filterOptions, urlState, effectiveDates);
+                        break;
+                    case 'applied-filters':
+                        renderAppliedFilters(element, urlState, filterOptions, effectiveDates, searchResult);
+                        break;
+                    case 'results-summary':
+                        renderResultsSummary(element, urlState, searchResult, effectiveDates);
+                        break;
+                    case 'sort-control':
+                        renderSortControl(element, filterOptions, urlState);
+                        break;
+                    case 'results-list':
+                        renderResultsList(element, searchResult, urlState);
+                        break;
+                    case 'pagination':
+                        renderPagination(element, searchResult, urlState, PAGE_SIZE);
+                        break;
+                    case 'no-results':
+                        renderNoResults(element, urlState, searchResult);
+                        break;
+                    default:
+                        break;
+                }
+            });
+
+            // Set initial search query input value
+            const searchInput = document.querySelector('[data-component="search-query-form"] input[name="query"]');
+            if (searchInput) {
+                searchInput.value = urlState.query || '';
+            }
+        }
+
+        setupGlobalHandlers({ sortDefault: sortDefault });
+    });
+
+    function getStateFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const pageParam = parseInt(params.get('page'), 10);
+        return {
+            query: params.get('query') || '',
+            startDate: params.get('startDate') || null,
+            endDate: params.get('endDate') || null,
+            topicsParam: params.get('topics') || null,
+            contentTypesParam: params.get('contentTypes') || null,
+            sortBy: params.get('sortBy') || null,
+            datePreset: params.get('datePreset') || null,
+            page: !isNaN(pageParam) && pageParam > 0 ? pageParam : 1
+        };
+    }
+
+    function computeEffectiveDates(state, filterOptions) {
+        let start = state.startDate || null;
+        let end = state.endDate || null;
+
+        if (!start && !end && state.datePreset && filterOptions && Array.isArray(filterOptions.dateRangePresets)) {
+            const preset = filterOptions.dateRangePresets.find(function (p) { return p.key === state.datePreset; });
+            if (preset) {
+                start = preset.startDate || null;
+                end = preset.endDate || null;
+            }
+        }
+        return { startDate: start, endDate: end };
+    }
+
+    function buildSearchFilters(state, effectiveDates) {
+        const filters = {};
+        if (effectiveDates.startDate) {
+            filters.startDate = effectiveDates.startDate;
+        }
+        if (effectiveDates.endDate) {
+            filters.endDate = effectiveDates.endDate;
+        }
+
+        const topicsArray = parseListParam(state.topicsParam);
+        if (topicsArray.length > 0) {
+            filters.topics = topicsArray;
+        }
+
+        const contentTypesArray = parseListParam(state.contentTypesParam);
+        if (contentTypesArray.length > 0) {
+            filters.contentTypes = contentTypesArray;
+        }
+
+        return filters;
+    }
+
+    function parseListParam(value) {
+        if (!value) {
+            return [];
+        }
+        return value.split(',').map(function (item) { return item.trim(); }).filter(function (item) { return item.length > 0; });
+    }
+
+    function renderFilterPanel(container, filterOptions, state, effectiveDates) {
+        const topicsArray = parseListParam(state.topicsParam);
+        const contentTypesArray = parseListParam(state.contentTypesParam);
+
+        const datePresetOptions = Array.isArray(filterOptions.dateRangePresets) ? filterOptions.dateRangePresets : [];
+        const topics = Array.isArray(filterOptions.topics) ? filterOptions.topics : [];
+        const contentTypes = Array.isArray(filterOptions.contentTypes) ? filterOptions.contentTypes : [];
+
+        let html = '';
+
+        // Date range filter
+        html += '<fieldset class="filter-group filter-group-date">';
+        html += '<legend>Zeitraum</legend>';
+        html += '<label for="datePresetSelect">Voreinstellung</label>';
+        html += '<select id="datePresetSelect" name="datePreset" data-action="change-date-preset">';
+        html += '<option value="">Alle Zeitre4ume</option>';
+        datePresetOptions.forEach(function (preset) {
+            const selected = state.datePreset === preset.key ? ' selected' : '';
+            html += '<option value="' + escapeHtml(preset.key) + '"' + selected + '>' + escapeHtml(preset.label) + '</option>';
+        });
+        html += '</select>';
+        html += '<div class="date-inputs">';
+        html += '<label for="startDateInput">Von</label>';
+        html += '<input type="date" id="startDateInput" name="startDate" data-action="change-start-date"' + (state.startDate ? ' value="' + escapeHtml(state.startDate) + '"' : '') + '>';
+        html += '<label for="endDateInput">Bis</label>';
+        html += '<input type="date" id="endDateInput" name="endDate" data-action="change-end-date"' + (state.endDate ? ' value="' + escapeHtml(state.endDate) + '"' : '') + '>';
+        html += '</div>';
+        html += '<button type="button" class="link-button" data-action="clear-date-range">Zeitraum zurfccksetzen</button>';
+        html += '</fieldset>';
+
+        // Topics filter
+        html += '<fieldset class="filter-group filter-group-topics">';
+        html += '<legend>Themen</legend>';
+        if (topics.length === 0) {
+            html += '<p>Keine Themenfilter verffcgbar.</p>';
+        } else {
+            topics.forEach(function (topic) {
+                const checked = topicsArray.indexOf(topic.key) !== -1 ? ' checked' : '';
+                html += '<div class="checkbox-row">';
+                html += '<label>';
+                html += '<input type="checkbox" name="topics" value="' + escapeHtml(topic.key) + '" data-action="change-topic-filter"' + checked + '>'; 
+                html += ' ' + escapeHtml(topic.label);
+                html += '</label>';
+                html += '</div>';
+            });
+        }
+        html += '</fieldset>';
+
+        // Content types filter
+        html += '<fieldset class="filter-group filter-group-content-types">';
+        html += '<legend>Inhaltstypen</legend>';
+        if (contentTypes.length === 0) {
+            html += '<p>Keine Inhaltstypen verffcgbar.</p>';
+        } else {
+            contentTypes.forEach(function (ct) {
+                const checked = contentTypesArray.indexOf(ct.key) !== -1 ? ' checked' : '';
+                html += '<div class="checkbox-row">';
+                html += '<label>';
+                html += '<input type="checkbox" name="contentTypes" value="' + escapeHtml(ct.key) + '" data-action="change-content-type-filter"' + checked + '>'; 
+                html += ' ' + escapeHtml(ct.label);
+                html += '</label>';
+                html += '</div>';
+            });
+        }
+        html += '</fieldset>';
+
+        container.innerHTML = html;
+    }
+
+    function renderAppliedFilters(container, state, filterOptions, effectiveDates, searchResult) {
+        const activeParts = [];
+
+        const topicLabelsByKey = {};
+        if (filterOptions && Array.isArray(filterOptions.topics)) {
+            filterOptions.topics.forEach(function (t) { topicLabelsByKey[t.key] = t.label; });
+        }
+        const contentTypeLabelsByKey = {};
+        if (filterOptions && Array.isArray(filterOptions.contentTypes)) {
+            filterOptions.contentTypes.forEach(function (ct) { contentTypeLabelsByKey[ct.key] = ct.label; });
+        }
+
+        const topicsArray = parseListParam(state.topicsParam);
+        const contentTypesArray = parseListParam(state.contentTypesParam);
+
+        if (topicsArray.length > 0) {
+            const labelParts = topicsArray.map(function (key) { return escapeHtml(topicLabelsByKey[key] || key); });
+            activeParts.push('Themen: ' + labelParts.join(', ') + ' <button type="button" class="link-button" data-action="remove-all-topics">entfernen</button>');
+        }
+
+        if (contentTypesArray.length > 0) {
+            const labelPartsCt = contentTypesArray.map(function (key) { return escapeHtml(contentTypeLabelsByKey[key] || key); });
+            activeParts.push('Inhaltstypen: ' + labelPartsCt.join(', ') + ' <button type="button" class="link-button" data-action="remove-all-content-types">entfernen</button>');
+        }
+
+        if (effectiveDates.startDate || effectiveDates.endDate || state.datePreset) {
+            const fromText = effectiveDates.startDate ? formatDate(effectiveDates.startDate) : '';
+            const toText = effectiveDates.endDate ? formatDate(effectiveDates.endDate) : '';
+            let label = '';
+            if (fromText && toText) {
+                label = fromText + ' bis ' + toText;
+            } else if (fromText) {
+                label = 'ab ' + fromText;
+            } else if (toText) {
+                label = 'bis ' + toText;
+            }
+            activeParts.push('Zeitraum: ' + label + ' <button type="button" class="link-button" data-action="remove-date-filter">entfernen</button>');
+        }
+
+        if (activeParts.length === 0) {
+            container.innerHTML = '';
+            return;
+        }
+
+        const html = '<p><strong>Aktive Filter:</strong> ' + activeParts.join('; ') + ' <button type="button" class="link-button" data-action="clear-all-filters">Alle Filter zurfccksetzen</button></p>';
+        container.innerHTML = html;
+    }
+
+    function renderResultsSummary(container, state, searchResult, effectiveDates) {
+        const total = searchResult.totalCount || 0;
+        if (total === 0) {
+            container.textContent = 'Keine Treffer.';
+            return;
+        }
+        const page = searchResult.page || 1;
+        const pageSize = searchResult.pageSize || 20;
+        const startIndex = (page - 1) * pageSize + 1;
+        const endIndex = Math.min(total, page * pageSize);
+        let text = 'Treffer ' + startIndex + ' bis ' + endIndex + ' von ' + total;
+        if (state.query) {
+            text += ' ffcr "' + state.query + '"';
+        }
+        container.textContent = text;
+    }
+
+    function renderSortControl(container, filterOptions, state) {
+        const sortOptions = Array.isArray(filterOptions.sortOptions) ? filterOptions.sortOptions : [];
+        if (sortOptions.length === 0) {
+            container.innerHTML = '';
+            return;
+        }
+        let html = '<label for="sortBySelect">Sortierung:</label> ';
+        html += '<select id="sortBySelect" name="sortBy" data-action="change-sort">';
+        sortOptions.forEach(function (opt) {
+            const selected = state.sortBy === opt.key ? ' selected' : '';
+            html += '<option value="' + escapeHtml(opt.key) + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
+        });
+        html += '</select>';
+        container.innerHTML = html;
+    }
+
+    function renderResultsList(container, searchResult, state) {
+        const results = Array.isArray(searchResult.results) ? searchResult.results : [];
+        if (results.length === 0) {
+            container.innerHTML = '';
+            return;
+        }
+        let html = '<ol class="results-list-items">';
+        results.forEach(function (article) {
+            const articleId = article.id;
+            const title = article.title || '';
+            const subtitle = article.subtitle || '';
+            const excerpt = article.excerpt || '';
+            const topic = article.primaryTopic || '';
+            const contentType = article.contentType || '';
+            const publishedAt = article.publishedAt || '';
+            const readingTime = article.estimatedReadingTimeMinutes;
+
+            html += '<li class="result-item">';
+            html += '<h3 class="result-title">';
+            html += '<a href="javascript:void(0)" data-action="open-article" data-article-id="' + escapeHtml(articleId) + '">';
+            html += escapeHtml(title);
+            html += '</a>';
+            html += '</h3>';
+
+            const metaParts = [];
+            if (publishedAt) {
+                metaParts.push(formatDate(publishedAt));
+            }
+            if (topic) {
+                metaParts.push('Thema: ' + escapeHtml(topic));
+            }
+            if (contentType) {
+                metaParts.push('Typ: ' + escapeHtml(contentType));
+            }
+            if (typeof readingTime === 'number') {
+                metaParts.push(readingTime + ' Min. Lesezeit');
+            }
+
+            if (metaParts.length > 0) {
+                html += '<p class="result-meta">' + metaParts.join(' · ') + '</p>';
+            }
+
+            if (subtitle) {
+                html += '<p class="result-subtitle">' + escapeHtml(subtitle) + '</p>';
+            }
+            if (excerpt) {
+                html += '<p class="result-excerpt">' + escapeHtml(excerpt) + '</p>';
+            }
+
+            html += '</li>';
+        });
+        html += '</ol>';
+        container.innerHTML = html;
+    }
+
+    function renderPagination(container, searchResult, state, pageSizeDefault) {
+        const total = searchResult.totalCount || 0;
+        const pageSize = searchResult.pageSize || pageSizeDefault;
+        const page = searchResult.page || 1;
+        if (total <= pageSize) {
+            container.innerHTML = '';
+            return;
+        }
+        const totalPages = Math.ceil(total / pageSize);
+        let html = '<div class="pagination">';
+        if (page > 1) {
+            html += '<a href="javascript:void(0)" data-action="go-to-page" data-page="' + (page - 1) + '">Zurfcck</a> ';
+        }
+        for (let i = 1; i <= totalPages; i++) {
+            if (i === page) {
+                html += '<span class="current-page">' + i + '</span> ';
+            } else {
+                html += '<a href="javascript:void(0)" data-action="go-to-page" data-page="' + i + '">' + i + '</a> ';
+            }
+        }
+        if (page < totalPages) {
+            html += '<a href="javascript:void(0)" data-action="go-to-page" data-page="' + (page + 1) + '">Weiter</a>';
+        }
+        html += '<span class="pagination-input"> Seite '; 
+        html += '<input type="number" min="1" max="' + totalPages + '" value="' + page + '" data-action="page-input"> von ' + totalPages + '</span>';
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    function renderNoResults(container, state, searchResult) {
+        const total = searchResult.totalCount || 0;
+        if (total !== 0) {
+            container.innerHTML = '';
+            return;
+        }
+        let html = '<p>Es wurden keine passenden Artikel gefunden.';
+        if (state.query) {
+            html += ' Bitte fcberprfcfen Sie Ihren Suchbegriff oder passen Sie die Filter an.';
+        } else {
+            html += ' Bitte passen Sie Ihre Filtereinstellungen an.';
+        }
+        html += '</p>';
+        html += '<p><button type="button" class="link-button" data-action="focus-search-input">Suchbegriff bearbeiten</button></p>';
+        container.innerHTML = html;
+    }
+
+    function setupGlobalHandlers(config) {
+        document.addEventListener('submit', function (event) {
+            const form = event.target.closest('[data-action="search-form"]');
+            if (form) {
+                event.preventDefault();
+                handleSearchFormSubmit(form);
+            }
+        });
+
+        document.addEventListener('change', function (event) {
+            const target = event.target;
+            const action = target.dataset.action;
+            if (!action) {
+                return;
+            }
+            if (action === 'change-topic-filter') {
+                handleTopicFilterChange();
+            } else if (action === 'change-content-type-filter') {
+                handleContentTypeFilterChange();
+            } else if (action === 'change-date-preset') {
+                handleDatePresetChange(target);
+            } else if (action === 'change-start-date') {
+                handleStartDateChange(target);
+            } else if (action === 'change-end-date') {
+                handleEndDateChange(target);
+            } else if (action === 'change-sort') {
+                handleSortChange(target);
+            } else if (action === 'page-input') {
+                handlePageInputChange(target);
+            }
+        });
+
+        document.addEventListener('click', function (event) {
+            const trigger = event.target.closest('[data-action]');
+            if (!trigger) {
+                return;
+            }
+            const action = trigger.dataset.action;
+            if (action === 'clear-date-range') {
+                event.preventDefault();
+                handleClearDateRange();
+            } else if (action === 'go-to-page') {
+                event.preventDefault();
+                const page = parseInt(trigger.dataset.page, 10);
+                if (!isNaN(page) && page > 0) {
+                    navigateWithUpdatedParams({ page: page });
+                }
+            } else if (action === 'open-article') {
+                event.preventDefault();
+                const articleId = trigger.dataset.articleId;
+                if (articleId) {
+                    navigateToArticle(articleId);
+                }
+            } else if (action === 'focus-search-input') {
+                event.preventDefault();
+                const searchInput = document.querySelector('[data-component="search-query-form"] input[name="query"]');
+                if (searchInput) {
+                    searchInput.focus();
+                }
+            } else if (action === 'remove-date-filter') {
+                event.preventDefault();
+                handleClearDateRange();
+            } else if (action === 'remove-all-topics') {
+                event.preventDefault();
+                handleRemoveAllTopics();
+            } else if (action === 'remove-all-content-types') {
+                event.preventDefault();
+                handleRemoveAllContentTypes();
+            } else if (action === 'clear-all-filters') {
+                event.preventDefault();
+                handleClearAllFilters(config.sortDefault);
+            }
+        });
+    }
+
+    function handleSearchFormSubmit(form) {
+        const input = form.querySelector('input[name="query"]');
+        const queryValue = input ? input.value.trim() : '';
+        const updated = { query: queryValue || null, page: 1 };
+        navigateWithUpdatedParams(updated);
+    }
+
+    function handleTopicFilterChange() {
+        const checked = document.querySelectorAll('input[name="topics"]:checked');
+        const keys = [];
+        checked.forEach(function (checkbox) { keys.push(checkbox.value); });
+        const updated = { topics: keys.length > 0 ? keys.join(',') : null, page: 1 };
+        navigateWithUpdatedParams(updated);
+    }
+
+    function handleContentTypeFilterChange() {
+        const checked = document.querySelectorAll('input[name="contentTypes"]:checked');
+        const keys = [];
+        checked.forEach(function (checkbox) { keys.push(checkbox.value); });
+        const updated = { contentTypes: keys.length > 0 ? keys.join(',') : null, page: 1 };
+        navigateWithUpdatedParams(updated);
+    }
+
+    function handleDatePresetChange(select) {
+        const value = select.value || null;
+        const updated = {
+            datePreset: value,
+            startDate: null,
+            endDate: null,
+            page: 1
+        };
+        navigateWithUpdatedParams(updated);
+    }
+
+    function handleStartDateChange(input) {
+        const value = input.value || null;
+        const updated = {
+            startDate: value,
+            datePreset: null,
+            page: 1
+        };
+        navigateWithUpdatedParams(updated);
+    }
+
+    function handleEndDateChange(input) {
+        const value = input.value || null;
+        const updated = {
+            endDate: value,
+            datePreset: null,
+            page: 1
+        };
+        navigateWithUpdatedParams(updated);
+    }
+
+    function handleClearDateRange() {
+        const updated = {
+            startDate: null,
+            endDate: null,
+            datePreset: null,
+            page: 1
+        };
+        navigateWithUpdatedParams(updated);
+    }
+
+    function handleSortChange(select) {
+        const value = select.value || null;
+        const updated = {
+            sortBy: value,
+            page: 1
+        };
+        navigateWithUpdatedParams(updated);
+    }
+
+    function handlePageInputChange(input) {
+        let value = parseInt(input.value, 10);
+        if (isNaN(value) || value <= 0) {
+            return;
+        }
+        const max = parseInt(input.getAttribute('max'), 10);
+        if (!isNaN(max) && value > max) {
+            value = max;
+        }
+        navigateWithUpdatedParams({ page: value });
+    }
+
+    function handleRemoveAllTopics() {
+        navigateWithUpdatedParams({ topics: null, page: 1 });
+    }
+
+    function handleRemoveAllContentTypes() {
+        navigateWithUpdatedParams({ contentTypes: null, page: 1 });
+    }
+
+    function handleClearAllFilters(sortDefault) {
+        const updated = {
+            startDate: null,
+            endDate: null,
+            datePreset: null,
+            topics: null,
+            contentTypes: null,
+            sortBy: sortDefault || null,
+            page: 1
+        };
+        navigateWithUpdatedParams(updated);
+    }
+
+    function navigateWithUpdatedParams(updates) {
+        const currentUrl = new URL(window.location.href);
+        const params = currentUrl.searchParams;
+        Object.keys(updates).forEach(function (key) {
+            const value = updates[key];
+            if (value === null || value === undefined || value === '') {
+                params.delete(key);
+            } else {
+                params.set(key, String(value));
+            }
+        });
+        currentUrl.pathname = 'search_results.html';
+        const newUrl = currentUrl.pathname + (params.toString() ? '?' + params.toString() : '');
+        window.location.href = newUrl;
+    }
+
+    function navigateToArticle(articleId) {
+        const currentParams = new URLSearchParams(window.location.search);
+        const articleParams = new URLSearchParams();
+        articleParams.set('articleId', articleId);
+        articleParams.set('returnTo', 'search');
+        ['query', 'startDate', 'endDate', 'datePreset', 'topics', 'contentTypes', 'sortBy', 'page'].forEach(function (key) {
+            const value = currentParams.get(key);
+            if (value !== null && value !== '') {
+                articleParams.set(key, value);
+            }
+        });
+        const url = 'article.html?' + articleParams.toString();
+        window.location.href = url;
+    }
+
+    function formatDate(isoString) {
+        if (!isoString) {
+            return '';
+        }
+        const date = new Date(isoString);
+        if (isNaN(date.getTime())) {
+            return isoString;
+        }
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        return day + '.' + month + '.' + year;
+    }
+
+    function escapeHtml(str) {
+        if (str === null || str === undefined) {
+            return '';
+        }
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+    </script>
+</body>
+</html>

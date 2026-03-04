@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Log Detail | The Initiative</title>
+    
+    <link rel="stylesheet" href="log_detail.css">
+</head>
+<body>
+    <div class="page">
+        <header class="site-header">
+            <div class="site-identity">
+                <span class="site-title">The Initiative</span>
+            </div>
+            <nav class="site-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html" title="Homepage and primary entry into the ARG experience">Home</a></li>
+                    <li><a href="transmission_logs.html" title="Browse transmissions and unlock the Phase I teaser via Prelude logs">Transmission Logs</a></li>
+                    <li><a href="timeline.html" title="Chronological view of events with filters and severity controls">Timeline</a></li>
+                    <li><a href="timeline.html?view=watchlist" title="List of events the user has flagged for monitoring">Watchlist</a></li>
+                    <li><a href="characters.html" title="Directory of Initiative characters, including Project Orion profiles">Characters</a></li>
+                    <li><a href="anomaly_map.html" title="Interactive map and list of anomalous locations and case files">Anomaly Map</a></li>
+                    <li><a href="media_videos.html" title="Media gallery for teaser and briefing videos">Videos</a></li>
+                    <li><a href="incident_logs.html" title="Searchable archive of incident logs and low-threat reports">Incident Logs</a></li>
+                    <li><a href="signals.html" title="Live signal stream used as clues for theories">Signals</a></li>
+                    <li><a href="ciphers.html" title="Tools and cipher list for decoding and theory building">Ciphers</a></li>
+                    <li><a href="theory_board.html" title="Workspace for assembling clues into named theories">Theory Board</a></li>
+                    <li><a href="artifacts.html" title="Catalog of recovered artifacts and their risk levels">Artifacts</a></li>
+                    <li><a href="recruitment.html" title="Recruitment and assessment form for new operatives">Join the Initiative</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id="content" class="site-main" tabindex="-1">
+            <div class="log-detail" data-component="log-detail-controller">
+                <nav class="log-detail-breadcrumbs" aria-label="Breadcrumb" data-component="log-detail-breadcrumbs">
+                    <p>
+                        <span class="breadcrumb-root" data-populate="breadcrumb-root"></span>
+                        <span class="breadcrumb-separator"> / </span>
+                        <span class="breadcrumb-current" data-populate="breadcrumb-current-title"></span>
+                    </p>
+                </nav>
+
+                <article class="log-record" data-component="log-record">
+                    <header class="log-header" data-component="log-header">
+                        <h1 data-populate="record-title"></h1>
+                        <p class="log-meta" data-populate="record-meta"></p>
+                        <p class="log-tags" data-populate="record-tags"></p>
+                    </header>
+
+                    <section class="log-content-viewer" data-component="log-content-viewer">
+                        <div class="log-loading" data-populate="record-loading">Loading…</div>
+                        <div class="log-error" data-populate="record-error" hidden></div>
+                        <div class="log-body" data-populate="record-body"></div>
+                    </section>
+
+                    <section class="log-actions">
+                        <p class="transmission-codeword-actions" data-component="transmission-codeword-actions" hidden>
+                            <span data-populate="transmission-codeword-text"></span>
+                        </p>
+                        <p class="incident-reading-queue-actions" data-component="incident-reading-queue-actions" hidden>
+                            <a href="javascript:void(0)" data-action="add-to-reading-queue">Add this incident to your reading queue</a>
+                            <span class="incident-queue-status" data-populate="incident-queue-status"></span>
+                        </p>
+                        <p class="timeline-watchlist-actions" data-component="timeline-watchlist-actions" hidden>
+                            <a href="javascript:void(0)" data-action="add-to-watchlist">Add this event to your watchlist</a>
+                            <span class="timeline-watchlist-status" data-populate="timeline-watchlist-status"></span>
+                        </p>
+                    </section>
+
+                    <section class="code-panel-inline-summary" data-component="code-panel-inline-summary" hidden>
+                        <div data-populate="code-panel-summary-text"></div>
+                    </section>
+
+                    <section class="log-detail-feedback" data-component="log-detail-feedback">
+                        <p class="feedback-message" data-populate="feedback-message"></p>
+                    </section>
+
+                    <section class="log-invalid-state" data-component="log-invalid-state" hidden>
+                        <p data-populate="invalid-state-message"></p>
+                    </section>
+                </article>
+            </div>
+        </main>
+
+        <footer class="site-footer">
+            <hr class="footer-rule">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="about.html" title="About the Initiative and the ARG universe">About</a></li>
+                    <li><a href="transmission_logs.html" title="Access the transmission archive">Transmission Logs</a></li>
+                    <li><a href="incident_logs.html" title="Access the incident log archives">Incident Logs</a></li>
+                    <li><a href="artifacts.html" title="Browse artifacts by origin and corruption risk">Artifacts Catalog</a></li>
+                    <li><a href="recruitment.html" title="Create your recruitment profile">Join the Initiative</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">The Initiative</p>
+        </footer>
+    </div>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const state = {
+            kind: null,
+            id: null,
+            currentRecordType: null, // 'transmission' | 'incident' | 'timeline'
+            currentRecord: null,
+            codePanelState: null,
+            readingQueueState: null,
+            watchlistState: null,
+            isLoading: false,
+            codewordActionInFlight: false,
+            queueActionInFlight: false,
+            watchlistActionInFlight: false
+        };
+
+        // Element references (single narrow column)
+        const breadcrumbRootEl = document.querySelector('[data-populate="breadcrumb-root"]');
+        const breadcrumbCurrentEl = document.querySelector('[data-populate="breadcrumb-current-title"]');
+        const headerTitleEl = document.querySelector('[data-populate="record-title"]');
+        const headerMetaEl = document.querySelector('[data-populate="record-meta"]');
+        const headerTagsEl = document.querySelector('[data-populate="record-tags"]');
+        const loadingEl = document.querySelector('[data-populate="record-loading"]');
+        const errorEl = document.querySelector('[data-populate="record-error"]');
+        const bodyEl = document.querySelector('[data-populate="record-body"]');
+
+        const transmissionActionsEl = document.querySelector('[data-component="transmission-codeword-actions"]');
+        const transmissionActionsTextEl = document.querySelector('[data-populate="transmission-codeword-text"]');
+
+        const incidentActionsEl = document.querySelector('[data-component="incident-reading-queue-actions"]');
+        const incidentQueueStatusEl = document.querySelector('[data-populate="incident-queue-status"]');
+        const incidentAddLinkEl = incidentActionsEl ? incidentActionsEl.querySelector('[data-action="add-to-reading-queue"]') : null;
+
+        const watchlistActionsEl = document.querySelector('[data-component="timeline-watchlist-actions"]');
+        const watchlistStatusEl = document.querySelector('[data-populate="timeline-watchlist-status"]');
+        const watchlistAddLinkEl = watchlistActionsEl ? watchlistActionsEl.querySelector('[data-action="add-to-watchlist"]') : null;
+
+        const codePanelSummarySectionEl = document.querySelector('[data-component="code-panel-inline-summary"]');
+        const codePanelSummaryTextEl = document.querySelector('[data-populate="code-panel-summary-text"]');
+
+        const feedbackMessageEl = document.querySelector('[data-populate="feedback-message"]');
+        const invalidStateSectionEl = document.querySelector('[data-component="log-invalid-state"]');
+        const invalidStateMessageEl = document.querySelector('[data-populate="invalid-state-message"]');
+
+        let feedbackTimeoutId = null;
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function parseUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            const kind = params.get('kind');
+            const id = params.get('id');
+            return { kind, id };
+        }
+
+        function clearFeedback() {
+            if (!feedbackMessageEl) return;
+            if (feedbackTimeoutId) {
+                window.clearTimeout(feedbackTimeoutId);
+                feedbackTimeoutId = null;
+            }
+            feedbackMessageEl.textContent = '';
+            feedbackMessageEl.classList.remove('feedback-error');
+        }
+
+        function showFeedback(message, isError) {
+            if (!feedbackMessageEl) return;
+            clearFeedback();
+            feedbackMessageEl.textContent = message;
+            if (isError) {
+                feedbackMessageEl.classList.add('feedback-error');
+            }
+            feedbackTimeoutId = window.setTimeout(function() {
+                clearFeedback();
+            }, 6000);
+        }
+
+        function enterInvalidState(message) {
+            state.currentRecordType = null;
+            state.currentRecord = null;
+            state.codePanelState = null;
+
+            if (loadingEl) loadingEl.hidden = true;
+            if (errorEl) {
+                errorEl.hidden = true;
+                errorEl.textContent = '';
+            }
+            if (bodyEl) bodyEl.innerHTML = '';
+
+            if (headerTitleEl) headerTitleEl.textContent = '';
+            if (headerMetaEl) headerMetaEl.textContent = '';
+            if (headerTagsEl) headerTagsEl.textContent = '';
+
+            if (transmissionActionsEl) transmissionActionsEl.hidden = true;
+            if (incidentActionsEl) incidentActionsEl.hidden = true;
+            if (watchlistActionsEl) watchlistActionsEl.hidden = true;
+            if (codePanelSummarySectionEl) codePanelSummarySectionEl.hidden = true;
+
+            if (invalidStateSectionEl) invalidStateSectionEl.hidden = false;
+            if (invalidStateMessageEl) {
+                invalidStateMessageEl.textContent = message || 'No record selected. Use Transmission Logs, Incident Logs, or the Timeline to open a log.';
+            }
+
+            renderBreadcrumbs(null, null);
+        }
+
+        function enterLoadingState() {
+            state.isLoading = true;
+            if (invalidStateSectionEl) invalidStateSectionEl.hidden = true;
+            if (loadingEl) {
+                loadingEl.hidden = false;
+                loadingEl.textContent = 'Loading…';
+            }
+            if (errorEl) {
+                errorEl.hidden = true;
+                errorEl.textContent = '';
+            }
+            if (bodyEl) bodyEl.innerHTML = '';
+
+            if (transmissionActionsEl) transmissionActionsEl.hidden = true;
+            if (incidentActionsEl) incidentActionsEl.hidden = true;
+            if (watchlistActionsEl) watchlistActionsEl.hidden = true;
+            if (codePanelSummarySectionEl) codePanelSummarySectionEl.hidden = true;
+        }
+
+        function renderBreadcrumbs(kind, record) {
+            if (breadcrumbRootEl) {
+                breadcrumbRootEl.innerHTML = '';
+            }
+            if (breadcrumbCurrentEl) {
+                breadcrumbCurrentEl.textContent = record && record.title ? record.title : 'Log Detail';
+            }
+
+            if (!breadcrumbRootEl) return;
+
+            let label = 'Logs';
+            let href = null;
+
+            if (kind === 'transmission') {
+                label = 'Transmission Logs';
+                href = 'transmission_logs.html';
+            } else if (kind === 'incident') {
+                label = 'Incident Logs';
+                href = 'incident_logs.html';
+            } else if (kind === 'timeline') {
+                label = 'Timeline';
+                href = 'timeline.html';
+            }
+
+            if (href) {
+                const link = document.createElement('a');
+                link.href = href;
+                link.textContent = label;
+                breadcrumbRootEl.appendChild(link);
+            } else {
+                breadcrumbRootEl.textContent = label;
+            }
+        }
+
+        function formatDate(value) {
+            if (!value) return '';
+            try {
+                const d = new Date(value);
+                if (Number.isNaN(d.getTime())) return String(value);
+                return d.toLocaleString(undefined, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (e) {
+                return String(value);
+            }
+        }
+
+        function renderRecordHeader(recordType, record) {
+            if (!record) {
+                if (headerTitleEl) headerTitleEl.textContent = '';
+                if (headerMetaEl) headerMetaEl.textContent = '';
+                if (headerTagsEl) headerTagsEl.textContent = '';
+                return;
+            }
+
+            if (headerTitleEl) {
+                headerTitleEl.textContent = record.title || '';
+            }
+
+            let metaText = '';
+            let tagsText = '';
+
+            if (recordType === 'transmission') {
+                metaText = 'Transmission';
+                if (record.created_at) {
+                    metaText += '  b7 ' + formatDate(record.created_at);
+                }
+                if (record.is_prelude) {
+                    metaText += '  b7 Prelude';
+                }
+                if (Array.isArray(record.tags) && record.tags.length > 0) {
+                    tagsText = 'Tags: ' + record.tags.join(', ');
+                }
+            } else if (recordType === 'incident') {
+                metaText = 'Incident';
+                if (record.date) {
+                    metaText += '  b7 ' + formatDate(record.date);
+                }
+                if (typeof record.threat_level === 'number') {
+                    metaText += '  b7 Threat level ' + record.threat_level;
+                }
+                if (Array.isArray(record.tags) && record.tags.length > 0) {
+                    tagsText = 'Tags: ' + record.tags.join(', ');
+                }
+            } else if (recordType === 'timeline') {
+                metaText = 'Timeline event';
+                if (record.date) {
+                    metaText += '  b7 ' + formatDate(record.date);
+                }
+                if (record.event_type) {
+                    metaText += '  b7 Type: ' + record.event_type;
+                }
+                if (typeof record.severity === 'number') {
+                    metaText += '  b7 Severity ' + record.severity;
+                }
+                if (Array.isArray(record.tags) && record.tags.length > 0) {
+                    tagsText = 'Tags: ' + record.tags.join(', ');
+                }
+            }
+
+            if (headerMetaEl) headerMetaEl.textContent = metaText;
+            if (headerTagsEl) headerTagsEl.textContent = tagsText;
+        }
+
+        function renderPlainBody(container, content) {
+            container.innerHTML = '';
+            if (!content) return;
+
+            const text = String(content);
+            const paragraphs = text.split(/\n{2,}/g);
+            paragraphs.forEach(function(segment) {
+                const p = document.createElement('p');
+                const lines = segment.split(/\n/g);
+                lines.forEach(function(line, index) {
+                    if (index > 0) {
+                        p.appendChild(document.createElement('br'));
+                    }
+                    p.appendChild(document.createTextNode(line));
+                });
+                container.appendChild(p);
+            });
+        }
+
+        function buildHighlightedHtml(content, greenWords, logId, enableFirstClick, firstAlreadyCollected) {
+            let result = '';
+            let searchStart = 0;
+
+            for (let i = 0; i < greenWords.length; i++) {
+                const word = greenWords[i];
+                if (!word) continue;
+                const idx = content.indexOf(word, searchStart);
+                if (idx === -1) {
+                    continue;
+                }
+                const before = content.slice(searchStart, idx);
+                result += escapeHtml(before);
+
+                const escapedWord = escapeHtml(word);
+                if (i === 0) {
+                    if (enableFirstClick) {
+                        const safeLogId = String(logId).replace(/"/g, '&quot;');
+                        result += '<a href="javascript:void(0)" class="codeword-highlight codeword-first" data-action="codeword-click" data-word-index="0" data-log-id="' + safeLogId + '">' + escapedWord + '</a>';
+                    } else {
+                        let cls = 'codeword-highlight codeword-first';
+                        if (firstAlreadyCollected) {
+                            cls += ' codeword-collected';
+                        }
+                        result += '<span class="' + cls + '">' + escapedWord + '</span>';
+                    }
+                } else {
+                    result += '<span class="codeword-highlight">' + escapedWord + '</span>';
+                }
+
+                searchStart = idx + word.length;
+            }
+
+            const tail = content.slice(searchStart);
+            result += escapeHtml(tail);
+            return result;
+        }
+
+        function renderTransmissionBody(container, log, enableInteraction) {
+            container.innerHTML = '';
+            if (!log || !log.content) return;
+
+            const content = String(log.content);
+            let html = '';
+
+            const greenWords = Array.isArray(log.green_highlighted_words) ? log.green_highlighted_words.filter(function(w) {
+                return typeof w === 'string' && w.trim() !== '';
+            }) : [];
+
+            const hasGreen = !!(log.is_prelude && greenWords.length > 0);
+
+            if (hasGreen) {
+                let firstAlreadyCollected = false;
+                if (state.codePanelState && Array.isArray(state.codePanelState.collected_words) && greenWords[0]) {
+                    firstAlreadyCollected = state.codePanelState.collected_words.some(function(entry) {
+                        return entry && entry.log_id === log.id && entry.word === greenWords[0];
+                    });
+                }
+                const enableFirstClick = enableInteraction && !firstAlreadyCollected;
+                html = buildHighlightedHtml(content, greenWords, log.id, enableFirstClick, firstAlreadyCollected);
+            } else {
+                html = escapeHtml(content);
+            }
+
+            const paragraphBlocks = html.split(/\n{2,}/g);
+            let finalHtml = '';
+            for (let i = 0; i < paragraphBlocks.length; i++) {
+                const seg = paragraphBlocks[i];
+                const withLineBreaks = seg.replace(/\n/g, '<br>');
+                finalHtml += '<p>' + withLineBreaks + '</p>';
+            }
+
+            container.innerHTML = finalHtml;
+        }
+
+        function renderTransmissionActions(log) {
+            if (!transmissionActionsEl || !transmissionActionsTextEl || !log) return;
+
+            const greenWords = Array.isArray(log.green_highlighted_words) ? log.green_highlighted_words.filter(function(w) {
+                return typeof w === 'string' && w.trim() !== '';
+            }) : [];
+
+            const hasGreen = !!(log.is_prelude && greenWords.length > 0);
+
+            if (!hasGreen) {
+                transmissionActionsEl.hidden = true;
+                transmissionActionsTextEl.textContent = '';
+                return;
+            }
+
+            transmissionActionsEl.hidden = false;
+
+            let firstAlreadyCollected = false;
+            if (state.codePanelState && Array.isArray(state.codePanelState.collected_words) && greenWords[0]) {
+                firstAlreadyCollected = state.codePanelState.collected_words.some(function(entry) {
+                    return entry && entry.log_id === log.id && entry.word === greenWords[0];
+                });
+            }
+
+            if (firstAlreadyCollected) {
+                transmissionActionsTextEl.textContent = 'The first green word above has already been sent to the Code Panel.';
+            } else {
+                transmissionActionsTextEl.textContent = 'The first green word above can be sent to the Code Panel. Click it once to transfer.';
+            }
+        }
+
+        function renderIncidentActions(record) {
+            if (!incidentActionsEl || !incidentAddLinkEl || !incidentQueueStatusEl) return;
+            if (!record) {
+                incidentActionsEl.hidden = true;
+                return;
+            }
+
+            incidentActionsEl.hidden = false;
+            incidentAddLinkEl.textContent = 'Add this incident to your reading queue';
+            incidentAddLinkEl.style.pointerEvents = '';
+            incidentAddLinkEl.removeAttribute('aria-disabled');
+            incidentQueueStatusEl.textContent = '';
+        }
+
+        function renderTimelineActions(record) {
+            if (!watchlistActionsEl || !watchlistAddLinkEl || !watchlistStatusEl) return;
+            if (!record) {
+                watchlistActionsEl.hidden = true;
+                return;
+            }
+
+            watchlistActionsEl.hidden = false;
+            watchlistAddLinkEl.textContent = 'Add this event to your watchlist';
+            watchlistAddLinkEl.style.pointerEvents = '';
+            watchlistAddLinkEl.removeAttribute('aria-disabled');
+            watchlistStatusEl.textContent = '';
+        }
+
+        function renderCodePanelSummary(container, codePanelState) {
+            if (!container || !codePanelSummarySectionEl) return;
+            if (!codePanelState) {
+                container.textContent = '';
+                codePanelSummarySectionEl.hidden = true;
+                return;
+            }
+
+            const words = Array.isArray(codePanelState.collected_words) ? codePanelState.collected_words : [];
+            const count = words.length;
+            let text = 'code panel: ' + count + ' word' + (count === 1 ? '' : 's') + ' collected';
+
+            if (codePanelState.passphrase_submitted) {
+                text += '  b7 last passphrase attempt recorded';
+            }
+
+            container.textContent = text;
+            codePanelSummarySectionEl.hidden = false;
+        }
+
+        function handleLoadError(kind) {
+            state.isLoading = false;
+            if (loadingEl) loadingEl.hidden = true;
+            if (errorEl) {
+                errorEl.hidden = false;
+                errorEl.textContent = 'Unable to load this record. The reference may be invalid or unavailable.';
+            }
+            if (bodyEl) bodyEl.innerHTML = '';
+
+            if (transmissionActionsEl) transmissionActionsEl.hidden = true;
+            if (incidentActionsEl) incidentActionsEl.hidden = true;
+            if (watchlistActionsEl) watchlistActionsEl.hidden = true;
+            if (codePanelSummarySectionEl) codePanelSummarySectionEl.hidden = true;
+
+            renderBreadcrumbs(kind, null);
+        }
+
+        function loadRecordFromCurrentParams() {
+            clearFeedback();
+
+            const parsed = parseUrlParams();
+            state.kind = parsed.kind;
+            state.id = parsed.id;
+
+            if (!state.kind || !state.id) {
+                enterInvalidState('Missing parameters. Use Transmission Logs, Incident Logs, or the Timeline to open a specific record.');
+                return;
+            }
+
+            const validKind = state.kind === 'transmission' || state.kind === 'incident' || state.kind === 'timeline';
+            if (!validKind) {
+                enterInvalidState('Unsupported kind: "' + state.kind + '". Expected transmission, incident, or timeline.');
+                return;
+            }
+
+            enterLoadingState();
+
+            let record = null;
+            try {
+                if (state.kind === 'transmission') {
+                    state.currentRecordType = 'transmission';
+                    record = WebsiteSDK.getTransmissionLogDetail(state.id);
+                } else if (state.kind === 'incident') {
+                    state.currentRecordType = 'incident';
+                    record = WebsiteSDK.getIncidentLogDetail(state.id);
+                } else if (state.kind === 'timeline') {
+                    state.currentRecordType = 'timeline';
+                    record = WebsiteSDK.getTimelineEventDetail(state.id);
+                }
+            } catch (e) {
+                state.currentRecord = null;
+                handleLoadError(state.kind);
+                return;
+            }
+
+            if (!record) {
+                state.currentRecord = null;
+                handleLoadError(state.kind);
+                return;
+            }
+
+            state.currentRecord = record;
+            state.isLoading = false;
+
+            if (loadingEl) loadingEl.hidden = true;
+            if (errorEl) {
+                errorEl.hidden = true;
+                errorEl.textContent = '';
+            }
+            if (invalidStateSectionEl) invalidStateSectionEl.hidden = true;
+
+            renderBreadcrumbs(state.kind, record);
+            renderRecordHeader(state.currentRecordType, record);
+
+            if (!bodyEl) return;
+
+            if (state.currentRecordType === 'transmission') {
+                state.codePanelState = null;
+
+                const log = record;
+                const greenWords = Array.isArray(log.green_highlighted_words) ? log.green_highlighted_words.filter(function(w) {
+                    return typeof w === 'string' && w.trim() !== '';
+                }) : [];
+                const hasGreen = !!(log.is_prelude && greenWords.length > 0);
+
+                if (hasGreen) {
+                    try {
+                        state.codePanelState = WebsiteSDK.getCodePanelState();
+                    } catch (e) {
+                        state.codePanelState = null;
+                        showFeedback('Code Panel status is temporarily unavailable.', true);
+                    }
+                }
+
+                renderTransmissionBody(bodyEl, log, hasGreen);
+                renderTransmissionActions(log);
+                renderCodePanelSummary(codePanelSummaryTextEl, state.codePanelState);
+
+                if (!hasGreen && transmissionActionsEl) {
+                    transmissionActionsEl.hidden = true;
+                }
+            } else if (state.currentRecordType === 'incident') {
+                state.codePanelState = null;
+                renderPlainBody(bodyEl, record.content || '');
+                if (codePanelSummarySectionEl) codePanelSummarySectionEl.hidden = true;
+                if (transmissionActionsEl) transmissionActionsEl.hidden = true;
+                renderIncidentActions(record);
+                if (watchlistActionsEl) watchlistActionsEl.hidden = true;
+            } else if (state.currentRecordType === 'timeline') {
+                state.codePanelState = null;
+                renderPlainBody(bodyEl, record.description || '');
+                if (codePanelSummarySectionEl) codePanelSummarySectionEl.hidden = true;
+                if (transmissionActionsEl) transmissionActionsEl.hidden = true;
+                if (incidentActionsEl) incidentActionsEl.hidden = true;
+                renderTimelineActions(record);
+            }
+        }
+
+        function handleCodewordClick(target) {
+            if (state.codewordActionInFlight) return;
+            if (state.currentRecordType !== 'transmission') return;
+            if (!state.currentRecord) return;
+
+            const log = state.currentRecord;
+            const greenWords = Array.isArray(log.green_highlighted_words) ? log.green_highlighted_words.filter(function(w) {
+                return typeof w === 'string' && w.trim() !== '';
+            }) : [];
+            if (!log.is_prelude || greenWords.length === 0) return;
+
+            const wordIndexAttr = target.getAttribute('data-word-index');
+            const wordIndex = wordIndexAttr ? parseInt(wordIndexAttr, 10) : 0;
+            if (Number.isNaN(wordIndex) || wordIndex !== 0) return;
+
+            state.codewordActionInFlight = true;
+            target.classList.add('codeword-disabled');
+
+            try {
+                const response = WebsiteSDK.addCodePanelWordFromLog(log.id, wordIndex);
+                if (response && response.code_panel_state) {
+                    state.codePanelState = response.code_panel_state;
+                }
+                renderTransmissionBody(bodyEl, log, true);
+                renderTransmissionActions(log);
+                renderCodePanelSummary(codePanelSummaryTextEl, state.codePanelState);
+                showFeedback('Code word transferred to the Code Panel.', false);
+            } catch (e) {
+                target.classList.remove('codeword-disabled');
+                showFeedback('Unable to send code word. You can try again.', true);
+            } finally {
+                state.codewordActionInFlight = false;
+            }
+        }
+
+        function handleAddIncidentToQueue(target) {
+            if (state.queueActionInFlight) return;
+            if (state.currentRecordType !== 'incident') return;
+            if (!state.currentRecord) return;
+            if (!incidentAddLinkEl || !incidentQueueStatusEl) return;
+
+            state.queueActionInFlight = true;
+            incidentAddLinkEl.style.pointerEvents = 'none';
+            incidentAddLinkEl.setAttribute('aria-disabled', 'true');
+            incidentQueueStatusEl.textContent = ' (adding…)';
+
+            try {
+                const response = WebsiteSDK.addIncidentLogToReadingQueue(state.currentRecord.id);
+                if (response && response.reading_queue_state) {
+                    state.readingQueueState = response.reading_queue_state;
+                }
+
+                let inQueue = false;
+                if (state.readingQueueState && Array.isArray(state.readingQueueState.incident_log_ids)) {
+                    inQueue = state.readingQueueState.incident_log_ids.indexOf(state.currentRecord.id) !== -1;
+                }
+
+                if (inQueue) {
+                    incidentAddLinkEl.textContent = 'In reading queue';
+                    incidentQueueStatusEl.textContent = '';
+                    showFeedback('Incident added to your reading queue.', false);
+                } else {
+                    incidentAddLinkEl.style.pointerEvents = '';
+                    incidentAddLinkEl.removeAttribute('aria-disabled');
+                    incidentQueueStatusEl.textContent = '';
+                    showFeedback('Unable to confirm reading queue state.', true);
+                }
+            } catch (e) {
+                incidentAddLinkEl.style.pointerEvents = '';
+                incidentAddLinkEl.removeAttribute('aria-disabled');
+                incidentQueueStatusEl.textContent = '';
+                showFeedback('Failed to add incident to reading queue. Please try again.', true);
+            } finally {
+                state.queueActionInFlight = false;
+            }
+        }
+
+        function handleAddEventToWatchlist(target) {
+            if (state.watchlistActionInFlight) return;
+            if (state.currentRecordType !== 'timeline') return;
+            if (!state.currentRecord) return;
+            if (!watchlistAddLinkEl || !watchlistStatusEl) return;
+
+            state.watchlistActionInFlight = true;
+            watchlistAddLinkEl.style.pointerEvents = 'none';
+            watchlistAddLinkEl.setAttribute('aria-disabled', 'true');
+            watchlistStatusEl.textContent = ' (adding…)';
+
+            try {
+                const response = WebsiteSDK.addTimelineEventToWatchlist(state.currentRecord.id);
+                if (response && response.watchlist_state) {
+                    state.watchlistState = response.watchlist_state;
+                }
+
+                let inWatchlist = false;
+                if (state.watchlistState && Array.isArray(state.watchlistState.event_ids)) {
+                    inWatchlist = state.watchlistState.event_ids.indexOf(state.currentRecord.id) !== -1;
+                }
+
+                if (inWatchlist) {
+                    watchlistAddLinkEl.textContent = 'In watchlist';
+                    watchlistStatusEl.textContent = '';
+                    showFeedback('Event added to your watchlist.', false);
+                } else {
+                    watchlistAddLinkEl.style.pointerEvents = '';
+                    watchlistAddLinkEl.removeAttribute('aria-disabled');
+                    watchlistStatusEl.textContent = '';
+                    showFeedback('Unable to confirm watchlist state.', true);
+                }
+            } catch (e) {
+                watchlistAddLinkEl.style.pointerEvents = '';
+                watchlistAddLinkEl.removeAttribute('aria-disabled');
+                watchlistStatusEl.textContent = '';
+                showFeedback('Failed to add event to watchlist. Please try again.', true);
+            } finally {
+                state.watchlistActionInFlight = false;
+            }
+        }
+
+        document.addEventListener('click', function(event) {
+            const actionEl = event.target.closest('[data-action]');
+            if (!actionEl) return;
+
+            const action = actionEl.getAttribute('data-action');
+            if (!action) return;
+
+            if (action === 'codeword-click') {
+                event.preventDefault();
+                handleCodewordClick(actionEl);
+            } else if (action === 'add-to-reading-queue') {
+                event.preventDefault();
+                handleAddIncidentToQueue(actionEl);
+            } else if (action === 'add-to-watchlist') {
+                event.preventDefault();
+                handleAddEventToWatchlist(actionEl);
+            }
+        });
+
+        window.addEventListener('popstate', function() {
+            loadRecordFromCurrentParams();
+        });
+
+        loadRecordFromCurrentParams();
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Domain Registrar Portal</title>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='user_management.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <nav class='primary-nav' aria-label='Primary navigation'>
+            <ul class='nav-list'>
+                <li class='nav-item'><a href='index.html'>Dashboard</a></li>
+                <li class='nav-item'><a href='my_domains.html'>My Domains</a></li>
+                <li class='nav-item'><a href='contact_verification_center.html'>Contact Verification</a></li>
+                <li class='nav-item'><a href='account_settings.html'>Account Settings</a></li>
+                <li class='nav-item'><a href='help.html'>Help</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id='content' class='site-main' role='main'>
+        <section data-component='page-controller'>
+            <h1>User Management: Collaborators</h1>
+            <p>Manage collaborator access to your account, including inviting new collaborators and configuring permissions such as viewing domains and managing contact verification notices.</p>
+        </section>
+
+        <nav data-component='user-management-tabs' aria-label='User management sections'>
+            <a href='javascript:void(0)' data-action='change-tab' data-tab-key='profile'>Profile</a>
+            <span> | </span>
+            <a href='javascript:void(0)' data-action='change-tab' data-tab-key='security'>Security</a>
+            <span> | </span>
+            <a href='javascript:void(0)' data-action='change-tab' data-tab-key='collaborators'>Collaborators</a>
+        </nav>
+
+        <section data-component='collaborators-section'>
+            <button type='button' data-component='add-collaborator-toggle' data-action='toggle-invite-form'>Add collaborator</button>
+
+            <form data-component='collaborator-invite-form' style='display:none;' novalidate>
+                <p>Send an invitation to a collaborator with a custom role and selected permissions.</p>
+
+                <p>
+                    <label for='inviteEmailInput'>Email</label><br>
+                    <input id='inviteEmailInput' name='email' type='email' autocomplete='email'>
+                </p>
+                <p data-field-error='email' aria-live='polite'></p>
+
+                <p>
+                    <label for='inviteRoleLabelInput'>Role label</label><br>
+                    <input id='inviteRoleLabelInput' name='roleLabel' type='text'>
+                </p>
+                <p data-field-error='roleLabel' aria-live='polite'></p>
+
+                <fieldset>
+                    <legend>Permissions</legend>
+                    <div data-populate='collaborator-permission-options'></div>
+                    <p data-field-error='permissions' aria-live='polite'></p>
+                    <p>To create a limited role focused on contact verification, select only the options related to viewing domains and managing contact verification notices.</p>
+                </fieldset>
+
+                <p data-form-message aria-live='polite'></p>
+
+                <p>
+                    <button type='submit' data-action='submit-invite-form'>Send invitation</button>
+                </p>
+            </form>
+
+            <section data-component='collaborators-list-section'>
+                <h2>Current collaborators</h2>
+                <div data-component='collaborators-list' data-populate='collaborators'></div>
+            </section>
+        </section>
+
+        <p>
+            <a href='javascript:void(0)' data-component='back-to-account-settings-link' data-action='back-to-account-settings'>Back to Account Settings</a>
+        </p>
+    </main>
+
+    <footer class='site-footer'>
+        <nav class='footer-nav' aria-label='Footer navigation'>
+            <ul class='footer-nav-list'>
+                <li class='footer-nav-item'><a href='about.html'>About</a></li>
+                <li class='footer-nav-item'><a href='help.html'>Help &amp; Support</a></li>
+                <li class='footer-nav-item'><a href='contact.html'>Contact Us</a></li>
+                <li class='footer-nav-item'><a href='privacy.html'>Privacy Policy</a></li>
+                <li class='footer-nav-item'><a href='terms.html'>Terms of Service</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var state = {
+            recognizedTabs: ['profile', 'security', 'collaborators'],
+            activeTab: 'collaborators',
+            collaboratorsLoaded: false,
+            collaborators: [],
+            collaboratorsError: null,
+            permissionOptionsLoaded: false,
+            permissionOptionsLoading: false,
+            permissionOptions: [],
+            permissionOptionsError: null,
+            isInviteFormVisible: false,
+            inviteFormInitialized: false,
+            isInviting: false
+        };
+
+        var collaboratorsSection = document.querySelector('[data-component="collaborators-section"]');
+        var collaboratorsListContainer = document.querySelector('[data-component="collaborators-list"]');
+        var inviteForm = document.querySelector('[data-component="collaborator-invite-form"]');
+        var permissionOptionsContainer = inviteForm ? inviteForm.querySelector('[data-populate="collaborator-permission-options"]') : null;
+        var addCollaboratorToggle = document.querySelector('[data-component="add-collaborator-toggle"]');
+        var tabsNav = document.querySelector('[data-component="user-management-tabs"]');
+        var backLink = document.querySelector('[data-component="back-to-account-settings-link"]');
+
+        var selectedPermissions = [];
+
+        function getTabFromUrl() {
+            var params = new URLSearchParams(window.location.search);
+            var tab = params.get('tab');
+            if (!tab || state.recognizedTabs.indexOf(tab) === -1) {
+                return 'collaborators';
+            }
+            return tab;
+        }
+
+        function updateUrlForTab(tabKey, usePushState) {
+            var params = new URLSearchParams(window.location.search);
+            params.set('tab', tabKey);
+            var newUrl = window.location.pathname + '?' + params.toString();
+            if (usePushState) {
+                window.history.pushState({ tab: tabKey }, '', newUrl);
+            } else {
+                window.history.replaceState({ tab: tabKey }, '', newUrl);
+            }
+        }
+
+        function renderTabs() {
+            if (!tabsNav) return;
+            var tabLinks = tabsNav.querySelectorAll('[data-action="change-tab"]');
+            tabLinks.forEach(function(link) {
+                var key = link.getAttribute('data-tab-key');
+                if (key === state.activeTab) {
+                    link.setAttribute('aria-current', 'page');
+                    if (!link.textContent.endsWith(' (current)')) {
+                        link.textContent = link.textContent.replace(' (current)', '') + ' (current)';
+                    }
+                } else {
+                    link.removeAttribute('aria-current');
+                    link.textContent = link.textContent.replace(' (current)', '');
+                }
+            });
+        }
+
+        function renderTabVisibility() {
+            if (!collaboratorsSection) return;
+            if (state.activeTab === 'collaborators') {
+                collaboratorsSection.style.display = '';
+            } else {
+                collaboratorsSection.style.display = 'none';
+            }
+        }
+
+        function renderCollaborators(container, collaborators) {
+            if (!container) return;
+            container.innerHTML = '';
+            if (!collaborators || !collaborators.length) {
+                var empty = document.createElement('p');
+                empty.textContent = 'There are currently no collaborators to display.';
+                container.appendChild(empty);
+                return;
+            }
+            var table = document.createElement('table');
+            var thead = document.createElement('thead');
+            thead.innerHTML = '<tr>' +
+                '<th>Email</th>' +
+                '<th>Role</th>' +
+                '<th>Permissions</th>' +
+                '<th>Status</th>' +
+                '<th>Invited</th>' +
+                '<th>Accepted</th>' +
+                '</tr>';
+            table.appendChild(thead);
+            var tbody = document.createElement('tbody');
+
+            function humanizePermission(value) {
+                return value.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+            }
+
+            collaborators.forEach(function(collab) {
+                var tr = document.createElement('tr');
+
+                var emailTd = document.createElement('td');
+                emailTd.textContent = collab.email || '';
+                tr.appendChild(emailTd);
+
+                var roleTd = document.createElement('td');
+                roleTd.textContent = collab.roleLabel || '';
+                tr.appendChild(roleTd);
+
+                var permsTd = document.createElement('td');
+                if (Array.isArray(collab.permissions) && collab.permissions.length) {
+                    permsTd.textContent = collab.permissions.map(humanizePermission).join(', ');
+                } else {
+                    permsTd.textContent = '';
+                }
+                tr.appendChild(permsTd);
+
+                var statusTd = document.createElement('td');
+                statusTd.textContent = collab.status || '';
+                tr.appendChild(statusTd);
+
+                var invitedTd = document.createElement('td');
+                invitedTd.textContent = collab.invitedAt ? new Date(collab.invitedAt).toLocaleString() : '';
+                tr.appendChild(invitedTd);
+
+                var acceptedTd = document.createElement('td');
+                acceptedTd.textContent = collab.acceptedAt ? new Date(collab.acceptedAt).toLocaleString() : '';
+                tr.appendChild(acceptedTd);
+
+                tbody.appendChild(tr);
+            });
+
+            table.appendChild(tbody);
+            container.appendChild(table);
+        }
+
+        function loadCollaborators() {
+            try {
+                var data = WebsiteSDK.getCollaborators();
+                state.collaboratorsLoaded = true;
+                state.collaboratorsError = null;
+                state.collaborators = Array.isArray(data) ? data : [];
+                renderCollaborators(collaboratorsListContainer, state.collaborators);
+            } catch (e) {
+                state.collaboratorsError = 'Unable to load collaborators.';
+                if (collaboratorsListContainer) {
+                    collaboratorsListContainer.innerHTML = '';
+                    var p = document.createElement('p');
+                    p.textContent = state.collaboratorsError;
+                    collaboratorsListContainer.appendChild(p);
+                }
+            }
+        }
+
+        function ensurePermissionOptionsLoaded() {
+            if (state.permissionOptionsLoaded || state.permissionOptionsLoading) {
+                return;
+            }
+            state.permissionOptionsLoading = true;
+            if (permissionOptionsContainer) {
+                permissionOptionsContainer.innerHTML = '';
+                var loadingP = document.createElement('p');
+                loadingP.textContent = 'Loading permissions...';
+                permissionOptionsContainer.appendChild(loadingP);
+            }
+            try {
+                var options = WebsiteSDK.getCollaboratorPermissionOptions();
+                state.permissionOptionsLoading = false;
+                state.permissionOptionsLoaded = true;
+                state.permissionOptionsError = null;
+                state.permissionOptions = Array.isArray(options) ? options : [];
+                renderPermissionOptions(permissionOptionsContainer, state.permissionOptions);
+            } catch (e) {
+                state.permissionOptionsLoading = false;
+                state.permissionOptionsError = 'Unable to load permission options. Please try again.';
+                if (permissionOptionsContainer) {
+                    permissionOptionsContainer.innerHTML = '';
+                    var p = document.createElement('p');
+                    p.textContent = state.permissionOptionsError;
+                    permissionOptionsContainer.appendChild(p);
+                }
+            }
+        }
+
+        function renderPermissionOptions(container, options) {
+            if (!container) return;
+            container.innerHTML = '';
+            if (!options || !options.length) {
+                var p = document.createElement('p');
+                p.textContent = 'No permissions are currently available.';
+                container.appendChild(p);
+                return;
+            }
+            selectedPermissions = [];
+            options.forEach(function(option, index) {
+                var wrapperP = document.createElement('p');
+                var checkboxId = 'permissionOption_' + index;
+                var input = document.createElement('input');
+                input.type = 'checkbox';
+                input.id = checkboxId;
+                input.name = 'permissions';
+                input.value = option.value || '';
+                input.setAttribute('data-action', 'toggle-permission');
+                input.addEventListener('change', function(event) {
+                    var value = event.target.value;
+                    var idx = selectedPermissions.indexOf(value);
+                    if (event.target.checked) {
+                        if (idx === -1) {
+                            selectedPermissions.push(value);
+                        }
+                    } else if (idx !== -1) {
+                        selectedPermissions.splice(idx, 1);
+                    }
+                    clearFieldError('permissions');
+                });
+
+                var label = document.createElement('label');
+                label.setAttribute('for', checkboxId);
+                label.textContent = option.label || option.value || '';
+
+                wrapperP.appendChild(input);
+                wrapperP.appendChild(document.createTextNode(' '));
+                wrapperP.appendChild(label);
+
+                if (option.description) {
+                    wrapperP.appendChild(document.createElement('br'));
+                    var descSpan = document.createElement('span');
+                    descSpan.textContent = option.description;
+                    wrapperP.appendChild(descSpan);
+                }
+
+                container.appendChild(wrapperP);
+            });
+        }
+
+        function setInviteFormVisibility(visible) {
+            state.isInviteFormVisible = visible;
+            if (!inviteForm) return;
+            inviteForm.style.display = visible ? '' : 'none';
+            if (visible && !state.inviteFormInitialized) {
+                state.inviteFormInitialized = true;
+                ensurePermissionOptionsLoaded();
+                setupInviteFormHandlers();
+            } else if (visible && !state.permissionOptionsLoaded && state.permissionOptionsError) {
+                ensurePermissionOptionsLoaded();
+            }
+        }
+
+        function setFieldError(field, message) {
+            if (!inviteForm) return;
+            var errorElement = inviteForm.querySelector('[data-field-error="' + field + '"]');
+            if (errorElement) {
+                errorElement.textContent = message || '';
+            }
+        }
+
+        function clearFieldError(field) {
+            setFieldError(field, '');
+        }
+
+        function setFormMessage(message) {
+            if (!inviteForm) return;
+            var el = inviteForm.querySelector('[data-form-message]');
+            if (el) {
+                el.textContent = message || '';
+            }
+        }
+
+        function resetInviteFormFields() {
+            if (!inviteForm) return;
+            var emailInput = document.getElementById('inviteEmailInput');
+            var roleInput = document.getElementById('inviteRoleLabelInput');
+            if (emailInput) emailInput.value = '';
+            if (roleInput) roleInput.value = '';
+            selectedPermissions = [];
+            if (permissionOptionsContainer) {
+                var boxes = permissionOptionsContainer.querySelectorAll('input[type="checkbox"][name="permissions"]');
+                boxes.forEach(function(box) {
+                    box.checked = false;
+                });
+            }
+            clearFieldError('email');
+            clearFieldError('roleLabel');
+            clearFieldError('permissions');
+            setFormMessage('');
+        }
+
+        function validateInviteForm() {
+            if (!inviteForm) return false;
+            var emailInput = document.getElementById('inviteEmailInput');
+            var roleInput = document.getElementById('inviteRoleLabelInput');
+            var valid = true;
+            clearFieldError('email');
+            clearFieldError('roleLabel');
+            clearFieldError('permissions');
+            setFormMessage('');
+
+            var emailValue = emailInput ? emailInput.value.trim() : '';
+            var roleValue = roleInput ? roleInput.value.trim() : '';
+
+            if (!emailValue) {
+                setFieldError('email', 'Please enter an email address.');
+                valid = false;
+            }
+
+            if (!roleValue) {
+                setFieldError('roleLabel', 'Please enter a role label.');
+                valid = false;
+            }
+
+            if (!selectedPermissions || !selectedPermissions.length) {
+                setFieldError('permissions', 'Select at least one permission.');
+                valid = false;
+            }
+
+            return valid;
+        }
+
+        function handleInviteSubmit(event) {
+            event.preventDefault();
+            if (state.isInviting) return;
+            if (!validateInviteForm()) {
+                return;
+            }
+            var emailInput = document.getElementById('inviteEmailInput');
+            var roleInput = document.getElementById('inviteRoleLabelInput');
+            var emailValue = emailInput ? emailInput.value.trim() : '';
+            var roleValue = roleInput ? roleInput.value.trim() : '';
+            var permissions = selectedPermissions.slice();
+
+            state.isInviting = true;
+            setFormMessage('Sending invitation...');
+            var submitButton = inviteForm.querySelector('[data-action="submit-invite-form"]');
+            if (submitButton) {
+                submitButton.disabled = true;
+            }
+
+            try {
+                var result = WebsiteSDK.inviteCollaborator(emailValue, roleValue, permissions);
+                state.isInviting = false;
+                if (submitButton) {
+                    submitButton.disabled = false;
+                }
+                if (result && result.success) {
+                    setFormMessage(result.message || 'Invitation sent.');
+                    if (result.collaborator) {
+                        state.collaboratorsLoaded = false;
+                        loadCollaborators();
+                    }
+                    resetInviteFormFields();
+                } else {
+                    var msg = (result && result.message) ? result.message : 'Unable to send invitation.';
+                    setFormMessage(msg);
+                }
+            } catch (e) {
+                state.isInviting = false;
+                if (submitButton) {
+                    submitButton.disabled = false;
+                }
+                setFormMessage('An error occurred while sending the invitation.');
+            }
+        }
+
+        function setupInviteFormHandlers() {
+            if (!inviteForm) return;
+            var emailInput = document.getElementById('inviteEmailInput');
+            var roleInput = document.getElementById('inviteRoleLabelInput');
+            if (emailInput) {
+                emailInput.addEventListener('input', function() {
+                    clearFieldError('email');
+                });
+            }
+            if (roleInput) {
+                roleInput.addEventListener('input', function() {
+                    clearFieldError('roleLabel');
+                });
+            }
+            inviteForm.addEventListener('submit', handleInviteSubmit);
+        }
+
+        function setActiveTab(tabKey, options) {
+            var opts = options || {};
+            var normalized = state.recognizedTabs.indexOf(tabKey) === -1 ? 'collaborators' : tabKey;
+            state.activeTab = normalized;
+            if (opts.updateUrl !== false) {
+                var usePush = !!opts.pushState;
+                updateUrlForTab(normalized, usePush);
+            }
+            renderTabs();
+            renderTabVisibility();
+            if (normalized === 'collaborators' && !state.collaboratorsLoaded && !state.collaboratorsError) {
+                loadCollaborators();
+            }
+        }
+
+        function handleActionClick(event) {
+            var action = event.target.getAttribute('data-action');
+            if (!action) return;
+
+            if (action === 'toggle-invite-form') {
+                setInviteFormVisibility(!state.isInviteFormVisible);
+            } else if (action === 'change-tab') {
+                var tabKey = event.target.getAttribute('data-tab-key');
+                setActiveTab(tabKey, { pushState: true });
+            } else if (action === 'back-to-account-settings') {
+                window.location.href = 'account_settings.html?section=users';
+            }
+        }
+
+        document.body.addEventListener('click', handleActionClick);
+
+        window.addEventListener('popstate', function() {
+            var tabFromUrl = getTabFromUrl();
+            setActiveTab(tabFromUrl, { updateUrl: false });
+        });
+
+        var initialTab = getTabFromUrl();
+        var params = new URLSearchParams(window.location.search);
+        var needReplace = false;
+        if (!params.get('tab') || state.recognizedTabs.indexOf(initialTab) === -1) {
+            needReplace = true;
+        }
+        state.activeTab = initialTab;
+        if (needReplace) {
+            updateUrlForTab(state.activeTab, false);
+        }
+        renderTabs();
+        renderTabVisibility();
+        if (state.activeTab === 'collaborators') {
+            loadCollaborators();
+        }
+    });
+    </script>
+</body>
+</html>

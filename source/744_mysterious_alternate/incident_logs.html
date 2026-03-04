@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Incident Logs</title>
+    
+    <link rel="stylesheet" href="incident_logs.css">
+</head>
+<body>
+    <div class="page">
+        <header class="site-header">
+            <div class="site-identity">
+                <span class="site-title">The Initiative</span>
+            </div>
+            <nav class="site-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html" title="Homepage and primary entry into the ARG experience">Home</a></li>
+                    <li><a href="transmission_logs.html" title="Browse transmissions and unlock the Phase I teaser via Prelude logs">Transmission Logs</a></li>
+                    <li><a href="timeline.html" title="Chronological view of events with filters and severity controls">Timeline</a></li>
+                    <li><a href="timeline.html?view=watchlist" title="List of events the user has flagged for monitoring">Watchlist</a></li>
+                    <li><a href="characters.html" title="Directory of Initiative characters, including Project Orion profiles">Characters</a></li>
+                    <li><a href="anomaly_map.html" title="Interactive map and list of anomalous locations and case files">Anomaly Map</a></li>
+                    <li><a href="media_videos.html" title="Media gallery for teaser and briefing videos">Videos</a></li>
+                    <li><a href="incident_logs.html" title="Searchable archive of incident logs and low-threat reports">Incident Logs</a></li>
+                    <li><a href="signals.html" title="Live signal stream used as clues for theories">Signals</a></li>
+                    <li><a href="ciphers.html" title="Tools and cipher list for decoding and theory building">Ciphers</a></li>
+                    <li><a href="theory_board.html" title="Workspace for assembling clues into named theories">Theory Board</a></li>
+                    <li><a href="artifacts.html" title="Catalog of recovered artifacts and their risk levels">Artifacts</a></li>
+                    <li><a href="recruitment.html" title="Recruitment and assessment form for new operatives">Join the Initiative</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id="content" class="site-main" tabindex="-1">
+            <p data-component="reading-queue-indicator" data-populate="reading-queue-indicator">
+                Reading queue: loading
+            </p>
+
+            <form data-component="incident-log-search-form" data-action="incident-search">
+                <input type="text" id="incidentSearchInput" name="query" placeholder="Search incident logs">
+                <button type="submit">Search</button>
+            </form>
+
+            <div data-component="incident-log-filter-bar" id="incidentFilterBar">
+                <div>
+                    Threat level:
+                    <span data-populate="threat-level-filters"></span>
+                </div>
+                <div>
+                    Date from
+                    <input type="date" id="dateFromInput" name="date_from">
+                    to
+                    <input type="date" id="dateToInput" name="date_to">
+                </div>
+                <div>
+                    <button type="button" data-action="apply-filters">Apply filters</button>
+                    <button type="button" data-action="reset-filters">Reset</button>
+                </div>
+            </div>
+
+            <div data-component="incident-log-sort-control" id="incidentSortControl">
+                <label for="incidentSortSelect">Sort by:</label>
+                <select id="incidentSortSelect" data-action="sort-change"></select>
+            </div>
+
+            <div data-component="incident-log-list">
+                <div data-populate="incident-log-list">
+                    Loading incident logs
+                </div>
+            </div>
+
+            <p data-component="incident-log-pagination">
+                <span data-populate="incident-log-pagination"></span>
+            </p>
+
+            <script src="business_logic.js"></script>
+            <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                let incidentFilterOptions = null;
+                let readingQueueData = null;
+                let readingQueueIdSet = new Set();
+                let currentUrlState = null;
+                let pendingThreatLevels = [];
+                let pendingDateFrom = null;
+                let pendingDateTo = null;
+                let lastSearchError = null;
+
+                function parseUrlState(filterOptions) {
+                    const params = new URLSearchParams(window.location.search);
+                    const query = params.get('query') || '';
+
+                    let threatLevelsRaw = (params.get('threat') || '').split(',').filter(Boolean).map(function(v) {
+                        return parseInt(v, 10);
+                    }).filter(function(n) { return !isNaN(n); });
+
+                    let allowedThreatLevels = [];
+                    if (filterOptions && Array.isArray(filterOptions.threat_levels)) {
+                        allowedThreatLevels = filterOptions.threat_levels;
+                    }
+                    const threatLevels = threatLevelsRaw.filter(function(level) {
+                        return allowedThreatLevels.indexOf(level) !== -1;
+                    });
+
+                    let minDate = null;
+                    let maxDate = null;
+                    if (filterOptions) {
+                        if (filterOptions.min_date) {
+                            minDate = String(filterOptions.min_date).slice(0, 10);
+                        }
+                        if (filterOptions.max_date) {
+                            maxDate = String(filterOptions.max_date).slice(0, 10);
+                        }
+                    }
+
+                    let dateFrom = params.get('date_from') || minDate;
+                    let dateTo = params.get('date_to') || maxDate;
+
+                    if (minDate && dateFrom && dateFrom < minDate) {
+                        dateFrom = minDate;
+                    }
+                    if (maxDate && dateTo && dateTo > maxDate) {
+                        dateTo = maxDate;
+                    }
+
+                    let sortParam = params.get('sort');
+                    let sortKey = '';
+                    if (filterOptions && Array.isArray(filterOptions.sort_options) && filterOptions.sort_options.length > 0) {
+                        const keys = filterOptions.sort_options.map(function(o) { return o.key; });
+                        if (keys.indexOf(sortParam) !== -1) {
+                            sortKey = sortParam;
+                        } else {
+                            sortKey = filterOptions.sort_options[0].key;
+                        }
+                    } else if (sortParam) {
+                        sortKey = sortParam;
+                    }
+
+                    let page = parseInt(params.get('page') || '1', 10);
+                    if (isNaN(page) || page < 1) {
+                        page = 1;
+                    }
+
+                    let pageSize = parseInt(params.get('pageSize') || '10', 10);
+                    if (isNaN(pageSize) || pageSize < 1) {
+                        pageSize = 10;
+                    }
+
+                    return {
+                        query: query,
+                        threatLevels: threatLevels,
+                        dateFrom: dateFrom || null,
+                        dateTo: dateTo || null,
+                        sortKey: sortKey,
+                        page: page,
+                        pageSize: pageSize
+                    };
+                }
+
+                function updateUrlState(partialUpdate, replace) {
+                    const params = new URLSearchParams(window.location.search);
+
+                    if (Object.prototype.hasOwnProperty.call(partialUpdate, 'query')) {
+                        const v = partialUpdate.query;
+                        if (v && v.trim()) {
+                            params.set('query', v.trim());
+                        } else {
+                            params.delete('query');
+                        }
+                    }
+
+                    if (Object.prototype.hasOwnProperty.call(partialUpdate, 'threatLevels')) {
+                        const arr = partialUpdate.threatLevels || [];
+                        if (arr.length > 0) {
+                            params.set('threat', arr.join(','));
+                        } else {
+                            params.delete('threat');
+                        }
+                    }
+
+                    if (Object.prototype.hasOwnProperty.call(partialUpdate, 'dateFrom')) {
+                        const v = partialUpdate.dateFrom;
+                        if (v) {
+                            params.set('date_from', v);
+                        } else {
+                            params.delete('date_from');
+                        }
+                    }
+
+                    if (Object.prototype.hasOwnProperty.call(partialUpdate, 'dateTo')) {
+                        const v = partialUpdate.dateTo;
+                        if (v) {
+                            params.set('date_to', v);
+                        } else {
+                            params.delete('date_to');
+                        }
+                    }
+
+                    if (Object.prototype.hasOwnProperty.call(partialUpdate, 'sortKey')) {
+                        const v = partialUpdate.sortKey;
+                        if (v) {
+                            params.set('sort', v);
+                        } else {
+                            params.delete('sort');
+                        }
+                    }
+
+                    if (Object.prototype.hasOwnProperty.call(partialUpdate, 'page')) {
+                        params.set('page', String(partialUpdate.page));
+                    }
+
+                    if (Object.prototype.hasOwnProperty.call(partialUpdate, 'pageSize')) {
+                        params.set('pageSize', String(partialUpdate.pageSize));
+                    }
+
+                    const newQuery = params.toString();
+                    const newUrl = window.location.pathname + (newQuery ? '?' + newQuery : '');
+
+                    if (replace) {
+                        window.history.replaceState(null, '', newUrl);
+                    } else {
+                        window.history.pushState(null, '', newUrl);
+                    }
+
+                    onUrlStateChanged(false);
+                }
+
+                function runSearchAndRender() {
+                    if (!currentUrlState) {
+                        return;
+                    }
+
+                    const filters = {};
+                    if (pendingThreatLevels && pendingThreatLevels.length > 0) {
+                        filters.threat_levels = pendingThreatLevels.slice();
+                    } else if (currentUrlState.threatLevels && currentUrlState.threatLevels.length > 0) {
+                        filters.threat_levels = currentUrlState.threatLevels.slice();
+                    }
+
+                    const startDate = pendingDateFrom || currentUrlState.dateFrom;
+                    const endDate = pendingDateTo || currentUrlState.dateTo;
+                    if (startDate) {
+                        filters.start_date = startDate;
+                    }
+                    if (endDate) {
+                        filters.end_date = endDate;
+                    }
+
+                    let searchResult = null;
+                    lastSearchError = null;
+
+                    try {
+                        searchResult = WebsiteSDK.searchIncidentLogs(
+                            currentUrlState.query || '',
+                            filters,
+                            currentUrlState.sortKey || '',
+                            currentUrlState.page,
+                            currentUrlState.pageSize
+                        );
+                    } catch (e) {
+                        lastSearchError = 'Unable to load incident logs at this time.';
+                        searchResult = {
+                            items: [],
+                            total: 0,
+                            page: currentUrlState.page,
+                            pageSize: currentUrlState.pageSize
+                        };
+                    }
+
+                    renderAll(searchResult);
+                }
+
+                function onUrlStateChanged(fromPopState) {
+                    if (!incidentFilterOptions) {
+                        return;
+                    }
+
+                    currentUrlState = parseUrlState(incidentFilterOptions);
+
+                    pendingThreatLevels = currentUrlState.threatLevels ? currentUrlState.threatLevels.slice() : [];
+                    pendingDateFrom = currentUrlState.dateFrom;
+                    pendingDateTo = currentUrlState.dateTo;
+
+                    syncControlsToState();
+                    runSearchAndRender();
+                }
+
+                function syncControlsToState() {
+                    const searchInput = document.getElementById('incidentSearchInput');
+                    if (searchInput && currentUrlState) {
+                        searchInput.value = currentUrlState.query || '';
+                    }
+
+                    const dateFromInput = document.getElementById('dateFromInput');
+                    const dateToInput = document.getElementById('dateToInput');
+                    let minDate = null;
+                    let maxDate = null;
+                    if (incidentFilterOptions) {
+                        if (incidentFilterOptions.min_date) {
+                            minDate = String(incidentFilterOptions.min_date).slice(0, 10);
+                        }
+                        if (incidentFilterOptions.max_date) {
+                            maxDate = String(incidentFilterOptions.max_date).slice(0, 10);
+                        }
+                    }
+                    if (dateFromInput) {
+                        if (minDate) {
+                            dateFromInput.min = minDate;
+                        }
+                        if (maxDate) {
+                            dateFromInput.max = maxDate;
+                        }
+                        dateFromInput.value = pendingDateFrom || '';
+                    }
+                    if (dateToInput) {
+                        if (minDate) {
+                            dateToInput.min = minDate;
+                        }
+                        if (maxDate) {
+                            dateToInput.max = maxDate;
+                        }
+                        dateToInput.value = pendingDateTo || '';
+                    }
+
+                    const sortSelect = document.getElementById('incidentSortSelect');
+                    if (sortSelect && incidentFilterOptions && Array.isArray(incidentFilterOptions.sort_options)) {
+                        sortSelect.innerHTML = '';
+                        incidentFilterOptions.sort_options.forEach(function(opt) {
+                            const optionEl = document.createElement('option');
+                            optionEl.value = opt.key;
+                            optionEl.textContent = opt.label;
+                            if (opt.key === currentUrlState.sortKey) {
+                                optionEl.selected = true;
+                            }
+                            sortSelect.appendChild(optionEl);
+                        });
+                    }
+                }
+
+                function renderReadingQueueIndicator(container) {
+                    container.textContent = '';
+                    if (!readingQueueData || !readingQueueData.reading_queue_state) {
+                        container.textContent = 'Reading queue: loading';
+                        return;
+                    }
+                    const state = readingQueueData.reading_queue_state;
+                    const count = Array.isArray(state.incident_log_ids) ? state.incident_log_ids.length : 0;
+                    if (count === 0) {
+                        container.textContent = 'Reading queue: empty. Items marked below will appear here once queued.';
+                    } else {
+                        container.textContent = 'Reading queue: ' + count + ' incident log' + (count === 1 ? '' : 's') + ' awaiting review.';
+                    }
+                }
+
+                function renderThreatLevelFilters(container) {
+                    container.innerHTML = '';
+                    if (!incidentFilterOptions || !Array.isArray(incidentFilterOptions.threat_levels) || incidentFilterOptions.threat_levels.length === 0) {
+                        container.textContent = 'no options';
+                        return;
+                    }
+                    incidentFilterOptions.threat_levels.forEach(function(level) {
+                        const label = document.createElement('label');
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.value = String(level);
+                        checkbox.dataset.action = 'threat-toggle';
+                        if (pendingThreatLevels.indexOf(level) !== -1) {
+                            checkbox.checked = true;
+                        }
+                        label.appendChild(checkbox);
+                        label.appendChild(document.createTextNode(' ' + level + ' '));
+                        container.appendChild(label);
+                    });
+                }
+
+                function renderIncidentList(container, searchResult) {
+                    container.innerHTML = '';
+
+                    if (lastSearchError) {
+                        container.textContent = lastSearchError;
+                        return;
+                    }
+
+                    if (!searchResult || !Array.isArray(searchResult.items) || searchResult.items.length === 0) {
+                        container.textContent = 'No incident logs match the current criteria.';
+                        return;
+                    }
+
+                    searchResult.items.forEach(function(log) {
+                        const itemContainer = document.createElement('div');
+
+                        const titleLink = document.createElement('a');
+                        titleLink.href = 'javascript:void(0)';
+                        titleLink.textContent = log.title || '(untitled incident)';
+                        titleLink.dataset.action = 'open-incident';
+                        titleLink.dataset.incidentId = log.id;
+                        itemContainer.appendChild(titleLink);
+
+                        const meta = document.createElement('div');
+                        const dateStr = log.date ? String(log.date).slice(0, 10) : '';
+                        const threatText = typeof log.threat_level === 'number' ? 'Threat ' + log.threat_level : '';
+                        let metaText = '';
+                        if (dateStr) {
+                            metaText += dateStr;
+                        }
+                        if (dateStr && threatText) {
+                            metaText += ' b7 ';
+                        }
+                        if (threatText) {
+                            metaText += threatText;
+                        }
+                        meta.textContent = metaText;
+
+                        if (readingQueueIdSet && log.id && readingQueueIdSet.has(log.id)) {
+                            const queuedSpan = document.createElement('span');
+                            queuedSpan.textContent = ' b7 in reading queue';
+                            meta.appendChild(queuedSpan);
+                        }
+
+                        itemContainer.appendChild(meta);
+                        container.appendChild(itemContainer);
+                    });
+                }
+
+                function renderIncidentPagination(container, searchResult) {
+                    container.innerHTML = '';
+                    if (!searchResult) {
+                        return;
+                    }
+
+                    const total = typeof searchResult.total === 'number' ? searchResult.total : 0;
+                    const page = typeof searchResult.page === 'number' ? searchResult.page : 1;
+                    const pageSize = typeof searchResult.pageSize === 'number' ? searchResult.pageSize : (currentUrlState ? currentUrlState.pageSize : 10);
+
+                    if (!total || total <= 0) {
+                        return;
+                    }
+
+                    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+                    const fragment = document.createDocumentFragment();
+
+                    function createPageSpan(label, targetPage, disabled, isCurrent) {
+                        const span = document.createElement('span');
+                        if (disabled) {
+                            span.textContent = label;
+                            return span;
+                        }
+                        if (isCurrent) {
+                            span.textContent = '[' + label + ']';
+                            return span;
+                        }
+                        const link = document.createElement('a');
+                        link.href = 'javascript:void(0)';
+                        link.textContent = label;
+                        link.dataset.action = 'change-page';
+                        link.dataset.page = String(targetPage);
+                        span.appendChild(link);
+                        return span;
+                    }
+
+                    fragment.appendChild(createPageSpan('Previous', page - 1, page <= 1, false));
+                    fragment.appendChild(document.createTextNode(' '));
+
+                    for (let p = 1; p <= totalPages; p += 1) {
+                        if (p > 1) {
+                            fragment.appendChild(document.createTextNode(' '));
+                        }
+                        const isCurrent = p === page;
+                        fragment.appendChild(createPageSpan(String(p), p, false, isCurrent));
+                    }
+
+                    fragment.appendChild(document.createTextNode(' '));
+                    fragment.appendChild(createPageSpan('Next', page + 1, page >= totalPages, false));
+
+                    const pageSizeLabel = document.createElement('span');
+                    pageSizeLabel.textContent = '  items per page: ';
+                    const pageSizeSelect = document.createElement('select');
+                    pageSizeSelect.dataset.action = 'page-size-change';
+                    [5, 10, 20].forEach(function(size) {
+                        const opt = document.createElement('option');
+                        opt.value = String(size);
+                        opt.textContent = String(size);
+                        if (size === pageSize) {
+                            opt.selected = true;
+                        }
+                        pageSizeSelect.appendChild(opt);
+                    });
+                    pageSizeLabel.appendChild(pageSizeSelect);
+
+                    fragment.appendChild(document.createTextNode(' '));
+                    fragment.appendChild(pageSizeLabel);
+
+                    container.appendChild(fragment);
+                }
+
+                function renderAll(searchResult) {
+                    const populateElements = document.querySelectorAll('[data-populate]');
+                    populateElements.forEach(function(element) {
+                        const type = element.dataset.populate;
+                        if (type === 'reading-queue-indicator') {
+                            renderReadingQueueIndicator(element);
+                        } else if (type === 'threat-level-filters') {
+                            renderThreatLevelFilters(element);
+                        } else if (type === 'incident-log-list') {
+                            renderIncidentList(element, searchResult);
+                        } else if (type === 'incident-log-pagination') {
+                            renderIncidentPagination(element, searchResult);
+                        }
+                    });
+                }
+
+                function handleSearchSubmit(event) {
+                    event.preventDefault();
+                    const form = event.target;
+                    const input = document.getElementById('incidentSearchInput');
+                    const value = input ? input.value : '';
+                    updateUrlState({ query: value || '', page: 1 }, false);
+                }
+
+                function handleApplyFiltersClick() {
+                    const nextPage = 1;
+                    updateUrlState({
+                        threatLevels: pendingThreatLevels.slice(),
+                        dateFrom: pendingDateFrom || null,
+                        dateTo: pendingDateTo || null,
+                        page: nextPage
+                    }, false);
+                }
+
+                function handleResetFiltersClick() {
+                    const dateFromInput = document.getElementById('dateFromInput');
+                    const dateToInput = document.getElementById('dateToInput');
+
+                    pendingThreatLevels = [];
+                    pendingDateFrom = null;
+                    pendingDateTo = null;
+
+                    if (dateFromInput) {
+                        dateFromInput.value = '';
+                    }
+                    if (dateToInput) {
+                        dateToInput.value = '';
+                    }
+
+                    updateUrlState({
+                        threatLevels: [],
+                        dateFrom: null,
+                        dateTo: null,
+                        page: 1
+                    }, false);
+                }
+
+                function handleSortChange(target) {
+                    const value = target.value;
+                    updateUrlState({ sortKey: value, page: 1 }, false);
+                }
+
+                function handleChangePage(target) {
+                    const pageStr = target.dataset.page || '1';
+                    const page = parseInt(pageStr, 10);
+                    if (!isNaN(page) && page >= 1) {
+                        updateUrlState({ page: page }, false);
+                    }
+                }
+
+                function handlePageSizeChange(target) {
+                    const sizeStr = target.value;
+                    const size = parseInt(sizeStr, 10);
+                    if (!isNaN(size) && size > 0) {
+                        updateUrlState({ pageSize: size, page: 1 }, false);
+                    }
+                }
+
+                function handleThreatToggle(target) {
+                    const levelStr = target.value;
+                    const level = parseInt(levelStr, 10);
+                    if (isNaN(level)) {
+                        return;
+                    }
+                    const idx = pendingThreatLevels.indexOf(level);
+                    if (target.checked) {
+                        if (idx === -1) {
+                            pendingThreatLevels.push(level);
+                        }
+                    } else if (idx !== -1) {
+                        pendingThreatLevels.splice(idx, 1);
+                    }
+                }
+
+                function handleOpenIncident(target) {
+                    const incidentId = target.dataset.incidentId;
+                    if (!incidentId) {
+                        return;
+                    }
+                    const url = 'log_detail.html?kind=incident&id=' + encodeURIComponent(incidentId);
+                    window.location.href = url;
+                }
+
+                function handleDateInputChange(target) {
+                    if (target.id === 'dateFromInput') {
+                        pendingDateFrom = target.value || null;
+                    } else if (target.id === 'dateToInput') {
+                        pendingDateTo = target.value || null;
+                    }
+                }
+
+                document.addEventListener('submit', function(event) {
+                    const action = event.target && event.target.dataset ? event.target.dataset.action : null;
+                    if (action === 'incident-search') {
+                        handleSearchSubmit(event);
+                    }
+                });
+
+                document.addEventListener('click', function(event) {
+                    const target = event.target;
+                    if (!target || !target.dataset) {
+                        return;
+                    }
+                    const action = target.dataset.action;
+                    if (!action) {
+                        return;
+                    }
+                    if (action === 'apply-filters') {
+                        handleApplyFiltersClick();
+                    } else if (action === 'reset-filters') {
+                        handleResetFiltersClick();
+                    } else if (action === 'change-page') {
+                        handleChangePage(target);
+                    } else if (action === 'open-incident') {
+                        handleOpenIncident(target);
+                    }
+                });
+
+                document.addEventListener('change', function(event) {
+                    const target = event.target;
+                    if (!target || !target.dataset) {
+                        return;
+                    }
+                    const action = target.dataset.action;
+                    if (!action) {
+                        if (target.id === 'dateFromInput' || target.id === 'dateToInput') {
+                            handleDateInputChange(target);
+                        }
+                        return;
+                    }
+                    if (action === 'sort-change') {
+                        handleSortChange(target);
+                    } else if (action === 'page-size-change') {
+                        handlePageSizeChange(target);
+                    } else if (action === 'threat-toggle') {
+                        handleThreatToggle(target);
+                    }
+                });
+
+                window.addEventListener('popstate', function() {
+                    onUrlStateChanged(true);
+                });
+
+                try {
+                    incidentFilterOptions = WebsiteSDK.getIncidentLogFilterOptions();
+                } catch (e) {
+                    incidentFilterOptions = {
+                        threat_levels: [],
+                        min_date: null,
+                        max_date: null,
+                        sort_options: []
+                    };
+                }
+
+                currentUrlState = parseUrlState(incidentFilterOptions);
+                pendingThreatLevels = currentUrlState.threatLevels ? currentUrlState.threatLevels.slice() : [];
+                pendingDateFrom = currentUrlState.dateFrom;
+                pendingDateTo = currentUrlState.dateTo;
+
+                try {
+                    readingQueueData = WebsiteSDK.getReadingQueueState();
+                    if (readingQueueData && readingQueueData.reading_queue_state && Array.isArray(readingQueueData.reading_queue_state.incident_log_ids)) {
+                        readingQueueIdSet = new Set(readingQueueData.reading_queue_state.incident_log_ids);
+                    } else {
+                        readingQueueIdSet = new Set();
+                    }
+                } catch (e) {
+                    readingQueueData = null;
+                    readingQueueIdSet = new Set();
+                }
+
+                syncControlsToState();
+
+                const initialSearchResult = {
+                    items: [],
+                    total: 0,
+                    page: currentUrlState.page,
+                    pageSize: currentUrlState.pageSize
+                };
+                renderAll(initialSearchResult);
+
+                runSearchAndRender();
+            });
+            </script>
+        </main>
+
+        <footer class="site-footer">
+            <hr class="footer-rule">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="about.html" title="About the Initiative and the ARG universe">About</a></li>
+                    <li><a href="transmission_logs.html" title="Access the transmission archive">Transmission Logs</a></li>
+                    <li><a href="incident_logs.html" title="Access the incident log archives">Incident Logs</a></li>
+                    <li><a href="artifacts.html" title="Browse artifacts by origin and corruption risk">Artifacts Catalog</a></li>
+                    <li><a href="recruitment.html" title="Create your recruitment profile">Join the Initiative</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">The Initiative</p>
+        </footer>
+    </div>
+</body>
+</html>

@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dicas Hoje - Brazilian sports news and tips blog</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="tag.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner container">
+      <div class="site-branding">
+        <a href="index.html" class="site-title">Dicas Hoje</a>
+      </div>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <ul>
+          <li><a href="index.html">Início</a></li>
+          <li><a href="ao_vivo.html">Ao vivo</a></li>
+          <li><a href="apostas.html">Apostas</a></li>
+          <li><a href="treinos.html">Treinos</a></li>
+          <li><a href="podcasts.html">Podcasts</a></li>
+          <li><a href="calendario.html">Calendário</a></li>
+          <li><a href="salvos.html">Meu conteúdo</a></li>
+          <li><a href="minha_conta.html">Minha conta</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="content" class="site-main container" role="main">
+    <div class="tag-page">
+      <!-- Route loader / feedback -->
+      <div class="tag-route-loader" data-component="tag-route-loader" aria-live="polite"></div>
+
+      <!-- Global error message for API / routing issues -->
+      <div class="tag-error" data-component="tag-error" role="alert" aria-live="assertive" hidden></div>
+
+      <!-- Tag header (name, description, follow + notification trigger) -->
+      <section class="tag-header-section" data-component="tag-header"></section>
+
+      <!-- Notification preferences panel (inline panel/modal style) -->
+      <section class="tag-notification-preferences-section" data-component="tag-notification-preferences-panel"></section>
+
+      <!-- Content tabs: Notícias / Podcasts -->
+      <nav class="tag-content-tabs" data-component="tag-content-tabs" aria-label="Conteúdo relacionado à tag"></nav>
+
+      <!-- Main content area for related items -->
+      <section class="tag-content">
+        <section class="tag-articles-list-section" data-component="tag-articles-list"></section>
+        <section class="tag-podcasts-preview-section" data-component="tag-podcasts-preview-section"></section>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner container">
+      <nav class="footer-nav" aria-label="Footer navigation">
+        <ul>
+          <li><a href="about.html">Sobre</a></li>
+          <li><a href="contato.html">Contato</a></li>
+          <li><a href="politica_privacidade.html">Política de Privacidade</a></li>
+          <li><a href="termos_uso.html">Termos de Uso</a></li>
+          <li><a href="calendario.html">Calendário de jogos</a></li>
+          <li><a href="apostas.html?view=dicas">Dicas de apostas</a></li>
+          <li><a href="podcasts.html?categoryId=futebol_feminino">Podcasts de futebol feminino</a></li>
+          <li><a href="treinos.html?sport=corrida&amp;distance=5km">Treinos de corrida 5km</a></li>
+        </ul>
+      </nav>
+      <p class="footer-meta">© <span class="footer-site-name">Dicas Hoje</span> · Brazilian sports news and tips blog.</p>
+    </div>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const state = {
+      tagId: null,
+      view: 'news',
+      tag: null,
+      followPreference: null,
+      recentArticles: [],
+      recentPodcastEpisodes: [],
+      loading: false
+    };
+
+    const routeLoaderEl = document.querySelector('[data-component="tag-route-loader"]');
+    const headerEl = document.querySelector('[data-component="tag-header"]');
+    const notificationPanelEl = document.querySelector('[data-component="tag-notification-preferences-panel"]');
+    const tabsEl = document.querySelector('[data-component="tag-content-tabs"]');
+    const articlesEl = document.querySelector('[data-component="tag-articles-list"]');
+    const podcastsEl = document.querySelector('[data-component="tag-podcasts-preview-section"]');
+    const errorEl = document.querySelector('[data-component="tag-error"]');
+
+    function parseUrlParams() {
+      const params = new URLSearchParams(window.location.search);
+      const tagId = params.get('tagId');
+      let view = params.get('view');
+      if (view !== 'news' && view !== 'podcasts') {
+        view = 'news';
+      }
+      state.tagId = tagId;
+      state.view = view;
+    }
+
+    function updateViewInUrl(view) {
+      const params = new URLSearchParams(window.location.search);
+      if (state.tagId) {
+        params.set('tagId', state.tagId);
+      }
+      params.set('view', view);
+      const newUrl = window.location.pathname + '?' + params.toString();
+      window.history.replaceState({}, '', newUrl);
+    }
+
+    function setLoading(isLoading) {
+      state.loading = isLoading;
+      if (!routeLoaderEl) return;
+      routeLoaderEl.innerHTML = '';
+      if (isLoading) {
+        const bar = document.createElement('div');
+        bar.className = 'loader-bar';
+        routeLoaderEl.appendChild(bar);
+        const msg = document.createElement('p');
+        msg.className = 'loader-message';
+        msg.textContent = 'Carregando...';
+        routeLoaderEl.appendChild(msg);
+      }
+    }
+
+    function showError(message) {
+      if (!errorEl) return;
+      errorEl.textContent = message;
+      errorEl.hidden = false;
+    }
+
+    function clearError() {
+      if (!errorEl) return;
+      errorEl.textContent = '';
+      errorEl.hidden = true;
+    }
+
+    function formatDate(dateValue) {
+      if (!dateValue) return '';
+      try {
+        const d = new Date(dateValue);
+        if (Number.isNaN(d.getTime())) return '';
+        return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function buildNotificationLabel(preference) {
+      if (!preference || !preference.followed || !preference.notificationsEnabled) {
+        return 'Sem notificações';
+      }
+      if (preference.notificationLevel === 'all_news') {
+        return 'Todas as notícias';
+      }
+      if (preference.notificationLevel === 'important_only') {
+        return 'Só notícias importantes';
+      }
+      return 'Notificações ativas';
+    }
+
+    function updateFollowButtonLabel(button, preference) {
+      const followed = !!(preference && preference.followed);
+      button.textContent = followed ? 'Seguindo' : 'Seguir';
+      button.setAttribute('aria-pressed', followed ? 'true' : 'false');
+    }
+
+    function renderHeader(container, tag, followPreference) {
+      if (!container) return;
+      container.innerHTML = '';
+      if (!tag) return;
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'tag-header-inner';
+
+      const title = document.createElement('h1');
+      title.className = 'tag-title';
+      title.textContent = tag.name || '';
+      wrapper.appendChild(title);
+
+      if (tag.description) {
+        const description = document.createElement('p');
+        description.className = 'tag-description';
+        description.textContent = tag.description;
+        wrapper.appendChild(description);
+      }
+
+      const controls = document.createElement('div');
+      controls.className = 'tag-controls';
+
+      const followBtn = document.createElement('button');
+      followBtn.type = 'button';
+      followBtn.className = 'btn btn-follow';
+      followBtn.dataset.action = 'toggle-follow';
+      updateFollowButtonLabel(followBtn, followPreference);
+      controls.appendChild(followBtn);
+
+      const notifBtn = document.createElement('button');
+      notifBtn.type = 'button';
+      notifBtn.className = 'btn btn-notifications';
+      notifBtn.dataset.action = 'open-notification-preferences';
+      notifBtn.setAttribute('aria-haspopup', 'dialog');
+      notifBtn.setAttribute('aria-expanded', 'false');
+
+      const bell = document.createElement('span');
+      bell.className = 'icon-bell';
+      bell.setAttribute('aria-hidden', 'true');
+      bell.textContent = '🔔';
+      notifBtn.appendChild(bell);
+
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'notification-label';
+      labelSpan.textContent = buildNotificationLabel(followPreference);
+      notifBtn.appendChild(labelSpan);
+
+      controls.appendChild(notifBtn);
+      wrapper.appendChild(controls);
+      container.appendChild(wrapper);
+    }
+
+    function renderNotificationPanel(container, followPreference) {
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (!state.tagId || !followPreference) {
+        container.hidden = true;
+        return;
+      }
+
+      container.classList.add('notification-preferences-panel');
+      container.hidden = true;
+      container.setAttribute('role', 'dialog');
+      container.setAttribute('aria-modal', 'false');
+
+      const heading = document.createElement('h2');
+      heading.className = 'notification-preferences-title';
+      heading.textContent = 'Notificações desta tag';
+      container.appendChild(heading);
+
+      const intro = document.createElement('p');
+      intro.className = 'notification-preferences-intro';
+      intro.textContent = 'Escolha como você quer ser avisado sobre novos conteúdos desta tag.';
+      container.appendChild(intro);
+
+      const form = document.createElement('form');
+      form.className = 'notification-preferences-form';
+      form.dataset.action = 'submit-notification-preferences';
+
+      const enabledGroup = document.createElement('div');
+      enabledGroup.className = 'form-group';
+      const enabledLabel = document.createElement('label');
+      enabledLabel.className = 'checkbox-label';
+      const enabledInput = document.createElement('input');
+      enabledInput.type = 'checkbox';
+      enabledInput.name = 'notificationsEnabled';
+      enabledInput.checked = !!followPreference.notificationsEnabled;
+      enabledLabel.appendChild(enabledInput);
+      const enabledText = document.createElement('span');
+      enabledText.textContent = 'Ativar notificações para esta tag';
+      enabledLabel.appendChild(enabledText);
+      enabledGroup.appendChild(enabledLabel);
+      form.appendChild(enabledGroup);
+
+      const levelGroup = document.createElement('fieldset');
+      levelGroup.className = 'form-group';
+      const legend = document.createElement('legend');
+      legend.textContent = 'Nível de notificações';
+      levelGroup.appendChild(legend);
+
+      const levelAll = document.createElement('label');
+      levelAll.className = 'radio-label';
+      const levelAllInput = document.createElement('input');
+      levelAllInput.type = 'radio';
+      levelAllInput.name = 'notificationLevel';
+      levelAllInput.value = 'all_news';
+      levelAllInput.checked = followPreference.notificationLevel === 'all_news';
+      levelAll.appendChild(levelAllInput);
+      const levelAllText = document.createElement('span');
+      levelAllText.textContent = 'Todas as notícias';
+      levelAll.appendChild(levelAllText);
+      levelGroup.appendChild(levelAll);
+
+      const levelImportant = document.createElement('label');
+      levelImportant.className = 'radio-label';
+      const levelImportantInput = document.createElement('input');
+      levelImportantInput.type = 'radio';
+      levelImportantInput.name = 'notificationLevel';
+      levelImportantInput.value = 'important_only';
+      levelImportantInput.checked = followPreference.notificationLevel === 'important_only';
+      levelImportant.appendChild(levelImportantInput);
+      const levelImportantText = document.createElement('span');
+      levelImportantText.textContent = 'Somente notícias importantes';
+      levelImportant.appendChild(levelImportantText);
+      levelGroup.appendChild(levelImportant);
+
+      form.appendChild(levelGroup);
+
+      const actionsRow = document.createElement('div');
+      actionsRow.className = 'form-actions';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'btn btn-secondary';
+      cancelBtn.dataset.action = 'close-notification-preferences';
+      cancelBtn.textContent = 'Cancelar';
+      actionsRow.appendChild(cancelBtn);
+
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'submit';
+      saveBtn.className = 'btn btn-primary';
+      saveBtn.textContent = 'Salvar';
+      actionsRow.appendChild(saveBtn);
+
+      form.appendChild(actionsRow);
+      container.appendChild(form);
+    }
+
+    function renderTabs(container, activeView) {
+      if (!container) return;
+      container.innerHTML = '';
+
+      const tabsWrapper = document.createElement('div');
+      tabsWrapper.className = 'tabs-wrapper';
+
+      const newsBtn = document.createElement('button');
+      newsBtn.type = 'button';
+      newsBtn.className = 'tab-button';
+      newsBtn.dataset.action = 'change-tab';
+      newsBtn.dataset.view = 'news';
+      newsBtn.textContent = 'Notícias';
+      if (activeView === 'news') {
+        newsBtn.classList.add('is-active');
+        newsBtn.setAttribute('aria-current', 'page');
+      }
+      tabsWrapper.appendChild(newsBtn);
+
+      const podcastsBtn = document.createElement('button');
+      podcastsBtn.type = 'button';
+      podcastsBtn.className = 'tab-button';
+      podcastsBtn.dataset.action = 'change-tab';
+      podcastsBtn.dataset.view = 'podcasts';
+      podcastsBtn.textContent = 'Podcasts';
+      if (activeView === 'podcasts') {
+        podcastsBtn.classList.add('is-active');
+        podcastsBtn.setAttribute('aria-current', 'page');
+      }
+      tabsWrapper.appendChild(podcastsBtn);
+
+      container.appendChild(tabsWrapper);
+    }
+
+    function renderArticles(container, articles) {
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (!state.tagId) {
+        container.hidden = true;
+        return;
+      }
+
+      container.hidden = state.view !== 'news';
+
+      if (!articles || articles.length === 0) {
+        const emptyMsg = document.createElement('p');
+        emptyMsg.className = 'empty-state';
+        emptyMsg.textContent = 'Nenhuma notícia recente para esta tag.';
+        container.appendChild(emptyMsg);
+        return;
+      }
+
+      const list = document.createElement('div');
+      list.className = 'tag-articles-list';
+
+      articles.forEach(function(article) {
+        const item = document.createElement('article');
+        item.className = 'tag-article-item';
+
+        const titleBtn = document.createElement('button');
+        titleBtn.type = 'button';
+        titleBtn.className = 'article-title-button';
+        titleBtn.dataset.action = 'open-article';
+        titleBtn.dataset.articleId = article.id;
+        titleBtn.textContent = article.title || '';
+        item.appendChild(titleBtn);
+
+        if (article.excerpt) {
+          const excerpt = document.createElement('p');
+          excerpt.className = 'article-excerpt';
+          excerpt.textContent = article.excerpt;
+          item.appendChild(excerpt);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'article-meta';
+        const dateText = formatDate(article.publishedAt);
+        if (dateText) {
+          const dateSpan = document.createElement('span');
+          dateSpan.className = 'article-date';
+          dateSpan.textContent = dateText;
+          meta.appendChild(dateSpan);
+        }
+        if (typeof article.readingTimeMinutes === 'number') {
+          const rtSpan = document.createElement('span');
+          rtSpan.className = 'article-reading-time';
+          rtSpan.textContent = (article.readingTimeMinutes || 0) + ' min de leitura';
+          if (meta.firstChild) {
+            const sep = document.createElement('span');
+            sep.className = 'meta-separator';
+            sep.textContent = ' · ';
+            meta.appendChild(sep);
+          }
+          meta.appendChild(rtSpan);
+        }
+        if (meta.childNodes.length > 0) {
+          item.appendChild(meta);
+        }
+
+        list.appendChild(item);
+      });
+
+      container.appendChild(list);
+    }
+
+    function renderPodcasts(container, episodes) {
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (!state.tagId) {
+        container.hidden = true;
+        return;
+      }
+
+      container.hidden = state.view !== 'podcasts';
+
+      if (!episodes || episodes.length === 0) {
+        const emptyMsg = document.createElement('p');
+        emptyMsg.className = 'empty-state';
+        emptyMsg.textContent = 'Nenhum episódio de podcast recente para esta tag.';
+        container.appendChild(emptyMsg);
+        return;
+      }
+
+      const list = document.createElement('div');
+      list.className = 'tag-podcasts-list';
+
+      episodes.forEach(function(episode) {
+        const item = document.createElement('article');
+        item.className = 'tag-podcast-item';
+
+        const title = document.createElement('h2');
+        title.className = 'podcast-title';
+        title.textContent = episode.title || '';
+        item.appendChild(title);
+
+        if (episode.description) {
+          const desc = document.createElement('p');
+          desc.className = 'podcast-description';
+          desc.textContent = episode.description;
+          item.appendChild(desc);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'podcast-meta';
+
+        const dateText = formatDate(episode.publishedAt);
+        if (dateText) {
+          const dateSpan = document.createElement('span');
+          dateSpan.className = 'podcast-date';
+          dateSpan.textContent = dateText;
+          meta.appendChild(dateSpan);
+        }
+
+        if (typeof episode.durationMinutes === 'number') {
+          const durationSpan = document.createElement('span');
+          durationSpan.className = 'podcast-duration';
+          const durationText = episode.durationMinutes + ' min';
+          if (meta.firstChild) {
+            const sep = document.createElement('span');
+            sep.className = 'meta-separator';
+            sep.textContent = ' · ';
+            meta.appendChild(sep);
+          }
+          durationSpan.textContent = durationText;
+          meta.appendChild(durationSpan);
+        }
+
+        if (meta.childNodes.length > 0) {
+          item.appendChild(meta);
+        }
+
+        list.appendChild(item);
+      });
+
+      container.appendChild(list);
+
+      const ctaWrapper = document.createElement('div');
+      ctaWrapper.className = 'podcast-cta-wrapper';
+      const ctaBtn = document.createElement('button');
+      ctaBtn.type = 'button';
+      ctaBtn.className = 'btn btn-secondary';
+      ctaBtn.dataset.action = 'see-more-podcasts';
+      ctaBtn.textContent = 'Ver mais podcasts com este assunto';
+      ctaWrapper.appendChild(ctaBtn);
+      container.appendChild(ctaWrapper);
+    }
+
+    function applyViewVisibility() {
+      if (articlesEl) {
+        articlesEl.hidden = state.view !== 'news';
+      }
+      if (podcastsEl) {
+        podcastsEl.hidden = state.view !== 'podcasts';
+      }
+      if (tabsEl) {
+        renderTabs(tabsEl, state.view);
+      }
+    }
+
+    function renderAll() {
+      clearError();
+      renderHeader(headerEl, state.tag, state.followPreference);
+      renderNotificationPanel(notificationPanelEl, state.followPreference);
+      renderTabs(tabsEl, state.view);
+      renderArticles(articlesEl, state.recentArticles);
+      renderPodcasts(podcastsEl, state.recentPodcastEpisodes);
+      applyViewVisibility();
+    }
+
+    function loadTagDetail() {
+      if (!state.tagId) {
+        setLoading(false);
+        const message = 'Nenhuma tag selecionada. Acesse esta página a partir de uma tag em uma notícia ou podcast.';
+        showError(message);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const result = WebsiteSDK.getTagDetail(state.tagId);
+        if (!result || !result.tag) {
+          showError('Não foi possível carregar esta tag. Tente novamente.');
+          setLoading(false);
+          return;
+        }
+        state.tag = result.tag;
+        state.followPreference = result.followPreference || null;
+        state.recentArticles = Array.isArray(result.recentArticles) ? result.recentArticles : [];
+        state.recentPodcastEpisodes = Array.isArray(result.recentPodcastEpisodes) ? result.recentPodcastEpisodes : [];
+        renderAll();
+      } catch (e) {
+        showError('Erro ao carregar dados da tag. Tente novamente mais tarde.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function handleToggleFollow() {
+      if (!state.tagId) return;
+      if (!state.followPreference) return;
+
+      const currentFollowed = !!state.followPreference.followed;
+      const newFollowed = !currentFollowed;
+
+      try {
+        const response = WebsiteSDK.setTagFollowStatus(state.tagId, newFollowed);
+        if (!response || !response.success || !response.preference) {
+          showError('Não foi possível atualizar o status de acompanhamento desta tag.');
+          return;
+        }
+        state.followPreference = response.preference;
+        renderHeader(headerEl, state.tag, state.followPreference);
+        renderNotificationPanel(notificationPanelEl, state.followPreference);
+      } catch (e) {
+        showError('Erro ao atualizar o status de acompanhamento.');
+      }
+    }
+
+    function openNotificationPreferences() {
+      if (!notificationPanelEl) return;
+      if (!state.followPreference) return;
+
+      renderNotificationPanel(notificationPanelEl, state.followPreference);
+      notificationPanelEl.hidden = false;
+
+      const notifTrigger = headerEl ? headerEl.querySelector('.btn-notifications') : null;
+      if (notifTrigger) {
+        notifTrigger.setAttribute('aria-expanded', 'true');
+      }
+    }
+
+    function closeNotificationPreferences() {
+      if (!notificationPanelEl) return;
+      notificationPanelEl.hidden = true;
+      const notifTrigger = headerEl ? headerEl.querySelector('.btn-notifications') : null;
+      if (notifTrigger) {
+        notifTrigger.setAttribute('aria-expanded', 'false');
+      }
+    }
+
+    function handleSubmitNotificationPreferences(form) {
+      if (!form || !state.tagId) return;
+
+      const formData = new FormData(form);
+      const notificationsEnabled = formData.get('notificationsEnabled') === 'on';
+      let notificationLevel = formData.get('notificationLevel');
+      if (notificationLevel !== 'all_news' && notificationLevel !== 'important_only') {
+        notificationLevel = state.followPreference ? state.followPreference.notificationLevel : 'all_news';
+      }
+
+      try {
+        if (!state.followPreference || !state.followPreference.followed) {
+          const followResponse = WebsiteSDK.setTagFollowStatus(state.tagId, true);
+          if (!followResponse || !followResponse.success || !followResponse.preference) {
+            showError('Não foi possível ativar o acompanhamento desta tag para salvar as notificações.');
+            return;
+          }
+          state.followPreference = followResponse.preference;
+        }
+
+        const response = WebsiteSDK.updateTagNotificationPreferences(state.tagId, notificationLevel, notificationsEnabled);
+        if (!response || !response.success || !response.preference) {
+          showError('Não foi possível salvar suas preferências de notificação.');
+          return;
+        }
+
+        state.followPreference = response.preference;
+        renderHeader(headerEl, state.tag, state.followPreference);
+        renderNotificationPanel(notificationPanelEl, state.followPreference);
+        closeNotificationPreferences();
+      } catch (e) {
+        showError('Erro ao salvar preferências de notificação.');
+      }
+    }
+
+    function handleChangeTab(view) {
+      if (view !== 'news' && view !== 'podcasts') return;
+      if (state.view === view) return;
+      state.view = view;
+      updateViewInUrl(view);
+      applyViewVisibility();
+    }
+
+    function handleOpenArticle(articleId) {
+      if (!articleId) return;
+      const url = 'artigo.html?id=' + encodeURIComponent(articleId);
+      window.location.href = url;
+    }
+
+    function handleSeeMorePodcasts() {
+      if (!state.tagId) return;
+      const url = 'podcasts.html?tagId=' + encodeURIComponent(state.tagId);
+      window.location.href = url;
+    }
+
+    document.addEventListener('click', function(event) {
+      const target = event.target;
+      if (!target) return;
+      const actionEl = target.closest('[data-action]');
+      if (!actionEl) return;
+      const action = actionEl.dataset.action;
+
+      if (action === 'toggle-follow') {
+        event.preventDefault();
+        handleToggleFollow();
+      } else if (action === 'open-notification-preferences') {
+        event.preventDefault();
+        openNotificationPreferences();
+      } else if (action === 'close-notification-preferences') {
+        event.preventDefault();
+        closeNotificationPreferences();
+      } else if (action === 'change-tab') {
+        event.preventDefault();
+        const view = actionEl.dataset.view || 'news';
+        handleChangeTab(view);
+      } else if (action === 'open-article') {
+        event.preventDefault();
+        const articleId = actionEl.dataset.articleId;
+        handleOpenArticle(articleId);
+      } else if (action === 'see-more-podcasts') {
+        event.preventDefault();
+        handleSeeMorePodcasts();
+      }
+    });
+
+    document.addEventListener('submit', function(event) {
+      const form = event.target;
+      if (!form || !form.dataset) return;
+      if (form.dataset.action === 'submit-notification-preferences') {
+        event.preventDefault();
+        handleSubmitNotificationPreferences(form);
+      }
+    });
+
+    parseUrlParams();
+    if (!state.tagId) {
+      setLoading(false);
+      showError('Nenhuma tag selecionada. Acesse esta página a partir de uma tag em uma notícia ou podcast.');
+      if (headerEl) {
+        renderHeader(headerEl, null, null);
+      }
+      if (notificationPanelEl) {
+        notificationPanelEl.innerHTML = '';
+        notificationPanelEl.hidden = true;
+      }
+      if (tabsEl) {
+        tabsEl.innerHTML = '';
+      }
+      if (articlesEl) {
+        articlesEl.innerHTML = '';
+        const msg = document.createElement('p');
+        msg.className = 'empty-state';
+        msg.textContent = 'Nenhum conteúdo para exibir sem uma tag selecionada.';
+        articlesEl.appendChild(msg);
+      }
+      if (podcastsEl) {
+        podcastsEl.innerHTML = '';
+        podcastsEl.hidden = true;
+      }
+    } else {
+      loadTagDetail();
+    }
+  });
+  </script>
+</body>
+</html>

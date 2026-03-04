@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Artist Discography Framework</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='bookmarks.css'>
+</head>
+<body>
+  <div class='page-background'>
+    <div class='page-container'>
+      <header class='site-header'>
+        <h1 class='site-title'>Artist Discography</h1>
+        <nav class='site-nav' aria-label='Primary'>
+          <ul>
+            <li><a href='index.html'>Home</a></li>
+            <li><a href='genres.html'>Browse Genres</a></li>
+            <li><a href='library.html'>Library</a></li>
+            <li><a href='playlists.html'>Playlists</a></li>
+            <li><a href='favorites.html'>Favorites</a></li>
+            <li><a href='queue.html'>Queue</a></li>
+          </ul>
+        </nav>
+      </header>
+
+      <main id='content' class='site-main' role='main'>
+        <section class='bookmarks-panel' data-component='bookmarks-page-controller' data-populate='bookmarks-page'>
+          <!-- Content is rendered by JavaScript based on SDK data and URL state -->
+        </section>
+      </main>
+
+      <footer class='site-footer'>
+        <hr class='footer-divider'>
+        <nav class='footer-nav' aria-label='Footer'>
+          <ul>
+            <li><a href='about.html'>About</a></li>
+            <li><a href='help.html'>Help / FAQ</a></li>
+            <li><a href='contact.html'>Contact</a></li>
+            <li><a href='bookmarks.html'>Bookmarks</a></li>
+            <li><a href='lists.html'>Lists</a></li>
+          </ul>
+        </nav>
+        <p class='footer-meta'>&copy; Artist Discography</p>
+      </footer>
+
+      <script src='business_logic.js'></script>
+      <script>
+      'use strict';
+
+      (function() {
+        var pageContainerEl;
+        var statusBannerEl;
+        var toolbarFormEl;
+        var bulkActionsEl;
+        var bulkSummaryEl;
+        var loaderEl;
+        var listEl;
+        var emptyStateEl;
+        var paginationEl;
+
+        var bookmarks = [];
+        var viewState = {
+          sort: 'bookmarked_at',
+          order: 'desc',
+          albumType: '',
+          q: '',
+          page: 1,
+          pageSize: 10
+        };
+        var derived = {
+          filtered: [],
+          visible: [],
+          totalFiltered: 0,
+          totalPages: 1
+        };
+
+        var isLoading = false;
+        var loadError = null;
+        var selectedIds = new Set();
+        var pendingAlbumIds = new Set();
+        var lastRemoved = null;
+        var lastStatusTimeoutId = null;
+
+        var albumsIndexById = new Map();
+        var artistsIndexById = new Map();
+        var artistsIndexByName = new Map();
+
+        document.addEventListener('DOMContentLoaded', function() {
+          var populateElements = document.querySelectorAll('[data-populate]');
+          for (var i = 0; i < populateElements.length; i += 1) {
+            var el = populateElements[i];
+            if (el.dataset && el.dataset.populate === 'bookmarks-page') {
+              initBookmarksPage(el);
+            }
+          }
+        });
+
+        function initBookmarksPage(container) {
+          pageContainerEl = container;
+          renderPageSkeleton(container);
+          cacheSubcomponents(container);
+          attachEventListeners();
+          loadReferenceData();
+          viewState = readViewStateFromUrl();
+          normalizeUrl(true);
+          loadBookmarks();
+        }
+
+        function renderPageSkeleton(container) {
+          container.innerHTML = `
+            <h1 class='page-title'>Bookmarks</h1>
+            <div data-component='bookmarks-status-banner' class='bookmarks-status' role='status' aria-live='polite'></div>
+            <form data-component='bookmarks-toolbar' class='bookmarks-toolbar' aria-label='Bookmarks toolbar'>
+              <label>Search:
+                <input type='search' name='q' id='bookmarks-search-input'>
+              </label>
+              <label>Album type:
+                <select name='albumType' id='bookmarks-album-type-filter'>
+                  <option value=''>All</option>
+                  <option value='studio'>Studio</option>
+                  <option value='live'>Live</option>
+                  <option value='ep'>EP</option>
+                  <option value='compilation'>Compilation</option>
+                  <option value='single'>Single</option>
+                  <option value='soundtrack'>Soundtrack</option>
+                  <option value='greatest_hits'>Greatest hits</option>
+                  <option value='other'>Other</option>
+                </select>
+              </label>
+              <label>Sort by:
+                <select name='sort' id='bookmarks-sort-field'>
+                  <option value='bookmarked_at'>Bookmarked date</option>
+                  <option value='title'>Album title</option>
+                  <option value='primary_artist_name'>Artist name</option>
+                  <option value='release_year'>Release year</option>
+                  <option value='album_type'>Album type</option>
+                </select>
+              </label>
+              <label>Order:
+                <select name='order' id='bookmarks-sort-order'>
+                  <option value='desc'>Descending</option>
+                  <option value='asc'>Ascending</option>
+                </select>
+              </label>
+              <a href='javascript:void(0)' data-action='clear-filters'>Clear filters</a>
+            </form>
+            <div data-component='bookmarks-bulk-actions' class='bookmarks-bulk-actions' hidden>
+              <span class='bulk-summary'></span>
+              <a href='javascript:void(0)' data-action='select-all'>Select all</a>
+              <a href='javascript:void(0)' data-action='clear-selection'>Clear selection</a>
+              <a href='javascript:void(0)' data-action='bulk-remove'>Remove selected</a>
+            </div>
+            <div data-component='bookmarks-data-loader' class='bookmarks-loader' aria-live='polite'></div>
+            <div data-component='bookmarks-album-list' class='bookmarks-album-list'></div>
+            <div data-component='bookmarks-empty-state' class='bookmarks-empty-state' hidden>
+              <p><strong>No bookmarks yet.</strong></p>
+              <p>You have not bookmarked any albums. Use the navigation links above to browse and bookmark albums.</p>
+            </div>
+            <hr class='bookmarks-list-divider'>
+            <div data-component='bookmarks-pagination' class='bookmarks-pagination'></div>
+          `;
+        }
+
+        function cacheSubcomponents(container) {
+          statusBannerEl = container.querySelector('[data-component=bookmarks-status-banner]');
+          toolbarFormEl = container.querySelector('[data-component=bookmarks-toolbar]');
+          bulkActionsEl = container.querySelector('[data-component=bookmarks-bulk-actions]');
+          if (bulkActionsEl) {
+            bulkSummaryEl = bulkActionsEl.querySelector('.bulk-summary');
+          }
+          loaderEl = container.querySelector('[data-component=bookmarks-data-loader]');
+          listEl = container.querySelector('[data-component=bookmarks-album-list]');
+          emptyStateEl = container.querySelector('[data-component=bookmarks-empty-state]');
+          paginationEl = container.querySelector('[data-component=bookmarks-pagination]');
+        }
+
+        function attachEventListeners() {
+          if (toolbarFormEl) {
+            var searchInput = toolbarFormEl.querySelector('input[name=q]');
+            var albumTypeSelect = toolbarFormEl.querySelector('select[name=albumType]');
+            var sortSelect = toolbarFormEl.querySelector('select[name=sort]');
+            var orderSelect = toolbarFormEl.querySelector('select[name=order]');
+
+            if (searchInput) {
+              searchInput.addEventListener('input', function(event) {
+                viewState.q = (event.target.value || '').trim();
+                viewState.page = 1;
+                normalizeUrl();
+                recomputeAndRender();
+              });
+            }
+
+            if (albumTypeSelect) {
+              albumTypeSelect.addEventListener('change', function(event) {
+                viewState.albumType = event.target.value || '';
+                viewState.page = 1;
+                normalizeUrl();
+                recomputeAndRender();
+              });
+            }
+
+            if (sortSelect) {
+              sortSelect.addEventListener('change', function(event) {
+                var value = event.target.value || 'bookmarked_at';
+                viewState.sort = value;
+                viewState.page = 1;
+                normalizeUrl();
+                recomputeAndRender();
+              });
+            }
+
+            if (orderSelect) {
+              orderSelect.addEventListener('change', function(event) {
+                var value = event.target.value === 'asc' ? 'asc' : 'desc';
+                viewState.order = value;
+                viewState.page = 1;
+                normalizeUrl();
+                recomputeAndRender();
+              });
+            }
+          }
+
+          if (pageContainerEl) {
+            pageContainerEl.addEventListener('click', handleClickAction);
+            pageContainerEl.addEventListener('change', handleChangeAction);
+          }
+
+          window.addEventListener('popstate', function() {
+            viewState = readViewStateFromUrl();
+            recomputeAndRender();
+          });
+        }
+
+        function loadReferenceData() {
+          albumsIndexById = new Map();
+          artistsIndexById = new Map();
+          artistsIndexByName = new Map();
+
+          var albumsRaw = [];
+          var artistsRaw = [];
+          try {
+            albumsRaw = JSON.parse(window.localStorage.getItem('albums') || '[]');
+          } catch (e) {
+            albumsRaw = [];
+          }
+          try {
+            artistsRaw = JSON.parse(window.localStorage.getItem('artists') || '[]');
+          } catch (e2) {
+            artistsRaw = [];
+          }
+
+          if (Array.isArray(albumsRaw)) {
+            for (var i = 0; i < albumsRaw.length; i += 1) {
+              var album = albumsRaw[i];
+              if (album && album.id) {
+                albumsIndexById.set(album.id, album);
+              }
+            }
+          }
+
+          if (Array.isArray(artistsRaw)) {
+            for (var j = 0; j < artistsRaw.length; j += 1) {
+              var artist = artistsRaw[j];
+              if (artist && artist.id) {
+                artistsIndexById.set(artist.id, artist);
+                if (artist.name) {
+                  var key = String(artist.name).toLowerCase();
+                  if (!artistsIndexByName.has(key)) {
+                    artistsIndexByName.set(key, artist);
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        function loadBookmarks() {
+          isLoading = true;
+          loadError = null;
+          renderLoader();
+          try {
+            var apiResults = WebsiteSDK.getBookmarkedAlbums() || [];
+            if (Array.isArray(apiResults)) {
+              bookmarks = apiResults.map(function(item) {
+                var bookmarkedAtMs = Date.parse(item.bookmarked_at) || 0;
+                return {
+                  album_id: item.album_id,
+                  title: item.title || '',
+                  primary_artist_name: item.primary_artist_name || '',
+                  cover_image_url: item.cover_image_url || '',
+                  release_year: item.release_year,
+                  album_type: item.album_type || '',
+                  bookmarked_at: item.bookmarked_at,
+                  bookmarkedAtMs: bookmarkedAtMs,
+                  is_bookmarked: true,
+                  primary_artist_id: null
+                };
+              });
+            } else {
+              bookmarks = [];
+            }
+            augmentBookmarksWithMetadata();
+          } catch (e) {
+            bookmarks = [];
+            loadError = 'Unable to load bookmarks.';
+          }
+          isLoading = false;
+          recomputeAndRender();
+        }
+
+        function augmentBookmarksWithMetadata() {
+          if (!bookmarks || !bookmarks.length) {
+            return;
+          }
+          for (var i = 0; i < bookmarks.length; i += 1) {
+            var item = bookmarks[i];
+            var albumMeta = albumsIndexById.get(item.album_id);
+            if (albumMeta) {
+              if (!item.release_year && albumMeta.release_year) {
+                item.release_year = albumMeta.release_year;
+              }
+              if (!item.album_type && albumMeta.album_type) {
+                item.album_type = albumMeta.album_type;
+              }
+              if (!item.primary_artist_name && albumMeta.primary_artist_id) {
+                var artistMetaFromAlbum = artistsIndexById.get(albumMeta.primary_artist_id);
+                if (artistMetaFromAlbum && artistMetaFromAlbum.name) {
+                  item.primary_artist_name = artistMetaFromAlbum.name;
+                }
+              }
+              if (albumMeta.primary_artist_id) {
+                item.primary_artist_id = albumMeta.primary_artist_id;
+              }
+            }
+            if (!item.primary_artist_id && item.primary_artist_name) {
+              var key = String(item.primary_artist_name).toLowerCase();
+              var artistByName = artistsIndexByName.get(key);
+              if (artistByName) {
+                item.primary_artist_id = artistByName.id;
+              }
+            }
+          }
+        }
+
+        function renderLoader() {
+          if (!loaderEl) {
+            return;
+          }
+          if (isLoading) {
+            loaderEl.textContent = 'Loading bookmarks...';
+          } else if (loadError) {
+            loaderEl.textContent = loadError;
+          } else {
+            loaderEl.textContent = '';
+          }
+        }
+
+        function recomputeAndRender() {
+          renderLoader();
+
+          if (!bookmarks || !bookmarks.length) {
+            derived.filtered = [];
+            derived.visible = [];
+            derived.totalFiltered = 0;
+            derived.totalPages = 1;
+            updateToolbarControlsFromState();
+            renderList();
+            renderPagination();
+            updateBulkActions();
+            updateEmptyState();
+            return;
+          }
+
+          var filtered = applyFilters(bookmarks);
+          derived.filtered = filtered;
+          derived.totalFiltered = filtered.length;
+
+          var totalPages = filtered.length ? Math.ceil(filtered.length / viewState.pageSize) : 1;
+          if (totalPages < 1) {
+            totalPages = 1;
+          }
+          derived.totalPages = totalPages;
+
+          if (viewState.page > totalPages) {
+            viewState.page = totalPages || 1;
+            normalizeUrl(true);
+          } else if (viewState.page < 1) {
+            viewState.page = 1;
+          }
+
+          var startIndex = (viewState.page - 1) * viewState.pageSize;
+          var endIndex = startIndex + viewState.pageSize;
+          derived.visible = filtered.slice(startIndex, endIndex);
+
+          updateToolbarControlsFromState();
+          renderList();
+          renderPagination();
+          updateBulkActions();
+          updateEmptyState();
+        }
+
+        function updateToolbarControlsFromState() {
+          if (!toolbarFormEl) {
+            return;
+          }
+          var searchInput = toolbarFormEl.querySelector('input[name=q]');
+          var albumTypeSelect = toolbarFormEl.querySelector('select[name=albumType]');
+          var sortSelect = toolbarFormEl.querySelector('select[name=sort]');
+          var orderSelect = toolbarFormEl.querySelector('select[name=order]');
+
+          if (searchInput && searchInput.value !== viewState.q) {
+            searchInput.value = viewState.q;
+          }
+          if (albumTypeSelect && albumTypeSelect.value !== viewState.albumType) {
+            albumTypeSelect.value = viewState.albumType;
+          }
+          if (sortSelect && sortSelect.value !== viewState.sort) {
+            sortSelect.value = viewState.sort;
+          }
+          if (orderSelect && orderSelect.value !== viewState.order) {
+            orderSelect.value = viewState.order;
+          }
+        }
+
+        function applyFilters(items) {
+          var result = items.slice();
+          if (viewState.albumType) {
+            result = result.filter(function(item) {
+              return item.album_type === viewState.albumType;
+            });
+          }
+          if (viewState.q) {
+            var qLower = viewState.q.toLowerCase();
+            result = result.filter(function(item) {
+              var title = (item.title || '').toLowerCase();
+              var artist = (item.primary_artist_name || '').toLowerCase();
+              return title.indexOf(qLower) !== -1 || artist.indexOf(qLower) !== -1;
+            });
+          }
+
+          result.sort(function(a, b) {
+            var dir = viewState.order === 'asc' ? 1 : -1;
+            var sortField = viewState.sort || 'bookmarked_at';
+            var aVal;
+            var bVal;
+
+            if (sortField === 'bookmarked_at') {
+              aVal = a.bookmarkedAtMs || 0;
+              bVal = b.bookmarkedAtMs || 0;
+            } else if (sortField === 'release_year') {
+              aVal = a.release_year || 0;
+              bVal = b.release_year || 0;
+            } else if (sortField === 'title') {
+              aVal = (a.title || '').toLowerCase();
+              bVal = (b.title || '').toLowerCase();
+            } else if (sortField === 'primary_artist_name') {
+              aVal = (a.primary_artist_name || '').toLowerCase();
+              bVal = (b.primary_artist_name || '').toLowerCase();
+            } else if (sortField === 'album_type') {
+              aVal = (a.album_type || '').toLowerCase();
+              bVal = (b.album_type || '').toLowerCase();
+            } else {
+              aVal = a.bookmarkedAtMs || 0;
+              bVal = b.bookmarkedAtMs || 0;
+            }
+
+            if (aVal < bVal) {
+              return -1 * dir;
+            }
+            if (aVal > bVal) {
+              return 1 * dir;
+            }
+            return 0;
+          });
+
+          return result;
+        }
+
+        function renderList() {
+          if (!listEl) {
+            return;
+          }
+          if (isLoading || loadError) {
+            listEl.innerHTML = '';
+            return;
+          }
+          if (!bookmarks.length) {
+            listEl.innerHTML = '';
+            return;
+          }
+          if (!derived.filtered.length) {
+            listEl.innerHTML = '<p>No bookmarks match your current filters.</p>';
+            return;
+          }
+
+          var items = derived.visible;
+          var html = '';
+          for (var i = 0; i < items.length; i += 1) {
+            var item = items[i];
+            var albumId = item.album_id;
+            var artistId = item.primary_artist_id || '';
+            var isSelected = selectedIds.has(albumId);
+            var isPending = pendingAlbumIds.has(albumId);
+            var bookmarkedDateText = formatBookmarkedDate(item.bookmarked_at);
+            var titleEsc = escapeHtml(item.title || '');
+            var artistNameEsc = escapeHtml(item.primary_artist_name || '');
+            var yearText = item.release_year ? String(item.release_year) : '';
+            var typeText = item.album_type ? String(item.album_type) : '';
+
+            html += `
+              <article class='bookmarks-album-item' data-album-id='${escapeAttr(albumId)}'>
+                <p>
+                  <input type='checkbox' data-action='toggle-selection' data-album-id='${escapeAttr(albumId)}' ${isSelected ? 'checked' : ''} ${isPending ? 'disabled' : ''}>
+                  <a href='javascript:void(0)' data-action='open-album' data-album-id='${escapeAttr(albumId)}'${isPending ? ' aria-disabled=\'true\'' : ''}><strong>${titleEsc}</strong></a>
+                </p>
+                <p>
+                  ${artistNameEsc ? `by ${artistId ? `<a href='javascript:void(0)' data-action='open-artist' data-artist-id='${escapeAttr(artistId)}'>${artistNameEsc}</a>` : artistNameEsc}` : ''}
+                  ${yearText ? ` (${escapeHtml(yearText)})` : ''}
+                  ${typeText ? ` &ndash; ${escapeHtml(typeText)}` : ''}
+                </p>
+                <p class='bookmarks-album-actions'>
+                  <a href='javascript:void(0)' data-action='open-album' data-album-id='${escapeAttr(albumId)}'${isPending ? ' aria-disabled=\'true\'' : ''}>View album</a>
+                  ${artistId ? ` | <a href='javascript:void(0)' data-action='open-artist' data-artist-id='${escapeAttr(artistId)}'>View artist</a>` : ''}
+                  ${bookmarkedDateText ? ` | Bookmarked on ${escapeHtml(bookmarkedDateText)}` : ''}
+                  | <a href='javascript:void(0)' data-action='toggle-bookmark' data-album-id='${escapeAttr(albumId)}'>${item.is_bookmarked ? 'Remove bookmark' : 'Add bookmark'}</a>
+                </p>
+              </article>
+            `;
+          }
+          listEl.innerHTML = html;
+        }
+
+        function renderPagination() {
+          if (!paginationEl) {
+            return;
+          }
+          if (isLoading || loadError || !bookmarks.length || !derived.filtered.length) {
+            paginationEl.innerHTML = '';
+            return;
+          }
+
+          var totalPages = derived.totalPages || 1;
+          var currentPage = viewState.page;
+          var prevPage = currentPage > 1 ? currentPage - 1 : 1;
+          var nextPage = currentPage < totalPages ? currentPage + 1 : totalPages;
+
+          var pagesHtml = buildPageLinks(totalPages, currentPage);
+          var pageSizeOptions = [5, 10, 20, 50];
+          var optionsHtml = '';
+          for (var i = 0; i < pageSizeOptions.length; i += 1) {
+            var size = pageSizeOptions[i];
+            var selectedAttr = size === viewState.pageSize ? ' selected' : '';
+            optionsHtml += `<option value='${size}'${selectedAttr}>${size}</option>`;
+          }
+
+          paginationEl.innerHTML = `
+            <span>Page ${currentPage} of ${totalPages}</span>
+            ${totalPages > 1 ? ` | <a href='javascript:void(0)' data-action='page-prev' data-page='${prevPage}'>Previous</a> ${pagesHtml} <a href='javascript:void(0)' data-action='page-next' data-page='${nextPage}'>Next</a>` : ''}
+            | Per page:
+            <select data-action='change-page-size'>
+              ${optionsHtml}
+            </select>
+          `;
+        }
+
+        function buildPageLinks(totalPages, currentPage) {
+          var html = '';
+          for (var p = 1; p <= totalPages; p += 1) {
+            if (p === currentPage) {
+              html += ` <span>${p}</span> `;
+            } else {
+              html += ` <a href='javascript:void(0)' data-action='change-page' data-page='${p}'>${p}</a> `;
+            }
+          }
+          return html;
+        }
+
+        function updateBulkActions() {
+          if (!bulkActionsEl) {
+            return;
+          }
+          var hasSelection = selectedIds.size > 0 && derived.filtered.length > 0;
+          bulkActionsEl.hidden = !hasSelection;
+          if (bulkSummaryEl) {
+            if (hasSelection) {
+              bulkSummaryEl.textContent = String(selectedIds.size) + ' selected';
+            } else {
+              bulkSummaryEl.textContent = '';
+            }
+          }
+        }
+
+        function updateEmptyState() {
+          if (!emptyStateEl) {
+            return;
+          }
+          var showEmpty = !isLoading && !loadError && bookmarks.length === 0;
+          emptyStateEl.hidden = !showEmpty;
+        }
+
+        function handleClickAction(event) {
+          var target = event.target.closest('[data-action]');
+          if (!target) {
+            return;
+          }
+          var action = target.getAttribute('data-action');
+          if (!action) {
+            return;
+          }
+
+          if (action === 'clear-filters') {
+            event.preventDefault();
+            handleClearFilters();
+          } else if (action === 'open-album') {
+            event.preventDefault();
+            var albumId = target.getAttribute('data-album-id');
+            if (!albumId || pendingAlbumIds.has(albumId)) {
+              return;
+            }
+            window.location.href = 'album.html?albumId=' + encodeURIComponent(albumId);
+          } else if (action === 'open-artist') {
+            event.preventDefault();
+            var artistId = target.getAttribute('data-artist-id');
+            if (!artistId) {
+              return;
+            }
+            window.location.href = 'artist.html?artistId=' + encodeURIComponent(artistId) + '&tab=overview';
+          } else if (action === 'toggle-bookmark') {
+            event.preventDefault();
+            var albumIdToggle = target.getAttribute('data-album-id');
+            if (!albumIdToggle) {
+              return;
+            }
+            handleToggleBookmark(albumIdToggle);
+          } else if (action === 'select-all') {
+            event.preventDefault();
+            handleSelectAllCurrentPage();
+          } else if (action === 'clear-selection') {
+            event.preventDefault();
+            selectedIds.clear();
+            updateBulkActions();
+            renderList();
+          } else if (action === 'bulk-remove') {
+            event.preventDefault();
+            handleBulkRemove();
+          } else if (action === 'change-page') {
+            event.preventDefault();
+            var pageStr = target.getAttribute('data-page');
+            var page = parsePositiveInt(pageStr, viewState.page);
+            if (page === viewState.page) {
+              return;
+            }
+            viewState.page = page;
+            normalizeUrl();
+            recomputeAndRender();
+          } else if (action === 'page-prev') {
+            event.preventDefault();
+            if (viewState.page > 1) {
+              viewState.page -= 1;
+              normalizeUrl();
+              recomputeAndRender();
+            }
+          } else if (action === 'page-next') {
+            event.preventDefault();
+            if (viewState.page < derived.totalPages) {
+              viewState.page += 1;
+              normalizeUrl();
+              recomputeAndRender();
+            }
+          } else if (action === 'undo-remove') {
+            event.preventDefault();
+            handleUndoLastRemoval();
+          }
+        }
+
+        function handleChangeAction(event) {
+          var target = event.target;
+          if (!target || !target.getAttribute) {
+            return;
+          }
+          var action = target.getAttribute('data-action');
+          if (!action) {
+            return;
+          }
+
+          if (action === 'toggle-selection') {
+            var albumId = target.getAttribute('data-album-id');
+            if (!albumId) {
+              return;
+            }
+            if (target.checked) {
+              selectedIds.add(albumId);
+            } else {
+              selectedIds.delete(albumId);
+            }
+            updateBulkActions();
+          } else if (action === 'change-page-size') {
+            var size = parsePositiveInt(target.value, viewState.pageSize);
+            if (size === viewState.pageSize) {
+              return;
+            }
+            viewState.pageSize = size;
+            viewState.page = 1;
+            normalizeUrl();
+            recomputeAndRender();
+          }
+        }
+
+        function handleClearFilters() {
+          viewState.sort = 'bookmarked_at';
+          viewState.order = 'desc';
+          viewState.albumType = '';
+          viewState.q = '';
+          viewState.page = 1;
+          if (!viewState.pageSize || viewState.pageSize <= 0) {
+            viewState.pageSize = 10;
+          }
+          updateToolbarControlsFromState();
+          normalizeUrl();
+          recomputeAndRender();
+        }
+
+        function handleSelectAllCurrentPage() {
+          var items = derived.visible || [];
+          for (var i = 0; i < items.length; i += 1) {
+            selectedIds.add(items[i].album_id);
+          }
+          updateBulkActions();
+          renderList();
+        }
+
+        function handleToggleBookmark(albumId) {
+          if (pendingAlbumIds.has(albumId)) {
+            return;
+          }
+          var index = bookmarks.findIndex(function(item) {
+            return item.album_id === albumId;
+          });
+          if (index === -1) {
+            handleBookmarkAlbum(albumId);
+            return;
+          }
+          var item = bookmarks[index];
+          if (item.is_bookmarked) {
+            handleUnbookmarkAlbum(index);
+          } else {
+            handleBookmarkAlbum(albumId);
+          }
+        }
+
+        function handleUnbookmarkAlbum(index) {
+          var item = bookmarks[index];
+          var albumId = item.album_id;
+          pendingAlbumIds.add(albumId);
+          var previousBookmarks = bookmarks.slice();
+          selectedIds.delete(albumId);
+          bookmarks.splice(index, 1);
+          recomputeAndRender();
+
+          var response;
+          try {
+            response = WebsiteSDK.unbookmarkAlbum(albumId);
+          } catch (e) {
+            bookmarks = previousBookmarks;
+            pendingAlbumIds.delete(albumId);
+            showStatus('Could not remove bookmark. Please try again.', { type: 'error' });
+            recomputeAndRender();
+            return;
+          }
+
+          pendingAlbumIds.delete(albumId);
+          if (response && response.is_bookmarked === false) {
+            if (lastRemoved && lastRemoved.timerId) {
+              window.clearTimeout(lastRemoved.timerId);
+            }
+            var timerId = window.setTimeout(function() {
+              lastRemoved = null;
+              hideStatus();
+            }, 8000);
+            lastRemoved = { album: item, timerId: timerId };
+            showStatus('Removed ' + (item.title || 'album') + ' from bookmarks.', { type: 'info', undoAlbum: item });
+            recomputeAndRender();
+          } else {
+            bookmarks = previousBookmarks;
+            showStatus(response && response.message ? response.message : 'Could not remove bookmark.', { type: 'error' });
+            recomputeAndRender();
+          }
+        }
+
+        function handleBookmarkAlbum(albumId) {
+          pendingAlbumIds.add(albumId);
+          recomputeAndRender();
+          var response;
+          try {
+            response = WebsiteSDK.bookmarkAlbum(albumId);
+          } catch (e) {
+            pendingAlbumIds.delete(albumId);
+            showStatus('Could not bookmark album. Please try again.', { type: 'error' });
+            return;
+          }
+          pendingAlbumIds.delete(albumId);
+          if (response && response.is_bookmarked) {
+            if (lastRemoved && lastRemoved.album && lastRemoved.album.album_id === albumId) {
+              bookmarks.push(lastRemoved.album);
+              lastRemoved = null;
+            }
+            showStatus('Album bookmarked.', { type: 'info' });
+            recomputeAndRender();
+          } else {
+            showStatus(response && response.message ? response.message : 'Could not bookmark album.', { type: 'error' });
+          }
+        }
+
+        function handleBulkRemove() {
+          if (!selectedIds.size) {
+            return;
+          }
+          var count = selectedIds.size;
+          var confirmed = window.confirm('Remove ' + count + ' selected bookmark(s)?');
+          if (!confirmed) {
+            return;
+          }
+          var ids = Array.from(selectedIds);
+          var successCount = 0;
+          var errorCount = 0;
+
+          for (var i = 0; i < ids.length; i += 1) {
+            var id = ids[i];
+            try {
+              var response = WebsiteSDK.unbookmarkAlbum(id);
+              if (response && response.is_bookmarked === false) {
+                var index = bookmarks.findIndex(function(item) {
+                  return item.album_id === id;
+                });
+                if (index !== -1) {
+                  bookmarks.splice(index, 1);
+                }
+                successCount += 1;
+              } else {
+                errorCount += 1;
+              }
+            } catch (e) {
+              errorCount += 1;
+            }
+          }
+
+          selectedIds.clear();
+          recomputeAndRender();
+
+          if (successCount || errorCount) {
+            var message;
+            var type = 'info';
+            if (successCount && !errorCount) {
+              message = 'Removed ' + successCount + ' bookmark(s).';
+            } else if (successCount && errorCount) {
+              message = 'Removed ' + successCount + ' bookmark(s). ' + errorCount + ' failed.';
+              type = 'error';
+            } else {
+              message = 'Could not remove selected bookmarks.';
+              type = 'error';
+            }
+            showStatus(message, { type: type });
+          }
+        }
+
+        function handleUndoLastRemoval() {
+          if (!lastRemoved || !lastRemoved.album) {
+            return;
+          }
+          var album = lastRemoved.album;
+          var albumId = album.album_id;
+          pendingAlbumIds.add(albumId);
+          recomputeAndRender();
+
+          var response;
+          try {
+            response = WebsiteSDK.bookmarkAlbum(albumId);
+          } catch (e) {
+            pendingAlbumIds.delete(albumId);
+            showStatus('Could not re-bookmark album. Please try again.', { type: 'error' });
+            return;
+          }
+          pendingAlbumIds.delete(albumId);
+
+          if (response && response.is_bookmarked) {
+            bookmarks.push(album);
+            lastRemoved = null;
+            hideStatus();
+            recomputeAndRender();
+          } else {
+            showStatus(response && response.message ? response.message : 'Could not re-bookmark album.', { type: 'error' });
+          }
+        }
+
+        function readViewStateFromUrl() {
+          var params = new URLSearchParams(window.location.search);
+          var state = {
+            sort: params.get('sort') || 'bookmarked_at',
+            order: params.get('order') === 'asc' ? 'asc' : 'desc',
+            albumType: params.get('albumType') || '',
+            q: params.get('q') || '',
+            page: parsePositiveInt(params.get('page'), 1),
+            pageSize: parsePositiveInt(params.get('pageSize'), 10)
+          };
+
+          var allowedSort = ['bookmarked_at', 'title', 'primary_artist_name', 'release_year', 'album_type'];
+          if (allowedSort.indexOf(state.sort) === -1) {
+            state.sort = 'bookmarked_at';
+          }
+          if (!state.pageSize || state.pageSize <= 0) {
+            state.pageSize = 10;
+          }
+          if (!state.page || state.page <= 0) {
+            state.page = 1;
+          }
+          return state;
+        }
+
+        function normalizeUrl(replace) {
+          var params = new URLSearchParams();
+
+          if (viewState.sort && viewState.sort !== 'bookmarked_at') {
+            params.set('sort', viewState.sort);
+          }
+          if (viewState.order && viewState.order !== 'desc') {
+            params.set('order', viewState.order);
+          }
+          if (viewState.albumType) {
+            params.set('albumType', viewState.albumType);
+          }
+          if (viewState.q) {
+            params.set('q', viewState.q);
+          }
+          if (viewState.page && viewState.page !== 1) {
+            params.set('page', String(viewState.page));
+          }
+          if (viewState.pageSize && viewState.pageSize !== 10) {
+            params.set('pageSize', String(viewState.pageSize));
+          }
+
+          var query = params.toString();
+          var newUrl = window.location.pathname + (query ? '?' + query : '');
+          if (replace) {
+            window.history.replaceState({}, '', newUrl);
+          } else {
+            window.history.pushState({}, '', newUrl);
+          }
+        }
+
+        function parsePositiveInt(value, fallback) {
+          var n = parseInt(value, 10);
+          if (!isNaN(n) && n > 0) {
+            return n;
+          }
+          return fallback;
+        }
+
+        function formatBookmarkedDate(value) {
+          if (!value) {
+            return '';
+          }
+          var d = new Date(value);
+          if (isNaN(d.getTime())) {
+            return '';
+          }
+          try {
+            return d.toLocaleDateString(undefined, {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric'
+            });
+          } catch (e) {
+            return d.toISOString().slice(0, 10);
+          }
+        }
+
+        function showStatus(message, options) {
+          if (!statusBannerEl) {
+            return;
+          }
+          var opts = options || {};
+          if (lastStatusTimeoutId) {
+            window.clearTimeout(lastStatusTimeoutId);
+            lastStatusTimeoutId = null;
+          }
+          var html = escapeHtml(message || '');
+          if (opts.undoAlbum && opts.undoAlbum.album_id) {
+            var albumId = opts.undoAlbum.album_id;
+            html += ` <a href='javascript:void(0)' data-action='undo-remove' data-album-id='${escapeAttr(albumId)}'>Undo</a>`;
+          }
+          statusBannerEl.innerHTML = html;
+
+          if (opts.type !== 'error' && !opts.undoAlbum) {
+            lastStatusTimeoutId = window.setTimeout(function() {
+              hideStatus();
+            }, 5000);
+          }
+        }
+
+        function hideStatus() {
+          if (!statusBannerEl) {
+            return;
+          }
+          statusBannerEl.innerHTML = '';
+          if (lastStatusTimeoutId) {
+            window.clearTimeout(lastStatusTimeoutId);
+            lastStatusTimeoutId = null;
+          }
+        }
+
+        function escapeHtml(value) {
+          if (value === null || value === undefined) {
+            return '';
+          }
+          return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        }
+
+        function escapeAttr(value) {
+          if (value === null || value === undefined) {
+            return '';
+          }
+          return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/'/g, '&#39;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        }
+
+      })();
+      </script>
+    </div>
+  </div>
+</body>
+</html>

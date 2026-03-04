@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Domain Add-ons</title>
+
+    <!-- Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=IBM+Plex+Sans:wght@300;400;500;600&amp;display=swap" rel="stylesheet" />
+
+    <!-- Framework styles -->
+    <link rel="stylesheet" href="framework.css" />
+    <!-- Page styles -->
+    <link rel="stylesheet" href="domain_addons.css" />
+</head>
+<body class="layout-body">
+    <header class="site-header" role="banner">
+        <div class="header-inner">
+            <div class="brand-lockup" aria-label="Site identity">
+                <span class="brand-mark"></span>
+                <span class="brand-text">Parked Domains</span>
+            </div>
+            <nav class="main-nav" aria-label="Primary navigation">
+                <ul class="nav-list">
+                    <li class="nav-item">
+                        <a href="index.html" class="nav-link">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="domain_search.html" class="nav-link">Search Domains</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="domain_list.html" class="nav-link">My Domains</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="pricing.html" class="nav-link">Pricing</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="help.html" class="nav-link">Help</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="cart.html" class="nav-link">Cart</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id="content" class="site-main" role="main">
+        <div class="domain-addons-page" data-component="domain-addons-page-init" data-populate="domain-addons-page-init">
+            <div class="domain-addons-page-inner">
+                <!-- Domain context header -->
+                <header class="domain-addons-header" data-component="domain-context-header">
+                    <h1 class="page-title">Domain add-ons</h1>
+                    <p class="page-subtitle">
+                        Manage optional services for
+                        <span class="domain-name-inline" data-populate="domain-name-inline">this domain</span>
+                        without changing its registration term.
+                    </p>
+                    <div class="cart-status-inline" data-component="cart-status-inline" data-populate="cart-status-inline" aria-live="polite"></div>
+                </header>
+
+                <!-- Navigation controls -->
+                <nav class="domain-addons-nav" data-component="navigation-controls" aria-label="Domain add-ons navigation">
+                    <button type="button" class="nav-link-like" data-action="back-to-overview">Back to overview</button>
+                    <button type="button" class="nav-link-like" data-action="go-to-cart">Go to cart</button>
+                </nav>
+
+                <!-- Feedback messages -->
+                <section class="feedback-messages" data-component="feedback-messages" aria-live="polite"></section>
+
+                <!-- Loading / error state -->
+                <section class="loading-error-region" data-component="loading-and-error-state" aria-live="polite"></section>
+
+                <!-- Selection summary card ("signboard") -->
+                <section class="addons-selection-summary-card" data-component="addons-selection-summary" aria-label="Add-on selection summary"></section>
+
+                <!-- Add-ons list -->
+                <section class="addons-list-section" data-component="addons-list" aria-label="Available add-ons for this domain"></section>
+            </div>
+
+            <!-- Sticky action bar at bottom -->
+            <div class="addons-cart-action-bar" data-component="addons-cart-action-bar">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+        <div class="footer-inner">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul class="footer-links">
+                    <li class="footer-item"><a href="about.html" class="footer-link">About</a></li>
+                    <li class="footer-item"><a href="pricing.html" class="footer-link">Pricing</a></li>
+                    <li class="footer-item"><a href="help.html" class="footer-link">Help &amp; Support</a></li>
+                    <li class="footer-item"><a href="contact.html" class="footer-link">Contact</a></li>
+                    <li class="footer-item"><a href="terms.html" class="footer-link">Terms of Service</a></li>
+                    <li class="footer-item"><a href="privacy.html" class="footer-link">Privacy Policy</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">&copy; <span data-year="current-year">2024</span> Parked Domains. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        (function () {
+            var yearNode = document.querySelector('[data-year="current-year"]');
+            if (yearNode) {
+                yearNode.textContent = String(new Date().getFullYear());
+            }
+        })();
+    </script>
+
+    <!-- SDK / business logic -->
+    <script src="business_logic.js"></script>
+
+    <!-- Page UI logic -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var state = {
+                domainId: null,
+                domain: null,
+                addons: [],
+                cart: null,
+                selectedAddonCodes: new Set(),
+                pageState: 'idle', // 'idle' | 'invalid-parameter' | 'loading' | 'ready' | 'error' | 'submitting'
+                feedback: null // { type: 'success'|'error', text: string }
+            };
+
+            var urlParams = new URLSearchParams(window.location.search);
+            var domainIdParam = urlParams.get('domainId');
+            if (domainIdParam && String(domainIdParam).trim() !== '') {
+                state.domainId = String(domainIdParam).trim();
+            }
+
+            var headerContainer = document.querySelector('[data-component="domain-context-header"]');
+            var navContainer = document.querySelector('[data-component="navigation-controls"]');
+            var feedbackContainer = document.querySelector('[data-component="feedback-messages"]');
+            var loadingErrorContainer = document.querySelector('[data-component="loading-and-error-state"]');
+            var summaryContainer = document.querySelector('[data-component="addons-selection-summary"]');
+            var listContainer = document.querySelector('[data-component="addons-list"]');
+            var actionBarContainer = document.querySelector('[data-component="addons-cart-action-bar"]');
+            var cartStatusContainer = document.querySelector('[data-component="cart-status-inline"]');
+
+            function setPageState(newState) {
+                state.pageState = newState;
+            }
+
+            function setFeedback(type, text) {
+                if (!text) {
+                    state.feedback = null;
+                } else {
+                    state.feedback = {
+                        type: type,
+                        text: text,
+                        id: String(Date.now())
+                    };
+                }
+                if (feedbackContainer) {
+                    renderFeedback(feedbackContainer, state.feedback);
+                }
+            }
+
+            function renderFeedback(container, feedback) {
+                container.innerHTML = '';
+                if (!feedback) {
+                    return;
+                }
+                var wrapper = document.createElement('div');
+                wrapper.className = 'feedback-banner feedback-banner--' + feedback.type;
+
+                var textDiv = document.createElement('div');
+                textDiv.className = 'feedback-banner-text';
+                textDiv.textContent = feedback.text;
+                wrapper.appendChild(textDiv);
+
+                var dismissBtn = document.createElement('button');
+                dismissBtn.type = 'button';
+                dismissBtn.className = 'feedback-banner-dismiss';
+                dismissBtn.textContent = 'Dismiss';
+                dismissBtn.setAttribute('data-action', 'dismiss-feedback');
+                dismissBtn.setAttribute('data-message-id', feedback.id);
+                wrapper.appendChild(dismissBtn);
+
+                container.appendChild(wrapper);
+            }
+
+            function renderLoadingOrError(container) {
+                container.innerHTML = '';
+                if (state.pageState === 'loading') {
+                    var loadingCard = document.createElement('div');
+                    loadingCard.className = 'state-card state-card--loading';
+
+                    var loadingText = document.createElement('p');
+                    loadingText.className = 'state-card-text';
+                    loadingText.textContent = 'Loading domain add-onsa0b7a0please waita0b7a0';
+                    loadingCard.appendChild(loadingText);
+
+                    var spinner = document.createElement('div');
+                    spinner.className = 'state-card-spinner';
+                    loadingCard.appendChild(spinner);
+
+                    container.appendChild(loadingCard);
+                } else if (state.pageState === 'invalid-parameter') {
+                    var invalidCard = document.createElement('div');
+                    invalidCard.className = 'state-card state-card--error';
+
+                    var invalidTitle = document.createElement('h2');
+                    invalidTitle.className = 'state-card-title';
+                    invalidTitle.textContent = 'No domain selected';
+                    invalidCard.appendChild(invalidTitle);
+
+                    var invalidBody = document.createElement('p');
+                    invalidBody.className = 'state-card-text';
+                    invalidBody.textContent = 'This page needs a domainId in the URL to manage add-ons. Return to My Domains and choose a domain first.';
+                    invalidCard.appendChild(invalidBody);
+
+                    container.appendChild(invalidCard);
+                } else if (state.pageState === 'error') {
+                    var errorCard = document.createElement('div');
+                    errorCard.className = 'state-card state-card--error';
+
+                    var errorTitle = document.createElement('h2');
+                    errorTitle.className = 'state-card-title';
+                    errorTitle.textContent = 'Unable to load add-ons';
+                    errorCard.appendChild(errorTitle);
+
+                    var errorBody = document.createElement('p');
+                    errorBody.className = 'state-card-text';
+                    errorBody.textContent = 'Something went wrong while loading add-ons for this domain. You can try again.';
+                    errorCard.appendChild(errorBody);
+
+                    var retryBtn = document.createElement('button');
+                    retryBtn.type = 'button';
+                    retryBtn.className = 'btn btn-secondary';
+                    retryBtn.textContent = 'Retry';
+                    retryBtn.setAttribute('data-action', 'reload-domain-addons');
+                    errorCard.appendChild(retryBtn);
+
+                    container.appendChild(errorCard);
+                }
+            }
+
+            function renderHeader(container, domain) {
+                if (!container) {
+                    return;
+                }
+                var domainNameText = domain && domain.domain_name ? domain.domain_name : 'this domain';
+                var titleNode = container.querySelector('.page-title');
+                var subtitleNode = container.querySelector('.page-subtitle');
+                var inlineDomainNode = container.querySelector('[data-populate="domain-name-inline"]');
+
+                if (titleNode) {
+                    titleNode.textContent = 'Domain add-ons';
+                }
+                if (subtitleNode) {
+                    // Keep the existing structure but update the inline domain span only
+                    if (inlineDomainNode) {
+                        inlineDomainNode.textContent = domainNameText;
+                    }
+                }
+            }
+
+            function renderSelectionSummary(container) {
+                container.innerHTML = '';
+
+                if (state.pageState === 'invalid-parameter' || state.pageState === 'error') {
+                    return;
+                }
+
+                var card = document.createElement('div');
+                card.className = 'summary-card';
+
+                var domainLine = document.createElement('div');
+                domainLine.className = 'summary-card-domain';
+                domainLine.textContent = state.domain && state.domain.domain_name ? state.domain.domain_name : 'Loading domaina0b7a0b7a0';
+                card.appendChild(domainLine);
+
+                var selectedCount = state.selectedAddonCodes.size;
+                var totalAvailable = 0;
+                for (var i = 0; i < state.addons.length; i += 1) {
+                    var item = state.addons[i];
+                    if (item && item.addon && item.addon.is_active) {
+                        var sub = item.current_subscription;
+                        var inCart = !!item.is_in_cart;
+                        var selectable = item.addon.is_active && (!sub || sub.status === 'cancelled') && !inCart;
+                        if (selectable) {
+                            totalAvailable += 1;
+                        }
+                    }
+                }
+
+                var summaryLine = document.createElement('div');
+                summaryLine.className = 'summary-card-line';
+                if (state.pageState === 'loading') {
+                    summaryLine.textContent = 'Fetching available add-ons for this domaina0b7a0please wait.';
+                } else if (state.pageState === 'submitting') {
+                    summaryLine.textContent = 'Adding selected add-ons to your carta0b7a0do not close this tab.';
+                } else {
+                    if (totalAvailable === 0) {
+                        summaryLine.textContent = 'No additional add-ons are currently available to add for this domain.';
+                    } else if (selectedCount === 0) {
+                        summaryLine.textContent = 'Choose add-ons below to protect privacy or enable extras for this domain.';
+                    } else if (selectedCount === 1) {
+                        summaryLine.textContent = '1 add-on selected. It will be added to your cart without changing the domain term.';
+                    } else {
+                        summaryLine.textContent = selectedCount + ' add-ons selected. They will be added to your cart without changing the domain term.';
+                    }
+                }
+                card.appendChild(summaryLine);
+
+                if (selectedCount > 0 && state.addons && state.addons.length > 0) {
+                    var list = document.createElement('ul');
+                    list.className = 'summary-card-list';
+
+                    for (var j = 0; j < state.addons.length; j += 1) {
+                        var itemObj = state.addons[j];
+                        if (!itemObj || !itemObj.addon) {
+                            continue;
+                        }
+                        var code = itemObj.addon.code;
+                        if (state.selectedAddonCodes.has(code)) {
+                            var li = document.createElement('li');
+                            li.className = 'summary-card-list-item';
+                            var nameText = itemObj.addon.name || code;
+                            var priceText = itemObj.price_label || '';
+                            li.textContent = nameText + (priceText ? ' b7 ' + priceText : '');
+                            list.appendChild(li);
+                        }
+                    }
+
+                    if (list.children.length > 0) {
+                        card.appendChild(list);
+                    }
+                }
+
+                container.appendChild(card);
+            }
+
+            function renderAddonsList(container) {
+                container.innerHTML = '';
+
+                if (state.pageState === 'invalid-parameter') {
+                    return;
+                }
+
+                if (state.pageState === 'loading') {
+                    var loadingNote = document.createElement('p');
+                    loadingNote.className = 'addons-list-note';
+                    loadingNote.textContent = 'Add-ons will appear here once the domain details have loaded.';
+                    container.appendChild(loadingNote);
+                    return;
+                }
+
+                if (!state.addons || state.addons.length === 0) {
+                    var emptyNote = document.createElement('p');
+                    emptyNote.className = 'addons-list-note';
+                    emptyNote.textContent = 'There are no add-ons available for this domain right now.';
+                    container.appendChild(emptyNote);
+                    return;
+                }
+
+                for (var i = 0; i < state.addons.length; i += 1) {
+                    var entry = state.addons[i];
+                    if (!entry || !entry.addon) {
+                        continue;
+                    }
+                    var addon = entry.addon;
+                    var subscription = entry.current_subscription;
+                    var isInCart = !!entry.is_in_cart;
+                    var statusLabel = entry.status_label || '';
+                    var priceLabel = entry.price_label || '';
+
+                    var subStatus = subscription ? subscription.status : null;
+                    var hasActiveOrPending = subStatus === 'active' || subStatus === 'pending_activation';
+                    var selectable = addon.is_active && !hasActiveOrPending && !isInCart;
+
+                    var row = document.createElement('article');
+                    row.className = 'addon-row-card';
+                    row.setAttribute('data-addon-code', addon.code);
+                    row.setAttribute('data-action', 'addon-row-click');
+
+                    var left = document.createElement('div');
+                    left.className = 'addon-row-main';
+
+                    var nameEl = document.createElement('h3');
+                    nameEl.className = 'addon-row-title';
+                    nameEl.textContent = addon.name || addon.code;
+                    left.appendChild(nameEl);
+
+                    if (addon.description) {
+                        var descEl = document.createElement('p');
+                        descEl.className = 'addon-row-description';
+                        descEl.textContent = addon.description;
+                        left.appendChild(descEl);
+                    }
+
+                    var statusEl = document.createElement('p');
+                    statusEl.className = 'addon-row-status';
+                    if (statusLabel) {
+                        statusEl.textContent = statusLabel;
+                    } else if (hasActiveOrPending) {
+                        statusEl.textContent = subStatus === 'active' ? 'Already active for this domain.' : 'Pending activation.';
+                    } else if (isInCart) {
+                        statusEl.textContent = 'Already in your cart for this domain.';
+                    } else if (!addon.is_active) {
+                        statusEl.textContent = 'Currently unavailable.';
+                    } else {
+                        statusEl.textContent = 'Available to add for this domain.';
+                    }
+                    left.appendChild(statusEl);
+
+                    var right = document.createElement('div');
+                    right.className = 'addon-row-side';
+
+                    var priceEl = document.createElement('div');
+                    priceEl.className = 'addon-row-price';
+                    priceEl.textContent = priceLabel || '';
+                    right.appendChild(priceEl);
+
+                    if (selectable) {
+                        var controlWrapper = document.createElement('div');
+                        controlWrapper.className = 'addon-row-control';
+
+                        var labelEl = document.createElement('label');
+                        labelEl.className = 'addon-toggle-label';
+
+                        var checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.className = 'addon-toggle-input';
+                        checkbox.setAttribute('data-action', 'toggle-addon');
+                        checkbox.setAttribute('data-addon-code', addon.code);
+                        if (state.pageState === 'submitting') {
+                            checkbox.disabled = true;
+                        }
+                        if (state.selectedAddonCodes.has(addon.code)) {
+                            checkbox.checked = true;
+                        }
+
+                        var labelText = document.createElement('span');
+                        labelText.className = 'addon-toggle-text';
+                        labelText.textContent = 'Add';
+
+                        labelEl.appendChild(checkbox);
+                        labelEl.appendChild(labelText);
+                        controlWrapper.appendChild(labelEl);
+                        right.appendChild(controlWrapper);
+                    } else {
+                        var badge = document.createElement('div');
+                        badge.className = 'addon-row-badge';
+                        if (hasActiveOrPending) {
+                            badge.textContent = subStatus === 'active' ? 'Active' : 'Pending';
+                        } else if (isInCart) {
+                            badge.textContent = 'In cart';
+                        } else {
+                            badge.textContent = 'Unavailable';
+                        }
+                        right.appendChild(badge);
+                    }
+
+                    row.appendChild(left);
+                    row.appendChild(right);
+                    container.appendChild(row);
+                }
+            }
+
+            function renderCartStatusInline(container) {
+                container.innerHTML = '';
+                if (!state.cart || !state.cart.cart) {
+                    return;
+                }
+                var cartObj = state.cart.cart;
+                var items = state.cart.items || [];
+
+                var pill = document.createElement('div');
+                pill.className = 'cart-status-pill';
+
+                var itemsCount = items.length;
+                var total = cartObj.total;
+                var currency = cartObj.currency || 'usd';
+
+                var label = itemsCount === 1 ? '1 item in cart' : itemsCount + ' items in cart';
+                var text = label;
+                if (typeof total === 'number') {
+                    var formatted = '$' + total.toFixed(2);
+                    text = label + ' b7 ' + formatted + ' ' + currency.toUpperCase();
+                }
+                pill.textContent = text;
+
+                container.appendChild(pill);
+            }
+
+            function renderActionBar(container) {
+                container.innerHTML = '';
+
+                var barInner = document.createElement('div');
+                barInner.className = 'addons-action-bar-inner';
+
+                var left = document.createElement('div');
+                left.className = 'addons-action-bar-summary';
+
+                var domainName = state.domain && state.domain.domain_name ? state.domain.domain_name : 'this domain';
+                var selectedCount = state.selectedAddonCodes.size;
+
+                var summaryText = '';
+                if (state.pageState === 'invalid-parameter') {
+                    summaryText = 'Cannot manage add-ons until a domain is selected.';
+                } else if (state.pageState === 'error') {
+                    summaryText = 'Add-ons could not be loaded. Try reloading the page.';
+                } else if (selectedCount === 0) {
+                    summaryText = 'No add-ons selected for ' + domainName + '.';
+                } else if (selectedCount === 1) {
+                    summaryText = '1 add-on selected for ' + domainName + '.';
+                } else {
+                    summaryText = selectedCount + ' add-ons selected for ' + domainName + '.';
+                }
+
+                var summarySpan = document.createElement('span');
+                summarySpan.textContent = summaryText;
+                left.appendChild(summarySpan);
+
+                if (state.cart && state.cart.cart && typeof state.cart.cart.total === 'number') {
+                    var totalSpan = document.createElement('span');
+                    totalSpan.className = 'addons-action-bar-total';
+                    var totalVal = state.cart.cart.total;
+                    var currency = state.cart.cart.currency || 'usd';
+                    totalSpan.textContent = 'Cart total: $' + totalVal.toFixed(2) + ' ' + currency.toUpperCase();
+                    left.appendChild(totalSpan);
+                }
+
+                var right = document.createElement('div');
+                right.className = 'addons-action-bar-actions';
+
+                var reviewCartBtn = document.createElement('button');
+                reviewCartBtn.type = 'button';
+                reviewCartBtn.className = 'btn btn-secondary';
+                reviewCartBtn.textContent = 'Review cart';
+                reviewCartBtn.setAttribute('data-action', 'go-to-cart');
+                right.appendChild(reviewCartBtn);
+
+                var primaryBtn = document.createElement('button');
+                primaryBtn.type = 'button';
+                primaryBtn.className = 'btn btn-primary';
+                primaryBtn.setAttribute('data-action', 'add-selected-addons');
+
+                if (state.pageState === 'submitting') {
+                    primaryBtn.disabled = true;
+                    primaryBtn.textContent = 'Addinga0b7a0please wait';
+                } else {
+                    var canSubmit = state.pageState === 'ready' && state.selectedAddonCodes.size > 0;
+                    primaryBtn.disabled = !canSubmit;
+                    primaryBtn.textContent = 'Add selected to cart';
+                }
+
+                right.appendChild(primaryBtn);
+
+                barInner.appendChild(left);
+                barInner.appendChild(right);
+                container.appendChild(barInner);
+            }
+
+            function renderAll() {
+                if (loadingErrorContainer) {
+                    if (state.pageState === 'loading' || state.pageState === 'invalid-parameter' || state.pageState === 'error') {
+                        renderLoadingOrError(loadingErrorContainer);
+                    } else {
+                        loadingErrorContainer.innerHTML = '';
+                    }
+                }
+
+                if (headerContainer) {
+                    renderHeader(headerContainer, state.domain);
+                }
+
+                if (summaryContainer) {
+                    renderSelectionSummary(summaryContainer);
+                }
+
+                if (listContainer) {
+                    renderAddonsList(listContainer);
+                }
+
+                if (cartStatusContainer) {
+                    renderCartStatusInline(cartStatusContainer);
+                }
+
+                if (actionBarContainer) {
+                    renderActionBar(actionBarContainer);
+                }
+            }
+
+            function loadCartIfNeeded() {
+                try {
+                    var cartResult = WebsiteSDK.getCart();
+                    state.cart = cartResult;
+                } catch (e) {
+                    // Cart is informational; ignore errors but surface a light message.
+                    setFeedback('error', 'Cart status could not be refreshed. You can still add add-ons to the cart.');
+                }
+            }
+
+            function loadDomainAddons() {
+                if (!state.domainId) {
+                    setPageState('invalid-parameter');
+                    renderAll();
+                    setFeedback('error', 'Missing domainId URL parameter.');
+                    return;
+                }
+
+                setPageState('loading');
+                renderAll();
+
+                try {
+                    var result = WebsiteSDK.getDomainAddonsForDomain(state.domainId);
+                    if (!result || !result.domain) {
+                        setPageState('error');
+                        renderAll();
+                        setFeedback('error', 'No domain data was returned for the specified domainId.');
+                        return;
+                    }
+
+                    state.domain = result.domain;
+                    state.addons = result.addons || [];
+                    state.selectedAddonCodes = new Set();
+
+                    loadCartIfNeeded();
+
+                    setPageState('ready');
+                    setFeedback(null, '');
+                    renderAll();
+                } catch (e) {
+                    setPageState('error');
+                    renderAll();
+                    setFeedback('error', 'An error occurred while loading add-ons for this domain.');
+                }
+            }
+
+            function handleToggleAddon(addonCode, checked) {
+                if (!addonCode) {
+                    return;
+                }
+                if (state.pageState !== 'ready') {
+                    return;
+                }
+
+                if (checked) {
+                    state.selectedAddonCodes.add(addonCode);
+                } else {
+                    state.selectedAddonCodes.delete(addonCode);
+                }
+                renderAll();
+            }
+
+            function handleAddSelectedAddons() {
+                if (!state.domainId) {
+                    setFeedback('error', 'Cannot add add-ons: domainId is missing.');
+                    return;
+                }
+                if (state.pageState !== 'ready') {
+                    return;
+                }
+
+                var addonCodes = [];
+                state.selectedAddonCodes.forEach(function (code) {
+                    addonCodes.push(code);
+                });
+
+                if (!addonCodes.length) {
+                    setFeedback('error', 'Select at least one add-on to add it to your cart.');
+                    return;
+                }
+
+                setPageState('submitting');
+                renderAll();
+
+                try {
+                    var response = WebsiteSDK.addDomainAddonsToCart(state.domainId, addonCodes);
+                    if (!response || response.success === false) {
+                        var msg = response && response.message ? response.message : 'Could not add the selected add-ons to your cart.';
+                        setPageState('ready');
+                        setFeedback('error', msg);
+                        renderAll();
+                        return;
+                    }
+
+                    if (response.cart) {
+                        state.cart = response.cart;
+                    }
+
+                    if (response.added_items && response.added_items.length > 0) {
+                        for (var i = 0; i < response.added_items.length; i += 1) {
+                            var ci = response.added_items[i];
+                            if (ci && ci.addon_code) {
+                                state.selectedAddonCodes.delete(ci.addon_code);
+                            }
+                        }
+                    } else {
+                        for (var j = 0; j < addonCodes.length; j += 1) {
+                            state.selectedAddonCodes.delete(addonCodes[j]);
+                        }
+                    }
+
+                    var successText = response.message || 'Selected add-ons were added to your cart.';
+                    setFeedback('success', successText);
+
+                    try {
+                        setPageState('loading');
+                        renderAll();
+                        var latest = WebsiteSDK.getDomainAddonsForDomain(state.domainId);
+                        if (latest && latest.domain) {
+                            state.domain = latest.domain;
+                            state.addons = latest.addons || [];
+                            setPageState('ready');
+                        } else {
+                            setPageState('error');
+                        }
+                    } catch (innerErr) {
+                        setPageState('error');
+                        setFeedback('error', 'Add-ons were added to your cart, but the latest domain add-on state could not be loaded.');
+                    }
+
+                    try {
+                        var cartRefreshed = WebsiteSDK.getCart();
+                        state.cart = cartRefreshed;
+                    } catch (cartErr) {
+                        // ignore
+                    }
+
+                    renderAll();
+                } catch (e) {
+                    setPageState('ready');
+                    setFeedback('error', 'An unexpected error occurred while adding add-ons to your cart.');
+                    renderAll();
+                }
+            }
+
+            function handleBackToOverview() {
+                if (!state.domain || !state.domain.id) {
+                    return;
+                }
+                var target = 'domain_overview.html?domainId=' + encodeURIComponent(state.domain.id);
+                window.location.href = target;
+            }
+
+            function handleGoToCart() {
+                window.location.href = 'cart.html';
+            }
+
+            function bindStaticActions() {
+                if (navContainer) {
+                    var backBtn = navContainer.querySelector('[data-action="back-to-overview"]');
+                    if (backBtn) {
+                        backBtn.addEventListener('click', function () {
+                            handleBackToOverview();
+                        });
+                    }
+                    var cartBtn = navContainer.querySelector('[data-action="go-to-cart"]');
+                    if (cartBtn) {
+                        cartBtn.addEventListener('click', function () {
+                            handleGoToCart();
+                        });
+                    }
+                }
+
+                if (feedbackContainer) {
+                    feedbackContainer.addEventListener('click', function (event) {
+                        var target = event.target;
+                        if (!target || !target.getAttribute) {
+                            return;
+                        }
+                        var action = target.getAttribute('data-action');
+                        if (action === 'dismiss-feedback') {
+                            state.feedback = null;
+                            renderFeedback(feedbackContainer, null);
+                        }
+                    });
+                }
+
+                if (loadingErrorContainer) {
+                    loadingErrorContainer.addEventListener('click', function (event) {
+                        var target = event.target;
+                        if (!target || !target.getAttribute) {
+                            return;
+                        }
+                        var action = target.getAttribute('data-action');
+                        if (action === 'reload-domain-addons') {
+                            loadDomainAddons();
+                        }
+                    });
+                }
+
+                if (listContainer) {
+                    listContainer.addEventListener('change', function (event) {
+                        var target = event.target;
+                        if (!target || !target.getAttribute) {
+                            return;
+                        }
+                        var action = target.getAttribute('data-action');
+                        if (action === 'toggle-addon') {
+                            var code = target.getAttribute('data-addon-code');
+                            var isChecked = !!target.checked;
+                            handleToggleAddon(code, isChecked);
+                        }
+                    });
+
+                    listContainer.addEventListener('click', function (event) {
+                        var target = event.target;
+                        if (!target || !target.closest) {
+                            return;
+                        }
+                        var row = target.closest('[data-action="addon-row-click"]');
+                        if (!row) {
+                            return;
+                        }
+                        var checkbox = row.querySelector('input[type="checkbox"][data-action="toggle-addon"]');
+                        if (!checkbox || checkbox.disabled) {
+                            return;
+                        }
+                        if (event.target === checkbox) {
+                            return;
+                        }
+                        checkbox.checked = !checkbox.checked;
+                        handleToggleAddon(checkbox.getAttribute('data-addon-code'), checkbox.checked);
+                    });
+                }
+
+                if (actionBarContainer) {
+                    actionBarContainer.addEventListener('click', function (event) {
+                        var target = event.target;
+                        if (!target || !target.getAttribute) {
+                            return;
+                        }
+                        var action = target.getAttribute('data-action');
+                        if (!action) {
+                            return;
+                        }
+                        if (action === 'add-selected-addons') {
+                            event.preventDefault();
+                            handleAddSelectedAddons();
+                        } else if (action === 'go-to-cart') {
+                            event.preventDefault();
+                            handleGoToCart();
+                        }
+                    });
+                }
+            }
+
+            bindStaticActions();
+
+            var initContainers = document.querySelectorAll('[data-populate="domain-addons-page-init"]');
+            if (initContainers.length > 0) {
+                loadDomainAddons();
+            } else {
+                if (state.domainId) {
+                    loadDomainAddons();
+                } else {
+                    setPageState('invalid-parameter');
+                    renderAll();
+                }
+            }
+        });
+    </script>
+</body>
+</html>

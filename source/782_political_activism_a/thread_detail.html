@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Advocacy Platform</title>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=Source+Code+Pro:wght@400;600&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='thread_detail.css'>
+</head>
+<body>
+  <a class='skip-link' href='#content'>Skip to main content</a>
+
+  <header class='site-header' role='banner'>
+    <div class='header-inner container'>
+      <div class='site-branding'>
+        <a href='index.html' class='site-logo'>
+          <span class='logo-mark'>Exit</span>
+          <span class='logo-tagline'>Against Austerity</span>
+        </a>
+      </div>
+      <nav class='primary-nav' aria-label='Main navigation'>
+        <ul class='menu'>
+          <li class='menu-item'><a href='index.html'>Home</a></li>
+          <li class='menu-item'><a href='campaigns.html'>Campaigns</a></li>
+          <li class='menu-item'><a href='events.html'>Events</a></li>
+          <li class='menu-item'><a href='contact_officials.html'>Contact Officials</a></li>
+          <li class='menu-item'><a href='petitions.html'>Petitions</a></li>
+          <li class='menu-item'><a href='action_planner.html'>Action Planner</a></li>
+          <li class='menu-item'><a href='community.html'>Community</a></li>
+          <li class='menu-item'><a href='resources.html'>Learn</a></li>
+          <li class='menu-item'><a href='my_library.html'>My Library</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <div class='site-main container'>
+    <main id='content' class='content-area' role='main'>
+      <section class='thread-page' data-component='thread-loader'>
+        <section class='thread-status card' data-component='thread-error-and-loading-state'>
+          <div class='thread-loading'>
+            <p>Loading discussion thread…</p>
+          </div>
+          <div class='thread-error hidden'>
+            <p class='thread-error-message'></p>
+            <button type='button' class='btn btn-secondary' data-action='retry-thread-load'>Retry</button>
+          </div>
+        </section>
+
+        <nav class='breadcrumb-bar card hidden' aria-label='Breadcrumb' data-component='breadcrumb-navigation'>
+          <!-- Populated by JavaScript -->
+        </nav>
+
+        <article class='thread-header card hidden' data-component='thread-header'>
+          <!-- Thread header populated by JavaScript -->
+        </article>
+
+        <section class='comment-sort-controls card hidden' data-component='comment-sort-controls'>
+          <!-- Sort controls populated by JavaScript -->
+        </section>
+
+        <section class='comment-list card hidden' data-component='comment-list'>
+          <!-- Comment list populated by JavaScript -->
+        </section>
+
+        <section class='new-comment-form card hidden' data-component='new-comment-form'>
+          <!-- New comment form populated by JavaScript -->
+        </section>
+      </section>
+    </main>
+
+    <aside class='sidebar' aria-label='Sidebar'>
+      <!-- Optional site-wide sidebar widgets or navigation can be placed here. -->
+    </aside>
+  </div>
+
+  <footer class='site-footer' role='contentinfo'>
+    <div class='footer-inner container'>
+      <nav class='footer-nav' aria-label='Footer navigation'>
+        <ul class='footer-menu'>
+          <li class='footer-menu-item'><a href='about.html'>About</a></li>
+          <li class='footer-menu-item'><a href='help.html'>Help &amp; FAQ</a></li>
+          <li class='footer-menu-item'><a href='campaigns.html'>Campaigns</a></li>
+          <li class='footer-menu-item'><a href='events.html'>Events</a></li>
+          <li class='footer-menu-item'><a href='petitions.html'>Petitions</a></li>
+          <li class='footer-menu-item'><a href='contact_officials.html'>Contact Officials</a></li>
+          <li class='footer-menu-item'><a href='community.html'>Community Forum</a></li>
+          <li class='footer-menu-item'><a href='resources.html'>Learn / Resources</a></li>
+          <li class='footer-menu-item'><a href='my_library.html'>My Library</a></li>
+        </ul>
+      </nav>
+      <div class='site-info'>
+        <p>&copy; 2024 Advocacy Platform. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var urlParams = new URLSearchParams(window.location.search);
+      var threadIdParam = urlParams.get('id');
+      var sortParam = urlParams.get('sort');
+
+      var allowedSortModes = { newest: true, oldest: true, top: true };
+      var initialSort = allowedSortModes[sortParam] ? sortParam : 'newest';
+
+      var state = {
+        threadId: threadIdParam,
+        thread: null,
+        comments: [],
+        sortMode: initialSort,
+        activeReplyFor: null,
+        commentErrorMessage: ''
+      };
+
+      var statusSection = document.querySelector('[data-component=thread-error-and-loading-state]');
+      var breadcrumbNav = document.querySelector('[data-component=breadcrumb-navigation]');
+      var threadHeaderSection = document.querySelector('[data-component=thread-header]');
+      var commentSortSection = document.querySelector('[data-component=comment-sort-controls]');
+      var commentListSection = document.querySelector('[data-component=comment-list]');
+      var newCommentSection = document.querySelector('[data-component=new-comment-form]');
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+
+      function countWords(text) {
+        if (!text) {
+          return 0;
+        }
+        return text.trim().split(/\s+/).filter(function(word) {
+          return word.length > 0;
+        }).length;
+      }
+
+      function formatDateTime(iso) {
+        if (!iso) {
+          return '';
+        }
+        var date = new Date(iso);
+        if (isNaN(date.getTime())) {
+          return iso;
+        }
+        try {
+          return date.toLocaleString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+          });
+        } catch (e) {
+          return iso;
+        }
+      }
+
+      function showStatusLoading() {
+        if (!statusSection) return;
+        statusSection.classList.remove('hidden');
+        var loadingDiv = statusSection.querySelector('.thread-loading');
+        var errorDiv = statusSection.querySelector('.thread-error');
+        if (loadingDiv) loadingDiv.classList.remove('hidden');
+        if (errorDiv) errorDiv.classList.add('hidden');
+      }
+
+      function hideStatus() {
+        if (!statusSection) return;
+        statusSection.classList.add('hidden');
+      }
+
+      function showStatusError(message) {
+        if (!statusSection) return;
+        statusSection.classList.remove('hidden');
+        var loadingDiv = statusSection.querySelector('.thread-loading');
+        var errorDiv = statusSection.querySelector('.thread-error');
+        if (loadingDiv) loadingDiv.classList.add('hidden');
+        if (errorDiv) {
+          errorDiv.classList.remove('hidden');
+          var msgEl = errorDiv.querySelector('.thread-error-message');
+          if (msgEl) {
+            msgEl.textContent = message || 'Something went wrong while loading this thread.';
+          }
+        }
+      }
+
+      function buildCommentTree(list) {
+        var byId = {};
+        var roots = [];
+        if (!Array.isArray(list)) {
+          return roots;
+        }
+        list.forEach(function(comment) {
+          if (!comment || !comment.id) return;
+          byId[comment.id] = {
+            id: comment.id,
+            threadId: comment.threadId,
+            parent_comment_id: comment.parent_comment_id,
+            body: comment.body,
+            created_at: comment.created_at,
+            updated_at: comment.updated_at,
+            upvotes: comment.upvotes,
+            upvoted_by_user: comment.upvoted_by_user,
+            children: []
+          };
+        });
+        Object.keys(byId).forEach(function(id) {
+          var node = byId[id];
+          if (node.parent_comment_id) {
+            var parent = byId[node.parent_comment_id];
+            if (parent) {
+              parent.children.push(node);
+            } else {
+              roots.push(node);
+            }
+          } else {
+            roots.push(node);
+          }
+        });
+        return roots;
+      }
+
+      function sortRootComments(nodes, mode) {
+        if (!Array.isArray(nodes)) return;
+        nodes.sort(function(a, b) {
+          var ad = new Date(a.created_at).getTime();
+          var bd = new Date(b.created_at).getTime();
+          if (mode === 'top') {
+            var av = typeof a.upvotes === 'number' ? a.upvotes : 0;
+            var bv = typeof b.upvotes === 'number' ? b.upvotes : 0;
+            if (bv !== av) {
+              return bv - av;
+            }
+            return bd - ad;
+          }
+          if (mode === 'oldest') {
+            return ad - bd;
+          }
+          return bd - ad;
+        });
+      }
+
+      function sortChildren(node) {
+        if (!node || !Array.isArray(node.children)) return;
+        node.children.sort(function(a, b) {
+          var ad = new Date(a.created_at).getTime();
+          var bd = new Date(b.created_at).getTime();
+          return ad - bd;
+        });
+        node.children.forEach(function(child) {
+          sortChildren(child);
+        });
+      }
+
+      function renderCommentNode(node, depth) {
+        var createdDisplay = formatDateTime(node.created_at);
+        var upvotesVal = typeof node.upvotes === 'number' ? node.upvotes : 0;
+        var isHighlyUpvoted = upvotesVal >= 5;
+        var hasUpvoted = !!node.upvoted_by_user;
+        var depthClass = depth > 0 ? ' comment-item-reply' : '';
+        var badgeHtml = '';
+        if (isHighlyUpvoted) {
+          badgeHtml = "<span class='comment-badge comment-badge-top'>Highly upvoted</span>";
+        }
+        var replyFormHtml = '';
+        if (state.activeReplyFor === node.id) {
+          replyFormHtml = "\n            <form class='reply-form' data-parent-id='" + node.id + "' novalidate>\n              <div class='form-field'>\n                <label for='reply-" + node.id + "'>Reply</label>\n                <textarea id='reply-" + node.id + "' rows='4' data-action='reply-input' data-parent-id='" + node.id + "' required></textarea>\n                <p class='help-text word-count' data-role='reply-word-count' data-parent-id='" + node.id + "'>At least 20 words. 0 words so far.</p>\n                <p class='validation-error hidden' data-role='reply-error' data-parent-id='" + node.id + "'></p>\n              </div>\n              <div class='form-actions'>\n                <button type='submit' class='btn btn-primary' data-action='submit-reply' data-parent-id='" + node.id + "' disabled>Post reply</button>\n                <button type='button' class='btn btn-secondary' data-action='cancel-reply' data-parent-id='" + node.id + "'>Cancel</button>\n              </div>\n            </form>\n          ";
+        }
+        var childrenHtml = '';
+        if (node.children && node.children.length) {
+          childrenHtml = "<ol class='comment-children'>" + node.children.map(function(child) {
+            return renderCommentNode(child, depth + 1);
+          }).join('') + "</ol>";
+        }
+        return "\n          <li class='comment-item" + depthClass + "' data-comment-id='" + node.id + "' data-depth='" + depth + "'>\n            <article class='comment-card'>\n              <div class='comment-layout'>\n                <div class='comment-meta'>\n                  <button type='button' class='comment-upvote-button" + (hasUpvoted ? ' is-upvoted' : '') + "' data-action='upvote-comment' data-comment-id='" + node.id + "'>\n                    ▲\n                  </button>\n                  <div class='comment-upvote-count'>" + upvotesVal + "</div>\n                </div>\n                <div class='comment-body'>\n                  <header class='comment-header'>\n                    <span class='comment-author-label'>Community member</span>\n                    <time class='comment-timestamp'>" + escapeHtml(createdDisplay) + "</time>\n                    " + badgeHtml + "\n                  </header>\n                  <p class='comment-text'>" + escapeHtml(node.body || '') + "</p>\n                  <div class='comment-actions-row'>\n                    <button type='button' class='comment-reply-link' data-action='show-reply-form' data-comment-id='" + node.id + "'>Reply</button>\n                  </div>\n                  " + replyFormHtml + "\n                </div>\n              </div>\n            </article>\n            " + childrenHtml + "\n          </li>\n        ";
+      }
+
+      function renderComments() {
+        if (!commentListSection) return;
+        var comments = Array.isArray(state.comments) ? state.comments.slice() : [];
+        var commentCount = comments.length;
+
+        if (threadHeaderSection) {
+          var countHeaderEl = threadHeaderSection.querySelector('[data-role=thread-comment-count-header]');
+          if (countHeaderEl) {
+            countHeaderEl.textContent = commentCount;
+          }
+        }
+        if (commentSortSection) {
+          var countControlsEl = commentSortSection.querySelector('[data-role=thread-comment-count-controls]');
+          if (countControlsEl) {
+            countControlsEl.textContent = commentCount;
+          }
+        }
+
+        if (!comments.length) {
+          commentListSection.innerHTML = "\n            <h2 class='section-heading'>Discussion</h2>\n            <div class='comment-error" + (state.commentErrorMessage ? '' : ' hidden') + "' data-role='comment-error'>\n              <p class='comment-error-message'>" + escapeHtml(state.commentErrorMessage) + "</p>\n            </div>\n            <p class='comment-empty-message'>No comments yet. Be the first to share a perspective rooted in solidarity and action.</p>\n          ";
+          commentListSection.classList.remove('hidden');
+          return;
+        }
+
+        var roots = buildCommentTree(comments);
+        sortRootComments(roots, state.sortMode);
+        roots.forEach(function(node) {
+          sortChildren(node);
+        });
+
+        var itemsHtml = roots.map(function(node) {
+          return renderCommentNode(node, 0);
+        }).join('');
+
+        var errorClass = state.commentErrorMessage ? 'comment-error' : 'comment-error hidden';
+        var errorMessage = escapeHtml(state.commentErrorMessage);
+
+        commentListSection.innerHTML = "\n          <h2 class='section-heading'>Discussion</h2>\n          <div class='" + errorClass + "' data-role='comment-error'>\n            <p class='comment-error-message'>" + errorMessage + "</p>\n          </div>\n          <ol class='comment-list-root'>\n            " + itemsHtml + "\n          </ol>\n        ";
+        commentListSection.classList.remove('hidden');
+      }
+
+      function renderThread(thread) {
+        if (!thread) return;
+
+        if (breadcrumbNav) {
+          breadcrumbNav.innerHTML = "\n            <div class='breadcrumb-inner'>\n              <a href='javascript:void(0)' class='breadcrumb-link' data-action='back-to-category'>Back to category</a>\n              <span class='breadcrumb-separator'>›</span>\n              <span class='breadcrumb-current'>" + escapeHtml(thread.title || '') + "</span>\n            </div>\n          ";
+          breadcrumbNav.classList.remove('hidden');
+        }
+
+        if (threadHeaderSection) {
+          var createdDisplay = formatDateTime(thread.created_at);
+          var viewCount = typeof thread.view_count === 'number' ? thread.view_count : 0;
+          var commentCount = typeof thread.comment_count === 'number' ? thread.comment_count : (state.comments ? state.comments.length : 0);
+          threadHeaderSection.innerHTML = "\n            <header class='thread-header-inner'>\n              <h1 class='thread-title'>" + escapeHtml(thread.title || '') + "</h1>\n            </header>\n            <div class='thread-meta-layout'>\n              <div class='thread-meta-left'>\n                <dl class='thread-meta-list'>\n                  <div class='thread-meta-row'>\n                    <dt>Started</dt>\n                    <dd><time>" + escapeHtml(createdDisplay) + "</time></dd>\n                  </div>\n                  <div class='thread-meta-row'>\n                    <dt>Views</dt>\n                    <dd><span>" + viewCount + "</span></dd>\n                  </div>\n                  <div class='thread-meta-row'>\n                    <dt>Comments</dt>\n                    <dd><span data-role='thread-comment-count-header'>" + commentCount + "</span></dd>\n                  </div>\n                </dl>\n              </div>\n              <div class='thread-meta-right'>\n                <p class='thread-body-text'>" + escapeHtml(thread.body || '') + "</p>\n              </div>\n            </div>\n          ";
+          threadHeaderSection.classList.remove('hidden');
+        }
+
+        if (commentSortSection) {
+          var commentCountControls = typeof thread.comment_count === 'number' ? thread.comment_count : (state.comments ? state.comments.length : 0);
+          commentSortSection.innerHTML = "\n            <div class='comment-controls-inner'>\n              <div class='comment-count-summary'>\n                <span data-role='thread-comment-count-controls'>" + commentCountControls + "</span>\n                <span>comments in this thread</span>\n              </div>\n              <div class='comment-controls-right'>\n                <label for='commentSortSelect' class='sort-label'>Sort by</label>\n                <select id='commentSortSelect' data-action='change-sort'>\n                  <option value='newest" + (state.sortMode === 'newest' ? "' selected='selected" : "'" ) + ">Newest first</option>\n                  <option value='oldest" + (state.sortMode === 'oldest' ? "' selected='selected" : "'" ) + ">Oldest first</option>\n                  <option value='top" + (state.sortMode === 'top' ? "' selected='selected" : "'" ) + ">Most upvoted</option>\n                </select>\n                <button type='button' class='btn btn-link' data-action='refresh-thread'>Refresh</button>\n              </div>\n            </div>\n          ";
+          commentSortSection.classList.remove('hidden');
+        }
+
+        if (newCommentSection) {
+          newCommentSection.innerHTML = "\n            <h2 class='section-heading'>Add a comment</h2>\n            <form class='new-comment-form-inner' novalidate>\n              <div class='form-field'>\n                <label for='newCommentBody'>Your contribution</label>\n                <textarea id='newCommentBody' name='body' rows='5' data-action='new-comment-input' required></textarea>\n                <p class='help-text word-count' data-role='new-comment-word-count'>At least 20 words. 0 words so far.</p>\n                <p class='validation-error hidden' data-role='new-comment-error'></p>\n              </div>\n              <div class='form-actions'>\n                <button type='submit' class='btn btn-primary' data-action='submit-new-comment' disabled>Post comment</button>\n              </div>\n            </form>\n          ";
+          newCommentSection.classList.remove('hidden');
+        }
+
+        renderComments();
+      }
+
+      function showCommentError(message) {
+        state.commentErrorMessage = message || 'There was a problem with that action.';
+        renderComments();
+      }
+
+      function handleNewCommentInput(textarea) {
+        if (!textarea || !newCommentSection) return;
+        var body = textarea.value || '';
+        var words = countWords(body);
+        var panel = newCommentSection;
+        var wordCountEl = panel.querySelector('[data-role=new-comment-word-count]');
+        var errorEl = panel.querySelector('[data-role=new-comment-error]');
+        var submitBtn = panel.querySelector('[data-action=submit-new-comment]');
+        if (wordCountEl) {
+          wordCountEl.textContent = 'At least 20 words. ' + words + ' words so far.';
+        }
+        if (words >= 20) {
+          if (submitBtn) submitBtn.disabled = false;
+          if (errorEl) {
+            errorEl.textContent = '';
+            errorEl.classList.add('hidden');
+          }
+        } else {
+          if (submitBtn) submitBtn.disabled = true;
+          if (errorEl) {
+            errorEl.textContent = 'Please write at least 20 words to share a more complete perspective.';
+            errorEl.classList.remove('hidden');
+          }
+        }
+      }
+
+      function handleReplyInput(textarea) {
+        if (!textarea) return;
+        var form = textarea.closest('form');
+        if (!form) return;
+        var body = textarea.value || '';
+        var words = countWords(body);
+        var wordCountEl = form.querySelector('[data-role=reply-word-count]');
+        var errorEl = form.querySelector('[data-role=reply-error]');
+        var submitBtn = form.querySelector('[data-action=submit-reply]');
+        if (wordCountEl) {
+          wordCountEl.textContent = 'At least 20 words. ' + words + ' words so far.';
+        }
+        if (words >= 20) {
+          if (submitBtn) submitBtn.disabled = false;
+          if (errorEl) {
+            errorEl.textContent = '';
+            errorEl.classList.add('hidden');
+          }
+        } else {
+          if (submitBtn) submitBtn.disabled = true;
+          if (errorEl) {
+            errorEl.textContent = 'Please write at least 20 words to share a more complete perspective.';
+            errorEl.classList.remove('hidden');
+          }
+        }
+      }
+
+      function handleSubmitNewComment(buttonEl) {
+        if (!state.threadId || !newCommentSection) return;
+        var panel = newCommentSection;
+        var textarea = panel.querySelector('[data-action=new-comment-input]');
+        var errorEl = panel.querySelector('[data-role=new-comment-error]');
+        var wordCountEl = panel.querySelector('[data-role=new-comment-word-count]');
+        if (!textarea) return;
+        var body = textarea.value || '';
+        var words = countWords(body);
+        if (words < 20) {
+          if (errorEl) {
+            errorEl.textContent = 'Please write at least 20 words to share a more complete perspective.';
+            errorEl.classList.remove('hidden');
+          }
+          return;
+        }
+        if (errorEl) {
+          errorEl.textContent = '';
+          errorEl.classList.add('hidden');
+        }
+        try {
+          var response = WebsiteSDK.postCommentToThread(state.threadId, null, body);
+          if (!response || !response.success) {
+            var message = response && response.message ? response.message : 'Your comment could not be posted.';
+            if (errorEl) {
+              errorEl.textContent = message;
+              errorEl.classList.remove('hidden');
+            }
+            return;
+          }
+          var newComment = {
+            id: response.comment_id,
+            threadId: state.threadId,
+            parent_comment_id: null,
+            body: body,
+            created_at: response.created_at,
+            updated_at: null,
+            upvotes: 0,
+            upvoted_by_user: false
+          };
+          if (!Array.isArray(state.comments)) {
+            state.comments = [];
+          }
+          state.comments.push(newComment);
+          if (state.thread) {
+            state.thread.comment_count = (state.thread.comment_count || 0) + 1;
+          }
+          textarea.value = '';
+          if (buttonEl) {
+            buttonEl.disabled = true;
+          }
+          if (wordCountEl) {
+            wordCountEl.textContent = 'At least 20 words. 0 words so far.';
+          }
+          state.commentErrorMessage = '';
+          renderComments();
+        } catch (err) {
+          if (errorEl) {
+            errorEl.textContent = 'There was a problem posting your comment. Please try again.';
+            errorEl.classList.remove('hidden');
+          }
+        }
+      }
+
+      function handleSubmitReply(buttonEl) {
+        if (!state.threadId || !buttonEl) return;
+        var parentId = buttonEl.dataset.parentId;
+        if (!parentId) return;
+        if (!commentListSection) return;
+        var form = buttonEl.closest('form');
+        if (!form) return;
+        var textarea = form.querySelector('[data-action=reply-input]');
+        var errorEl = form.querySelector('[data-role=reply-error]');
+        var wordCountEl = form.querySelector('[data-role=reply-word-count]');
+        if (!textarea) return;
+        var body = textarea.value || '';
+        var words = countWords(body);
+        if (words < 20) {
+          if (errorEl) {
+            errorEl.textContent = 'Please write at least 20 words to share a more complete perspective.';
+            errorEl.classList.remove('hidden');
+          }
+          return;
+        }
+        if (errorEl) {
+          errorEl.textContent = '';
+          errorEl.classList.add('hidden');
+        }
+        try {
+          var response = WebsiteSDK.postCommentToThread(state.threadId, parentId, body);
+          if (!response || !response.success) {
+            var message = response && response.message ? response.message : 'Your reply could not be posted.';
+            if (errorEl) {
+              errorEl.textContent = message;
+              errorEl.classList.remove('hidden');
+            }
+            return;
+          }
+          var newComment = {
+            id: response.comment_id,
+            threadId: state.threadId,
+            parent_comment_id: parentId,
+            body: body,
+            created_at: response.created_at,
+            updated_at: null,
+            upvotes: 0,
+            upvoted_by_user: false
+          };
+          if (!Array.isArray(state.comments)) {
+            state.comments = [];
+          }
+          state.comments.push(newComment);
+          if (state.thread) {
+            state.thread.comment_count = (state.thread.comment_count || 0) + 1;
+          }
+          state.activeReplyFor = null;
+          state.commentErrorMessage = '';
+          renderComments();
+        } catch (err) {
+          if (errorEl) {
+            errorEl.textContent = 'There was a problem posting your reply. Please try again.';
+            errorEl.classList.remove('hidden');
+          }
+        }
+      }
+
+      function handleUpvote(commentId) {
+        if (!commentId || !Array.isArray(state.comments)) return;
+        var comments = state.comments;
+        var index = comments.findIndex(function(c) { return c && c.id === commentId; });
+        if (index === -1) return;
+        var comment = comments[index];
+        var previousUpvotes = typeof comment.upvotes === 'number' ? comment.upvotes : 0;
+        var previousUpvotedByUser = !!comment.upvoted_by_user;
+
+        comment.upvotes = previousUpvotes + 1;
+        comment.upvoted_by_user = true;
+        renderComments();
+
+        try {
+          var response = WebsiteSDK.upvoteComment(commentId);
+          if (!response || !response.success) {
+            comment.upvotes = previousUpvotes;
+            comment.upvoted_by_user = previousUpvotedByUser;
+            var message = response && response.message ? response.message : 'Upvote could not be recorded.';
+            showCommentError(message);
+            return;
+          }
+          comment.upvotes = typeof response.new_upvote_count === 'number' ? response.new_upvote_count : comment.upvotes;
+          comment.upvoted_by_user = true;
+          state.commentErrorMessage = '';
+          renderComments();
+        } catch (err) {
+          comment.upvotes = previousUpvotes;
+          comment.upvoted_by_user = previousUpvotedByUser;
+          showCommentError('There was a problem registering your upvote. Please try again.');
+        }
+      }
+
+      function loadThread(threadId) {
+        if (!threadId) return;
+        state.threadId = threadId;
+        showStatusLoading();
+        try {
+          var response = WebsiteSDK.getThreadDetail(threadId);
+          if (!response || !response.thread) {
+            showStatusError('Thread could not be found.');
+            return;
+          }
+          state.thread = response.thread;
+          state.comments = Array.isArray(response.comments) ? response.comments.slice() : [];
+          state.commentErrorMessage = '';
+          hideStatus();
+          renderThread(state.thread);
+        } catch (err) {
+          showStatusError('There was a problem loading this discussion. Please try again.');
+        }
+      }
+
+      if (!threadIdParam) {
+        showStatusError('No thread specified. Use the community listing to open a discussion thread.');
+      } else {
+        loadThread(threadIdParam);
+      }
+
+      document.addEventListener('click', function(event) {
+        var actionEl = event.target.closest('[data-action]');
+        if (!actionEl) return;
+        var action = actionEl.dataset.action;
+        if (!action) return;
+
+        if (action === 'back-to-category') {
+          event.preventDefault();
+          if (state.thread && state.thread.forumCategoryId) {
+            var categoryId = state.thread.forumCategoryId;
+            window.location.href = 'community.html?categoryId=' + encodeURIComponent(categoryId);
+          } else {
+            window.location.href = 'community.html';
+          }
+        } else if (action === 'retry-thread-load') {
+          event.preventDefault();
+          if (state.threadId) {
+            loadThread(state.threadId);
+          }
+        } else if (action === 'refresh-thread') {
+          event.preventDefault();
+          if (state.threadId) {
+            loadThread(state.threadId);
+          }
+        } else if (action === 'submit-new-comment') {
+          event.preventDefault();
+          handleSubmitNewComment(actionEl);
+        } else if (action === 'show-reply-form') {
+          event.preventDefault();
+          var commentId = actionEl.dataset.commentId;
+          if (!commentId) return;
+          if (state.activeReplyFor === commentId) {
+            state.activeReplyFor = null;
+          } else {
+            state.activeReplyFor = commentId;
+          }
+          renderComments();
+        } else if (action === 'submit-reply') {
+          event.preventDefault();
+          handleSubmitReply(actionEl);
+        } else if (action === 'cancel-reply') {
+          event.preventDefault();
+          state.activeReplyFor = null;
+          renderComments();
+        } else if (action === 'upvote-comment') {
+          event.preventDefault();
+          var cid = actionEl.dataset.commentId;
+          if (cid) {
+            handleUpvote(cid);
+          }
+        }
+      });
+
+      document.addEventListener('change', function(event) {
+        var action = event.target.dataset.action;
+        if (!action) return;
+        if (action === 'change-sort') {
+          var select = event.target;
+          var newMode = select.value || 'newest';
+          if (!allowedSortModes[newMode]) {
+            newMode = 'newest';
+          }
+          state.sortMode = newMode;
+          var params = new URLSearchParams(window.location.search);
+          params.set('sort', newMode);
+          var newUrl = window.location.pathname + '?' + params.toString();
+          window.history.replaceState(null, '', newUrl);
+          if (state.thread) {
+            renderThread(state.thread);
+          } else {
+            renderComments();
+          }
+        }
+      });
+
+      document.addEventListener('input', function(event) {
+        var action = event.target.dataset.action;
+        if (!action) return;
+        if (action === 'new-comment-input') {
+          handleNewCommentInput(event.target);
+        } else if (action === 'reply-input') {
+          handleReplyInput(event.target);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

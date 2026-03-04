@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta http-equiv='X-UA-Compatible' content='IE=edge'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Electric Car Expedition</title>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='reading_list_detail.css'>
+</head>
+<body>
+    <div class='page-wrapper'>
+        <header class='site-header'>
+            <div class='top-nav' role='navigation' aria-label='Primary'>
+                <a href='index.html' title='Homepage with featured trips and quick access to main sections'>Home</a>
+                <span class='nav-separator'>|</span>
+                <a href='trip_log.html' title='Browse and filter multi-day trip entries'>Trip Log</a>
+                <span class='nav-separator'>|</span>
+                <a href='daily_logs.html' title='Browse and filter individual daily driving logs'>Daily Logs</a>
+                <span class='nav-separator'>|</span>
+                <a href='charging_map.html' title='Plan routes and find chargers on an interactive map'>Charging Map</a>
+                <span class='nav-separator'>|</span>
+                <a href='collections.html' title='View and manage itineraries and saved collections'>Collections</a>
+                <span class='nav-separator'>|</span>
+                <a href='collections.html?action=create_itinerary' title='Open the itinerary creation form to start a new itinerary'>Create Itinerary</a>
+                <span class='nav-separator'>|</span>
+                <a href='tags.html' title='Browse trips by themes and tags such as Winter Efficiency'>Themes</a>
+                <span class='nav-separator'>|</span>
+                <a href='search.html' title='Search all trips and logs with advanced filters'>Search</a>
+            </div>
+
+            <div class='hero'>
+                <a href='index.html' class='hero-link'>
+                    <img src='assets/hero-electric-car.jpg' alt='Electric car expedition hero graphic' class='hero-image'>
+                </a>
+            </div>
+        </header>
+
+        <main id='content' class='site-content' role='main'>
+            <div class='reading-list-detail' data-component='reading-list-detail-controller'>
+                <section class='reading-list-header' data-component='reading-list-header'>
+                    <div class='reading-list-header-left'>
+                        <a href='javascript:void(0)' class='back-link' data-action='back-to-reading-lists' title='Back to all reading lists'>&laquo; Back to Reading Lists</a>
+                        <h1 class='reading-list-title' data-populate='reading-list-name'>Reading List</h1>
+                        <p class='reading-list-description' data-populate='reading-list-description'></p>
+                        <p class='reading-list-meta'>
+                            <span data-populate='reading-list-meta'></span>
+                        </p>
+                    </div>
+                    <div class='reading-list-header-right' data-component='reading-list-status-indicator'>
+                        <span class='status-label' data-populate='reading-list-status-label'>Loading</span>
+                        <button type='button' class='retry-load-button' data-action='retry-load' hidden>Retry</button>
+                    </div>
+                </section>
+
+                <section class='reading-list-body'>
+                    <div class='reading-list-global-error' data-populate='reading-list-global-error' role='alert' hidden></div>
+
+                    <div class='reading-list-table-wrapper' data-component='reading-list-items-list'>
+                        <table class='reading-list-table' aria-label='Reading list items'>
+                            <thead>
+                                <tr>
+                                    <th scope='col' class='col-date'>Date</th>
+                                    <th scope='col' class='col-title'>Entry</th>
+                                    <th scope='col' class='col-type'>Type</th>
+                                    <th scope='col' class='col-actions'>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody data-populate='reading-list-items'>
+                                <!-- Items rendered via JavaScript -->
+                            </tbody>
+                        </table>
+
+                        <div class='reading-list-empty-state' data-populate='reading-list-empty-state' hidden>
+                            <p>This reading list does not contain any trips or daily logs yet.</p>
+                            <p>You can add items from trip and daily log detail pages using their 22Save to reading list22 controls.</p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <footer class='site-footer'>
+            <nav class='footer-nav' aria-label='Footer'>
+                <a href='about.html' title='Learn more about the journey blog and its author'>About</a>
+                <span class='nav-separator'>|</span>
+                <a href='faq.html' title='Read help articles and frequently asked questions'>Help / FAQ</a>
+                <span class='nav-separator'>|</span>
+                <a href='tags.html' title='Explore all tags and themed collections of trips'>Themes &amp; Tags</a>
+                <span class='nav-separator'>|</span>
+                <a href='profile.html' title='Adjust personal preferences, charging network, and vehicle settings'>Profile &amp; Vehicle</a>
+                <span class='nav-separator'>|</span>
+                <a href='trip_notes.html' title='View and manage notes saved for chargers and routes'>Trip Notes</a>
+                <span class='nav-separator'>|</span>
+                <a href='reading_lists.html' title='Access and manage saved reading lists for later'>Reading Lists</a>
+            </nav>
+        </footer>
+    </div>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var state = {
+            readingListId: null,
+            loading: false,
+            loadError: null,
+            errorMessage: '',
+            readingList: null,
+            items: [],
+            // keyed by reading_list_item.id -> { loading: bool, error: string|null }
+            removeStatus: {}
+        };
+
+        var controller = document.querySelector('[data-component="reading-list-detail-controller"]');
+        var nameEl = document.querySelector('[data-populate="reading-list-name"]');
+        var descriptionEl = document.querySelector('[data-populate="reading-list-description"]');
+        var metaEl = document.querySelector('[data-populate="reading-list-meta"]');
+        var statusLabelEl = document.querySelector('[data-populate="reading-list-status-label"]');
+        var globalErrorEl = document.querySelector('[data-populate="reading-list-global-error"]');
+        var itemsContainer = document.querySelector('[data-populate="reading-list-items"]');
+        var emptyStateEl = document.querySelector('[data-populate="reading-list-empty-state"]');
+        var retryLoadButton = document.querySelector('[data-action="retry-load"]');
+        var backLink = document.querySelector('[data-action="back-to-reading-lists"]');
+        var tableEl = document.querySelector('.reading-list-table');
+
+        function formatDate(value) {
+            if (!value) {
+                return '';
+            }
+            var d = new Date(value);
+            if (isNaN(d.getTime())) {
+                return String(value);
+            }
+            return d.toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+
+        function formatPrimaryDateForItem(item) {
+            if (!item || !item.item_type) {
+                return '';
+            }
+            if (item.item_type === 'trip' && item.trip) {
+                return formatDate(item.trip.primary_date || item.trip.start_date || item.trip.created_at);
+            }
+            if (item.item_type === 'daily_log' && item.daily_log) {
+                return formatDate(item.daily_log.date || item.daily_log.created_at);
+            }
+            return '';
+        }
+
+        function getItemTitle(item) {
+            if (!item || !item.item_type) {
+                return 'Untitled entry';
+            }
+            if (item.item_type === 'trip' && item.trip) {
+                return item.trip.title || 'Untitled trip';
+            }
+            if (item.item_type === 'daily_log' && item.daily_log) {
+                if (item.daily_log.title) {
+                    return item.daily_log.title;
+                }
+                var dateText = formatDate(item.daily_log.date);
+                return dateText ? 'Daily log - ' + dateText : 'Daily log';
+            }
+            return 'Untitled entry';
+        }
+
+        function formatNumber(value) {
+            if (typeof value !== 'number') {
+                return '';
+            }
+            return String(value);
+        }
+
+        function formatCurrency(value) {
+            if (typeof value !== 'number') {
+                return '';
+            }
+            try {
+                return value.toFixed(2);
+            } catch (e) {
+                return String(value);
+            }
+        }
+
+        function getItemExcerpt(item) {
+            if (!item || !item.item_type) {
+                return '';
+            }
+            if (item.item_type === 'trip' && item.trip) {
+                if (item.trip.summary) {
+                    return item.trip.summary;
+                }
+                var distance = typeof item.trip.distance_km === 'number' ? item.trip.distance_km : null;
+                var stops = typeof item.trip.charging_stop_count === 'number' ? item.trip.charging_stop_count : null;
+                var parts = [];
+                if (distance !== null) {
+                    parts.push('Distance ' + distance + ' km');
+                }
+                if (stops !== null) {
+                    parts.push(stops + ' charging stops');
+                }
+                if (item.trip.primary_country) {
+                    parts.push('Country: ' + item.trip.primary_country);
+                }
+                return parts.join(' · ');
+            }
+            if (item.item_type === 'daily_log' && item.daily_log) {
+                var distanceDay = typeof item.daily_log.distance_km === 'number' ? item.daily_log.distance_km : null;
+                var cost = typeof item.daily_log.total_charging_cost_eur === 'number' ? item.daily_log.total_charging_cost_eur : null;
+                var network = item.daily_log.primary_charging_network || '';
+                var partsDay = [];
+                if (distanceDay !== null) {
+                    partsDay.push('Distance ' + distanceDay + ' km');
+                }
+                if (network) {
+                    partsDay.push('Network: ' + network);
+                }
+                if (cost !== null) {
+                    partsDay.push('Charging cost €' + formatCurrency(cost));
+                }
+                return partsDay.join(' · ');
+            }
+            return '';
+        }
+
+        function getRemoveButtonLabel(readingListItemId) {
+            var status = state.removeStatus[readingListItemId];
+            if (status && status.loading) {
+                return 'Removing19';
+            }
+            return 'Remove';
+        }
+
+        function renderHeader() {
+            if (nameEl) {
+                if (state.readingList && state.readingList.name) {
+                    nameEl.textContent = state.readingList.name;
+                } else if (state.loadError && !state.readingListId) {
+                    nameEl.textContent = 'Reading list not available';
+                } else {
+                    nameEl.textContent = 'Reading List';
+                }
+            }
+
+            if (descriptionEl) {
+                if (state.readingList && state.readingList.description) {
+                    descriptionEl.textContent = state.readingList.description;
+                    descriptionEl.style.display = '';
+                } else {
+                    descriptionEl.textContent = '';
+                    descriptionEl.style.display = 'none';
+                }
+            }
+
+            if (metaEl) {
+                if (state.readingList) {
+                    var totalItems = typeof state.readingList.total_items === 'number'
+                        ? state.readingList.total_items
+                        : (Array.isArray(state.items) ? state.items.length : 0);
+                    var createdAtText = formatDate(state.readingList.created_at);
+                    var updatedAtText = formatDate(state.readingList.updated_at);
+                    var parts = [];
+                    parts.push(totalItems + (totalItems === 1 ? ' item' : ' items'));
+                    if (createdAtText) {
+                        parts.push('Created ' + createdAtText);
+                    }
+                    if (updatedAtText) {
+                        parts.push('Updated ' + updatedAtText);
+                    }
+                    metaEl.textContent = parts.join(' · ');
+                } else {
+                    metaEl.textContent = '';
+                }
+            }
+        }
+
+        function renderStatusIndicator() {
+            if (!statusLabelEl) {
+                return;
+            }
+            if (!state.readingListId) {
+                statusLabelEl.textContent = 'No list id';
+            } else if (state.loading) {
+                statusLabelEl.textContent = 'Loading19';
+            } else if (state.loadError && !state.readingList) {
+                statusLabelEl.textContent = 'Error loading list';
+            } else if (state.readingList && state.items && state.items.length === 0) {
+                statusLabelEl.textContent = 'Empty list';
+            } else if (state.readingList) {
+                statusLabelEl.textContent = 'Ready';
+            } else {
+                statusLabelEl.textContent = '';
+            }
+
+            if (retryLoadButton) {
+                if (state.loadError && state.readingListId && !state.loading) {
+                    retryLoadButton.hidden = false;
+                } else {
+                    retryLoadButton.hidden = true;
+                }
+            }
+        }
+
+        function renderGlobalError() {
+            if (!globalErrorEl) {
+                return;
+            }
+            if (!state.readingListId) {
+                globalErrorEl.hidden = false;
+                globalErrorEl.textContent = 'No reading list could be loaded because the URL did not include an id parameter.';
+                return;
+            }
+            if (state.loadError && !state.readingList) {
+                globalErrorEl.hidden = false;
+                globalErrorEl.textContent = state.errorMessage || 'There was a problem loading this reading list. Please try again.';
+            } else {
+                globalErrorEl.hidden = true;
+                globalErrorEl.textContent = '';
+            }
+        }
+
+        function renderItems(container) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+            if (!state.readingList || !Array.isArray(state.items)) {
+                return;
+            }
+
+            state.items.forEach(function (item) {
+                if (!item || !item.reading_list_item) {
+                    return;
+                }
+                var row = document.createElement('tr');
+                row.dataset.component = 'reading-list-item-row';
+                row.dataset.readingListItemId = item.reading_list_item.id;
+                row.dataset.itemType = item.item_type || '';
+                if (item.item_type === 'trip' && item.trip) {
+                    row.dataset.tripId = item.trip.id;
+                } else if (item.item_type === 'daily_log' && item.daily_log) {
+                    row.dataset.dailyLogId = item.daily_log.id;
+                }
+
+                var dateTd = document.createElement('td');
+                dateTd.className = 'col-date';
+                dateTd.textContent = formatPrimaryDateForItem(item);
+                row.appendChild(dateTd);
+
+                var titleTd = document.createElement('td');
+                titleTd.className = 'col-title';
+                var mainLink = document.createElement('a');
+                mainLink.href = 'javascript:void(0)';
+                mainLink.dataset.action = 'open-item';
+                mainLink.textContent = getItemTitle(item);
+                titleTd.appendChild(mainLink);
+
+                var excerptDiv = document.createElement('div');
+                excerptDiv.className = 'item-excerpt';
+                excerptDiv.textContent = getItemExcerpt(item);
+                titleTd.appendChild(excerptDiv);
+                row.appendChild(titleTd);
+
+                var typeTd = document.createElement('td');
+                typeTd.className = 'col-type';
+                typeTd.textContent = item.item_type === 'trip' ? 'Trip' : (item.item_type === 'daily_log' ? 'Daily log' : '');
+                row.appendChild(typeTd);
+
+                var actionsTd = document.createElement('td');
+                actionsTd.className = 'col-actions';
+
+                var openLink = document.createElement('a');
+                openLink.href = 'javascript:void(0)';
+                openLink.dataset.action = 'open-item';
+                openLink.textContent = 'Open';
+                actionsTd.appendChild(openLink);
+
+                actionsTd.appendChild(document.createTextNode(' | '));
+
+                var removeButton = document.createElement('button');
+                removeButton.type = 'button';
+                removeButton.dataset.action = 'remove-item';
+                removeButton.textContent = getRemoveButtonLabel(item.reading_list_item.id);
+                var status = state.removeStatus[item.reading_list_item.id];
+                if (status && status.loading) {
+                    removeButton.disabled = true;
+                }
+                actionsTd.appendChild(removeButton);
+
+                if (status && status.error) {
+                    var br = document.createElement('br');
+                    actionsTd.appendChild(br);
+                    var errorSpan = document.createElement('span');
+                    errorSpan.className = 'item-error';
+                    errorSpan.textContent = status.error + ' ';
+                    var retryBtn = document.createElement('button');
+                    retryBtn.type = 'button';
+                    retryBtn.dataset.action = 'retry-remove';
+                    retryBtn.textContent = 'Retry';
+                    errorSpan.appendChild(retryBtn);
+                    actionsTd.appendChild(errorSpan);
+                }
+
+                row.appendChild(actionsTd);
+                container.appendChild(row);
+            });
+        }
+
+        function renderEmptyState() {
+            if (!emptyStateEl) {
+                return;
+            }
+            if (state.readingList && !state.loading && Array.isArray(state.items) && state.items.length === 0 && !state.loadError) {
+                emptyStateEl.hidden = false;
+            } else {
+                emptyStateEl.hidden = true;
+            }
+        }
+
+        function renderTableVisibility() {
+            if (!tableEl) {
+                return;
+            }
+            if (!state.readingListId || (state.loadError && !state.readingList)) {
+                tableEl.style.display = 'none';
+                return;
+            }
+            if (!state.readingList) {
+                if (state.loading) {
+                    tableEl.style.display = 'none';
+                } else {
+                    tableEl.style.display = 'none';
+                }
+                return;
+            }
+            tableEl.style.display = '';
+        }
+
+        function renderAll() {
+            renderHeader();
+            renderStatusIndicator();
+            renderGlobalError();
+            renderTableVisibility();
+            renderItems(itemsContainer);
+            renderEmptyState();
+        }
+
+        function loadReadingList() {
+            if (!state.readingListId) {
+                state.loading = false;
+                state.loadError = 'missingId';
+                state.errorMessage = '';
+                state.readingList = null;
+                state.items = [];
+                renderAll();
+                return;
+            }
+            state.loading = true;
+            state.loadError = null;
+            state.errorMessage = '';
+            renderAll();
+            try {
+                var response = WebsiteSDK.getReadingListDetail(state.readingListId);
+                state.readingList = response && response.reading_list ? response.reading_list : null;
+                state.items = response && Array.isArray(response.items) ? response.items : [];
+                state.loading = false;
+                state.loadError = null;
+                state.errorMessage = '';
+            } catch (e) {
+                state.loading = false;
+                state.loadError = 'fetchFailed';
+                state.errorMessage = (e && e.message) ? e.message : 'Unable to load the reading list.';
+                state.readingList = null;
+                state.items = [];
+            }
+            renderAll();
+        }
+
+        function handleOpenItem(target) {
+            if (!target) {
+                return;
+            }
+            var row = target.closest('tr[data-reading-list-item-id]');
+            if (!row) {
+                return;
+            }
+            var itemType = row.dataset.itemType;
+            if (itemType === 'trip') {
+                var tripId = row.dataset.tripId;
+                if (tripId) {
+                    window.location.href = 'trip_detail.html?id=' + encodeURIComponent(tripId);
+                }
+            } else if (itemType === 'daily_log') {
+                var dailyLogId = row.dataset.dailyLogId;
+                if (dailyLogId) {
+                    window.location.href = 'daily_log_detail.html?id=' + encodeURIComponent(dailyLogId);
+                }
+            }
+        }
+
+        function removeItem(readingListItemId) {
+            if (!readingListItemId) {
+                return;
+            }
+            var existingStatus = state.removeStatus[readingListItemId];
+            if (existingStatus && existingStatus.loading) {
+                return;
+            }
+            var confirmed = window.confirm('Remove this item from the reading list?');
+            if (!confirmed) {
+                return;
+            }
+            state.removeStatus[readingListItemId] = { loading: true, error: null };
+            renderItems(itemsContainer);
+            try {
+                var resp = WebsiteSDK.removeReadingListItem(readingListItemId);
+                if (resp && resp.success) {
+                    state.items = state.items.filter(function (item) {
+                        return item && item.reading_list_item && item.reading_list_item.id !== readingListItemId;
+                    });
+                    if (state.readingList && typeof resp.updated_total_items === 'number') {
+                        state.readingList.total_items = resp.updated_total_items;
+                    }
+                    delete state.removeStatus[readingListItemId];
+                } else {
+                    state.removeStatus[readingListItemId] = {
+                        loading: false,
+                        error: 'Unable to remove item. Please try again.'
+                    };
+                }
+            } catch (e) {
+                state.removeStatus[readingListItemId] = {
+                    loading: false,
+                    error: 'Unable to remove item. Please try again.'
+                };
+            }
+            renderAll();
+        }
+
+        function handleRemoveItem(target) {
+            if (!target) {
+                return;
+            }
+            var row = target.closest('tr[data-reading-list-item-id]');
+            if (!row) {
+                return;
+            }
+            var readingListItemId = row.dataset.readingListItemId;
+            removeItem(readingListItemId);
+        }
+
+        function handleRetryRemove(target) {
+            if (!target) {
+                return;
+            }
+            var row = target.closest('tr[data-reading-list-item-id]');
+            if (!row) {
+                return;
+            }
+            var readingListItemId = row.dataset.readingListItemId;
+            removeItem(readingListItemId);
+        }
+
+        if (backLink) {
+            backLink.addEventListener('click', function (event) {
+                event.preventDefault();
+                window.location.href = 'reading_lists.html';
+            });
+        }
+
+        if (retryLoadButton) {
+            retryLoadButton.addEventListener('click', function (event) {
+                event.preventDefault();
+                loadReadingList();
+            });
+        }
+
+        if (controller) {
+            controller.addEventListener('click', function (event) {
+                var action = event.target && event.target.dataset ? event.target.dataset.action : null;
+                if (!action) {
+                    return;
+                }
+                if (action === 'open-item') {
+                    event.preventDefault();
+                    handleOpenItem(event.target);
+                } else if (action === 'remove-item') {
+                    event.preventDefault();
+                    handleRemoveItem(event.target);
+                } else if (action === 'retry-remove') {
+                    event.preventDefault();
+                    handleRetryRemove(event.target);
+                }
+            });
+        }
+
+        var urlParams = new URLSearchParams(window.location.search);
+        state.readingListId = urlParams.get('id');
+
+        renderAll();
+        loadReadingList();
+    });
+    </script>
+</body>
+</html>

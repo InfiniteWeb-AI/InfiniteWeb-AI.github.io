@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Events b7 Legal Association Newsletter</title>
+    <meta name="description" content="Displays the user's saved CLE and association events, with options to view details, remove saved events, and control whether past events are shown and how events are sorted.">
+    
+    <link rel="stylesheet" href="my_events.css">
+</head>
+<body>
+    <header class="site-header" role="banner">
+        <div class="site-header-inner">
+            <div class="site-branding">
+                <div class="site-logo-mark" aria-hidden="true"></div>
+                <div class="site-brand-text">
+                    <div class="site-parent-org">Deutscher Anwaltverein</div>
+                    <hr class="site-brand-divider">
+                    <div class="site-title">Arbeitsgemeinschaft<br>Insolvenzrecht &amp; Sanierung</div>
+                </div>
+            </div>
+            <!-- User avatar/menu could be added here in the future if special access pages are defined -->
+        </div>
+        <nav class="primary-nav" aria-label="Primary navigation">
+            <ul>
+                <li><a href="index.html" title="Association homepage">Home</a></li>
+                <li><a href="newsletter.html" title="Newsletter hub with latest articles and topics">Newsletter</a></li>
+                <li><a href="newsletter_issue.html?issueId=latest" title="Most recent newsletter issue table of contents">Latest Issue</a></li>
+                <li><a href="newsletter_archive.html" title="Browse all past newsletter issues">Archive</a></li>
+                <li><a href="search_results.html" title="Search and filter newsletter articles">Search Articles</a></li>
+                <li><a href="events.html" title="Continuing legal education and events listing">CLE &amp; Events</a></li>
+                <li><a href="jobs.html" title="Legal job highlights and listings">Careers</a></li>
+                <li><a href="reading_list.html" title="View and manage saved newsletter articles">My Reading List</a></li>
+                <li><a href="my_events.html" title="View and manage saved CLE and events">My Events</a></li>
+                <li><a href="saved_jobs.html" title="View and manage bookmarked job postings">Saved Jobs</a></li>
+                <li><a href="display_settings.html" title="Adjust theme, text size, and line spacing">Display Settings</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" role="main">
+        <div class="my-events-layout">
+            <section class="my-events-header" data-component="my-events-page-controller">
+                <h1 class="my-events-title">My Events</h1>
+                <p class="my-events-subtitle">Saved CLE and association events</p>
+                <p class="my-events-intro">Events you save from the CLE &amp; Events listings appear here for quick access.</p>
+            </section>
+
+            <section class="my-events-toolbar" data-component="my-events-filter-toolbar" aria-label="Saved events filters">
+                <div class="my-events-toolbar-row">
+                    <label class="my-events-toolbar-toggle">
+                        <input type="checkbox" id="includePastEventsToggle" name="includePastEvents">
+                        <span>Include past events</span>
+                    </label>
+                    <label class="my-events-toolbar-sort" for="sortBySelect">
+                        <span>Sort by:</span>
+                        <select id="sortBySelect" name="sortBy">
+                            <option value="date_soonest">Soonest start date</option>
+                            <option value="date_latest">Latest start date</option>
+                            <option value="date_added_newest">Date added (newest first)</option>
+                            <option value="date_added_oldest">Date added (oldest first)</option>
+                        </select>
+                    </label>
+                    <button type="button" class="my-events-toolbar-reset" data-action="reset-filters">Reset</button>
+                </div>
+            </section>
+
+            <p class="my-events-status-line" data-component="my-events-status-indicator" data-populate="my-events-status" aria-live="polite"></p>
+
+            <section class="my-events-list" data-component="my-events-list" data-populate="my-events-list" aria-label="Saved events list">
+                <!-- Events will be rendered here by JavaScript -->
+            </section>
+
+            <section class="my-events-empty" data-component="my-events-empty-state" hidden>
+                <h2 class="my-events-empty-title">You have no saved events</h2>
+                <p class="my-events-empty-body" data-populate="my-events-empty-message">There are no events to display with the current settings. Adjust your filters or return to the CLE &amp; Events listing to add programs.</p>
+            </section>
+        </div>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul>
+                <li><a href="about.html" title="Information about the legal association and newsletter">About the Association</a></li>
+                <li><a href="help.html" title="FAQs and contact information for assistance">Help &amp; Support</a></li>
+                <li><a href="subscription.html" title="Manage newsletter topics and email delivery settings">Newsletter Preferences</a></li>
+                <li><a href="collections.html" title="View and manage article collections">Collections</a></li>
+                <li><a href="events.html" title="Browse continuing legal education and events">CLE &amp; Events</a></li>
+                <li><a href="jobs.html" title="Browse legal job listings and opportunities">Careers</a></li>
+                <li><a href="display_settings.html" title="Configure appearance and accessibility options">Display Settings</a></li>
+            </ul>
+        </nav>
+        <div class="site-footer-meta">
+            <p>&copy; <span class="footer-year">2025</span> Legal Association Newsletter.</p>
+        </div>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        'use strict';
+
+        var includePastToggle = document.getElementById('includePastEventsToggle');
+        var sortSelect = document.getElementById('sortBySelect');
+        var statusIndicatorEl = document.querySelector('[data-populate="my-events-status"]');
+        var listContainer = document.querySelector('[data-populate="my-events-list"]');
+        var emptyStateSection = document.querySelector('[data-component="my-events-empty-state"]');
+        var resetButton = document.querySelector('[data-action="reset-filters"]');
+
+        var state = {
+            includePastEvents: false,
+            sortBy: 'date_soonest',
+            results: []
+        };
+
+        function parseUrlState() {
+            var params = new URLSearchParams(window.location.search);
+            var includePastParam = params.get('includePastEvents');
+            var sortByParam = params.get('sortBy');
+
+            var includePast = false;
+            if (includePastParam === 'true') {
+                includePast = true;
+            } else if (includePastParam === 'false') {
+                includePast = false;
+            }
+
+            var sortKey = sortByParam || 'date_soonest';
+
+            return {
+                includePastEvents: includePast,
+                sortBy: sortKey
+            };
+        }
+
+        function updateUrlFromState(push) {
+            var params = new URLSearchParams();
+            params.set('includePastEvents', String(state.includePastEvents));
+            params.set('sortBy', state.sortBy || 'date_soonest');
+            var newUrl = window.location.pathname + '?' + params.toString();
+            var historyState = {
+                includePastEvents: state.includePastEvents,
+                sortBy: state.sortBy
+            };
+            if (push) {
+                window.history.pushState(historyState, '', newUrl);
+            } else {
+                window.history.replaceState(historyState, '', newUrl);
+            }
+        }
+
+        function syncControlsFromState() {
+            if (includePastToggle) {
+                includePastToggle.checked = !!state.includePastEvents;
+            }
+            if (sortSelect) {
+                sortSelect.value = state.sortBy || 'date_soonest';
+            }
+        }
+
+        function formatDateTimeRange(start, end, timezone) {
+            if (!start) {
+                return '';
+            }
+            var startDate = new Date(start);
+            if (isNaN(startDate.getTime())) {
+                return '';
+            }
+            var dateOptions = { year: 'numeric', month: 'short', day: 'numeric' };
+            var timeOptions = { hour: '2-digit', minute: '2-digit' };
+            var datePart = startDate.toLocaleDateString(undefined, dateOptions);
+            var timePart = startDate.toLocaleTimeString(undefined, timeOptions);
+            var result = datePart + ', ' + timePart;
+
+            if (end) {
+                var endDate = new Date(end);
+                if (!isNaN(endDate.getTime())) {
+                    var endTimePart = endDate.toLocaleTimeString(undefined, timeOptions);
+                    if (endDate.toDateString() === startDate.toDateString()) {
+                        result += ' b7 ' + endTimePart;
+                    } else {
+                        var endDatePart = endDate.toLocaleDateString(undefined, dateOptions);
+                        result += ' b7 ' + endDatePart + ', ' + endTimePart;
+                    }
+                }
+            }
+
+            if (timezone) {
+                result += ' (' + timezone + ')';
+            }
+            return result;
+        }
+
+        function formatLocation(ev) {
+            if (!ev) {
+                return '';
+            }
+            if (ev.isOnline) {
+                return 'Online';
+            }
+            var parts = [];
+            if (ev.locationVenue) {
+                parts.push(ev.locationVenue);
+            }
+            var cityRegion = [];
+            if (ev.locationCity) {
+                cityRegion.push(ev.locationCity);
+            }
+            if (ev.locationState) {
+                cityRegion.push(ev.locationState);
+            }
+            if (cityRegion.length > 0) {
+                parts.push(cityRegion.join(', '));
+            }
+            if (ev.locationCountry) {
+                parts.push(ev.locationCountry);
+            }
+            return parts.join(' b7 ');
+        }
+
+        function formatCleCredits(ev) {
+            if (!ev || ev.cleCredits === null || ev.cleCredits === undefined) {
+                return '';
+            }
+            var credits = ev.cleCredits;
+            if (typeof credits !== 'number') {
+                return '';
+            }
+            if (credits === 0) {
+                return '0 CLE credits';
+            }
+            if (credits === 1) {
+                return '1 CLE credit';
+            }
+            return credits + ' CLE credits';
+        }
+
+        function formatStatusLabel(status) {
+            if (!status) {
+                return '';
+            }
+            var str = String(status);
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+
+        function formatDateOnly(dateStr) {
+            if (!dateStr) {
+                return '';
+            }
+            var d = new Date(dateStr);
+            if (isNaN(d.getTime())) {
+                return '';
+            }
+            return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        }
+
+        function getSortLabel(sortKey) {
+            if (sortKey === 'date_latest') {
+                return 'Latest start date';
+            }
+            if (sortKey === 'date_added_newest') {
+                return 'Date added (newest first)';
+            }
+            if (sortKey === 'date_added_oldest') {
+                return 'Date added (oldest first)';
+            }
+            return 'Soonest start date';
+        }
+
+        function renderStatus(container) {
+            if (!container) {
+                return;
+            }
+            var count = Array.isArray(state.results) ? state.results.length : 0;
+            var countText;
+            if (count === 0) {
+                countText = 'No saved events';
+            } else if (count === 1) {
+                countText = '1 saved event';
+            } else {
+                countText = count + ' saved events';
+            }
+            var sortLabel = getSortLabel(state.sortBy);
+            var pastText = state.includePastEvents ? 'past events included' : 'past events hidden';
+            container.textContent = countText + ' b7 ' + sortLabel + ' b7 ' + pastText;
+        }
+
+        function renderList(container, items) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+            var hasItems = Array.isArray(items) && items.length > 0;
+
+            if (!hasItems) {
+                container.setAttribute('hidden', 'hidden');
+                if (emptyStateSection) {
+                    emptyStateSection.hidden = false;
+                }
+                return;
+            }
+
+            container.removeAttribute('hidden');
+            if (emptyStateSection) {
+                emptyStateSection.hidden = true;
+            }
+
+            for (var i = 0; i < items.length; i++) {
+                var item = items[i];
+                var ev = item && item.event ? item.event : {};
+                var savedEv = item && item.savedEvent ? item.savedEvent : {};
+
+                var article = document.createElement('article');
+                article.className = 'my-events-item';
+                if (ev.id) {
+                    article.dataset.eventId = ev.id;
+                }
+                if (savedEv.id) {
+                    article.dataset.savedEventId = savedEv.id;
+                }
+
+                var header = document.createElement('header');
+                header.className = 'my-events-item-header';
+
+                var h2 = document.createElement('h2');
+                h2.className = 'my-events-item-title';
+
+                var titleLink = document.createElement('a');
+                titleLink.href = 'javascript:void(0)';
+                titleLink.dataset.action = 'open-event-detail';
+                titleLink.textContent = ev.title || 'Untitled event';
+
+                h2.appendChild(titleLink);
+                header.appendChild(h2);
+                article.appendChild(header);
+
+                var meta = document.createElement('div');
+                meta.className = 'my-events-item-meta';
+
+                var dateTimeText = formatDateTimeRange(ev.startDateTime, ev.endDateTime, ev.timezone);
+                if (dateTimeText) {
+                    var dateEl = document.createElement('div');
+                    dateEl.className = 'my-events-item-datetime';
+                    dateEl.textContent = dateTimeText;
+                    meta.appendChild(dateEl);
+                }
+
+                var locText = formatLocation(ev);
+                var formatLabel = '';
+                if (ev.format === 'webinar') {
+                    formatLabel = 'Webinar';
+                } else if (ev.format === 'in_person') {
+                    formatLabel = 'In-person';
+                } else if (ev.format === 'hybrid') {
+                    formatLabel = 'Hybrid';
+                } else if (ev.format === 'on_demand') {
+                    formatLabel = 'On-demand';
+                }
+                var locParts = [];
+                if (locText) {
+                    locParts.push(locText);
+                }
+                if (formatLabel) {
+                    locParts.push(formatLabel);
+                }
+                if (locParts.length > 0) {
+                    var locEl = document.createElement('div');
+                    locEl.className = 'my-events-item-location';
+                    locEl.textContent = locParts.join(' b7 ');
+                    meta.appendChild(locEl);
+                }
+
+                var cleText = formatCleCredits(ev);
+                if (cleText) {
+                    var cleEl = document.createElement('div');
+                    cleEl.className = 'my-events-item-cle';
+                    cleEl.textContent = cleText;
+                    meta.appendChild(cleEl);
+                }
+
+                if (item && item.status) {
+                    var statusEl = document.createElement('div');
+                    statusEl.className = 'my-events-item-status';
+                    statusEl.dataset.component = 'my-events-status-indicator';
+                    statusEl.dataset.status = String(item.status);
+                    statusEl.textContent = formatStatusLabel(item.status);
+                    meta.appendChild(statusEl);
+                }
+
+                if (savedEv.addedAt) {
+                    var addedEl = document.createElement('div');
+                    addedEl.className = 'my-events-item-added-at';
+                    var addedDate = formatDateOnly(savedEv.addedAt);
+                    if (addedDate) {
+                        addedEl.textContent = 'Added to My Events on ' + addedDate;
+                        meta.appendChild(addedEl);
+                    }
+                }
+
+                article.appendChild(meta);
+
+                var actions = document.createElement('div');
+                actions.className = 'my-events-item-actions';
+
+                var removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.className = 'my-events-item-remove';
+                removeBtn.dataset.action = 'remove-saved-event';
+                removeBtn.textContent = 'Remove from My Events';
+
+                actions.appendChild(removeBtn);
+                article.appendChild(actions);
+
+                container.appendChild(article);
+            }
+        }
+
+        function loadEvents() {
+            if (typeof WebsiteSDK === 'undefined' || typeof WebsiteSDK.getMyEventsListing !== 'function') {
+                console.error('WebsiteSDK.getMyEventsListing is not available.');
+                if (statusIndicatorEl) {
+                    statusIndicatorEl.textContent = 'Unable to load events at this time.';
+                }
+                if (listContainer) {
+                    listContainer.innerHTML = '';
+                }
+                if (emptyStateSection) {
+                    emptyStateSection.hidden = false;
+                }
+                return;
+            }
+
+            var items;
+            try {
+                items = WebsiteSDK.getMyEventsListing(state.includePastEvents, state.sortBy);
+            } catch (err) {
+                console.error('Error calling getMyEventsListing:', err);
+                if (statusIndicatorEl) {
+                    statusIndicatorEl.textContent = 'Unable to load events at this time.';
+                }
+                if (listContainer) {
+                    listContainer.innerHTML = '';
+                }
+                if (emptyStateSection) {
+                    emptyStateSection.hidden = false;
+                }
+                return;
+            }
+
+            if (!Array.isArray(items)) {
+                items = [];
+            }
+
+            state.results = items;
+            renderStatus(statusIndicatorEl);
+            renderList(listContainer, state.results);
+        }
+
+        if (includePastToggle) {
+            includePastToggle.addEventListener('change', function(event) {
+                var checked = !!event.target.checked;
+                if (checked === state.includePastEvents) {
+                    return;
+                }
+                state.includePastEvents = checked;
+                updateUrlFromState(true);
+                loadEvents();
+            });
+        }
+
+        if (sortSelect) {
+            sortSelect.addEventListener('change', function(event) {
+                var value = event.target.value || 'date_soonest';
+                if (value === state.sortBy) {
+                    return;
+                }
+                state.sortBy = value;
+                updateUrlFromState(true);
+                loadEvents();
+            });
+        }
+
+        if (resetButton) {
+            resetButton.addEventListener('click', function() {
+                var changed = false;
+                if (state.includePastEvents !== false) {
+                    state.includePastEvents = false;
+                    changed = true;
+                }
+                if (state.sortBy !== 'date_soonest') {
+                    state.sortBy = 'date_soonest';
+                    changed = true;
+                }
+                if (!changed) {
+                    return;
+                }
+                syncControlsFromState();
+                updateUrlFromState(true);
+                loadEvents();
+            });
+        }
+
+        if (listContainer) {
+            listContainer.addEventListener('click', function(event) {
+                var target = event.target;
+                if (!target) {
+                    return;
+                }
+                var actionEl = target.closest('[data-action]');
+                if (!actionEl) {
+                    return;
+                }
+                var action = actionEl.getAttribute('data-action');
+                var itemEl = actionEl.closest('.my-events-item');
+                if (!itemEl) {
+                    return;
+                }
+                var eventId = itemEl.dataset.eventId || '';
+                var savedEventId = itemEl.dataset.savedEventId || '';
+
+                if (action === 'open-event-detail') {
+                    if (!eventId) {
+                        return;
+                    }
+                    var url = 'event_detail.html?eventId=' + encodeURIComponent(eventId);
+                    window.location.href = url;
+                } else if (action === 'remove-saved-event') {
+                    if (!savedEventId && !eventId) {
+                        return;
+                    }
+                    var confirmed = window.confirm('Remove this event from My Events?');
+                    if (!confirmed) {
+                        return;
+                    }
+                    var removalSucceeded = false;
+                    try {
+                        if (typeof window.removeSavedEvent === 'function') {
+                            var result = window.removeSavedEvent(savedEventId || eventId);
+                            removalSucceeded = result !== false;
+                        } else {
+                            console.warn('removeSavedEvent handler is not implemented; skipping backend removal.');
+                            removalSucceeded = true;
+                        }
+                    } catch (err) {
+                        console.error('Error while removing saved event:', err);
+                        removalSucceeded = false;
+                    }
+
+                    if (removalSucceeded) {
+                        loadEvents();
+                    } else {
+                        window.alert('The event could not be removed. Please try again.');
+                    }
+                }
+            });
+        }
+
+        window.addEventListener('popstate', function() {
+            var urlState = parseUrlState();
+            state.includePastEvents = urlState.includePastEvents;
+            state.sortBy = urlState.sortBy;
+            syncControlsFromState();
+            loadEvents();
+        });
+
+        var initialState = parseUrlState();
+        state.includePastEvents = initialState.includePastEvents;
+        state.sortBy = initialState.sortBy;
+        syncControlsFromState();
+        updateUrlFromState(false);
+        loadEvents();
+    });
+    </script>
+</body>
+</html>

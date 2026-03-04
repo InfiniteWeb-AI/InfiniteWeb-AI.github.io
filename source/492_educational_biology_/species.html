@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Aquatic Insects Educational Site</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='species.css'>
+</head>
+<body>
+  <header class='site-header' role='banner'>
+    <div class='site-header-inner'>
+      <div class='site-identity'>
+        <h1 class='site-title'>Aquatic Insects</h1>
+      </div>
+      <nav class='site-nav' aria-label='Primary navigation'>
+        <a href='index.html' title='Homepage and overview'>Home</a>
+        <a href='species.html' title='Browse and filter aquatic insect species'>Species</a>
+        <a href='compare.html' title='Compare insect orders and their life cycles'>Compare</a>
+        <a href='quizzes.html' title='Browse quizzes and build custom quizzes'>Quizzes</a>
+        <a href='lesson_builder.html' title='Create lesson plans and manage reading paths'>Lesson Builder</a>
+        <a href='articles.html' title='Browse learning articles and resources'>Articles</a>
+        <a href='maps.html' title='Explore species distribution maps'>Maps</a>
+        <a href='glossary.html' title='Search and filter glossary terms'>Glossary</a>
+        <a href='taxonomy.html' title='Browse insect orders and build metamorphosis charts'>Taxonomy</a>
+        <a href='study_list.html' title='View and manage your species study list'>My Study List</a>
+        <a href='collections.html' title='View and manage your species collections'>Collections</a>
+        <a href='map_notes.html' title='Access your saved distribution maps'>Map Notes</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-content' role='main'>
+    <h1>Species Explorer</h1>
+    <p>Browse aquatic insect species, filter by habitat, region, difficulty, and pollution tolerance, and save your current results as a collection.</p>
+
+    <section data-component='species-filter-controls' data-populate='species-filter-controls'>
+      <!-- Filter controls are rendered here by JavaScript using getSpeciesFilterOptions and URL state. -->
+    </section>
+
+    <section data-component='active-filters-summary' data-populate='active-filters'>
+      <!-- Active filters summary is rendered here by JavaScript. -->
+    </section>
+
+    <section data-component='species-results-list' data-populate='species-results'>
+      <!-- Species results list is rendered here by JavaScript. -->
+    </section>
+
+    <nav data-component='species-pagination' data-populate='species-pagination' aria-label='Species pages'>
+      <!-- Pagination controls are rendered here by JavaScript. -->
+    </nav>
+
+    <section data-component='collection-from-results'>
+      <h2>Create a collection from these results</h2>
+      <p>You can save the species from your current filtered search as a named collection.</p>
+      <button type='button' data-action='open-collection-dialog'>Create collection from current results</button>
+
+      <div id='collectionDialog' hidden>
+        <form id='collectionForm' data-action='submit-collection'>
+          <div>
+            <label for='collectionNameInput'>Collection name</label>
+            <input type='text' id='collectionNameInput' name='name' required>
+          </div>
+          <div>
+            <label for='collectionDescriptionInput'>Description (optional)</label>
+            <textarea id='collectionDescriptionInput' name='description'></textarea>
+          </div>
+          <div>
+            <button type='submit'>Create collection</button>
+            <button type='button' data-action='cancel-collection'>Cancel</button>
+          </div>
+          <div id='collectionFormError' role='alert'></div>
+        </form>
+      </div>
+
+      <div id='collectionSuccessMessage' hidden>
+        <p data-populate='collection-success-message'></p>
+        <button type='button' data-action='view-collection'>View this collection</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class='site-footer' role='contentinfo'>
+    <nav class='footer-nav' aria-label='Footer navigation'>
+      <a href='about.html' title='About this educational biology website'>About</a>
+    </nav>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+  (function() {
+    const PAGE_SIZE = 25;
+
+    let filterOptions = null;
+    let searchState = {
+      textQuery: '',
+      habitats: [],
+      regions: [],
+      difficultyLevels: [],
+      pollutionToleranceMax: null,
+      page: 1,
+      sortBy: 'scientific_name'
+    };
+
+    let lastCollection = null;
+    let searchDebounceTimer = null;
+
+    function parseStateFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+
+      const textQueryParam = params.get('textQuery');
+      searchState.textQuery = textQueryParam ? textQueryParam : '';
+
+      const habitatsParam = params.get('habitats');
+      searchState.habitats = habitatsParam ? habitatsParam.split(',').filter(function(v) { return v; }) : [];
+
+      const regionsParam = params.get('regions');
+      searchState.regions = regionsParam ? regionsParam.split(',').filter(function(v) { return v; }) : [];
+
+      const difficultyParam = params.get('difficultyLevels');
+      searchState.difficultyLevels = difficultyParam ? difficultyParam.split(',').filter(function(v) { return v; }) : [];
+
+      const pollutionParam = params.get('pollutionToleranceMax');
+      if (pollutionParam !== null && pollutionParam !== '') {
+        const num = Number(pollutionParam);
+        searchState.pollutionToleranceMax = Number.isNaN(num) ? null : num;
+      } else {
+        searchState.pollutionToleranceMax = null;
+      }
+
+      const pageParam = params.get('page');
+      const pageNum = pageParam ? parseInt(pageParam, 10) : 1;
+      searchState.page = Number.isNaN(pageNum) || pageNum < 1 ? 1 : pageNum;
+
+      const sortParam = params.get('sortBy');
+      searchState.sortBy = sortParam ? sortParam : 'scientific_name';
+    }
+
+    function buildUrlFromState() {
+      const params = new URLSearchParams();
+
+      if (searchState.textQuery) {
+        params.set('textQuery', searchState.textQuery);
+      }
+      if (searchState.habitats && searchState.habitats.length) {
+        params.set('habitats', searchState.habitats.join(','));
+      }
+      if (searchState.regions && searchState.regions.length) {
+        params.set('regions', searchState.regions.join(','));
+      }
+      if (searchState.difficultyLevels && searchState.difficultyLevels.length) {
+        params.set('difficultyLevels', searchState.difficultyLevels.join(','));
+      }
+      if (searchState.pollutionToleranceMax !== null && searchState.pollutionToleranceMax !== undefined) {
+        params.set('pollutionToleranceMax', String(searchState.pollutionToleranceMax));
+      }
+
+      params.set('page', String(searchState.page));
+      if (searchState.sortBy) {
+        params.set('sortBy', searchState.sortBy);
+      }
+
+      const queryString = params.toString();
+      return window.location.pathname + (queryString ? '?' + queryString : '');
+    }
+
+    function updateUrl(push) {
+      const newUrl = buildUrlFromState();
+      if (push) {
+        window.history.pushState({}, '', newUrl);
+      } else {
+        window.history.replaceState({}, '', newUrl);
+      }
+    }
+
+    function getLabelFromOptions(optionsArray, value) {
+      if (!optionsArray || !value) {
+        return value;
+      }
+      for (let i = 0; i < optionsArray.length; i += 1) {
+        const opt = optionsArray[i];
+        if (opt && opt.value === value) {
+          return opt.label || value;
+        }
+      }
+      return value;
+    }
+
+    function getPollutionDisplayText() {
+      if (!filterOptions || !filterOptions.pollutionTolerance) {
+        if (searchState.pollutionToleranceMax === null || searchState.pollutionToleranceMax === undefined) {
+          return '';
+        }
+        return '≤ ' + searchState.pollutionToleranceMax;
+      }
+      const range = filterOptions.pollutionTolerance;
+      if (searchState.pollutionToleranceMax === null || searchState.pollutionToleranceMax === undefined) {
+        return 'Any (0–' + range.max + ')';
+      }
+      return '≤ ' + searchState.pollutionToleranceMax;
+    }
+
+    function renderFilterControls(container, options, state) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+
+      const form = document.createElement('form');
+      form.id = 'speciesFilterForm';
+
+      const textRow = document.createElement('div');
+      const textLabel = document.createElement('label');
+      textLabel.setAttribute('for', 'textQueryInput');
+      textLabel.textContent = 'Search species';
+      const textInput = document.createElement('input');
+      textInput.type = 'text';
+      textInput.id = 'textQueryInput';
+      textInput.name = 'textQuery';
+      textInput.value = state.textQuery || '';
+      textInput.setAttribute('data-action', 'text-query-input');
+      textRow.appendChild(textLabel);
+      textRow.appendChild(textInput);
+      form.appendChild(textRow);
+
+      if (options && options.habitats && options.habitats.length) {
+        const habitatsRow = document.createElement('div');
+        const habitatsLabel = document.createElement('div');
+        habitatsLabel.textContent = 'Habitats';
+        habitatsRow.appendChild(habitatsLabel);
+
+        for (let i = 0; i < options.habitats.length; i += 1) {
+          const opt = options.habitats[i];
+          if (!opt) {
+            continue;
+          }
+          const wrapper = document.createElement('div');
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.value = opt.value;
+          const checkboxId = 'habitat-' + opt.value;
+          checkbox.id = checkboxId;
+          checkbox.name = 'habitats';
+          checkbox.setAttribute('data-action', 'toggle-habitat-filter');
+          if (state.habitats && state.habitats.indexOf(opt.value) !== -1) {
+            checkbox.checked = true;
+          }
+          const label = document.createElement('label');
+          label.setAttribute('for', checkboxId);
+          label.textContent = opt.label || opt.value;
+          wrapper.appendChild(checkbox);
+          wrapper.appendChild(label);
+          habitatsRow.appendChild(wrapper);
+        }
+        form.appendChild(habitatsRow);
+      }
+
+      if (options && options.regions && options.regions.length) {
+        const regionsRow = document.createElement('div');
+        const regionsLabel = document.createElement('div');
+        regionsLabel.textContent = 'Regions';
+        regionsRow.appendChild(regionsLabel);
+
+        for (let i = 0; i < options.regions.length; i += 1) {
+          const opt = options.regions[i];
+          if (!opt) {
+            continue;
+          }
+          const wrapper = document.createElement('div');
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.value = opt.value;
+          const checkboxId = 'region-' + opt.value;
+          checkbox.id = checkboxId;
+          checkbox.name = 'regions';
+          checkbox.setAttribute('data-action', 'toggle-region-filter');
+          if (state.regions && state.regions.indexOf(opt.value) !== -1) {
+            checkbox.checked = true;
+          }
+          const label = document.createElement('label');
+          label.setAttribute('for', checkboxId);
+          label.textContent = opt.label || opt.value;
+          wrapper.appendChild(checkbox);
+          wrapper.appendChild(label);
+          regionsRow.appendChild(wrapper);
+        }
+        form.appendChild(regionsRow);
+      }
+
+      if (options && options.difficulties && options.difficulties.length) {
+        const diffRow = document.createElement('div');
+        const diffLabel = document.createElement('div');
+        diffLabel.textContent = 'Difficulty';
+        diffRow.appendChild(diffLabel);
+
+        for (let i = 0; i < options.difficulties.length; i += 1) {
+          const opt = options.difficulties[i];
+          if (!opt) {
+            continue;
+          }
+          const wrapper = document.createElement('div');
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.value = opt.value;
+          const checkboxId = 'difficulty-' + opt.value;
+          checkbox.id = checkboxId;
+          checkbox.name = 'difficultyLevels';
+          checkbox.setAttribute('data-action', 'toggle-difficulty-filter');
+          if (state.difficultyLevels && state.difficultyLevels.indexOf(opt.value) !== -1) {
+            checkbox.checked = true;
+          }
+          const label = document.createElement('label');
+          label.setAttribute('for', checkboxId);
+          label.textContent = opt.label || opt.value;
+          wrapper.appendChild(checkbox);
+          wrapper.appendChild(label);
+          diffRow.appendChild(wrapper);
+        }
+        form.appendChild(diffRow);
+      }
+
+      const pollutionRow = document.createElement('div');
+      const pollutionLabel = document.createElement('label');
+      pollutionLabel.setAttribute('for', 'pollutionToleranceMaxInput');
+      pollutionLabel.textContent = 'Maximum pollution-tolerance score';
+      pollutionRow.appendChild(pollutionLabel);
+
+      const pollutionInput = document.createElement('input');
+      pollutionInput.type = 'range';
+      pollutionInput.id = 'pollutionToleranceMaxInput';
+      pollutionInput.name = 'pollutionToleranceMax';
+      pollutionInput.setAttribute('data-action', 'pollution-max-change');
+
+      let min = 0;
+      let max = 10;
+      let step = 1;
+      if (options && options.pollutionTolerance) {
+        if (typeof options.pollutionTolerance.min === 'number') {
+          min = options.pollutionTolerance.min;
+        }
+        if (typeof options.pollutionTolerance.max === 'number') {
+          max = options.pollutionTolerance.max;
+        }
+        if (typeof options.pollutionTolerance.step === 'number') {
+          step = options.pollutionTolerance.step;
+        }
+      }
+      pollutionInput.min = String(min);
+      pollutionInput.max = String(max);
+      pollutionInput.step = String(step);
+
+      if (state.pollutionToleranceMax !== null && state.pollutionToleranceMax !== undefined) {
+        pollutionInput.value = String(state.pollutionToleranceMax);
+      } else {
+        pollutionInput.value = String(max);
+      }
+
+      pollutionRow.appendChild(pollutionInput);
+
+      const pollutionValueSpan = document.createElement('span');
+      pollutionValueSpan.id = 'pollutionToleranceValueDisplay';
+      pollutionValueSpan.textContent = getPollutionDisplayText();
+      pollutionRow.appendChild(pollutionValueSpan);
+
+      const clearPollutionButton = document.createElement('button');
+      clearPollutionButton.type = 'button';
+      clearPollutionButton.textContent = 'Clear pollution filter';
+      clearPollutionButton.setAttribute('data-action', 'clear-pollution-filter');
+      pollutionRow.appendChild(clearPollutionButton);
+
+      form.appendChild(pollutionRow);
+
+      const sortRow = document.createElement('div');
+      const sortLabel = document.createElement('label');
+      sortLabel.setAttribute('for', 'sortBySelect');
+      sortLabel.textContent = 'Sort species by';
+      sortRow.appendChild(sortLabel);
+
+      const sortSelect = document.createElement('select');
+      sortSelect.id = 'sortBySelect';
+      sortSelect.name = 'sortBy';
+      sortSelect.setAttribute('data-action', 'sort-change');
+
+      const sortOptions = [
+        { value: 'scientific_name', label: 'Scientific name' },
+        { value: 'common_name', label: 'Common name' },
+        { value: 'difficulty', label: 'Difficulty' },
+        { value: 'pollution_tolerance', label: 'Pollution tolerance' }
+      ];
+
+      for (let i = 0; i < sortOptions.length; i += 1) {
+        const opt = sortOptions[i];
+        const optEl = document.createElement('option');
+        optEl.value = opt.value;
+        optEl.textContent = opt.label;
+        if (state.sortBy === opt.value) {
+          optEl.selected = true;
+        }
+        sortSelect.appendChild(optEl);
+      }
+
+      sortRow.appendChild(sortSelect);
+      form.appendChild(sortRow);
+
+      const clearRow = document.createElement('div');
+      const clearButton = document.createElement('button');
+      clearButton.type = 'button';
+      clearButton.textContent = 'Clear all filters';
+      clearButton.setAttribute('data-action', 'clear-filters');
+      clearRow.appendChild(clearButton);
+      form.appendChild(clearRow);
+
+      const countRow = document.createElement('div');
+      countRow.setAttribute('data-populate', 'species-result-count');
+      form.appendChild(countRow);
+
+      container.appendChild(form);
+    }
+
+    function renderActiveFilters(container, options, state) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+
+      const chips = [];
+
+      if (state.textQuery) {
+        chips.push({
+          label: 'Text: "' + state.textQuery + '"',
+          filterType: 'textQuery',
+          filterValue: ''
+        });
+      }
+
+      if (state.habitats && state.habitats.length) {
+        for (let i = 0; i < state.habitats.length; i += 1) {
+          const value = state.habitats[i];
+          chips.push({
+            label: 'Habitat: ' + getLabelFromOptions(options ? options.habitats : null, value),
+            filterType: 'habitats',
+            filterValue: value
+          });
+        }
+      }
+
+      if (state.regions && state.regions.length) {
+        for (let i = 0; i < state.regions.length; i += 1) {
+          const value = state.regions[i];
+          chips.push({
+            label: 'Region: ' + getLabelFromOptions(options ? options.regions : null, value),
+            filterType: 'regions',
+            filterValue: value
+          });
+        }
+      }
+
+      if (state.difficultyLevels && state.difficultyLevels.length) {
+        for (let i = 0; i < state.difficultyLevels.length; i += 1) {
+          const value = state.difficultyLevels[i];
+          chips.push({
+            label: 'Difficulty: ' + getLabelFromOptions(options ? options.difficulties : null, value),
+            filterType: 'difficultyLevels',
+            filterValue: value
+          });
+        }
+      }
+
+      if (state.pollutionToleranceMax !== null && state.pollutionToleranceMax !== undefined) {
+        chips.push({
+          label: 'Pollution score ≤ ' + state.pollutionToleranceMax,
+          filterType: 'pollutionToleranceMax',
+          filterValue: String(state.pollutionToleranceMax)
+        });
+      }
+
+      if (!chips.length) {
+        const p = document.createElement('p');
+        p.textContent = 'No filters applied.';
+        container.appendChild(p);
+        return;
+      }
+
+      const description = document.createElement('span');
+      description.textContent = 'Active filters: ';
+      container.appendChild(description);
+
+      for (let i = 0; i < chips.length; i += 1) {
+        const chip = chips[i];
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.setAttribute('data-action', 'remove-filter');
+        button.setAttribute('data-filter-type', chip.filterType);
+        if (chip.filterValue !== undefined) {
+          button.setAttribute('data-filter-value', chip.filterValue);
+        }
+        button.textContent = chip.label + ' ×';
+        container.appendChild(document.createTextNode(' '));
+        container.appendChild(button);
+      }
+
+      const clearAllButton = document.createElement('button');
+      clearAllButton.type = 'button';
+      clearAllButton.textContent = 'Clear all filters';
+      clearAllButton.setAttribute('data-action', 'clear-filters');
+      container.appendChild(document.createTextNode(' '));
+      container.appendChild(clearAllButton);
+    }
+
+    function renderSpeciesResults(container, results) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+
+      if (!results || !results.length) {
+        const p = document.createElement('p');
+        p.textContent = 'No species found for these filters.';
+        container.appendChild(p);
+        return;
+      }
+
+      for (let i = 0; i < results.length; i += 1) {
+        const item = results[i];
+        if (!item) {
+          continue;
+        }
+        const article = document.createElement('article');
+        article.setAttribute('data-action', 'open-species-detail');
+        article.setAttribute('data-species-id', item.speciesId);
+
+        if (item.thumbnailImageUrl) {
+          const img = document.createElement('img');
+          img.src = item.thumbnailImageUrl;
+          const nameForAlt = item.commonName || item.scientificName || 'Species image';
+          img.alt = nameForAlt + ' thumbnail';
+          article.appendChild(img);
+        }
+
+        const title = document.createElement('h2');
+        const nameParts = [];
+        if (item.scientificName) {
+          nameParts.push(item.scientificName);
+        }
+        if (item.commonName) {
+          nameParts.push('(' + item.commonName + ')');
+        }
+        title.textContent = nameParts.join(' ');
+        article.appendChild(title);
+
+        if (item.difficulty) {
+          const difficultyP = document.createElement('p');
+          difficultyP.textContent = 'Difficulty: ' + item.difficulty;
+          article.appendChild(difficultyP);
+        }
+
+        if (item.habitats && item.habitats.length) {
+          const habitatsP = document.createElement('p');
+          habitatsP.textContent = 'Habitats: ' + item.habitats.join(', ');
+          article.appendChild(habitatsP);
+        }
+
+        if (item.regions && item.regions.length) {
+          const regionsP = document.createElement('p');
+          regionsP.textContent = 'Regions: ' + item.regions.join(', ');
+          article.appendChild(regionsP);
+        }
+
+        if (typeof item.pollutionToleranceScore === 'number') {
+          const pollutionP = document.createElement('p');
+          pollutionP.textContent = 'Pollution-tolerance score: ' + item.pollutionToleranceScore + ' (lower = more sensitive)';
+          article.appendChild(pollutionP);
+        }
+
+        container.appendChild(article);
+      }
+    }
+
+    function renderPagination(container, totalCount, state) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+
+      if (!totalCount || totalCount <= PAGE_SIZE) {
+        return;
+      }
+
+      const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+      const currentPage = state.page;
+
+      const wrapper = document.createElement('div');
+
+      const prevButton = document.createElement('button');
+      prevButton.type = 'button';
+      prevButton.textContent = 'Previous';
+      prevButton.setAttribute('data-action', 'change-page');
+      prevButton.setAttribute('data-page', String(currentPage - 1));
+      if (currentPage <= 1) {
+        prevButton.disabled = true;
+      }
+      wrapper.appendChild(prevButton);
+
+      for (let page = 1; page <= totalPages; page += 1) {
+        const pageButton = document.createElement('button');
+        pageButton.type = 'button';
+        pageButton.textContent = String(page);
+        pageButton.setAttribute('data-action', 'change-page');
+        pageButton.setAttribute('data-page', String(page));
+        if (page === currentPage) {
+          pageButton.disabled = true;
+          pageButton.setAttribute('aria-current', 'page');
+        }
+        wrapper.appendChild(pageButton);
+      }
+
+      const nextButton = document.createElement('button');
+      nextButton.type = 'button';
+      nextButton.textContent = 'Next';
+      nextButton.setAttribute('data-action', 'change-page');
+      nextButton.setAttribute('data-page', String(currentPage + 1));
+      if (currentPage >= totalPages) {
+        nextButton.disabled = true;
+      }
+      wrapper.appendChild(nextButton);
+
+      container.appendChild(wrapper);
+    }
+
+    function renderResultCount(container, totalCount, state) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+      const p = document.createElement('p');
+      if (!totalCount) {
+        p.textContent = '0 species found.';
+      } else {
+        const startIndex = (state.page - 1) * PAGE_SIZE + 1;
+        const endIndex = Math.min(startIndex + PAGE_SIZE - 1, totalCount);
+        p.textContent = startIndex + '–' + endIndex + ' of ' + totalCount + ' species';
+      }
+      container.appendChild(p);
+    }
+
+    function bindActionHandlers(root) {
+      if (!root) {
+        return;
+      }
+      const actionElements = root.querySelectorAll('[data-action]');
+      actionElements.forEach(function(element) {
+        if (element.dataset.bound === 'true') {
+          return;
+        }
+        const action = element.dataset.action;
+        if (action === 'text-query-input') {
+          element.addEventListener('input', handleTextQueryChange);
+        } else if (action === 'pollution-max-change') {
+          element.addEventListener('change', handlePollutionMaxChange);
+        } else if (action === 'sort-change') {
+          element.addEventListener('change', handleSortChange);
+        } else if (action === 'toggle-habitat-filter' || action === 'toggle-region-filter' || action === 'toggle-difficulty-filter') {
+          element.addEventListener('change', handleCheckboxFilterChange);
+        } else if (action === 'submit-collection') {
+          element.addEventListener('submit', handleCollectionSubmit);
+        } else {
+          element.addEventListener('click', handleClickAction);
+        }
+        element.dataset.bound = 'true';
+      });
+    }
+
+    function handleTextQueryChange(event) {
+      const value = event.currentTarget.value || '';
+      searchState.textQuery = value.trim();
+      searchState.page = 1;
+      updateUrl(true);
+      if (searchDebounceTimer) {
+        window.clearTimeout(searchDebounceTimer);
+      }
+      searchDebounceTimer = window.setTimeout(function() {
+        runSearchAndRender();
+      }, 300);
+    }
+
+    function updateArrayFilter(fieldName, value, isChecked) {
+      const array = searchState[fieldName] || [];
+      const index = array.indexOf(value);
+      if (isChecked && index === -1) {
+        array.push(value);
+      } else if (!isChecked && index !== -1) {
+        array.splice(index, 1);
+      }
+      searchState[fieldName] = array;
+    }
+
+    function handleCheckboxFilterChange(event) {
+      const target = event.currentTarget;
+      const action = target.dataset.action;
+      const value = target.value;
+      const isChecked = target.checked;
+
+      if (action === 'toggle-habitat-filter') {
+        updateArrayFilter('habitats', value, isChecked);
+      } else if (action === 'toggle-region-filter') {
+        updateArrayFilter('regions', value, isChecked);
+      } else if (action === 'toggle-difficulty-filter') {
+        updateArrayFilter('difficultyLevels', value, isChecked);
+      }
+
+      searchState.page = 1;
+      updateUrl(true);
+      runSearchAndRender();
+    }
+
+    function handlePollutionMaxChange(event) {
+      const target = event.currentTarget;
+      const value = Number(target.value);
+      if (Number.isNaN(value)) {
+        return;
+      }
+      if (filterOptions && filterOptions.pollutionTolerance && typeof filterOptions.pollutionTolerance.max === 'number' && value >= filterOptions.pollutionTolerance.max) {
+        searchState.pollutionToleranceMax = null;
+      } else {
+        searchState.pollutionToleranceMax = value;
+      }
+      searchState.page = 1;
+      updateUrl(true);
+      updatePollutionDisplay();
+      runSearchAndRender();
+    }
+
+    function handleSortChange(event) {
+      const target = event.currentTarget;
+      searchState.sortBy = target.value || 'scientific_name';
+      searchState.page = 1;
+      updateUrl(true);
+      runSearchAndRender();
+    }
+
+    function handleClickAction(event) {
+      const target = event.currentTarget;
+      const action = target.dataset.action;
+
+      if (action === 'clear-filters') {
+        handleClearFilters();
+      } else if (action === 'clear-pollution-filter') {
+        handleClearPollutionFilter();
+      } else if (action === 'change-page') {
+        handlePageButtonClick(target);
+      } else if (action === 'open-species-detail') {
+        handleSpeciesCardClick(target);
+      } else if (action === 'open-collection-dialog') {
+        handleOpenCollectionDialog();
+      } else if (action === 'cancel-collection') {
+        handleCancelCollection();
+      } else if (action === 'remove-filter') {
+        handleRemoveFilterChip(target);
+      } else if (action === 'view-collection') {
+        handleViewCollection();
+      }
+    }
+
+    function resetSearchStateToDefaults() {
+      searchState.textQuery = '';
+      searchState.habitats = [];
+      searchState.regions = [];
+      searchState.difficultyLevels = [];
+      searchState.pollutionToleranceMax = null;
+      searchState.page = 1;
+      searchState.sortBy = 'scientific_name';
+    }
+
+    function handleClearFilters() {
+      resetSearchStateToDefaults();
+      updateUrl(true);
+      const filterContainer = document.querySelector('[data-populate="species-filter-controls"]');
+      renderFilterControls(filterContainer, filterOptions, searchState);
+      bindActionHandlers(document);
+      runSearchAndRender();
+    }
+
+    function handleClearPollutionFilter() {
+      searchState.pollutionToleranceMax = null;
+      const slider = document.getElementById('pollutionToleranceMaxInput');
+      if (slider && filterOptions && filterOptions.pollutionTolerance && typeof filterOptions.pollutionTolerance.max === 'number') {
+        slider.value = String(filterOptions.pollutionTolerance.max);
+      }
+      updatePollutionDisplay();
+      searchState.page = 1;
+      updateUrl(true);
+      runSearchAndRender();
+    }
+
+    function handleRemoveFilterChip(target) {
+      const filterType = target.getAttribute('data-filter-type');
+      const filterValue = target.getAttribute('data-filter-value');
+
+      if (filterType === 'textQuery') {
+        searchState.textQuery = '';
+      } else if (filterType === 'habitats') {
+        updateArrayFilter('habitats', filterValue, false);
+      } else if (filterType === 'regions') {
+        updateArrayFilter('regions', filterValue, false);
+      } else if (filterType === 'difficultyLevels') {
+        updateArrayFilter('difficultyLevels', filterValue, false);
+      } else if (filterType === 'pollutionToleranceMax') {
+        searchState.pollutionToleranceMax = null;
+      }
+
+      searchState.page = 1;
+      updateUrl(true);
+
+      const filterContainer = document.querySelector('[data-populate="species-filter-controls"]');
+      renderFilterControls(filterContainer, filterOptions, searchState);
+      bindActionHandlers(document);
+      runSearchAndRender();
+    }
+
+    function handlePageButtonClick(target) {
+      const pageValue = target.getAttribute('data-page');
+      const page = pageValue ? parseInt(pageValue, 10) : NaN;
+      if (Number.isNaN(page) || page === searchState.page || page < 1) {
+        return;
+      }
+      searchState.page = page;
+      updateUrl(true);
+      runSearchAndRender();
+    }
+
+    function handleSpeciesCardClick(target) {
+      const speciesId = target.getAttribute('data-species-id');
+      if (!speciesId) {
+        return;
+      }
+      const url = 'species_detail.html?speciesId=' + encodeURIComponent(speciesId);
+      window.location.href = url;
+    }
+
+    function handleOpenCollectionDialog() {
+      const dialog = document.getElementById('collectionDialog');
+      const success = document.getElementById('collectionSuccessMessage');
+      const errorEl = document.getElementById('collectionFormError');
+      if (dialog) {
+        dialog.hidden = false;
+      }
+      if (success) {
+        success.hidden = true;
+      }
+      if (errorEl) {
+        errorEl.textContent = '';
+      }
+    }
+
+    function handleCancelCollection() {
+      const dialog = document.getElementById('collectionDialog');
+      if (dialog) {
+        dialog.hidden = true;
+      }
+    }
+
+    function handleCollectionSubmit(event) {
+      event.preventDefault();
+      const nameInput = document.getElementById('collectionNameInput');
+      const descriptionInput = document.getElementById('collectionDescriptionInput');
+      const errorEl = document.getElementById('collectionFormError');
+      if (!nameInput) {
+        return;
+      }
+      const name = nameInput.value ? nameInput.value.trim() : '';
+      const description = descriptionInput && descriptionInput.value ? descriptionInput.value.trim() : '';
+
+      if (!name) {
+        if (errorEl) {
+          errorEl.textContent = 'Please enter a collection name.';
+        }
+        return;
+      }
+      if (errorEl) {
+        errorEl.textContent = '';
+      }
+
+      let response;
+      try {
+        response = WebsiteSDK.createSpeciesCollection(name, description || undefined);
+      } catch (error) {
+        if (errorEl) {
+          errorEl.textContent = 'There was a problem creating the collection. Please try again.';
+        }
+        return;
+      }
+
+      if (!response || !response.collection) {
+        if (errorEl) {
+          errorEl.textContent = 'The collection could not be created.';
+        }
+        return;
+      }
+
+      lastCollection = response.collection;
+
+      nameInput.value = '';
+      if (descriptionInput) {
+        descriptionInput.value = '';
+      }
+
+      const dialog = document.getElementById('collectionDialog');
+      const success = document.getElementById('collectionSuccessMessage');
+      const successText = success ? success.querySelector('[data-populate="collection-success-message"]') : null;
+
+      if (dialog) {
+        dialog.hidden = true;
+      }
+      if (success) {
+        success.hidden = false;
+      }
+      if (successText && lastCollection && lastCollection.name) {
+        successText.textContent = 'Collection "' + lastCollection.name + '" was created from the current results.';
+      }
+    }
+
+    function handleViewCollection() {
+      if (!lastCollection || !lastCollection.id) {
+        return;
+      }
+      const url = 'collections.html?collectionId=' + encodeURIComponent(lastCollection.id);
+      window.location.href = url;
+    }
+
+    function updatePollutionDisplay() {
+      const displaySpan = document.getElementById('pollutionToleranceValueDisplay');
+      if (!displaySpan) {
+        return;
+      }
+      displaySpan.textContent = getPollutionDisplayText();
+    }
+
+    function runSearchAndRender() {
+      const resultsContainer = document.querySelector('[data-populate="species-results"]');
+      const paginationContainer = document.querySelector('[data-populate="species-pagination"]');
+      const activeFiltersContainer = document.querySelector('[data-populate="active-filters"]');
+      const countContainer = document.querySelector('[data-populate="species-result-count"]');
+
+      if (!resultsContainer || !paginationContainer || !activeFiltersContainer) {
+        return;
+      }
+
+      resultsContainer.innerHTML = '';
+      const loadingP = document.createElement('p');
+      loadingP.textContent = 'Loading species...';
+      resultsContainer.appendChild(loadingP);
+
+      let response;
+      try {
+        response = WebsiteSDK.searchSpecies(
+          searchState.textQuery || undefined,
+          searchState.habitats && searchState.habitats.length ? searchState.habitats : undefined,
+          searchState.regions && searchState.regions.length ? searchState.regions : undefined,
+          searchState.difficultyLevels && searchState.difficultyLevels.length ? searchState.difficultyLevels : undefined,
+          searchState.pollutionToleranceMax !== null && searchState.pollutionToleranceMax !== undefined ? searchState.pollutionToleranceMax : undefined,
+          searchState.page,
+          PAGE_SIZE,
+          searchState.sortBy
+        );
+      } catch (error) {
+        resultsContainer.innerHTML = '';
+        const errorP = document.createElement('p');
+        errorP.textContent = 'There was a problem loading species. Please try again.';
+        resultsContainer.appendChild(errorP);
+        if (paginationContainer) {
+          paginationContainer.innerHTML = '';
+        }
+        if (countContainer) {
+          countContainer.innerHTML = '';
+        }
+        return;
+      }
+
+      const results = response && response.results ? response.results : [];
+      const totalCount = response && typeof response.totalCount === 'number' ? response.totalCount : 0;
+
+      renderSpeciesResults(resultsContainer, results);
+      renderPagination(paginationContainer, totalCount, searchState);
+      renderActiveFilters(activeFiltersContainer, filterOptions, searchState);
+      if (countContainer) {
+        renderResultCount(countContainer, totalCount, searchState);
+      }
+
+      bindActionHandlers(document);
+    }
+
+    function initialise() {
+      const filterContainer = document.querySelector('[data-populate="species-filter-controls"]');
+      const resultsContainer = document.querySelector('[data-populate="species-results"]');
+      const paginationContainer = document.querySelector('[data-populate="species-pagination"]');
+      const activeFiltersContainer = document.querySelector('[data-populate="active-filters"]');
+
+      if (!filterContainer || !resultsContainer || !paginationContainer || !activeFiltersContainer) {
+        return;
+      }
+
+      parseStateFromUrl();
+      updateUrl(false);
+
+      try {
+        filterOptions = WebsiteSDK.getSpeciesFilterOptions();
+      } catch (error) {
+        resultsContainer.innerHTML = '';
+        const errorP = document.createElement('p');
+        errorP.textContent = 'There was a problem loading filter options.';
+        resultsContainer.appendChild(errorP);
+        return;
+      }
+
+      renderFilterControls(filterContainer, filterOptions, searchState);
+      bindActionHandlers(document);
+      runSearchAndRender();
+
+      window.addEventListener('popstate', function() {
+        parseStateFromUrl();
+        const filterContainerPop = document.querySelector('[data-populate="species-filter-controls"]');
+        renderFilterControls(filterContainerPop, filterOptions, searchState);
+        bindActionHandlers(document);
+        runSearchAndRender();
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', initialise);
+  }());
+  </script>
+</body>
+</html>

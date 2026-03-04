@@ -1,0 +1,1287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Apps Catalog - Mobile Apps Website</title>
+  <meta name="description" content="Browse, search, filter, sort, and compare mobile apps across platforms, with deep-linkable filtered views and navigation to app details.">
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='apps.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <nav class='top-nav' aria-label='Main navigation'>
+      <ul class='nav-list'>
+        <li class='nav-item'><a href='index.html'>Home</a></li>
+        <li class='nav-item'><a href='apps.html'>Apps</a></li>
+        <li class='nav-item'><a href='pricing.html'>Pricing</a></li>
+        <li class='nav-item'><a href='resources.html'>Resources</a></li>
+        <li class='nav-item'><a href='support.html'>Support</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id='content'>
+    <div class="content-inner" data-component="apps-catalog-controller">
+      <h1 class="page-title">Apps Catalog</h1>
+      <p class="page-intro">Browse, search, filter, and compare mobile apps across platforms in one place.</p>
+
+      <div class="apps-main-wrapper">
+        <!-- Top control strip: currency/region, search, sort -->
+        <div class="apps-control-row">
+          <div class="control-column control-column-left" data-component="currency-region-selector" data-populate="currency-region-selector"></div>
+          <div class="control-column control-column-center" data-component="apps-search-bar" data-populate="apps-search-bar"></div>
+          <div class="control-column control-column-right" data-component="apps-sort-control" data-populate="apps-sort-control"></div>
+        </div>
+
+        <!-- Main content columns: filters (left), results (center), whitespace (right) -->
+        <div class="apps-main-content">
+          <aside class="apps-filter-panel" data-component="apps-filter-panel" data-populate="apps-filter-panel" aria-label="Filter apps"></aside>
+
+          <section class="apps-results-column" aria-label="App results">
+            <div class="apps-result-summary" data-component="apps-result-summary" data-populate="apps-result-summary"></div>
+            <div class="apps-card-grid" data-component="apps-card-grid" data-populate="apps-card-grid"></div>
+            <div class="apps-pagination" data-component="apps-pagination-control" data-populate="apps-pagination-control"></div>
+          </section>
+
+          <div class="apps-right-column" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <!-- Sticky comparison bar at bottom -->
+      <div class="comparison-sticky-bar" data-component="comparison-sticky-bar" data-populate="comparison-sticky-bar" aria-live="polite"></div>
+
+      <!-- Non-visual URL state sync component -->
+      <div data-component="apps-url-state-sync" style="display:none"></div>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner'>
+      <div class='footer-links'>
+        <a href='about.html'>About</a>
+        <span class='footer-separator'>|</span>
+        <a href='apps.html'>Apps Catalog</a>
+        <span class='footer-separator'>|</span>
+        <a href='pricing.html'>Pricing &amp; Plans</a>
+        <span class='footer-separator'>|</span>
+        <a href='faq_list.html'>FAQs / Help Center</a>
+        <span class='footer-separator'>|</span>
+        <a href='contact_support.html'>Contact Support</a>
+        <span class='footer-separator'>|</span>
+        <a href='resources.html'>Guides &amp; Tutorials</a>
+        <span class='footer-separator'>|</span>
+        <a href='privacy.html'>Privacy Policy</a>
+        <span class='footer-separator'>|</span>
+        <a href='terms.html'>Terms of Use</a>
+      </div>
+      <p class='footer-copy'>&copy; 2026 Your Company Name</p>
+    </div>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+  (function() {
+    'use strict';
+
+    var PAGE_SIZE = 10;
+
+    var appState = {
+      sitePreference: null,
+      filtersMeta: null,
+      comparisonSelection: {
+        maxSelectable: 0,
+        selectedApps: []
+      },
+      searchResult: {
+        total: 0,
+        items: [],
+        appliedFilters: {},
+        limit: PAGE_SIZE,
+        offset: 0
+      }
+    };
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) {
+        return '';
+      }
+      return String(str).replace(/[&<>"']/g, function(c) {
+        switch (c) {
+          case '&': return '&amp;';
+          case '<': return '&lt;';
+          case '>': return '&gt;';
+          case '"': return '&quot;';
+          case "'": return '&#39;';
+          default: return c;
+        }
+      });
+    }
+
+    function readUrlState() {
+      var params = new URLSearchParams(window.location.search);
+      var state = {};
+
+      var pageStr = params.get('page');
+      if (pageStr) {
+        var pageNum = parseInt(pageStr, 10);
+        if (!isNaN(pageNum) && pageNum > 0) {
+          state.page = pageNum;
+        }
+      }
+
+      var categoryId = params.get('categoryId');
+      if (categoryId) {
+        state.categoryId = categoryId;
+      }
+
+      var platformsStr = params.get('platforms');
+      if (platformsStr) {
+        var plats = platformsStr.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+        if (plats.length) {
+          state.platforms = plats;
+        }
+      }
+
+      var pricingModel = params.get('pricingModel');
+      if (pricingModel) {
+        state.pricingModel = pricingModel;
+      }
+
+      var minRatingStr = params.get('minRating');
+      if (minRatingStr) {
+        var mr = parseFloat(minRatingStr);
+        if (!isNaN(mr)) {
+          state.minRating = mr;
+        }
+      }
+
+      var maxMonthlyPriceStr = params.get('maxMonthlyPrice');
+      if (maxMonthlyPriceStr) {
+        var mmp = parseFloat(maxMonthlyPriceStr);
+        if (!isNaN(mmp)) {
+          state.maxMonthlyPrice = mmp;
+        }
+      }
+
+      var maxOneTimePriceStr = params.get('maxOneTimePrice');
+      if (maxOneTimePriceStr) {
+        var motp = parseFloat(maxOneTimePriceStr);
+        if (!isNaN(motp)) {
+          state.maxOneTimePrice = motp;
+        }
+      }
+
+      var featureTagsStr = params.get('featureTags');
+      if (featureTagsStr) {
+        var fts = featureTagsStr.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+        if (fts.length) {
+          state.featureTags = fts;
+        }
+      }
+
+      var androidMinOsVersion = params.get('androidMinOsVersion');
+      if (androidMinOsVersion) {
+        state.androidMinOsVersion = androidMinOsVersion;
+      }
+      var iosMinOsVersion = params.get('iosMinOsVersion');
+      if (iosMinOsVersion) {
+        state.iosMinOsVersion = iosMinOsVersion;
+      }
+      var ipadMinOsVersion = params.get('ipadMinOsVersion');
+      if (ipadMinOsVersion) {
+        state.ipadMinOsVersion = ipadMinOsVersion;
+      }
+
+      var sortBy = params.get('sortBy');
+      if (sortBy) {
+        state.sortBy = sortBy;
+      }
+
+      var sortDirection = params.get('sortDirection');
+      if (sortDirection) {
+        state.sortDirection = sortDirection;
+      }
+
+      var query = params.get('query');
+      if (query) {
+        state.query = query;
+      }
+
+      var hasFreeTrialStr = params.get('hasFreeTrial');
+      if (hasFreeTrialStr === 'true') {
+        state.hasFreeTrial = true;
+      }
+
+      return state;
+    }
+
+    function writeUrlState(state, options) {
+      var params = new URLSearchParams();
+
+      if (state.categoryId) {
+        params.set('categoryId', state.categoryId);
+      }
+
+      if (state.platforms && state.platforms.length) {
+        params.set('platforms', state.platforms.join(','));
+      }
+
+      if (state.pricingModel) {
+        params.set('pricingModel', state.pricingModel);
+      }
+
+      if (typeof state.minRating === 'number' && !isNaN(state.minRating)) {
+        params.set('minRating', String(state.minRating));
+      }
+
+      if (typeof state.maxMonthlyPrice === 'number' && !isNaN(state.maxMonthlyPrice)) {
+        params.set('maxMonthlyPrice', String(state.maxMonthlyPrice));
+      }
+
+      if (typeof state.maxOneTimePrice === 'number' && !isNaN(state.maxOneTimePrice)) {
+        params.set('maxOneTimePrice', String(state.maxOneTimePrice));
+      }
+
+      if (state.featureTags && state.featureTags.length) {
+        params.set('featureTags', state.featureTags.join(','));
+      }
+
+      if (state.androidMinOsVersion) {
+        params.set('androidMinOsVersion', state.androidMinOsVersion);
+      }
+
+      if (state.iosMinOsVersion) {
+        params.set('iosMinOsVersion', state.iosMinOsVersion);
+      }
+
+      if (state.ipadMinOsVersion) {
+        params.set('ipadMinOsVersion', state.ipadMinOsVersion);
+      }
+
+      if (state.sortBy) {
+        params.set('sortBy', state.sortBy);
+      }
+
+      if (state.sortDirection) {
+        params.set('sortDirection', state.sortDirection);
+      }
+
+      if (state.query) {
+        params.set('query', state.query);
+      }
+
+      if (state.hasFreeTrial === true) {
+        params.set('hasFreeTrial', 'true');
+      }
+
+      if (state.page && state.page > 1) {
+        params.set('page', String(state.page));
+      } else if (state.page === 1) {
+        // omit page=1 to keep URL short
+      }
+
+      var newUrl = window.location.pathname;
+      var qs = params.toString();
+      if (qs) {
+        newUrl += '?' + qs;
+      }
+
+      if (options && options.replace) {
+        window.history.replaceState(null, '', newUrl);
+      } else {
+        window.history.pushState(null, '', newUrl);
+      }
+    }
+
+    function performSearch() {
+      var urlState = readUrlState();
+      var page = urlState.page && urlState.page > 0 ? urlState.page : 1;
+      var limit = PAGE_SIZE;
+      var offset = (page - 1) * limit;
+
+      var featureTagLabels;
+      if (urlState.featureTags && appState.filtersMeta && appState.filtersMeta.featureTags) {
+        featureTagLabels = [];
+        for (var i = 0; i < urlState.featureTags.length; i++) {
+          var key = urlState.featureTags[i];
+          var label = null;
+          for (var j = 0; j < appState.filtersMeta.featureTags.length; j++) {
+            var ft = appState.filtersMeta.featureTags[j];
+            if (ft.key === key) {
+              label = ft.label;
+              break;
+            }
+          }
+          featureTagLabels.push(label || key);
+        }
+      }
+
+      var appliedSortBy = urlState.sortBy;
+      var appliedSortDirection = urlState.sortDirection;
+      if (!appliedSortBy && appState.filtersMeta && appState.filtersMeta.sortingOptions && appState.filtersMeta.sortingOptions.length) {
+        appliedSortBy = appState.filtersMeta.sortingOptions[0].key;
+      }
+      if (!appliedSortDirection) {
+        appliedSortDirection = 'desc';
+      }
+
+      var resp;
+      try {
+        resp = WebsiteSDK.searchApps(
+          urlState.query || undefined,
+          urlState.categoryId || undefined,
+          (urlState.platforms && urlState.platforms.length) ? urlState.platforms : undefined,
+          urlState.androidMinOsVersion || undefined,
+          urlState.iosMinOsVersion || undefined,
+          urlState.ipadMinOsVersion || undefined,
+          urlState.pricingModel || undefined,
+          (typeof urlState.minRating === 'number' && !isNaN(urlState.minRating)) ? urlState.minRating : undefined,
+          (typeof urlState.maxMonthlyPrice === 'number' && !isNaN(urlState.maxMonthlyPrice)) ? urlState.maxMonthlyPrice : undefined,
+          (typeof urlState.maxOneTimePrice === 'number' && !isNaN(urlState.maxOneTimePrice)) ? urlState.maxOneTimePrice : undefined,
+          (featureTagLabels && featureTagLabels.length) ? featureTagLabels : undefined,
+          (urlState.hasFreeTrial === true) ? true : undefined,
+          appliedSortBy || undefined,
+          appliedSortDirection || undefined,
+          limit,
+          offset
+        );
+      } catch (e) {
+        console.error('searchApps failed', e);
+        appState.searchResult = {
+          total: 0,
+          items: [],
+          appliedFilters: {},
+          limit: limit,
+          offset: offset
+        };
+        renderAll();
+        return;
+      }
+
+      appState.searchResult = {
+        total: resp && typeof resp.total === 'number' ? resp.total : 0,
+        items: resp && resp.items ? resp.items : [],
+        appliedFilters: resp && resp.appliedFilters ? resp.appliedFilters : {},
+        limit: limit,
+        offset: offset
+      };
+
+      renderAll();
+    }
+
+    function renderCurrencyRegionSelector(container, preference) {
+      var currency = (preference && preference.currency) ? preference.currency : 'usd';
+      var region = (preference && preference.region) ? preference.region : '';
+      var currencies = ['usd', 'eur'];
+      var regions = ['', 'United States', 'Canada', 'Germany', 'United Kingdom', 'France'];
+
+      var html = '<div class="currency-region">';
+      html += '<strong>Currency &amp; Region</strong><br>';
+      html += '<label>Currency: ';
+      html += '<select data-action="change-currency">';
+      for (var i = 0; i < currencies.length; i++) {
+        var c = currencies[i];
+        var selected = (c === currency) ? ' selected' : '';
+        html += '<option value="' + c + '"' + selected + '>' + c.toUpperCase() + '</option>';
+      }
+      html += '</select>';
+      html += '</label><br>';
+
+      html += '<label>Region: ';
+      html += '<select data-action="change-region">';
+      for (var j = 0; j < regions.length; j++) {
+        var r = regions[j];
+        var valueAttr = ' value="' + escapeHtml(r) + '"';
+        var display = r || 'Select region';
+        var isSelected = (!region && !r) || (region && r === region);
+        html += '<option' + valueAttr + (isSelected ? ' selected' : '') + '>' + escapeHtml(display) + '</option>';
+      }
+      html += '</select>';
+      html += '</label>';
+
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    function renderSearchBar(container, appliedFilters) {
+      var queryValue = appliedFilters && appliedFilters.query ? appliedFilters.query : '';
+      var safeQuery = escapeHtml(queryValue);
+      var html = '';
+      html += '<form data-action="apps-search-form">';
+      html += '<label for="appsSearchInput">Search apps:</label> ';
+      html += '<input type="text" id="appsSearchInput" name="query" value="' + safeQuery + '"> ';
+      html += '<button type="submit">Search</button> ';
+      html += '<a href="javascript:void(0)" data-action="clear-search">Clear</a>';
+      html += '</form>';
+      container.innerHTML = html;
+    }
+
+    function renderSortControl(container, meta, appliedFilters) {
+      if (!meta || !meta.sortingOptions) {
+        container.innerHTML = '';
+        return;
+      }
+      var options = meta.sortingOptions;
+      var sortBy = (appliedFilters && appliedFilters.sortBy) ? appliedFilters.sortBy : (options[0] && options[0].key ? options[0].key : '');
+      var sortDirection = (appliedFilters && appliedFilters.sortDirection) ? appliedFilters.sortDirection : 'desc';
+
+      var html = '';
+      html += '<form class="sort-form">';
+      html += '<label>Sort by ';
+      html += '<select data-action="change-sort-by">';
+      for (var i = 0; i < options.length; i++) {
+        var opt = options[i];
+        var selected = (opt.key === sortBy) ? ' selected' : '';
+        html += '<option value="' + escapeHtml(opt.key) + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
+      }
+      html += '</select>';
+      html += '</label> ';
+      html += '<a href="javascript:void(0)" data-action="toggle-sort-direction">' + (sortDirection === 'asc' ? 'Ascending' : 'Descending') + '</a>';
+      html += '</form>';
+
+      container.innerHTML = html;
+    }
+
+    function renderFilterPanel(container, meta, appliedFilters) {
+      if (!meta) {
+        container.innerHTML = '<p>Loading filters...</p>';
+        return;
+      }
+
+      var categoryId = appliedFilters && appliedFilters.categoryId ? appliedFilters.categoryId : '';
+      var platforms = (appliedFilters && appliedFilters.platforms) ? appliedFilters.platforms : [];
+      var pricingModel = appliedFilters && appliedFilters.pricingModel ? appliedFilters.pricingModel : '';
+      var minRating = (appliedFilters && typeof appliedFilters.minRating === 'number') ? appliedFilters.minRating : '';
+      var maxMonthlyPrice = (appliedFilters && typeof appliedFilters.maxMonthlyPrice === 'number') ? appliedFilters.maxMonthlyPrice : '';
+      var maxOneTimePrice = (appliedFilters && typeof appliedFilters.maxOneTimePrice === 'number') ? appliedFilters.maxOneTimePrice : '';
+      var featureTagsApplied = (appliedFilters && appliedFilters.featureTags) ? appliedFilters.featureTags : [];
+      var hasFreeTrial = !!(appliedFilters && appliedFilters.hasFreeTrial);
+
+      var html = '';
+
+      // Category
+      html += '<div class="filter-group">';
+      html += '<h2>Category</h2>';
+      html += '<select name="categoryId" data-action="filter-category">';
+      html += '<option value="">All categories</option>';
+      if (meta.categories) {
+        for (var i = 0; i < meta.categories.length; i++) {
+          var cat = meta.categories[i];
+          var selected = (cat.id === categoryId) ? ' selected' : '';
+          html += '<option value="' + escapeHtml(cat.id) + '"' + selected + '>' + escapeHtml(cat.name) + '</option>';
+        }
+      }
+      html += '</select>';
+      html += '</div>';
+
+      // Platforms
+      html += '<div class="filter-group">';
+      html += '<h2>Platforms</h2>';
+      if (meta.platforms) {
+        for (var j = 0; j < meta.platforms.length; j++) {
+          var plat = meta.platforms[j];
+          var platKey = plat.key;
+          var checked = (platforms && platforms.indexOf(platKey) !== -1) ? ' checked' : '';
+          html += '<label><input type="checkbox" data-action="filter-platform" data-platform-key="' + escapeHtml(platKey) + '"' + checked + '> ' + escapeHtml(plat.label || platKey) + '</label><br>';
+        }
+      }
+      html += '</div>';
+
+      // OS versions
+      html += '<div class="filter-group">';
+      html += '<h2>Minimum OS version</h2>';
+      var androidOpts = meta.osVersionOptions && meta.osVersionOptions.android ? meta.osVersionOptions.android : null;
+      var iosOpts = meta.osVersionOptions && meta.osVersionOptions.ios ? meta.osVersionOptions.ios : null;
+      var ipadOpts = meta.osVersionOptions && meta.osVersionOptions.ipad ? meta.osVersionOptions.ipad : null;
+
+      var androidPlaceholder = androidOpts && androidOpts.min ? androidOpts.min + '+' : '';
+      var iosPlaceholder = iosOpts && iosOpts.min ? iosOpts.min + '+' : '';
+      var ipadPlaceholder = ipadOpts && ipadOpts.min ? ipadOpts.min + '+' : '';
+
+      html += '<label>Android: <input type="text" data-action="filter-android-os" value="' + (appliedFilters && appliedFilters.androidMinOsVersion ? escapeHtml(appliedFilters.androidMinOsVersion) : '') + '" placeholder="' + escapeHtml(androidPlaceholder) + '"></label><br>';
+      html += '<label>iOS: <input type="text" data-action="filter-ios-os" value="' + (appliedFilters && appliedFilters.iosMinOsVersion ? escapeHtml(appliedFilters.iosMinOsVersion) : '') + '" placeholder="' + escapeHtml(iosPlaceholder) + '"></label><br>';
+      html += '<label>iPad: <input type="text" data-action="filter-ipad-os" value="' + (appliedFilters && appliedFilters.ipadMinOsVersion ? escapeHtml(appliedFilters.ipadMinOsVersion) : '') + '" placeholder="' + escapeHtml(ipadPlaceholder) + '"></label>';
+      html += '</div>';
+
+      // Pricing
+      html += '<div class="filter-group">';
+      html += '<h2>Pricing</h2>';
+      html += '<label>Model: ';
+      html += '<select data-action="filter-pricing-model">';
+      html += '<option value="">Any</option>';
+      if (meta.pricingModels) {
+        for (var k = 0; k < meta.pricingModels.length; k++) {
+          var pm = meta.pricingModels[k];
+          var pmSelected = (pm.key === pricingModel) ? ' selected' : '';
+          html += '<option value="' + escapeHtml(pm.key) + '"' + pmSelected + '>' + escapeHtml(pm.label) + '</option>';
+        }
+      }
+      html += '</select>';
+      html += '</label><br>';
+
+      var priceRange = meta.priceRange || {};
+      var minPrice = (typeof priceRange.min === 'number') ? priceRange.min : '';
+      var maxPrice = (typeof priceRange.max === 'number') ? priceRange.max : '';
+      var step = (typeof priceRange.step === 'number') ? priceRange.step : 1;
+
+      html += '<label>Max monthly price: <input type="number" data-action="filter-max-monthly-price" min="' + (minPrice !== '' ? String(minPrice) : '') + '" max="' + (maxPrice !== '' ? String(maxPrice) : '') + '" step="' + String(step) + '" value="' + (maxMonthlyPrice !== '' ? String(maxMonthlyPrice) : '') + '"></label><br>';
+      html += '<label>Max one-time price: <input type="number" data-action="filter-max-one-time-price" min="' + (minPrice !== '' ? String(minPrice) : '') + '" max="' + (maxPrice !== '' ? String(maxPrice) : '') + '" step="' + String(step) + '" value="' + (maxOneTimePrice !== '' ? String(maxOneTimePrice) : '') + '"></label>';
+      html += '</div>';
+
+      // Rating
+      html += '<div class="filter-group">';
+      html += '<h2>Minimum rating</h2>';
+      html += '<select data-action="filter-min-rating">';
+      html += '<option value="">Any rating</option>';
+      if (meta.ratingOptions) {
+        for (var r = 0; r < meta.ratingOptions.length; r++) {
+          var ro = meta.ratingOptions[r];
+          var roVal = ro.minRating;
+          var roSelected = (minRating !== '' && Number(minRating) === Number(roVal)) ? ' selected' : '';
+          html += '<option value="' + String(roVal) + '"' + roSelected + '>' + escapeHtml(ro.label) + '</option>';
+        }
+      }
+      html += '</select>';
+      html += '</div>';
+
+      // Feature tags
+      html += '<div class="filter-group">';
+      html += '<h2>Features</h2>';
+      if (meta.featureTags) {
+        for (var f = 0; f < meta.featureTags.length; f++) {
+          var ft = meta.featureTags[f];
+          var featureKey = ft.key;
+          var isChecked = false;
+          if (featureTagsApplied && featureTagsApplied.length) {
+            for (var fa = 0; fa < featureTagsApplied.length; fa++) {
+              if (featureTagsApplied[fa] === ft.label || featureTagsApplied[fa] === ft.key) {
+                isChecked = true;
+                break;
+              }
+            }
+          }
+          html += '<label><input type="checkbox" data-action="filter-feature-tag" data-feature-key="' + escapeHtml(featureKey) + '"' + (isChecked ? ' checked' : '') + '> ' + escapeHtml(ft.label) + '</label><br>';
+        }
+      }
+      html += '</div>';
+
+      // Free trial
+      html += '<div class="filter-group">';
+      html += '<h2>Free trial</h2>';
+      html += '<label><input type="checkbox" data-action="filter-has-free-trial"' + (hasFreeTrial ? ' checked' : '') + '> Show apps with free trial only</label>';
+      html += '</div>';
+
+      // Reset filters
+      html += '<div class="filter-group">';
+      html += '<a href="javascript:void(0)" data-action="reset-filters">Reset all filters</a>';
+      html += '</div>';
+
+      container.innerHTML = html;
+    }
+
+    function renderResultSummary(container, searchResult) {
+      if (!searchResult) {
+        container.innerHTML = '';
+        return;
+      }
+      var total = searchResult.total || 0;
+      var items = searchResult.items || [];
+      if (!total || !items.length) {
+        container.textContent = 'No apps found for your current filters.';
+        return;
+      }
+      var start = searchResult.offset + 1;
+      var end = searchResult.offset + items.length;
+      if (end > total) {
+        end = total;
+      }
+      var text = total + ' apps found - showing ' + start + ' to ' + end + '.';
+      container.textContent = text;
+    }
+
+    function platformLabel(key) {
+      if (appState.filtersMeta && appState.filtersMeta.platforms) {
+        for (var i = 0; i < appState.filtersMeta.platforms.length; i++) {
+          var p = appState.filtersMeta.platforms[i];
+          if (p.key === key) {
+            return p.label || key;
+          }
+        }
+      }
+      return key;
+    }
+
+    function renderCardGrid(container, searchResult, comparisonSelection, filtersMeta) {
+      var items = (searchResult && searchResult.items) ? searchResult.items : [];
+      if (!items.length) {
+        container.innerHTML = '<p>No apps to display.</p>';
+        return;
+      }
+
+      var selectedIds = {};
+      if (comparisonSelection && comparisonSelection.selectedApps) {
+        for (var i = 0; i < comparisonSelection.selectedApps.length; i++) {
+          var sa = comparisonSelection.selectedApps[i];
+          if (sa && sa.id) {
+            selectedIds[sa.id] = true;
+          }
+        }
+      }
+
+      var html = '';
+      for (var j = 0; j < items.length; j++) {
+        var app = items[j];
+        var isSelected = !!selectedIds[app.id];
+        var platformsText = '';
+        if (app.platforms && app.platforms.length) {
+          var labels = [];
+          for (var p = 0; p < app.platforms.length; p++) {
+            var pl = app.platforms[p];
+            if (pl.isSupported) {
+              labels.push(platformLabel(pl.platform));
+            }
+          }
+          platformsText = labels.join(', ');
+        }
+        var displayPrice = app.displayPrice ? app.displayPrice : '';
+        var ratingText = '';
+        if (typeof app.rating === 'number' && !isNaN(app.rating)) {
+          ratingText = app.rating.toFixed(1) + ' stars';
+          if (typeof app.ratingCount === 'number' && !isNaN(app.ratingCount) && app.ratingCount > 0) {
+            ratingText += ' (' + app.ratingCount + ' reviews)';
+          }
+        }
+        var featureTags = '';
+        if (app.featureTags && app.featureTags.length) {
+          featureTags = app.featureTags.join(', ');
+        }
+        var freeTrialText = '';
+        if (app.hasFreeTrial) {
+          if (typeof app.freeTrialDays === 'number' && !isNaN(app.freeTrialDays) && app.freeTrialDays > 0) {
+            freeTrialText = 'Free trial: ' + app.freeTrialDays + ' days';
+          } else {
+            freeTrialText = 'Free trial available';
+          }
+        }
+
+        html += '<div class="app-card" data-component="app-card" data-app-id="' + escapeHtml(app.id) + '">';
+        html += '  <div class="app-card-inner">';
+        html += '    <div class="app-card-left" data-role="card-body">';
+        html += '      <div class="app-thumb-placeholder"></div>';
+        html += '    </div>';
+        html += '    <div class="app-card-middle" data-role="card-body">';
+        html += '      <p class="app-name"><strong>' + escapeHtml(app.name) + '</strong></p>';
+        if (app.shortDescription) {
+          html += '      <p class="app-short-description">' + escapeHtml(app.shortDescription) + '</p>';
+        }
+        if (platformsText) {
+          html += '      <p class="app-platforms">Platforms: ' + escapeHtml(platformsText) + '</p>';
+        }
+        if (displayPrice) {
+          html += '      <p class="app-price">Price: ' + escapeHtml(displayPrice) + '</p>';
+        }
+        if (ratingText) {
+          html += '      <p class="app-rating">' + escapeHtml(ratingText) + '</p>';
+        }
+        if (featureTags) {
+          html += '      <p class="app-features">Features: ' + escapeHtml(featureTags) + '</p>';
+        }
+        if (freeTrialText) {
+          html += '      <p class="app-free-trial">' + escapeHtml(freeTrialText) + '</p>';
+        }
+        html += '      <p class="app-links"><a href="javascript:void(0)" data-action="open-app-detail-link" data-app-id="' + escapeHtml(app.id) + '">View details</a></p>';
+        html += '    </div>';
+        html += '    <div class="app-card-right" data-role="compare-toggle-container">';
+        html += '      <label data-role="compare-toggle-container"><input type="checkbox" data-action="toggle-compare" data-app-id="' + escapeHtml(app.id) + '"' + (isSelected ? ' checked' : '') + '> Compare</label>';
+        html += '    </div>';
+        html += '  </div>';
+        html += '</div>';
+      }
+
+      container.innerHTML = html;
+    }
+
+    function renderPagination(container, searchResult) {
+      if (!searchResult) {
+        container.innerHTML = '';
+        return;
+      }
+      var total = searchResult.total || 0;
+      var limit = searchResult.limit || PAGE_SIZE;
+      var offset = searchResult.offset || 0;
+      if (!total || total <= limit) {
+        container.innerHTML = '';
+        return;
+      }
+
+      var currentPage = Math.floor(offset / limit) + 1;
+      var totalPages = Math.ceil(total / limit);
+
+      var html = '<div class="pagination-links">';
+      if (currentPage > 1) {
+        html += '<a href="javascript:void(0)" data-action="pagination-prev">Previous</a> ';
+      }
+      for (var p = 1; p <= totalPages; p++) {
+        if (p === currentPage) {
+          html += '<span>' + p + '</span> ';
+        } else {
+          html += '<a href="javascript:void(0)" data-action="pagination-page" data-page="' + p + '">' + p + '</a> ';
+        }
+      }
+      if (currentPage < totalPages) {
+        html += '<a href="javascript:void(0)" data-action="pagination-next">Next</a>';
+      }
+      html += '</div>';
+
+      container.innerHTML = html;
+    }
+
+    function renderComparisonStickyBar(container, comparisonSelection) {
+      var selected = (comparisonSelection && comparisonSelection.selectedApps) ? comparisonSelection.selectedApps : [];
+      if (!selected || !selected.length) {
+        container.innerHTML = '';
+        container.style.display = 'none';
+        return;
+      }
+      container.style.display = 'block';
+      var count = selected.length;
+      var html = '<div class="comparison-bar-inner">';
+      html += '<span class="comparison-label">Selected for comparison:</span> ';
+      for (var i = 0; i < selected.length; i++) {
+        var app = selected[i];
+        if (!app || !app.id) {
+          continue;
+        }
+        if (i > 0) {
+          html += ' | ';
+        }
+        html += '<span class="comparison-item">' + escapeHtml(app.name) + ' <a href="javascript:void(0)" data-action="remove-compare" data-app-id="' + escapeHtml(app.id) + '">Remove</a></span>';
+      }
+      html += ' <span class="comparison-button">';
+      if (count < 2) {
+        html += '<a href="javascript:void(0)" data-action="go-to-comparison" data-disabled="true">Compare (' + count + ')</a> (select at least 2 apps)';
+      } else {
+        html += '<a href="javascript:void(0)" data-action="go-to-comparison">Compare (' + count + ')</a>';
+      }
+      html += '</span>';
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    function renderAll() {
+      var containers = document.querySelectorAll('[data-populate]');
+      var res = appState.searchResult;
+      var meta = appState.filtersMeta;
+      var pref = appState.sitePreference;
+      var cmp = appState.comparisonSelection;
+
+      for (var i = 0; i < containers.length; i++) {
+        var el = containers[i];
+        var type = el.getAttribute('data-populate');
+        if (type === 'currency-region-selector') {
+          renderCurrencyRegionSelector(el, pref);
+        } else if (type === 'apps-search-bar') {
+          renderSearchBar(el, res.appliedFilters || {});
+        } else if (type === 'apps-sort-control') {
+          renderSortControl(el, meta, res.appliedFilters || {});
+        } else if (type === 'apps-filter-panel') {
+          renderFilterPanel(el, meta, res.appliedFilters || {});
+        } else if (type === 'apps-result-summary') {
+          renderResultSummary(el, res);
+        } else if (type === 'apps-card-grid') {
+          renderCardGrid(el, res, cmp, meta);
+        } else if (type === 'apps-pagination-control') {
+          renderPagination(el, res);
+        } else if (type === 'comparison-sticky-bar') {
+          renderComparisonStickyBar(el, cmp);
+        }
+      }
+    }
+
+    function refreshComparisonSelection() {
+      var resp;
+      try {
+        resp = WebsiteSDK.getCurrentAppComparisonSelection();
+      } catch (e) {
+        console.error('getCurrentAppComparisonSelection failed', e);
+        return;
+      }
+      appState.comparisonSelection = {
+        maxSelectable: resp && typeof resp.maxSelectable === 'number' ? resp.maxSelectable : 0,
+        selectedApps: resp && resp.selectedApps ? resp.selectedApps : []
+      };
+      renderAll();
+    }
+
+    function toggleCompare(appId, selected, checkboxElement) {
+      var resp;
+      try {
+        resp = WebsiteSDK.updateAppComparisonSelection(appId, selected);
+      } catch (e) {
+        console.error('updateAppComparisonSelection failed', e);
+        if (checkboxElement) {
+          checkboxElement.checked = !selected;
+        }
+        alert('Unable to update comparison selection. Please try again.');
+        return;
+      }
+      if (!resp || !resp.success) {
+        if (checkboxElement) {
+          checkboxElement.checked = !selected;
+        }
+        if (resp && resp.message) {
+          alert(resp.message);
+        }
+        return;
+      }
+      refreshComparisonSelection();
+    }
+
+    function handleSearchSubmit(form) {
+      var input = form.querySelector('input[name="query"]');
+      var query = input ? input.value.trim() : '';
+      var urlState = readUrlState();
+      if (query) {
+        urlState.query = query;
+      } else {
+        delete urlState.query;
+      }
+      urlState.page = 1;
+      writeUrlState(urlState);
+      performSearch();
+    }
+
+    function handleFilterPlatformsChange() {
+      var checked = document.querySelectorAll('input[type="checkbox"][data-action="filter-platform"]:checked');
+      var platforms = [];
+      for (var i = 0; i < checked.length; i++) {
+        var key = checked[i].getAttribute('data-platform-key');
+        if (key) {
+          platforms.push(key);
+        }
+      }
+      var urlState = readUrlState();
+      if (platforms.length) {
+        urlState.platforms = platforms;
+      } else {
+        delete urlState.platforms;
+      }
+      urlState.page = 1;
+      writeUrlState(urlState);
+      performSearch();
+    }
+
+    function handleFilterFeatureTagsChange() {
+      var checked = document.querySelectorAll('input[type="checkbox"][data-action="filter-feature-tag"]:checked');
+      var featureKeys = [];
+      for (var i = 0; i < checked.length; i++) {
+        var key = checked[i].getAttribute('data-feature-key');
+        if (key) {
+          featureKeys.push(key);
+        }
+      }
+      var urlState = readUrlState();
+      if (featureKeys.length) {
+        urlState.featureTags = featureKeys;
+      } else {
+        delete urlState.featureTags;
+      }
+      urlState.page = 1;
+      writeUrlState(urlState);
+      performSearch();
+    }
+
+    function handleChange(event) {
+      var target = event.target;
+      var action = target.getAttribute('data-action');
+      if (!action) {
+        return;
+      }
+
+      if (action === 'change-currency' || action === 'change-region') {
+        var wrapper = target.closest('[data-component="currency-region-selector"]');
+        if (!wrapper) {
+          return;
+        }
+        var currencySelect = wrapper.querySelector('select[data-action="change-currency"]');
+        var regionSelect = wrapper.querySelector('select[data-action="change-region"]');
+        var newCurrency = currencySelect ? currencySelect.value : 'usd';
+        var newRegion = regionSelect ? regionSelect.value : '';
+        var resp;
+        try {
+          resp = WebsiteSDK.updateSitePreference(newCurrency, newRegion || undefined);
+        } catch (e) {
+          console.error('updateSitePreference failed', e);
+          alert('Unable to update site preference.');
+          return;
+        }
+        if (!resp || !resp.success) {
+          if (resp && resp.message) {
+            alert(resp.message);
+          }
+          return;
+        }
+        appState.sitePreference = resp.preference || { currency: newCurrency, region: newRegion };
+        performSearch();
+        return;
+      }
+
+      if (action === 'filter-category') {
+        var urlState = readUrlState();
+        var val = target.value || '';
+        if (val) {
+          urlState.categoryId = val;
+        } else {
+          delete urlState.categoryId;
+        }
+        urlState.page = 1;
+        writeUrlState(urlState);
+        performSearch();
+        return;
+      }
+
+      if (action === 'filter-platform') {
+        handleFilterPlatformsChange();
+        return;
+      }
+
+      if (action === 'filter-android-os' || action === 'filter-ios-os' || action === 'filter-ipad-os') {
+        var osUrlState = readUrlState();
+        if (action === 'filter-android-os') {
+          var valueA = target.value.trim();
+          if (valueA) {
+            osUrlState.androidMinOsVersion = valueA;
+          } else {
+            delete osUrlState.androidMinOsVersion;
+          }
+        } else if (action === 'filter-ios-os') {
+          var valueI = target.value.trim();
+          if (valueI) {
+            osUrlState.iosMinOsVersion = valueI;
+          } else {
+            delete osUrlState.iosMinOsVersion;
+          }
+        } else if (action === 'filter-ipad-os') {
+          var valueP = target.value.trim();
+          if (valueP) {
+            osUrlState.ipadMinOsVersion = valueP;
+          } else {
+            delete osUrlState.ipadMinOsVersion;
+          }
+        }
+        osUrlState.page = 1;
+        writeUrlState(osUrlState);
+        performSearch();
+        return;
+      }
+
+      if (action === 'filter-pricing-model') {
+        var pmState = readUrlState();
+        var pmVal = target.value || '';
+        if (pmVal) {
+          pmState.pricingModel = pmVal;
+        } else {
+          delete pmState.pricingModel;
+        }
+        pmState.page = 1;
+        writeUrlState(pmState);
+        performSearch();
+        return;
+      }
+
+      if (action === 'filter-min-rating') {
+        var ratState = readUrlState();
+        var rv = target.value || '';
+        if (rv) {
+          var rvNum = parseFloat(rv);
+          if (!isNaN(rvNum)) {
+            ratState.minRating = rvNum;
+          } else {
+            delete ratState.minRating;
+          }
+        } else {
+          delete ratState.minRating;
+        }
+        ratState.page = 1;
+        writeUrlState(ratState);
+        performSearch();
+        return;
+      }
+
+      if (action === 'filter-max-monthly-price' || action === 'filter-max-one-time-price') {
+        var priceState = readUrlState();
+        var value = target.value;
+        if (action === 'filter-max-monthly-price') {
+          if (value) {
+            var num = parseFloat(value);
+            if (!isNaN(num)) {
+              priceState.maxMonthlyPrice = num;
+            } else {
+              delete priceState.maxMonthlyPrice;
+            }
+          } else {
+            delete priceState.maxMonthlyPrice;
+          }
+        } else {
+          if (value) {
+            var num2 = parseFloat(value);
+            if (!isNaN(num2)) {
+              priceState.maxOneTimePrice = num2;
+            } else {
+              delete priceState.maxOneTimePrice;
+            }
+          } else {
+            delete priceState.maxOneTimePrice;
+          }
+        }
+        priceState.page = 1;
+        writeUrlState(priceState);
+        performSearch();
+        return;
+      }
+
+      if (action === 'filter-feature-tag') {
+        handleFilterFeatureTagsChange();
+        return;
+      }
+
+      if (action === 'filter-has-free-trial') {
+        var ftState = readUrlState();
+        if (target.checked) {
+          ftState.hasFreeTrial = true;
+        } else {
+          delete ftState.hasFreeTrial;
+        }
+        ftState.page = 1;
+        writeUrlState(ftState);
+        performSearch();
+        return;
+      }
+
+      if (action === 'toggle-compare') {
+        event.stopPropagation();
+        var appId = target.getAttribute('data-app-id');
+        if (!appId) {
+          return;
+        }
+        toggleCompare(appId, !!target.checked, target);
+        return;
+      }
+    }
+
+    function handleClick(event) {
+      var target = event.target;
+      var action = target.getAttribute('data-action');
+
+      if (action === 'clear-search') {
+        event.preventDefault();
+        var urlState = readUrlState();
+        delete urlState.query;
+        urlState.page = 1;
+        writeUrlState(urlState);
+        performSearch();
+        return;
+      }
+
+      if (action === 'toggle-sort-direction') {
+        event.preventDefault();
+        var sState = readUrlState();
+        var currentDir = sState.sortDirection || 'desc';
+        sState.sortDirection = currentDir === 'asc' ? 'desc' : 'asc';
+        sState.page = 1;
+        writeUrlState(sState);
+        performSearch();
+        return;
+      }
+
+      if (action === 'reset-filters') {
+        event.preventDefault();
+        var rState = readUrlState();
+        delete rState.categoryId;
+        delete rState.platforms;
+        delete rState.pricingModel;
+        delete rState.minRating;
+        delete rState.maxMonthlyPrice;
+        delete rState.maxOneTimePrice;
+        delete rState.featureTags;
+        delete rState.androidMinOsVersion;
+        delete rState.iosMinOsVersion;
+        delete rState.ipadMinOsVersion;
+        delete rState.hasFreeTrial;
+        rState.page = 1;
+        writeUrlState(rState);
+        performSearch();
+        return;
+      }
+
+      if (action === 'pagination-prev') {
+        event.preventDefault();
+        var prevState = readUrlState();
+        var prevPage = prevState.page && prevState.page > 1 ? prevState.page - 1 : 1;
+        prevState.page = prevPage;
+        writeUrlState(prevState);
+        performSearch();
+        return;
+      }
+
+      if (action === 'pagination-next') {
+        event.preventDefault();
+        var nextState = readUrlState();
+        var currentPage = nextState.page && nextState.page > 0 ? nextState.page : 1;
+        nextState.page = currentPage + 1;
+        writeUrlState(nextState);
+        performSearch();
+        return;
+      }
+
+      if (action === 'pagination-page') {
+        event.preventDefault();
+        var pageStr = target.getAttribute('data-page');
+        if (!pageStr) {
+          return;
+        }
+        var pg = parseInt(pageStr, 10);
+        if (isNaN(pg) || pg <= 0) {
+          return;
+        }
+        var pgState = readUrlState();
+        pgState.page = pg;
+        writeUrlState(pgState);
+        performSearch();
+        return;
+      }
+
+      if (action === 'remove-compare') {
+        event.preventDefault();
+        var appId = target.getAttribute('data-app-id');
+        if (!appId) {
+          return;
+        }
+        toggleCompare(appId, false, null);
+        return;
+      }
+
+      if (action === 'go-to-comparison') {
+        event.preventDefault();
+        var disabled = target.getAttribute('data-disabled');
+        if (disabled === 'true') {
+          alert('Select at least two apps to compare.');
+          return;
+        }
+        window.location.href = 'apps_compare.html';
+        return;
+      }
+
+      if (action === 'open-app-detail-link') {
+        event.preventDefault();
+        var appId = target.getAttribute('data-app-id');
+        if (!appId) {
+          return;
+        }
+        window.location.href = 'app_detail.html?id=' + encodeURIComponent(appId);
+        return;
+      }
+
+      if (action === 'change-sort-by') {
+        // handled on change, not click
+        return;
+      }
+
+      // Prevent card navigation when clicking on compare controls
+      if (target.closest('[data-role="compare-toggle-container"]')) {
+        return;
+      }
+
+      // Card body click navigation
+      var body = target.closest('[data-role="card-body"]');
+      if (body) {
+        var card = body.closest('.app-card');
+        if (card) {
+          var cardAppId = card.getAttribute('data-app-id');
+          if (cardAppId) {
+            window.location.href = 'app_detail.html?id=' + encodeURIComponent(cardAppId);
+          }
+        }
+      }
+    }
+
+    function handleSubmit(event) {
+      var target = event.target;
+      var action = target.getAttribute('data-action');
+      if (action === 'apps-search-form') {
+        event.preventDefault();
+        handleSearchSubmit(target);
+      }
+    }
+
+    function handleChangeSort(event) {
+      var target = event.target;
+      var action = target.getAttribute('data-action');
+      if (action === 'change-sort-by') {
+        var sState = readUrlState();
+        var sortBy = target.value || '';
+        if (sortBy) {
+          sState.sortBy = sortBy;
+        } else {
+          delete sState.sortBy;
+        }
+        sState.page = 1;
+        writeUrlState(sState);
+        performSearch();
+      }
+    }
+
+    function handlePopState() {
+      performSearch();
+    }
+
+    function init() {
+      try {
+        appState.sitePreference = WebsiteSDK.getSitePreference();
+      } catch (e) {
+        console.error('getSitePreference failed', e);
+        appState.sitePreference = { currency: 'usd', region: '' };
+      }
+
+      try {
+        appState.filtersMeta = WebsiteSDK.getAppCatalogFilters();
+      } catch (e) {
+        console.error('getAppCatalogFilters failed', e);
+        appState.filtersMeta = {};
+      }
+
+      try {
+        var cmp = WebsiteSDK.getCurrentAppComparisonSelection();
+        appState.comparisonSelection = {
+          maxSelectable: cmp && typeof cmp.maxSelectable === 'number' ? cmp.maxSelectable : 0,
+          selectedApps: cmp && cmp.selectedApps ? cmp.selectedApps : []
+        };
+      } catch (e) {
+        console.error('getCurrentAppComparisonSelection failed', e);
+      }
+
+      var urlState = readUrlState();
+      if (!urlState.page) {
+        urlState.page = 1;
+        writeUrlState(urlState, { replace: true });
+      }
+
+      performSearch();
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      init();
+      document.addEventListener('submit', handleSubmit);
+      document.addEventListener('click', handleClick);
+      document.addEventListener('change', function(event) {
+        handleChange(event);
+        handleChangeSort(event);
+      });
+      window.addEventListener('popstate', handlePopState);
+    });
+
+  })();
+  </script>
+</body>
+</html>

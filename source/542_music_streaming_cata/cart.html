@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8' />
+  <title>Rizophera Streaming - Cart</title>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+
+  <!-- Typography -->
+  <link rel='preconnect' href='https://fonts.googleapis.com' />
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin />
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=Source+Code+Pro:wght@400;600&amp;display=swap' rel='stylesheet' />
+
+  <!-- Framework Styles -->
+  <link rel='stylesheet' href='framework.css' />
+  <!-- Page Styles -->
+  <link rel='stylesheet' href='cart.css' />
+</head>
+<body class='app-shell'>
+  <div class='app-layout'>
+    <!-- Sidebar Navigation (persistent, site-wide) -->
+    <aside class='sidebar' aria-label='Primary'>
+      <div class='sidebar__brand'>
+        <div class='brand-mark'>R</div>
+        <div class='brand-text'>
+          <span class='brand-title'>Rizophera</span>
+          <span class='brand-subtitle'>streaming</span>
+        </div>
+      </div>
+
+      <nav class='sidebar__nav' aria-label='Main navigation'>
+        <ul class='nav-list'>
+          <li class='nav-item'>
+            <a href='index.html' title='Homepage with global search and featured content'>Home</a>
+          </li>
+          <li class='nav-item'>
+            <a href='catalog.html?categoryId=all_music' title='Browse all music by genre, type, and other filters'>Browse</a>
+          </li>
+          <li class='nav-item'>
+            <a href='discover.html' title='Discovery hub with New Releases, Top Charts, and recommendations'>Discover</a>
+          </li>
+          <li class='nav-item'>
+            <a href='catalog.html?categoryId=concerts' title='Browse rock and other concert videos available to rent or buy'>Videos</a>
+          </li>
+          <li class='nav-item'>
+            <a href='store.html' title='Storefront hub for album bundles and other purchasable items'>Store</a>
+          </li>
+          <li class='nav-item'>
+            <a href='plans.html' title='Subscription plans, including family plans with offline downloads'>Plans</a>
+          </li>
+        </ul>
+      </nav>
+    </aside>
+
+    <!-- Main Application Shell -->
+    <div class='shell-main'>
+      <!-- Header -->
+      <header class='app-header'>
+        <div class='app-header__inner'>
+          <div class='app-header__title'>
+            <span class='app-header__eyebrow'>Music cart</span>
+            <h1 class='app-header__heading'>CART</h1>
+          </div>
+
+          <div class='app-header__search'>
+            <label class='search-field'>
+              <span class='search-field__icon' aria-hidden='true'>&#128269;</span>
+              <input
+                class='search-field__input'
+                type='search'
+                placeholder='Search music, artists, albums'
+                aria-label='Search music catalog'
+              />
+            </label>
+          </div>
+        </div>
+      </header>
+
+      <!-- Page-specific content container -->
+      <main id='content' class='app-content' role='main'>
+        <div id='cart-page-root' data-component='cart-page-controller' data-populate='cart-page'>
+          <!-- Cart page content is rendered here by JavaScript -->
+        </div>
+      </main>
+
+      <!-- Footer -->
+      <footer class='app-footer'>
+        <div class='app-footer__inner'>
+          <nav class='footer-nav' aria-label='Footer navigation'>
+            <ul class='footer-nav__list'>
+              <li class='footer-nav__item'>
+                <a href='about.html' title='About the music streaming catalog and store'>About</a>
+              </li>
+              <li class='footer-nav__item'>
+                <a href='help.html' title='FAQs and support resources'>Help &amp; Support</a>
+              </li>
+              <li class='footer-nav__item'>
+                <a href='contact.html' title='Contact options for customer support'>Contact</a>
+              </li>
+              <li class='footer-nav__item'>
+                <a href='terms.html' title='Legal terms governing use of the service'>Terms of Service</a>
+              </li>
+              <li class='footer-nav__item'>
+                <a href='privacy.html' title='Information on how user data is collected and used'>Privacy Policy</a>
+              </li>
+            </ul>
+          </nav>
+
+          <div class='app-footer__meta'>
+            <span class='app-footer__brand'>Rizophera Streaming</span>
+            <span class='app-footer__divider'>&#8226;</span>
+            <span class='app-footer__copyright'>&copy; 2024 Rizophera Media. All rights reserved.</span>
+          </div>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- SDK / Business Logic -->
+  <script src='business_logic.js'></script>
+  <!-- Page Controller & UI Logic -->
+  <script>
+  (function() {
+    'use strict';
+
+    let cartState = null;
+    let uiMessages = [];
+    let highlightCartItemIdParam = null;
+    let promoInputDraft = '';
+
+    function escapeHtml(value) {
+      if (value === null || value === undefined) return '';
+      return String(value).replace(/[&<>"']/g, function(ch) {
+        switch (ch) {
+          case '&': return '&amp;';
+          case '<': return '&lt;';
+          case '>': return '&gt;';
+          case '"': return '&quot;';
+          case '\'': return '&#39;';
+          default: return ch;
+        }
+      });
+    }
+
+    function formatMoney(amount, currency) {
+      if (typeof amount !== 'number') return '';
+      const cur = currency || '';
+      return cur ? cur + ' ' + amount.toFixed(2) : amount.toFixed(2);
+    }
+
+    function resolveURLMessage(key) {
+      if (!key) return null;
+      switch (key) {
+        case 'returned_from_checkout':
+          return 'You have returned from checkout. Review your cart below.';
+        case 'added_to_cart':
+          return 'Item added to your cart. You can review quantities and proceed to checkout.';
+        default:
+          return null;
+      }
+    }
+
+    function addMessage(text, type) {
+      if (!text) return;
+      const id = 'msg-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+      uiMessages.push({ id: id, text: String(text), type: type || 'info' });
+    }
+
+    function renderCartPage(container) {
+      const cart = cartState;
+      const hasItems = !!(cart && Array.isArray(cart.items) && cart.items.length > 0);
+
+      const messagesHtml = uiMessages.length
+        ? ("<section class='cart-message-region' data-component='message-banner' aria-live='polite'>" +
+            uiMessages.map(function(msg) {
+              const typeClass = msg.type ? ' message-banner__item--' + escapeHtml(msg.type) : '';
+              return "<div class='message-banner__item" + typeClass + "' data-message-id='" + escapeHtml(msg.id) + "'>" +
+                       "<span class='message-banner__text'>" + escapeHtml(msg.text) + "</span>" +
+                       "<button type='button' class='message-banner__dismiss' data-action='dismiss-message' data-message-id='" + escapeHtml(msg.id) + "' aria-label='Dismiss message'>&times;</button>" +
+                     "</div>";
+            }).join('') +
+          "</section>")
+        : '';
+
+      var mainContentHtml = '';
+
+      if (cart && hasItems) {
+        const itemsHtml = cart.items.map(function(item) {
+          const highlightClass = (highlightCartItemIdParam && item.cart_item_id === highlightCartItemIdParam)
+            ? ' cart-item--highlight'
+            : '';
+
+          const metaParts = [];
+          if (item.item_type) metaParts.push(String(item.item_type).replace(/_/g, ' '));
+          if (item.purchase_type) metaParts.push(String(item.purchase_type).replace(/_/g, ' '));
+          if (item.format) metaParts.push(String(item.format).toUpperCase());
+          const metaLine = metaParts.join(' • ');
+
+          const quantity = typeof item.quantity === 'number' ? item.quantity : 1;
+
+          return (
+            "<article class='cart-item" + highlightClass + "' data-cart-item-id='" + escapeHtml(item.cart_item_id) + "'>" +
+              "<div class='cart-item__info'>" +
+                "<div class='cart-item__thumb' aria-hidden='true'>" +
+                  "<div class='cart-item__thumb-placeholder'>" +
+                    "<span class='cart-item__thumb-icon'>&#127911;</span>" +
+                  "</div>" +
+                "</div>" +
+                "<div class='cart-item__text'>" +
+                  "<h2 class='cart-item__title'>" + escapeHtml(item.title || 'Untitled') + "</h2>" +
+                  (item.artist_name ? "<div class='cart-item__artist'>" + escapeHtml(item.artist_name) + "</div>" : '') +
+                  (metaLine ? "<div class='cart-item__meta-line'>" + escapeHtml(metaLine) + "</div>" : '') +
+                "</div>" +
+              "</div>" +
+              "<div class='cart-item__controls'>" +
+                "<div class='cart-item__pricing'>" +
+                  "<div class='cart-item__unit-price'>" + formatMoney(item.unit_price, cart.currency) + "</div>" +
+                  "<div class='cart-item__line-subtotal'>" + formatMoney(item.line_subtotal, cart.currency) + "</div>" +
+                "</div>" +
+                "<div class='cart-item__quantity'>" +
+                  "<label class='sr-only' for='qty-" + escapeHtml(item.cart_item_id) + "'>Quantity</label>" +
+                  "<input type='number' min='1' step='1' id='qty-" + escapeHtml(item.cart_item_id) + "'" +
+                    " class='cart-item__quantity-input'" +
+                    " value='" + String(quantity) + "'" +
+                    " data-action='change-quantity'" +
+                    " data-cart-item-id='" + escapeHtml(item.cart_item_id) + "'" +
+                  "/>" +
+                "</div>" +
+                "<button type='button' class='btn btn-link cart-item__remove' data-action='remove-item' data-cart-item-id='" + escapeHtml(item.cart_item_id) + "'>Remove</button>" +
+              "</div>" +
+            "</article>"
+          );
+        }).join('');
+
+        const subtotalRow = "<div class='cart-summary-panel__row'>" +
+                              "<dt>Subtotal</dt>" +
+                              "<dd>" + formatMoney(cart.subtotal, cart.currency) + "</dd>" +
+                            "</div>";
+
+        const discountRow = (typeof cart.discount_total === 'number' && cart.discount_total > 0)
+          ? ("<div class='cart-summary-panel__row cart-summary-panel__row--discount'>" +
+               "<dt>Discounts</dt>" +
+               "<dd>-" + formatMoney(cart.discount_total, cart.currency) + "</dd>" +
+             "</div>")
+          : '';
+
+        const totalRow = "<div class='cart-summary-panel__row cart-summary-panel__row--total'>" +
+                           "<dt>Total</dt>" +
+                           "<dd>" + formatMoney(cart.total, cart.currency) + "</dd>" +
+                         "</div>";
+
+        const appliedPromo = cart.promo_code
+          ? ("<p class='promo-code-form__applied'>Applied code: <strong>" + escapeHtml(cart.promo_code) + "</strong></p>")
+          : '';
+
+        const promoInputValue = escapeHtml(promoInputDraft || '');
+
+        mainContentHtml = (
+          "<section class='cart-main-layout'>" +
+            "<section class='cart-items card' data-component='cart-items-list' aria-label='Cart items'>" +
+              itemsHtml +
+            "</section>" +
+            "<aside class='cart-sidebar' aria-label='Cart summary and promo code'>" +
+              "<section class='cart-summary-panel card' data-component='cart-summary-panel'>" +
+                "<header class='cart-summary-panel__header'>" +
+                  "<h2 class='cart-summary-panel__title'>Order summary</h2>" +
+                "</header>" +
+                "<dl class='cart-summary-panel__totals'>" +
+                  subtotalRow +
+                  discountRow +
+                  totalRow +
+                "</dl>" +
+                "<div class='cart-summary-panel__actions'>" +
+                  "<button type='button' class='btn btn-primary cart-summary-panel__checkout' data-action='proceed-checkout'" + (hasItems ? '' : ' disabled') + ">Proceed to checkout</button>" +
+                  "<button type='button' class='btn btn-secondary cart-summary-panel__continue' data-action='continue-shopping-side'>Continue shopping</button>" +
+                "</div>" +
+              "</section>" +
+              "<section class='promo-code card' data-component='promo-code-form'>" +
+                "<header class='promo-code-form__header'>" +
+                  "<h2 class='promo-code-form__title'>Promo code</h2>" +
+                "</header>" +
+                appliedPromo +
+                "<form class='promo-code-form__form' data-action='promo-form'>" +
+                  "<label class='promo-code-form__label' for='promo-code-input'>Have a promo or discount code?</label>" +
+                  "<div class='promo-code-form__controls'>" +
+                    "<input id='promo-code-input' name='promo_code' type='text' autocomplete='off'" +
+                      " class='promo-code-form__input'" +
+                      " value='" + promoInputValue + "'" +
+                      " placeholder='Enter code'" +
+                    "/>" +
+                    "<button type='submit' class='btn btn-primary promo-code-form__apply'>Apply</button>" +
+                  "</div>" +
+                "</form>" +
+              "</section>" +
+            "</aside>" +
+          "</section>"
+        );
+      } else if (cart && !hasItems) {
+        mainContentHtml = (
+          "<section class='cart-empty card' data-component='empty-cart-state'>" +
+            "<div class='cart-empty__content'>" +
+              "<div class='cart-empty__icon' aria-hidden='true'>&#128230;</div>" +
+              "<h2 class='cart-empty__title'>Your cart is empty</h2>" +
+              "<p class='cart-empty__description'>Browse the catalog to discover music, concerts, and bundles to add here.</p>" +
+              "<button type='button' class='btn btn-primary cart-empty__cta' data-action='continue-shopping-empty'>Browse catalog</button>" +
+            "</div>" +
+          "</section>"
+        );
+      } else {
+        mainContentHtml = (
+          "<section class='cart-error card'>" +
+            "<h2 class='cart-error__title'>Unable to load your cart</h2>" +
+            "<p class='cart-error__description'>Please refresh the page or try again in a moment.</p>" +
+            "<button type='button' class='btn btn-secondary cart-error__retry' data-action='refresh-cart'>Retry</button>" +
+          "</section>"
+        );
+      }
+
+      const itemCount = (cart && Array.isArray(cart.items)) ? cart.items.length : 0;
+      const headerSummary = itemCount === 0
+        ? 'No items in cart'
+        : (itemCount === 1 ? '1 item in cart' : itemCount + ' items in cart');
+
+      container.innerHTML = (
+        "<section class='cart-page'>" +
+          "<header class='cart-page__header'>" +
+            "<div class='cart-page__title-group'>" +
+              "<h2 class='cart-page__title'>Cart</h2>" +
+              "<p class='cart-page__subtitle'>" + escapeHtml(headerSummary) + "</p>" +
+            "</div>" +
+            "<div class='cart-page__header-actions'>" +
+              "<button type='button' class='btn btn-text cart-page__continue' data-action='continue-shopping-top'>Continue shopping</button>" +
+              "<button type='button' class='btn btn-secondary cart-page__refresh' data-action='refresh-cart'>Refresh</button>" +
+            "</div>" +
+          "</header>" +
+          messagesHtml +
+          mainContentHtml +
+        "</section>"
+      );
+    }
+
+    function handleQuantityChange(container, inputEl) {
+      if (!cartState || !Array.isArray(cartState.items)) return;
+      var cartItemId = inputEl.getAttribute('data-cart-item-id');
+      if (!cartItemId) return;
+
+      var raw = inputEl.value;
+      var quantity = parseInt(raw, 10);
+      var originalItem = cartState.items.find(function(it) { return it.cart_item_id === cartItemId; });
+      var originalQuantity = originalItem && typeof originalItem.quantity === 'number' ? originalItem.quantity : 1;
+
+      if (isNaN(quantity) || quantity <= 0) {
+        addMessage('Quantity must be a positive number.', 'error');
+        inputEl.value = String(originalQuantity);
+        renderCartPage(container);
+        return;
+      }
+      if (quantity === originalQuantity) {
+        return;
+      }
+
+      try {
+        var response = WebsiteSDK.updateCartItemQuantity(cartItemId, quantity);
+        if (response && response.success && response.cart) {
+          cartState = response.cart;
+          addMessage(response.message || 'Quantity updated.', 'success');
+        } else {
+          addMessage((response && response.message) || 'Unable to update quantity.', 'error');
+        }
+      } catch (e) {
+        addMessage('Unable to update quantity right now. Please try again.', 'error');
+      }
+
+      renderCartPage(container);
+    }
+
+    function handleRemoveItem(container, cartItemId) {
+      if (!cartItemId) return;
+      try {
+        var response = WebsiteSDK.removeCartItem(cartItemId);
+        if (response && response.success && response.cart) {
+          cartState = response.cart;
+          addMessage(response.message || 'Item removed from cart.', 'success');
+        } else {
+          addMessage((response && response.message) || 'Unable to remove item from cart.', 'error');
+        }
+      } catch (e) {
+        addMessage('Unable to remove this item right now. Please try again.', 'error');
+      }
+      renderCartPage(container);
+    }
+
+    function handleApplyPromo(container, formEl) {
+      var input = formEl.querySelector("input[name='promo_code']");
+      if (!input) return;
+      var code = input.value.trim();
+      if (!code) {
+        addMessage('Enter a promo code to apply.', 'error');
+        renderCartPage(container);
+        return;
+      }
+
+      promoInputDraft = code;
+
+      try {
+        var response = WebsiteSDK.applyPromoCodeToCart(code);
+        if (response && typeof response.success === 'boolean') {
+          if (response.success && response.cart) {
+            cartState = response.cart;
+            promoInputDraft = '';
+            addMessage(response.message || 'Promo code applied.', 'success');
+          } else {
+            addMessage(response.message || 'Promo code could not be applied.', 'error');
+          }
+        } else {
+          addMessage('Unexpected response while applying promo code.', 'error');
+        }
+      } catch (e) {
+        addMessage('Unable to apply promo code right now. Please try again.', 'error');
+      }
+
+      renderCartPage(container);
+    }
+
+    function handleProceedToCheckout(container) {
+      var hasItems = !!(cartState && Array.isArray(cartState.items) && cartState.items.length > 0);
+      if (!hasItems) {
+        addMessage('Your cart is empty. Add items before proceeding to checkout.', 'error');
+        renderCartPage(container);
+        return;
+      }
+      window.location.href = 'checkout.html?mode=cart';
+    }
+
+    function handleContinueShopping() {
+      window.location.href = 'catalog.html?categoryId=all_music';
+    }
+
+    function handleRefreshCart(container) {
+      try {
+        var refreshed = WebsiteSDK.getCartSummary();
+        if (refreshed && typeof refreshed === 'object') {
+          cartState = refreshed;
+          promoInputDraft = '';
+          addMessage('Cart updated.', 'info');
+        } else {
+          addMessage('Unable to refresh cart.', 'error');
+        }
+      } catch (e) {
+        addMessage('Unable to refresh cart right now. Please try again.', 'error');
+      }
+      renderCartPage(container);
+    }
+
+    function attachEventHandlers(container) {
+      container.addEventListener('click', function(event) {
+        var actionEl = event.target.closest('[data-action]');
+        if (!actionEl || !container.contains(actionEl)) return;
+        var action = actionEl.getAttribute('data-action');
+
+        if (action === 'remove-item') {
+          var cartItemId = actionEl.getAttribute('data-cart-item-id');
+          handleRemoveItem(container, cartItemId);
+        } else if (action === 'proceed-checkout') {
+          handleProceedToCheckout(container);
+        } else if (action === 'continue-shopping-top' || action === 'continue-shopping-side' || action === 'continue-shopping-empty') {
+          handleContinueShopping();
+        } else if (action === 'refresh-cart') {
+          handleRefreshCart(container);
+        } else if (action === 'dismiss-message') {
+          var messageId = actionEl.getAttribute('data-message-id');
+          uiMessages = uiMessages.filter(function(m) { return String(m.id) !== String(messageId); });
+          renderCartPage(container);
+        }
+      });
+
+      container.addEventListener('change', function(event) {
+        var target = event.target;
+        if (!target || !target.getAttribute) return;
+        var action = target.getAttribute('data-action');
+        if (action === 'change-quantity') {
+          handleQuantityChange(container, target);
+        }
+      });
+
+      container.addEventListener('blur', function(event) {
+        var target = event.target;
+        if (!target || !target.getAttribute) return;
+        if (target.getAttribute('data-action') === 'change-quantity') {
+          handleQuantityChange(container, target);
+        }
+      }, true);
+
+      container.addEventListener('submit', function(event) {
+        var formEl = event.target;
+        if (!formEl || !formEl.getAttribute) return;
+        var action = formEl.getAttribute('data-action');
+        if (action === 'promo-form') {
+          event.preventDefault();
+          handleApplyPromo(container, formEl);
+        }
+      });
+    }
+
+    function initCartPage(container) {
+      var urlParams = new URLSearchParams(window.location.search);
+      highlightCartItemIdParam = urlParams.get('highlightCartItemId');
+      var messageKey = urlParams.get('messageKey');
+
+      try {
+        var cart = WebsiteSDK.getCartSummary();
+        if (cart && typeof cart === 'object') {
+          cartState = cart;
+        } else {
+          cartState = null;
+        }
+      } catch (e) {
+        cartState = null;
+        addMessage('Unable to load your cart right now. Please try again.', 'error');
+      }
+
+      if (cartState && Array.isArray(cartState.messages)) {
+        cartState.messages.forEach(function(msg) {
+          if (msg) {
+            addMessage(msg, 'info');
+          }
+        });
+      }
+
+      var urlMessage = resolveURLMessage(messageKey);
+      if (urlMessage) {
+        addMessage(urlMessage, 'info');
+      }
+
+      renderCartPage(container);
+      attachEventHandlers(container);
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      var populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function(element) {
+        var dataType = element.getAttribute('data-populate');
+        if (dataType === 'cart-page') {
+          initCartPage(element);
+        }
+      });
+    });
+  })();
+  </script>
+</body>
+</html>

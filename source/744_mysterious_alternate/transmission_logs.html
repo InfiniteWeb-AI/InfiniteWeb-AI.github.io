@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Transmission Logs</title>
+    
+    <link rel="stylesheet" href="transmission_logs.css">
+</head>
+<body>
+    <div class="page">
+        <header class="site-header">
+            <div class="site-identity">
+                <span class="site-title">The Initiative</span>
+            </div>
+            <nav class="site-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html" title="Homepage and primary entry into the ARG experience">Home</a></li>
+                    <li><a href="transmission_logs.html" title="Browse transmissions and unlock the Phase I teaser via Prelude logs">Transmission Logs</a></li>
+                    <li><a href="timeline.html" title="Chronological view of events with filters and severity controls">Timeline</a></li>
+                    <li><a href="timeline.html?view=watchlist" title="List of events the user has flagged for monitoring">Watchlist</a></li>
+                    <li><a href="characters.html" title="Directory of Initiative characters, including Project Orion profiles">Characters</a></li>
+                    <li><a href="anomaly_map.html" title="Interactive map and list of anomalous locations and case files">Anomaly Map</a></li>
+                    <li><a href="media_videos.html" title="Media gallery for teaser and briefing videos">Videos</a></li>
+                    <li><a href="incident_logs.html" title="Searchable archive of incident logs and low-threat reports">Incident Logs</a></li>
+                    <li><a href="signals.html" title="Live signal stream used as clues for theories">Signals</a></li>
+                    <li><a href="ciphers.html" title="Tools and cipher list for decoding and theory building">Ciphers</a></li>
+                    <li><a href="theory_board.html" title="Workspace for assembling clues into named theories">Theory Board</a></li>
+                    <li><a href="artifacts.html" title="Catalog of recovered artifacts and their risk levels">Artifacts</a></li>
+                    <li><a href="recruitment.html" title="Recruitment and assessment form for new operatives">Join the Initiative</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id="content" class="site-main" tabindex="-1">
+            <article data-component="transmission-logs-page-shell">
+                <h1>Transmission Logs</h1>
+
+                <section data-component="log-filter-bar" aria-label="Transmission log filters">
+                    <div data-populate="log-filter-bar"></div>
+                </section>
+
+                <section data-component="transmission-log-list" aria-label="Transmission log list" style="margin-top:16px;">
+                    <div data-populate="transmission-log-list"></div>
+                </section>
+
+                <nav data-component="pagination-controls" aria-label="Transmission log pagination" style="margin-top:8px;">
+                    <div data-populate="pagination-controls"></div>
+                </nav>
+
+                <section data-component="code-panel" aria-label="Code panel" style="margin-top:32px;">
+                    <div data-populate="code-panel"></div>
+                </section>
+
+                <section data-component="phase-gate-section" aria-label="Phase I gate" style="margin-top:32px;">
+                    <div data-populate="phase-gate-section"></div>
+                </section>
+            </article>
+        </main>
+
+        <footer class="site-footer">
+            <hr class="footer-rule">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="about.html" title="About the Initiative and the ARG universe">About</a></li>
+                    <li><a href="transmission_logs.html" title="Access the transmission archive">Transmission Logs</a></li>
+                    <li><a href="incident_logs.html" title="Access the incident log archives">Incident Logs</a></li>
+                    <li><a href="artifacts.html" title="Browse artifacts by origin and corruption risk">Artifacts Catalog</a></li>
+                    <li><a href="recruitment.html" title="Create your recruitment profile">Join the Initiative</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">The Initiative</p>
+        </footer>
+    </div>
+
+    <script src="business_logic.js"></script>
+    <script>
+    (function() {
+        const PAGE_SIZE = 10;
+        const PHASE_ID = 'phase_i';
+
+        let filterOptions = null; // { available_tags, default_sort, sort_options }
+        let currentTag = null;
+        let currentSort = null;
+        let currentPage = 1;
+
+        let searchState = { items: [], total: 0, page: 1, pageSize: PAGE_SIZE };
+        let codePanelState = null;
+        let phaseGate = null;
+        let lastPassphraseMessage = '';
+        let logsErrorMessage = '';
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initializePage();
+            window.addEventListener('popstate', handlePopState);
+        });
+
+        function initializePage() {
+            try {
+                filterOptions = WebsiteSDK.getTransmissionLogFilterOptions();
+            } catch (e) {
+                filterOptions = {
+                    available_tags: [],
+                    default_sort: 'date_newest_first',
+                    sort_options: []
+                };
+            }
+
+            syncStateFromUrl();
+
+            loadLogs();
+            loadCodePanel();
+            loadPhaseGate();
+
+            refreshUI();
+        }
+
+        function handlePopState() {
+            if (!filterOptions) {
+                try {
+                    filterOptions = WebsiteSDK.getTransmissionLogFilterOptions();
+                } catch (e) {
+                    filterOptions = {
+                        available_tags: [],
+                        default_sort: 'date_newest_first',
+                        sort_options: []
+                    };
+                }
+            }
+            syncStateFromUrl();
+            loadLogs();
+            refreshUI();
+        }
+
+        function syncStateFromUrl() {
+            const url = new URL(window.location.href);
+            const params = url.searchParams;
+
+            const tagParam = params.get('tag');
+            const sortParam = params.get('sort');
+            const pageParam = params.get('page');
+
+            let resolvedTag = null;
+            if (tagParam && filterOptions && Array.isArray(filterOptions.available_tags)) {
+                if (filterOptions.available_tags.indexOf(tagParam) !== -1) {
+                    resolvedTag = tagParam;
+                }
+            }
+
+            let resolvedSort = filterOptions ? filterOptions.default_sort : null;
+            if (sortParam && filterOptions && Array.isArray(filterOptions.sort_options)) {
+                const match = filterOptions.sort_options.find(function(opt) { return opt.key === sortParam; });
+                if (match) {
+                    resolvedSort = sortParam;
+                }
+            }
+
+            let resolvedPage = parseInt(pageParam || '1', 10);
+            if (isNaN(resolvedPage) || resolvedPage < 1) {
+                resolvedPage = 1;
+            }
+
+            currentTag = resolvedTag;
+            currentSort = resolvedSort;
+            currentPage = resolvedPage;
+        }
+
+        function updateUrl(tag, sort, page) {
+            const url = new URL(window.location.href);
+            const params = url.searchParams;
+
+            if (tag) {
+                params.set('tag', tag);
+            } else {
+                params.delete('tag');
+            }
+
+            if (sort) {
+                params.set('sort', sort);
+            } else {
+                params.delete('sort');
+            }
+
+            if (page && page > 1) {
+                params.set('page', String(page));
+            } else {
+                params.delete('page');
+            }
+
+            url.search = params.toString();
+            history.pushState({}, '', url.toString());
+        }
+
+        function loadLogs() {
+            logsErrorMessage = '';
+            const filters = {};
+            if (currentTag) {
+                filters.tags = [currentTag];
+            }
+
+            try {
+                const result = WebsiteSDK.searchTransmissionLogs(filters, currentSort, currentPage, PAGE_SIZE);
+                if (result && Array.isArray(result.items)) {
+                    searchState = {
+                        items: result.items,
+                        total: typeof result.total === 'number' ? result.total : result.items.length,
+                        page: typeof result.page === 'number' ? result.page : currentPage,
+                        pageSize: typeof result.pageSize === 'number' ? result.pageSize : PAGE_SIZE
+                    };
+                } else {
+                    searchState = { items: [], total: 0, page: 1, pageSize: PAGE_SIZE };
+                    logsErrorMessage = 'No transmissions available.';
+                }
+            } catch (e) {
+                searchState = { items: [], total: 0, page: 1, pageSize: PAGE_SIZE };
+                logsErrorMessage = 'Unable to load transmissions at this time.';
+            }
+        }
+
+        function loadCodePanel() {
+            try {
+                codePanelState = WebsiteSDK.getCodePanelState();
+            } catch (e) {
+                codePanelState = null;
+            }
+        }
+
+        function loadPhaseGate() {
+            try {
+                phaseGate = WebsiteSDK.getPhaseGateStatus(PHASE_ID);
+            } catch (e) {
+                phaseGate = null;
+            }
+        }
+
+        function refreshUI() {
+            const populateElements = document.querySelectorAll('[data-populate]');
+            populateElements.forEach(function(element) {
+                const type = element.dataset.populate;
+                if (type === 'log-filter-bar') {
+                    renderLogFilterBar(element);
+                } else if (type === 'transmission-log-list') {
+                    renderTransmissionLogList(element);
+                } else if (type === 'pagination-controls') {
+                    renderPaginationControls(element);
+                } else if (type === 'code-panel') {
+                    renderCodePanel(element);
+                } else if (type === 'phase-gate-section') {
+                    renderPhaseGateSection(element);
+                }
+            });
+
+            attachActionHandlers();
+        }
+
+        function renderLogFilterBar(container) {
+            container.innerHTML = '';
+
+            const label = document.createElement('div');
+            label.textContent = 'Filter transmissions:';
+            container.appendChild(label);
+
+            const tagLabel = document.createElement('label');
+            tagLabel.textContent = 'Tag ';
+
+            const tagSelect = document.createElement('select');
+            tagSelect.setAttribute('data-action', 'change-tag-filter');
+
+            const anyOption = document.createElement('option');
+            anyOption.value = '';
+            anyOption.textContent = '(any)';
+            tagSelect.appendChild(anyOption);
+
+            if (filterOptions && Array.isArray(filterOptions.available_tags)) {
+                filterOptions.available_tags.forEach(function(tag) {
+                    const opt = document.createElement('option');
+                    opt.value = tag;
+                    opt.textContent = tag;
+                    if (currentTag === tag) {
+                        opt.selected = true;
+                    }
+                    tagSelect.appendChild(opt);
+                });
+            }
+
+            if (!currentTag) {
+                anyOption.selected = true;
+            }
+
+            tagLabel.appendChild(tagSelect);
+            container.appendChild(tagLabel);
+
+            const sortLabel = document.createElement('label');
+            sortLabel.style.marginLeft = '8px';
+            sortLabel.textContent = 'Sort ';
+
+            const sortSelect = document.createElement('select');
+            sortSelect.setAttribute('data-action', 'change-sort');
+
+            if (filterOptions && Array.isArray(filterOptions.sort_options) && filterOptions.sort_options.length > 0) {
+                filterOptions.sort_options.forEach(function(opt) {
+                    const option = document.createElement('option');
+                    option.value = opt.key;
+                    option.textContent = opt.label || opt.key;
+                    if (currentSort === opt.key) {
+                        option.selected = true;
+                    }
+                    sortSelect.appendChild(option);
+                });
+            } else {
+                const option = document.createElement('option');
+                option.value = currentSort || '';
+                option.textContent = currentSort || 'default';
+                option.selected = true;
+                sortSelect.appendChild(option);
+            }
+
+            sortLabel.appendChild(sortSelect);
+            container.appendChild(sortLabel);
+        }
+
+        function renderTransmissionLogList(container) {
+            container.innerHTML = '';
+
+            const wrapper = document.createElement('div');
+            wrapper.style.border = '1px solid #000';
+            wrapper.style.padding = '8px';
+
+            if (logsErrorMessage) {
+                const p = document.createElement('p');
+                p.textContent = logsErrorMessage;
+                wrapper.appendChild(p);
+                container.appendChild(wrapper);
+                return;
+            }
+
+            if (!searchState || !Array.isArray(searchState.items) || searchState.items.length === 0) {
+                const p = document.createElement('p');
+                p.textContent = 'No transmissions match the current view.';
+                wrapper.appendChild(p);
+                container.appendChild(wrapper);
+                return;
+            }
+
+            const list = document.createElement('ul');
+            list.style.listStyle = 'none';
+            list.style.padding = '0';
+            list.style.margin = '0';
+
+            searchState.items.forEach(function(log) {
+                const li = document.createElement('li');
+                li.style.marginBottom = '8px';
+
+                const link = document.createElement('a');
+                link.href = 'javascript:void(0)';
+                link.setAttribute('data-action', 'open-log');
+                link.setAttribute('data-log-id', log.id);
+                link.textContent = log.title;
+
+                const meta = document.createElement('div');
+                meta.style.fontSize = '0.9em';
+
+                if (log.created_at) {
+                    try {
+                        const date = new Date(log.created_at);
+                        meta.textContent = date.toISOString().slice(0, 10);
+                    } catch (e) {
+                        meta.textContent = String(log.created_at);
+                    }
+                }
+
+                li.appendChild(link);
+                if (meta.textContent) {
+                    li.appendChild(meta);
+                }
+
+                list.appendChild(li);
+            });
+
+            wrapper.appendChild(list);
+            container.appendChild(wrapper);
+        }
+
+        function renderPaginationControls(container) {
+            container.innerHTML = '';
+
+            if (!searchState || searchState.total <= searchState.pageSize) {
+                return;
+            }
+
+            const totalPages = Math.max(1, Math.ceil(searchState.total / searchState.pageSize));
+            const navLine = document.createElement('div');
+
+            const prev = document.createElement('a');
+            prev.href = 'javascript:void(0)';
+            prev.textContent = '\u00ab Previous';
+            prev.style.marginRight = '8px';
+            prev.setAttribute('data-action', 'change-page');
+            prev.setAttribute('data-page', String(Math.max(1, searchState.page - 1)));
+            if (searchState.page <= 1) {
+                prev.style.pointerEvents = 'none';
+                prev.style.color = '#555';
+            }
+            navLine.appendChild(prev);
+
+            for (let p = 1; p <= totalPages; p += 1) {
+                const link = document.createElement('a');
+                link.href = 'javascript:void(0)';
+                link.textContent = String(p);
+                link.style.marginRight = '4px';
+                link.setAttribute('data-action', 'change-page');
+                link.setAttribute('data-page', String(p));
+                if (p === searchState.page) {
+                    link.style.fontWeight = 'bold';
+                }
+                navLine.appendChild(link);
+            }
+
+            const next = document.createElement('a');
+            next.href = 'javascript:void(0)';
+            next.textContent = 'Next \u00bb';
+            next.style.marginLeft = '8px';
+            next.setAttribute('data-action', 'change-page');
+            next.setAttribute('data-page', String(Math.min(totalPages, searchState.page + 1)));
+            if (searchState.page >= totalPages) {
+                next.style.pointerEvents = 'none';
+                next.style.color = '#555';
+            }
+            navLine.appendChild(next);
+
+            container.appendChild(navLine);
+        }
+
+        function renderCodePanel(container) {
+            container.innerHTML = '';
+
+            const panel = document.createElement('div');
+            panel.style.border = '1px solid #000';
+            panel.style.padding = '8px';
+
+            const heading = document.createElement('h2');
+            heading.textContent = 'Code Panel';
+            panel.appendChild(heading);
+
+            if (!codePanelState) {
+                const p = document.createElement('p');
+                p.textContent = 'Code Panel is unavailable.';
+                panel.appendChild(p);
+                container.appendChild(panel);
+                return;
+            }
+
+            const words = Array.isArray(codePanelState.collected_words) ? codePanelState.collected_words : [];
+
+            if (words.length === 0) {
+                const p = document.createElement('p');
+                p.textContent = 'No words collected yet.';
+                panel.appendChild(p);
+            } else {
+                const list = document.createElement('ul');
+                list.style.listStyle = 'none';
+                list.style.padding = '0';
+                list.style.margin = '0 0 8px 0';
+
+                words.forEach(function(entry, index) {
+                    const li = document.createElement('li');
+                    li.style.marginBottom = '4px';
+
+                    const indexSpan = document.createElement('span');
+                    indexSpan.textContent = String(index + 1) + '. ';
+
+                    const wordSpan = document.createElement('span');
+                    wordSpan.textContent = entry.word;
+                    wordSpan.style.fontFamily = 'monospace';
+
+                    li.appendChild(indexSpan);
+                    li.appendChild(wordSpan);
+
+                    if (entry.log_id) {
+                        const srcSpan = document.createElement('span');
+                        srcSpan.style.fontSize = '0.85em';
+                        srcSpan.style.marginLeft = '4px';
+                        srcSpan.textContent = '[' + entry.log_id + ']';
+                        li.appendChild(srcSpan);
+                    }
+
+                    const removeLink = document.createElement('a');
+                    removeLink.href = 'javascript:void(0)';
+                    removeLink.textContent = ' remove';
+                    removeLink.style.marginLeft = '4px';
+                    removeLink.setAttribute('data-action', 'remove-word');
+                    removeLink.setAttribute('data-order-index', String(entry.order_index));
+
+                    li.appendChild(removeLink);
+                    list.appendChild(li);
+                });
+
+                panel.appendChild(list);
+
+                const clearLink = document.createElement('a');
+                clearLink.href = 'javascript:void(0)';
+                clearLink.textContent = 'clear all';
+                clearLink.setAttribute('data-action', 'clear-words');
+                panel.appendChild(clearLink);
+            }
+
+            const lastSubmission = document.createElement('div');
+            lastSubmission.style.marginTop = '8px';
+
+            const lastPhraseLabel = document.createElement('div');
+            lastPhraseLabel.textContent = 'Last submitted:';
+            lastSubmission.appendChild(lastPhraseLabel);
+
+            const lastPhrase = document.createElement('div');
+            if (Array.isArray(codePanelState.last_submitted_passphrase) && codePanelState.last_submitted_passphrase.length > 0) {
+                lastPhrase.textContent = codePanelState.last_submitted_passphrase.join(' ');
+            } else {
+                lastPhrase.textContent = '(none)';
+            }
+            lastSubmission.appendChild(lastPhrase);
+
+            if (typeof codePanelState.last_submission_valid === 'boolean') {
+                const result = document.createElement('div');
+                result.textContent = codePanelState.last_submission_valid ? 'Result: accepted.' : 'Result: rejected.';
+                lastSubmission.appendChild(result);
+            }
+
+            if (lastPassphraseMessage) {
+                const msg = document.createElement('div');
+                msg.textContent = lastPassphraseMessage;
+                lastSubmission.appendChild(msg);
+            }
+
+            panel.appendChild(lastSubmission);
+
+            if (phaseGate && phaseGate.status === 'unlocked') {
+                const note = document.createElement('p');
+                note.textContent = 'Phase I gate is already unlocked.';
+                panel.appendChild(note);
+            } else {
+                const submitParagraph = document.createElement('p');
+                const preText = document.createTextNode('When ready, ');
+                const link = document.createElement('a');
+                link.href = 'javascript:void(0)';
+                link.textContent = 'submit the current passphrase';
+                link.setAttribute('data-action', 'submit-passphrase');
+                const postText = document.createTextNode('.');
+                submitParagraph.appendChild(preText);
+                submitParagraph.appendChild(link);
+                submitParagraph.appendChild(postText);
+                panel.appendChild(submitParagraph);
+            }
+
+            container.appendChild(panel);
+        }
+
+        function renderPhaseGateSection(container) {
+            container.innerHTML = '';
+
+            const heading = document.createElement('h2');
+            heading.textContent = 'Phase I Gate';
+            container.appendChild(heading);
+
+            if (!phaseGate) {
+                const p = document.createElement('p');
+                p.textContent = 'Gate status is unavailable.';
+                container.appendChild(p);
+                return;
+            }
+
+            const status = document.createElement('p');
+            status.textContent = 'Status: ' + phaseGate.status;
+            container.appendChild(status);
+
+            if (phaseGate.status === 'locked') {
+                const p1 = document.createElement('p');
+                p1.textContent = 'Prelude transmissions contain highlighted words. Collect them in the Code Panel above and arrange them into a passphrase.';
+                container.appendChild(p1);
+
+                const p2 = document.createElement('p');
+                const text1 = document.createTextNode('When you think the sequence is correct, ');
+                const link = document.createElement('a');
+                link.href = 'javascript:void(0)';
+                link.textContent = 'submit the passphrase';
+                link.setAttribute('data-action', 'submit-passphrase');
+                const text2 = document.createTextNode(' to test the gate.');
+
+                p2.appendChild(text1);
+                p2.appendChild(link);
+                p2.appendChild(text2);
+                container.appendChild(p2);
+
+                if (typeof phaseGate.required_word_count === 'number') {
+                    const p3 = document.createElement('p');
+                    p3.textContent = 'Required length: ' + phaseGate.required_word_count + ' words.';
+                    container.appendChild(p3);
+                }
+            } else if (phaseGate.status === 'unlocked') {
+                const p1 = document.createElement('p');
+                p1.textContent = 'Phase I has been unlocked.';
+                container.appendChild(p1);
+
+                if (phaseGate.unlocked_content_ref) {
+                    const p2 = document.createElement('p');
+                    const ref = String(phaseGate.unlocked_content_ref);
+
+                    if (ref.indexOf('http://') === 0 || ref.indexOf('https://') === 0) {
+                        const link = document.createElement('a');
+                        link.href = ref;
+                        link.textContent = 'View unlocked content';
+                        link.target = '_blank';
+                        link.rel = 'noopener noreferrer';
+                        p2.appendChild(link);
+                    } else {
+                        p2.textContent = ref;
+                    }
+
+                    container.appendChild(p2);
+                }
+            }
+        }
+
+        function attachActionHandlers() {
+            const actionElements = document.querySelectorAll('[data-action]');
+            actionElements.forEach(function(element) {
+                const action = element.dataset.action;
+                if (action === 'change-tag-filter' || action === 'change-sort') {
+                    element.onchange = handleActionEvent;
+                } else {
+                    element.onclick = handleActionEvent;
+                }
+            });
+        }
+
+        function handleActionEvent(event) {
+            event.preventDefault();
+            const element = event.currentTarget;
+            const action = element.dataset.action;
+
+            if (action === 'open-log') {
+                const id = element.dataset.logId;
+                if (id) {
+                    const url = 'log_detail.html?kind=transmission&id=' + encodeURIComponent(id);
+                    window.location.href = url;
+                }
+            } else if (action === 'change-tag-filter') {
+                const value = element.value || '';
+                currentTag = value || null;
+                currentPage = 1;
+                updateUrl(currentTag, currentSort, currentPage);
+                loadLogs();
+                refreshUI();
+            } else if (action === 'change-sort') {
+                const value = element.value || '';
+                currentSort = value || null;
+                currentPage = 1;
+                updateUrl(currentTag, currentSort, currentPage);
+                loadLogs();
+                refreshUI();
+            } else if (action === 'change-page') {
+                const pageStr = element.dataset.page || '1';
+                const targetPage = parseInt(pageStr, 10);
+                if (!isNaN(targetPage) && targetPage >= 1) {
+                    currentPage = targetPage;
+                    updateUrl(currentTag, currentSort, currentPage);
+                    loadLogs();
+                    refreshUI();
+                }
+            } else if (action === 'remove-word') {
+                const indexStr = element.dataset.orderIndex;
+                const orderIndex = parseInt(indexStr || '0', 10);
+                if (!isNaN(orderIndex)) {
+                    try {
+                        codePanelState = WebsiteSDK.removeCodePanelWord(orderIndex);
+                        lastPassphraseMessage = '';
+                    } catch (e) {
+                        lastPassphraseMessage = 'Unable to remove that word.';
+                    }
+                    refreshUI();
+                }
+            } else if (action === 'clear-words') {
+                try {
+                    codePanelState = WebsiteSDK.clearCodePanelWords();
+                    lastPassphraseMessage = '';
+                } catch (e) {
+                    lastPassphraseMessage = 'Unable to clear words.';
+                }
+                refreshUI();
+            } else if (action === 'submit-passphrase') {
+                handleSubmitPassphrase();
+            }
+        }
+
+        function handleSubmitPassphrase() {
+            if (!codePanelState) {
+                lastPassphraseMessage = 'Code Panel is unavailable.';
+                refreshUI();
+                return;
+            }
+
+            if (!phaseGate) {
+                try {
+                    phaseGate = WebsiteSDK.getPhaseGateStatus(PHASE_ID);
+                } catch (e) {
+                    phaseGate = null;
+                }
+            }
+
+            if (!phaseGate) {
+                lastPassphraseMessage = 'Gate status is unavailable.';
+                refreshUI();
+                return;
+            }
+
+            if (phaseGate.status === 'unlocked') {
+                lastPassphraseMessage = 'Phase I gate is already unlocked.';
+                refreshUI();
+                return;
+            }
+
+            const required = typeof phaseGate.required_word_count === 'number' ? phaseGate.required_word_count : null;
+            const words = Array.isArray(codePanelState.collected_words) ? codePanelState.collected_words : [];
+            const count = words.length;
+
+            if (required !== null && count !== required) {
+                lastPassphraseMessage = 'Passphrase must contain ' + required + ' words. Currently: ' + count + '.';
+                refreshUI();
+                return;
+            }
+
+            try {
+                const response = WebsiteSDK.submitPhaseGatePassphrase(PHASE_ID);
+                if (response && typeof response.message === 'string') {
+                    lastPassphraseMessage = response.message;
+                } else {
+                    lastPassphraseMessage = '';
+                }
+
+                if (response && response.code_panel_state) {
+                    codePanelState = response.code_panel_state;
+                } else {
+                    try {
+                        codePanelState = WebsiteSDK.getCodePanelState();
+                    } catch (e2) {
+                        codePanelState = codePanelState;
+                    }
+                }
+
+                if (response && response.phase_gate) {
+                    phaseGate = response.phase_gate;
+                } else {
+                    try {
+                        phaseGate = WebsiteSDK.getPhaseGateStatus(PHASE_ID);
+                    } catch (e3) {
+                        phaseGate = phaseGate;
+                    }
+                }
+            } catch (e) {
+                lastPassphraseMessage = 'Passphrase submission failed.';
+            }
+
+            refreshUI();
+        }
+    })();
+    </script>
+</body>
+</html>

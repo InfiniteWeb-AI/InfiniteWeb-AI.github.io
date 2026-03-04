@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Apps Comparison - Mobile Apps Website</title>
+  <meta name='description' content='Apps Comparison page for API documentation of completion, showing selected mobile apps side by side.'>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='apps_compare.css'>
+  <script src='business_logic.js'></script>
+</head>
+<body>
+  <header class='site-header'>
+    <nav class='top-nav' aria-label='Main navigation'>
+      <ul class='nav-list'>
+        <li class='nav-item'><a href='index.html'>Home</a></li>
+        <li class='nav-item'><a href='apps.html'>Apps</a></li>
+        <li class='nav-item'><a href='pricing.html'>Pricing</a></li>
+        <li class='nav-item'><a href='resources.html'>Resources</a></li>
+        <li class='nav-item'><a href='support.html'>Support</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id='content'>
+    <div class='content-inner' data-component='apps-comparison-page'>
+      <h1 class='page-title'>Apps Comparison</h1>
+      <p class='page-intro'>Compare selected mobile apps side by side. Pricing is shown according to your site-wide API documentation preferences.</p>
+
+      <section class='comparison-controls' data-component='comparison-controls'>
+        <div class='site-preferences'>
+          <p class='controls-heading'>Pricing display</p>
+          <div class='preferences-row'>
+            <label for='currencySelect'>Currency:&nbsp;</label>
+            <select id='currencySelect' name='currency' data-action='change-currency'>
+              <option value='usd'>USD</option>
+              <option value='eur'>EUR</option>
+            </select>
+            <span class='control-gap'></span>
+            <label for='regionInput'>Region:&nbsp;</label>
+            <input id='regionInput' name='region' type='text' size='18' placeholder='Region / Country' data-action='change-region'>
+          </div>
+          <p class='preferences-status' data-populate='site-preference-status'></p>
+        </div>
+
+        <div class='comparison-actions'>
+          <a href='javascript:void(0)' data-action='back-to-apps'>Back to Apps Catalog</a>
+          <span class='action-separator'>|</span>
+          <a href='javascript:void(0)' data-action='clear-comparison'>Clear comparison</a>
+          <span class='action-message' data-populate='clear-comparison-message'></span>
+        </div>
+      </section>
+
+      <section class='comparison-tabs' data-component='comparison-tabs'>
+        <ul class='tab-list' role='tablist'>
+          <li class='tab-item'>
+            <a href='javascript:void(0)' role='tab' aria-selected='false' data-action='select-tab' data-tab-key='overview'>Overview</a>
+          </li>
+          <li class='tab-item'>
+            <a href='javascript:void(0)' role='tab' aria-selected='false' data-action='select-tab' data-tab-key='features'>Features</a>
+          </li>
+          <li class='tab-item'>
+            <a href='javascript:void(0)' role='tab' aria-selected='false' data-action='select-tab' data-tab-key='platforms'>Platforms / OS</a>
+          </li>
+          <li class='tab-item'>
+            <a href='javascript:void(0)' role='tab' aria-selected='false' data-action='select-tab' data-tab-key='pricing'>Pricing</a>
+          </li>
+        </ul>
+      </section>
+
+      <section class='comparison-content' data-component='comparison-content'>
+        <p class='comparison-loading' data-populate='comparison-loading'>Loading comparison data...</p>
+        <p class='comparison-error' data-populate='comparison-error' aria-live='polite' style='display:none;'></p>
+
+        <div class='comparison-empty' data-populate='comparison-empty' hidden>
+          <p>No apps are currently selected for comparison.</p>
+          <p>
+            <a href='javascript:void(0)' data-action='back-to-apps'>Go to the Apps Catalog to choose apps to compare</a>
+          </p>
+        </div>
+
+        <div class='comparison-rows' data-populate='comparison-view'>
+          <!-- Comparison table will be rendered here by JavaScript -->
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner'>
+      <div class='footer-links'>
+        <a href='about.html'>About</a>
+        <span class='footer-separator'>|</span>
+        <a href='apps.html'>Apps Catalog</a>
+        <span class='footer-separator'>|</span>
+        <a href='pricing.html'>Pricing &amp; Plans</a>
+        <span class='footer-separator'>|</span>
+        <a href='faq_list.html'>FAQs / Help Center</a>
+        <span class='footer-separator'>|</span>
+        <a href='contact_support.html'>Contact Support</a>
+        <span class='footer-separator'>|</span>
+        <a href='resources.html'>Guides &amp; Tutorials</a>
+        <span class='footer-separator'>|</span>
+        <a href='privacy.html'>Privacy Policy</a>
+        <span class='footer-separator'>|</span>
+        <a href='terms.html'>Terms of Use</a>
+      </div>
+      <p class='footer-copy'>&copy; 2026 Your Company Name</p>
+    </div>
+  </footer>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      'use strict';
+
+      var urlParams = new URLSearchParams(window.location.search);
+      var allowedTabs = ['overview', 'features', 'platforms', 'pricing'];
+
+      function getInitialTabKey() {
+        var tabParam = urlParams.get('tab');
+        if (tabParam && allowedTabs.indexOf(tabParam) !== -1) {
+          return tabParam;
+        }
+        return 'overview';
+      }
+
+      var state = {
+        activeTab: getInitialTabKey(),
+        sitePreference: null,
+        comparisonData: null,
+        isLoading: true,
+        error: ''
+      };
+
+      var populateElements = document.querySelectorAll('[data-populate]');
+      var containers = {};
+      populateElements.forEach(function(element) {
+        var key = element.getAttribute('data-populate');
+        if (key) {
+          containers[key] = element;
+        }
+      });
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value).replace(/[&<>"']/g, function(ch) {
+          switch (ch) {
+            case '&': return '&amp;';
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '"': return '&quot;';
+            case '\'': return '&#39;';
+            default: return ch;
+          }
+        });
+      }
+
+      function setLoading(isLoading) {
+        state.isLoading = isLoading;
+        if (containers['comparison-loading']) {
+          containers['comparison-loading'].style.display = isLoading ? '' : 'none';
+        }
+      }
+
+      function setError(message) {
+        state.error = message || '';
+        if (containers['comparison-error']) {
+          containers['comparison-error'].textContent = state.error;
+          containers['comparison-error'].style.display = state.error ? '' : 'none';
+        }
+      }
+
+      function setEmptyVisible(isEmpty) {
+        if (containers['comparison-empty']) {
+          containers['comparison-empty'].hidden = !isEmpty;
+        }
+      }
+
+      function updateSitePreferenceStatus() {
+        var container = containers['site-preference-status'];
+        if (!container) {
+          return;
+        }
+        if (!state.sitePreference) {
+          container.textContent = '';
+          return;
+        }
+        var currency = state.sitePreference.currency ? String(state.sitePreference.currency).toUpperCase() : '';
+        var region = state.sitePreference.region || '';
+        var text = '';
+        if (currency && region) {
+          text = 'Showing prices in ' + currency + ' for ' + region + '.';
+        } else if (currency) {
+          text = 'Showing prices in ' + currency + '.';
+        } else if (region) {
+          text = 'Pricing region: ' + region + '.';
+        }
+        container.textContent = text;
+      }
+
+      function syncPreferenceControlsFromState() {
+        var currencySelect = document.getElementById('currencySelect');
+        var regionInput = document.getElementById('regionInput');
+        if (state.sitePreference && currencySelect) {
+          var curr = (state.sitePreference.currency || 'usd').toLowerCase();
+          if (curr !== 'usd' && curr !== 'eur') {
+            curr = 'usd';
+          }
+          currencySelect.value = curr;
+        }
+        if (state.sitePreference && regionInput) {
+          regionInput.value = state.sitePreference.region || '';
+        }
+      }
+
+      function updateUrlParam(key, value) {
+        var url = new URL(window.location.href);
+        if (!value) {
+          url.searchParams.delete(key);
+        } else {
+          url.searchParams.set(key, value);
+        }
+        window.history.replaceState(null, '', url.toString());
+      }
+
+      function pricingModelLabel(model) {
+        if (!model) {
+          return '';
+        }
+        switch (model) {
+          case 'subscription': return 'Subscription';
+          case 'one_time_purchase': return 'One-time purchase';
+          case 'free': return 'Free';
+          case 'freemium': return 'Freemium';
+          default: return model;
+        }
+      }
+
+      function buildAppsUrlWithPreferences() {
+        var params = [];
+        if (state.sitePreference && state.sitePreference.currency) {
+          params.push('currency=' + encodeURIComponent(state.sitePreference.currency));
+        }
+        if (state.sitePreference && state.sitePreference.region) {
+          params.push('region=' + encodeURIComponent(state.sitePreference.region));
+        }
+        var qs = params.length ? '?' + params.join('&') : '';
+        return 'apps.html' + qs;
+      }
+
+      function attachRowHighlightHandlers(container) {
+        if (!container) {
+          return;
+        }
+        var labels = container.querySelectorAll('.comparison-row-label');
+        labels.forEach(function(label) {
+          label.addEventListener('mouseenter', function(evt) {
+            var row = evt.currentTarget.parentElement;
+            if (row) {
+              row.classList.add('is-highlighted');
+            }
+          });
+          label.addEventListener('mouseleave', function(evt) {
+            var row = evt.currentTarget.parentElement;
+            if (row) {
+              row.classList.remove('is-highlighted');
+            }
+          });
+          label.addEventListener('click', function(evt) {
+            var row = evt.currentTarget.parentElement;
+            if (row) {
+              row.classList.toggle('is-highlighted');
+            }
+          });
+        });
+      }
+
+      function renderComparisonView(container, currentState) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (!currentState.comparisonData || !currentState.comparisonData.apps || !currentState.comparisonData.apps.length) {
+          return;
+        }
+
+        var apps = currentState.comparisonData.apps;
+        var appsHeaderHtml = apps.map(function(app) {
+          var appName = escapeHtml(app.name || 'Untitled app');
+          var appId = escapeHtml(app.id || '');
+          var ratingText = '';
+          if (typeof app.rating === 'number') {
+            var r = app.rating;
+            try {
+              ratingText = r.toFixed(1);
+            } catch (e) {
+              ratingText = String(r);
+            }
+          }
+          var ratingCountText = '';
+          if (typeof app.ratingCount === 'number') {
+            ratingCountText = ' (' + app.ratingCount + ')';
+          }
+          return (
+            '\n              <div class="comparison-table-cell comparison-table-cell--app" role="columnheader" data-app-id="' + appId + '">\n                <a href="javascript:void(0)" data-action="view-app-details" data-app-id="' + appId + '" class="app-name-link">' + appName + '</a>' +
+            (ratingText ? '\n                <div class="app-rating">Rating: ' + escapeHtml(ratingText + ratingCountText) + '</div>' : '') +
+            '\n              </div>'
+          );
+        }).join('');
+
+        function buildRow(label, cellBuilder) {
+          var cellsHtml = apps.map(function(app) {
+            var cellContent = cellBuilder(app) || '';
+            return '\n              <div class="comparison-table-cell comparison-table-cell--value">' + cellContent + '</div>';
+          }).join('');
+          return '\n            <div class="comparison-table-row" role="row">\n              <div class="comparison-table-cell comparison-table-cell--label comparison-row-label" role="rowheader">' + escapeHtml(label) + '</div>' + cellsHtml + '\n            </div>';
+        }
+
+        var bodyHtml = '';
+        var activeTab = currentState.activeTab;
+
+        if (activeTab === 'overview') {
+          bodyHtml += buildRow('Category', function(app) {
+            return escapeHtml(app.categoryName || '');
+          });
+
+          bodyHtml += buildRow('Summary', function(app) {
+            return escapeHtml(app.shortDescription || '');
+          });
+        } else if (activeTab === 'features') {
+          bodyHtml += buildRow('Key features', function(app) {
+            if (app.featureTags && app.featureTags.length) {
+              var items = app.featureTags.map(function(tag) {
+                return '<li>' + escapeHtml(tag) + '</li>';
+              }).join('');
+              return '<ul class="feature-list">' + items + '</ul>';
+            }
+            return '<span class="no-data">No feature details.</span>';
+          });
+        } else if (activeTab === 'platforms') {
+          bodyHtml += buildRow('Supported platforms', function(app) {
+            if (app.platforms && app.platforms.length) {
+              var supported = app.platforms.filter(function(p) { return p && p.isSupported; });
+              if (!supported.length) {
+                return '<span class="no-data">No supported platforms listed.</span>';
+              }
+              var pItems = supported.map(function(p) {
+                var platformLabel = p.platform || '';
+                if (platformLabel === 'android') { platformLabel = 'Android'; }
+                else if (platformLabel === 'ios') { platformLabel = 'iOS'; }
+                else if (platformLabel === 'ipad') { platformLabel = 'iPad'; }
+                var text = platformLabel;
+                if (p.minOsVersion) {
+                  text += ' (min ' + p.minOsVersion + ')';
+                }
+                return '<li>' + escapeHtml(text) + '</li>';
+              }).join('');
+              return '<ul class="platform-list">' + pItems + '</ul>';
+            }
+            return '<span class="no-data">No platform information available.</span>';
+          });
+        } else if (activeTab === 'pricing') {
+          bodyHtml += buildRow('Pricing model', function(app) {
+            return escapeHtml(pricingModelLabel(app.pricingModel));
+          });
+
+          bodyHtml += buildRow('Price', function(app) {
+            var parts = [];
+            if (app.displayPrice) {
+              parts.push(String(app.displayPrice));
+            }
+            if (!parts.length) {
+              if (typeof app.monthlyPrice === 'number') {
+                parts.push(String(app.monthlyPrice));
+              } else if (typeof app.oneTimePrice === 'number') {
+                parts.push(String(app.oneTimePrice));
+              }
+            }
+            if (app.baseCurrency) {
+              parts.push('(' + String(app.baseCurrency).toUpperCase() + ' base)');
+            }
+            if (!parts.length) {
+              return '<span class="no-data">No pricing information.</span>';
+            }
+            return '<span class="price-value">' + escapeHtml(parts.join(' ')) + '</span>';
+          });
+        }
+
+        var rowLabelTextMap = {
+          overview: 'Overview',
+          features: 'Features',
+          platforms: 'Platforms / OS',
+          pricing: 'Pricing'
+        };
+        var supportPromptMap = {
+          overview: 'Questions about how these apps differ? Use the Apps Catalog to explore full descriptions.',
+          features: 'Need help understanding specific features? See the resources and tutorials linked in the footer.',
+          platforms: 'For installation issues on a specific device, open a support request from the Help Center.',
+          pricing: 'Pricing questions or billing problems can be handled through the Billing & Payments help articles.'
+        };
+
+        var rowLabelText = rowLabelTextMap[activeTab] || 'Overview';
+        var supportPrompt = supportPromptMap[activeTab] || '';
+
+        var html = (
+          '<div class="comparison-row" data-row-key="' + escapeHtml(activeTab) + '">\n' +
+          '  <div class="comparison-col visual-col">\n' +
+          '    <div class="visual-placeholder">' + escapeHtml(rowLabelText) + '</div>\n' +
+          '  </div>\n' +
+          '  <div class="comparison-col main-col">\n' +
+          '    <div class="comparison-table" role="table">\n' +
+          '      <div class="comparison-table-header" role="row">\n' +
+          '        <div class="comparison-table-cell comparison-table-cell--label" role="columnheader">App</div>' +
+                 appsHeaderHtml + '\n' +
+          '      </div>' +
+                 bodyHtml + '\n' +
+          '    </div>\n' +
+          '  </div>\n' +
+          '  <div class="comparison-col support-col">\n' +
+          '    <div class="support-icon" aria-hidden="true">?</div>\n' +
+          '    <p class="support-text">' + escapeHtml(supportPrompt) + '</p>\n' +
+          '    <a href="javascript:void(0)" data-action="show-support-note">Need help comparing these apps?</a>\n' +
+          '  </div>\n' +
+          '</div>'
+        );
+
+        container.innerHTML = html;
+        attachRowHighlightHandlers(container);
+      }
+
+      function setActiveTab(tabKey) {
+        if (allowedTabs.indexOf(tabKey) === -1) {
+          tabKey = 'overview';
+        }
+        state.activeTab = tabKey;
+        updateUrlParam('tab', tabKey);
+
+        var tabLinks = document.querySelectorAll('[data-action="select-tab"]');
+        tabLinks.forEach(function(link) {
+          var key = link.getAttribute('data-tab-key');
+          var isActive = key === tabKey;
+          if (isActive) {
+            link.classList.add('is-active');
+            link.setAttribute('aria-selected', 'true');
+          } else {
+            link.classList.remove('is-active');
+            link.setAttribute('aria-selected', 'false');
+          }
+        });
+
+        renderComparisonView(containers['comparison-view'], state);
+      }
+
+      function initializePage() {
+        setLoading(true);
+        setError('');
+        setEmptyVisible(false);
+
+        try {
+          var pref = WebsiteSDK.getSitePreference();
+          if (pref) {
+            state.sitePreference = pref;
+          } else {
+            state.sitePreference = { currency: 'usd', region: '' };
+          }
+        } catch (e) {
+          state.sitePreference = { currency: 'usd', region: '' };
+          setError('Unable to load site preferences.');
+        }
+
+        var urlCurrency = urlParams.get('currency');
+        var urlRegion = urlParams.get('region');
+        var targetCurrency = state.sitePreference.currency || 'usd';
+        var targetRegion = state.sitePreference.region || '';
+        var needUpdate = false;
+
+        if (urlCurrency && urlCurrency.toLowerCase() !== String(targetCurrency).toLowerCase()) {
+          targetCurrency = urlCurrency.toLowerCase();
+          needUpdate = true;
+        }
+        if (urlRegion && urlRegion !== targetRegion) {
+          targetRegion = urlRegion;
+          needUpdate = true;
+        }
+
+        if (needUpdate) {
+          try {
+            var updateResult = WebsiteSDK.updateSitePreference(targetCurrency, targetRegion);
+            if (updateResult && updateResult.success && updateResult.preference) {
+              state.sitePreference = updateResult.preference;
+            } else if (updateResult && updateResult.message) {
+              setError(updateResult.message);
+            }
+          } catch (e2) {
+            setError('Unable to update site preferences from URL parameters.');
+          }
+        }
+
+        syncPreferenceControlsFromState();
+        updateSitePreferenceStatus();
+
+        try {
+          var view = WebsiteSDK.getAppComparisonView();
+          if (view) {
+            state.comparisonData = view;
+          } else {
+            state.comparisonData = { apps: [] };
+          }
+        } catch (e3) {
+          state.comparisonData = { apps: [] };
+          setError('Unable to load apps for comparison.');
+        }
+
+        setLoading(false);
+
+        var hasApps = !!(state.comparisonData && state.comparisonData.apps && state.comparisonData.apps.length);
+        setEmptyVisible(!hasApps);
+
+        setActiveTab(state.activeTab);
+      }
+
+      var currencySelectEl = document.getElementById('currencySelect');
+      if (currencySelectEl) {
+        currencySelectEl.addEventListener('change', function(event) {
+          var newCurrency = event.target.value || 'usd';
+          var currentRegion = state.sitePreference ? (state.sitePreference.region || '') : '';
+          updateUrlParam('currency', newCurrency);
+          try {
+            var result = WebsiteSDK.updateSitePreference(newCurrency, currentRegion);
+            if (result && result.success && result.preference) {
+              state.sitePreference = result.preference;
+              syncPreferenceControlsFromState();
+              updateSitePreferenceStatus();
+              if (state.activeTab === 'pricing') {
+                renderComparisonView(containers['comparison-view'], state);
+              }
+            } else {
+              if (result && result.message) {
+                setError(result.message);
+              }
+            }
+          } catch (e) {
+            setError('Unable to update currency preference.');
+          }
+        });
+      }
+
+      var regionInputEl = document.getElementById('regionInput');
+      if (regionInputEl) {
+        regionInputEl.addEventListener('change', function(event) {
+          var newRegion = event.target.value || '';
+          var currentCurrency = state.sitePreference ? (state.sitePreference.currency || 'usd') : 'usd';
+          updateUrlParam('region', newRegion);
+          try {
+            var result = WebsiteSDK.updateSitePreference(currentCurrency, newRegion);
+            if (result && result.success && result.preference) {
+              state.sitePreference = result.preference;
+              syncPreferenceControlsFromState();
+              updateSitePreferenceStatus();
+              if (state.activeTab === 'pricing') {
+                renderComparisonView(containers['comparison-view'], state);
+              }
+            } else {
+              if (result && result.message) {
+                setError(result.message);
+              }
+            }
+          } catch (e) {
+            setError('Unable to update region preference.');
+          }
+        });
+      }
+
+      document.body.addEventListener('click', function(event) {
+        var target = event.target.closest('[data-action]');
+        if (!target) {
+          return;
+        }
+        var action = target.getAttribute('data-action');
+        if (!action) {
+          return;
+        }
+        if (action === 'select-tab') {
+          event.preventDefault();
+          var tabKey = target.getAttribute('data-tab-key') || 'overview';
+          setActiveTab(tabKey);
+        } else if (action === 'back-to-apps') {
+          event.preventDefault();
+          window.location.href = buildAppsUrlWithPreferences();
+        } else if (action === 'clear-comparison') {
+          event.preventDefault();
+          try {
+            var clearResult = WebsiteSDK.clearAppComparisonSelection();
+            if (clearResult && clearResult.success) {
+              window.location.href = buildAppsUrlWithPreferences();
+            } else {
+              if (containers['clear-comparison-message']) {
+                containers['clear-comparison-message'].textContent = (clearResult && clearResult.message) ? clearResult.message : 'Unable to clear comparison right now.';
+              }
+            }
+          } catch (e) {
+            if (containers['clear-comparison-message']) {
+              containers['clear-comparison-message'].textContent = 'Unable to clear comparison right now.';
+            }
+          }
+        } else if (action === 'view-app-details') {
+          event.preventDefault();
+          var appId = target.getAttribute('data-app-id');
+          if (appId) {
+            window.location.href = 'app_detail.html?id=' + encodeURIComponent(appId);
+          }
+        } else if (action === 'show-support-note') {
+          event.preventDefault();
+          window.alert('For additional help comparing apps, use the Apps Catalog, FAQs, or Contact Support links in the footer.');
+        }
+      });
+
+      initializePage();
+    });
+  </script>
+</body>
+</html>

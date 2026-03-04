@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Genres | Artist Discography</title>
+  
+  <link rel="stylesheet" href="genres.css">
+</head>
+<body>
+  <div class="page-background">
+    <div class="page-container">
+      <header class="site-header">
+        <h1 class="site-title">Artist Discography</h1>
+        <nav class="site-nav" aria-label="Primary">
+          <ul>
+            <li><a href="index.html">Home</a></li>
+            <li><a href="genres.html">Browse Genres</a></li>
+            <li><a href="library.html">Library</a></li>
+            <li><a href="playlists.html">Playlists</a></li>
+            <li><a href="favorites.html">Favorites</a></li>
+            <li><a href="queue.html">Queue</a></li>
+          </ul>
+        </nav>
+      </header>
+
+      <main id="content" class="site-main" role="main">
+        <section data-component="genres-page-controller" class="genres-page">
+          <h2 class="page-heading">Genres</h2>
+
+          <section data-component="genres-filter-controls" class="genres-filters">
+            <form data-action="filters-form">
+              <div class="filter-row">
+                <label for="genre-search-input">Search genres:
+                  <input type="text" id="genre-search-input" name="q" autocomplete="off">
+                </label>
+              </div>
+              <div class="filter-row">
+                <label for="genre-sort-select">Sort by:
+                  <select id="genre-sort-select" name="sort" data-action="sort-change">
+                    <option value="name_asc">Name (A–Z)</option>
+                    <option value="name_desc">Name (Z–A)</option>
+                    <option value="albums_desc">Album count (high to low)</option>
+                    <option value="albums_asc">Album count (low to high)</option>
+                  </select>
+                </label>
+
+                <label for="genre-view-select">View:
+                  <select id="genre-view-select" name="view" data-action="view-change">
+                    <option value="list">List</option>
+                    <option value="grid">Grid</option>
+                  </select>
+                </label>
+
+                <label class="featured-only-label">
+                  <input type="checkbox" id="genre-featured-checkbox" name="featured" value="1" data-action="featured-toggle">
+                  Featured only
+                </label>
+
+                <label for="genre-page-size-select">Per page:
+                  <select id="genre-page-size-select" name="pageSize" data-action="page-size-change">
+                    <option value="10">10</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                  </select>
+                </label>
+
+                <a href="javascript:void(0)" data-action="clear-filters">Clear filters</a>
+              </div>
+            </form>
+          </section>
+
+          <section data-component="featured-genres-strip" class="featured-genres" aria-label="Featured genres">
+            <p>
+              <strong>Featured genres:</strong>
+              <span data-populate="featured-genres"></span>
+            </p>
+          </section>
+
+          <section data-component="genres-list-wrapper" class="genres-list-wrapper">
+            <div data-component="genres-list" data-populate="genres-list" aria-live="polite">
+              <p>Loading genres…</p>
+            </div>
+            <div data-component="genres-empty-state" data-populate="genres-empty-state" hidden></div>
+          </section>
+
+          <hr class="genres-divider">
+
+          <nav data-component="genres-pagination-controls" data-populate="genres-pagination" class="genres-pagination" aria-label="Genres pages"></nav>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <hr class="footer-divider">
+        <nav class="footer-nav" aria-label="Footer">
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="help.html">Help / FAQ</a></li>
+            <li><a href="contact.html">Contact</a></li>
+            <li><a href="bookmarks.html">Bookmarks</a></li>
+            <li><a href="lists.html">Lists</a></li>
+          </ul>
+        </nav>
+        <p class="footer-meta">&copy; Artist Discography</p>
+      </footer>
+    </div>
+  </div>
+
+  <script src="business_logic.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var filterControlsContainer = document.querySelector('[data-component="genres-filter-controls"]');
+      var featuredStripContainer = document.querySelector('[data-populate="featured-genres"]');
+      var listContainer = document.querySelector('[data-populate="genres-list"]');
+      var emptyStateContainer = document.querySelector('[data-component="genres-empty-state"]');
+      var paginationContainer = document.querySelector('[data-populate="genres-pagination"]');
+
+      var allGenres = [];
+      var featuredGenres = [];
+      var dataLoaded = false;
+      var loadError = null;
+
+      function getStateFromUrl() {
+        var params = new URLSearchParams(window.location.search);
+        var q = params.get('q') || '';
+        var sort = params.get('sort') || 'name_asc';
+        var view = params.get('view') || 'list';
+        var featuredParam = params.get('featured');
+        var featuredOnly = featuredParam === '1' || featuredParam === 'true';
+        var page = parseInt(params.get('page') || '1', 10);
+        if (!Number.isFinite(page) || page < 1) {
+          page = 1;
+        }
+        var pageSize = parseInt(params.get('pageSize') || '20', 10);
+        if (!Number.isFinite(pageSize) || pageSize <= 0) {
+          pageSize = 20;
+        }
+        return {
+          q: q,
+          sort: sort,
+          view: view,
+          featuredOnly: featuredOnly,
+          page: page,
+          pageSize: pageSize
+        };
+      }
+
+      function compareGenres(a, b, sortKey) {
+        var nameA = a && a.name ? a.name : '';
+        var nameB = b && b.name ? b.name : '';
+        var albumsA = typeof a.album_count === 'number' ? a.album_count : 0;
+        var albumsB = typeof b.album_count === 'number' ? b.album_count : 0;
+        if (sortKey === 'name_desc') {
+          return nameB.localeCompare(nameA, undefined, { sensitivity: 'base' });
+        }
+        if (sortKey === 'albums_asc') {
+          if (albumsA !== albumsB) {
+            return albumsA - albumsB;
+          }
+          return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+        }
+        if (sortKey === 'albums_desc') {
+          if (albumsA !== albumsB) {
+            return albumsB - albumsA;
+          }
+          return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+        }
+        return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+      }
+
+      function computeDerivedGenres(state) {
+        var working = allGenres.slice();
+        if (state.featuredOnly) {
+          working = working.filter(function (g) { return g && g.is_featured; });
+        }
+        if (state.q) {
+          var qLower = state.q.toLowerCase();
+          working = working.filter(function (g) {
+            if (!g) {
+              return false;
+            }
+            var name = g.name || '';
+            var description = g.description || '';
+            return name.toLowerCase().indexOf(qLower) !== -1 || description.toLowerCase().indexOf(qLower) !== -1;
+          });
+        }
+        working.sort(function (a, b) { return compareGenres(a, b, state.sort); });
+        var totalResults = working.length;
+        var totalPages = 0;
+        if (totalResults === 0) {
+          totalPages = 0;
+        } else if (state.pageSize > 0) {
+          totalPages = Math.ceil(totalResults / state.pageSize);
+        } else {
+          totalPages = 1;
+        }
+        var currentPage = state.page;
+        if (totalPages > 0 && currentPage > totalPages) {
+          currentPage = totalPages;
+        }
+        if (currentPage < 1) {
+          currentPage = 1;
+        }
+        var items = [];
+        if (totalResults > 0 && state.pageSize > 0) {
+          var startIndex = (currentPage - 1) * state.pageSize;
+          items = working.slice(startIndex, startIndex + state.pageSize);
+        }
+        return {
+          items: items,
+          totalResults: totalResults,
+          totalPages: totalPages,
+          currentPage: currentPage
+        };
+      }
+
+      function renderFilterControls(container, state) {
+        if (!container) {
+          return;
+        }
+        var form = container.querySelector('form[data-action="filters-form"]');
+        if (!form) {
+          return;
+        }
+        var searchInput = form.querySelector('input[name="q"]');
+        if (searchInput) {
+          searchInput.value = state.q;
+        }
+        var sortSelect = form.querySelector('select[name="sort"]');
+        if (sortSelect) {
+          sortSelect.value = state.sort;
+        }
+        var viewSelect = form.querySelector('select[name="view"]');
+        if (viewSelect) {
+          viewSelect.value = state.view;
+        }
+        var featuredCheckbox = form.querySelector('input[name="featured"]');
+        if (featuredCheckbox) {
+          featuredCheckbox.checked = state.featuredOnly;
+        }
+        var pageSizeSelect = form.querySelector('select[name="pageSize"]');
+        if (pageSizeSelect) {
+          var valueString = String(state.pageSize);
+          var found = false;
+          for (var i = 0; i < pageSizeSelect.options.length; i += 1) {
+            if (pageSizeSelect.options[i].value === valueString) {
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            var opt = document.createElement('option');
+            opt.value = valueString;
+            opt.textContent = valueString;
+            pageSizeSelect.appendChild(opt);
+          }
+          pageSizeSelect.value = valueString;
+        }
+      }
+
+      function renderFeaturedGenres(container, items) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (!items || !items.length) {
+          var noneSpan = document.createElement('span');
+          noneSpan.textContent = 'None listed.';
+          container.appendChild(noneSpan);
+          return;
+        }
+        items.forEach(function (genre, index) {
+          if (!genre) {
+            return;
+          }
+          if (index > 0) {
+            container.appendChild(document.createTextNode(' | '));
+          }
+          var link = document.createElement('a');
+          link.href = 'javascript:void(0)';
+          link.textContent = genre.name || '(Untitled genre)';
+          link.setAttribute('data-action', 'featured-genre-click');
+          link.setAttribute('data-genre-slug', genre.slug || '');
+          container.appendChild(link);
+        });
+      }
+
+      function renderGenresList(container, items, state) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        container.classList.remove('view-list', 'view-grid');
+        if (state.view === 'grid') {
+          container.classList.add('view-grid');
+        } else {
+          container.classList.add('view-list');
+        }
+        if (!items || !items.length) {
+          return;
+        }
+        items.forEach(function (genre) {
+          if (!genre) {
+            return;
+          }
+          var itemEl = document.createElement('article');
+          itemEl.className = 'genre-item';
+
+          var titlePara = document.createElement('p');
+          var titleStrong = document.createElement('strong');
+          var titleLink = document.createElement('a');
+          titleLink.href = 'javascript:void(0)';
+          titleLink.textContent = genre.name || '(Untitled genre)';
+          titleLink.setAttribute('data-action', 'genre-item-click');
+          titleLink.setAttribute('data-genre-slug', genre.slug || '');
+          titleStrong.appendChild(titleLink);
+          titlePara.appendChild(titleStrong);
+          itemEl.appendChild(titlePara);
+
+          var metaPara = document.createElement('p');
+          var parts = [];
+          if (typeof genre.album_count === 'number') {
+            var label = genre.album_count === 1 ? ' album' : ' albums';
+            parts.push(String(genre.album_count) + label);
+          }
+          if (genre.description) {
+            parts.push(genre.description);
+          }
+          metaPara.textContent = parts.join('  b7 ');
+          itemEl.appendChild(metaPara);
+
+          container.appendChild(itemEl);
+        });
+      }
+
+      function renderEmptyState(container, state) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        var p1 = document.createElement('p');
+        var strong = document.createElement('strong');
+        strong.textContent = 'No genres found.';
+        p1.appendChild(strong);
+        container.appendChild(p1);
+
+        var p2 = document.createElement('p');
+        if (state.q) {
+          p2.textContent = 'No genres match your search. Try clearing the search or adjusting filters.';
+        } else if (state.featuredOnly) {
+          p2.textContent = 'No genres are currently marked as featured. Try turning off the "Featured only" filter.';
+        } else {
+          p2.textContent = 'No genres are available to display. Try adjusting filters.';
+        }
+        container.appendChild(p2);
+
+        var p3 = document.createElement('p');
+        var clearLink = document.createElement('a');
+        clearLink.href = 'javascript:void(0)';
+        clearLink.textContent = 'Clear all filters';
+        clearLink.setAttribute('data-action', 'clear-filters');
+        p3.appendChild(clearLink);
+        container.appendChild(p3);
+      }
+
+      function renderPagination(container, derived, state) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (!derived || !derived.totalResults || !derived.totalPages) {
+          return;
+        }
+
+        var infoSpan = document.createElement('span');
+        infoSpan.textContent = 'Page ' + derived.currentPage + ' of ' + derived.totalPages + ' (' + derived.totalResults + ' genres)';
+        container.appendChild(infoSpan);
+        container.appendChild(document.createTextNode(' '));
+
+        if (derived.currentPage > 1) {
+          var prevLink = document.createElement('a');
+          prevLink.href = 'javascript:void(0)';
+          prevLink.textContent = 'Previous';
+          prevLink.setAttribute('data-action', 'page-change');
+          prevLink.setAttribute('data-page', String(derived.currentPage - 1));
+          container.appendChild(prevLink);
+          container.appendChild(document.createTextNode(' '));
+        }
+
+        var maxPagesToShow = 7;
+        var startPage = Math.max(1, derived.currentPage - 3);
+        var endPage = Math.min(derived.totalPages, startPage + maxPagesToShow - 1);
+
+        for (var p = startPage; p <= endPage; p += 1) {
+          if (p === derived.currentPage) {
+            var currentSpan = document.createElement('span');
+            currentSpan.textContent = ' ' + String(p) + ' ';
+            container.appendChild(currentSpan);
+          } else {
+            var pageLink = document.createElement('a');
+            pageLink.href = 'javascript:void(0)';
+            pageLink.textContent = String(p);
+            pageLink.setAttribute('data-action', 'page-change');
+            pageLink.setAttribute('data-page', String(p));
+            container.appendChild(pageLink);
+            container.appendChild(document.createTextNode(' '));
+          }
+        }
+
+        if (derived.currentPage < derived.totalPages) {
+          var nextLink = document.createElement('a');
+          nextLink.href = 'javascript:void(0)';
+          nextLink.textContent = 'Next';
+          nextLink.setAttribute('data-action', 'page-change');
+          nextLink.setAttribute('data-page', String(derived.currentPage + 1));
+          container.appendChild(nextLink);
+        }
+      }
+
+      function updateUrlParams(patch) {
+        var url = new URL(window.location.href);
+        var params = url.searchParams;
+        Object.keys(patch).forEach(function (key) {
+          var value = patch[key];
+          if (value === null || typeof value === 'undefined' || value === '') {
+            params.delete(key);
+          } else {
+            params.set(key, value);
+          }
+        });
+        url.search = params.toString();
+        window.history.pushState({}, '', url.toString());
+        handleUrlChange();
+      }
+
+      function handleUrlChange() {
+        if (!dataLoaded) {
+          return;
+        }
+        var state = getStateFromUrl();
+        var derived = computeDerivedGenres(state);
+
+        renderFilterControls(filterControlsContainer, state);
+        renderFeaturedGenres(featuredStripContainer, featuredGenres);
+
+        if (loadError) {
+          if (listContainer) {
+            listContainer.innerHTML = '';
+            var errorPara = document.createElement('p');
+            errorPara.textContent = 'Unable to load genres at this time.';
+            listContainer.appendChild(errorPara);
+          }
+          if (emptyStateContainer) {
+            emptyStateContainer.hidden = true;
+          }
+          if (paginationContainer) {
+            paginationContainer.innerHTML = '';
+          }
+          return;
+        }
+
+        if (!derived.totalResults) {
+          if (listContainer) {
+            listContainer.innerHTML = '';
+            listContainer.style.display = 'none';
+          }
+          if (emptyStateContainer) {
+            emptyStateContainer.hidden = false;
+            renderEmptyState(emptyStateContainer, state);
+          }
+        } else {
+          if (listContainer) {
+            listContainer.style.display = '';
+            renderGenresList(listContainer, derived.items, state);
+          }
+          if (emptyStateContainer) {
+            emptyStateContainer.hidden = true;
+          }
+        }
+
+        renderPagination(paginationContainer, derived, state);
+        bindDynamicActionHandlers();
+      }
+
+      function onGenreItemClick(event) {
+        event.preventDefault();
+        var slug = event.currentTarget.getAttribute('data-genre-slug');
+        if (!slug) {
+          return;
+        }
+        window.location.href = 'genre_detail.html?genre=' + encodeURIComponent(slug);
+      }
+
+      function onFeaturedGenreClick(event) {
+        event.preventDefault();
+        var slug = event.currentTarget.getAttribute('data-genre-slug');
+        if (!slug) {
+          return;
+        }
+        window.location.href = 'genre_detail.html?genre=' + encodeURIComponent(slug);
+      }
+
+      function onPageChangeClick(event) {
+        event.preventDefault();
+        var pageStr = event.currentTarget.getAttribute('data-page');
+        var page = parseInt(pageStr || '1', 10);
+        if (!Number.isFinite(page) || page < 1) {
+          return;
+        }
+        updateUrlParams({ page: String(page) });
+      }
+
+      function handleClearFilters() {
+        updateUrlParams({ q: null, sort: null, featured: null, page: '1' });
+      }
+
+      function bindDynamicActionHandlers() {
+        var genreElements = document.querySelectorAll('[data-action="genre-item-click"]');
+        genreElements.forEach(function (el) {
+          el.addEventListener('click', onGenreItemClick);
+        });
+
+        var featuredElements = document.querySelectorAll('[data-action="featured-genre-click"]');
+        featuredElements.forEach(function (el) {
+          el.addEventListener('click', onFeaturedGenreClick);
+        });
+
+        var pageLinks = document.querySelectorAll('[data-action="page-change"]');
+        pageLinks.forEach(function (el) {
+          el.addEventListener('click', onPageChangeClick);
+        });
+
+        var clearLinks = document.querySelectorAll('[data-action="clear-filters"]');
+        clearLinks.forEach(function (el) {
+          el.addEventListener('click', function (event) {
+            event.preventDefault();
+            handleClearFilters();
+          });
+        });
+      }
+
+      function bindStaticFilterHandlers() {
+        if (!filterControlsContainer) {
+          return;
+        }
+        var form = filterControlsContainer.querySelector('form[data-action="filters-form"]');
+        if (!form) {
+          return;
+        }
+        form.addEventListener('submit', function (event) {
+          event.preventDefault();
+          var searchInput = form.querySelector('input[name="q"]');
+          var value = searchInput && searchInput.value ? searchInput.value.trim() : '';
+          updateUrlParams({ q: value || null, page: '1' });
+        });
+
+        var searchInput = form.querySelector('input[name="q"]');
+        if (searchInput) {
+          searchInput.addEventListener('change', function () {
+            var value = searchInput.value ? searchInput.value.trim() : '';
+            updateUrlParams({ q: value || null, page: '1' });
+          });
+        }
+
+        var sortSelect = form.querySelector('select[name="sort"]');
+        if (sortSelect) {
+          sortSelect.addEventListener('change', function () {
+            var value = sortSelect.value || null;
+            updateUrlParams({ sort: value, page: '1' });
+          });
+        }
+
+        var viewSelect = form.querySelector('select[name="view"]');
+        if (viewSelect) {
+          viewSelect.addEventListener('change', function () {
+            var value = viewSelect.value || null;
+            updateUrlParams({ view: value });
+          });
+        }
+
+        var featuredCheckbox = form.querySelector('input[name="featured"]');
+        if (featuredCheckbox) {
+          featuredCheckbox.addEventListener('change', function () {
+            var value = featuredCheckbox.checked ? '1' : null;
+            updateUrlParams({ featured: value, page: '1' });
+          });
+        }
+
+        var pageSizeSelect = form.querySelector('select[name="pageSize"]');
+        if (pageSizeSelect) {
+          pageSizeSelect.addEventListener('change', function () {
+            var raw = pageSizeSelect.value;
+            var size = parseInt(raw || '20', 10);
+            if (!Number.isFinite(size) || size <= 0) {
+              size = 20;
+            }
+            updateUrlParams({ pageSize: String(size), page: '1' });
+          });
+        }
+      }
+
+      function loadData() {
+        try {
+          allGenres = WebsiteSDK.getAllGenres() || [];
+        } catch (err) {
+          console.error('Error loading genres', err);
+          allGenres = [];
+          loadError = 'genres';
+        }
+        try {
+          featuredGenres = WebsiteSDK.getFeaturedGenres() || [];
+        } catch (err2) {
+          console.error('Error loading featured genres', err2);
+          featuredGenres = [];
+          if (!loadError) {
+            loadError = 'featured';
+          }
+        }
+        dataLoaded = true;
+      }
+
+      window.addEventListener('popstate', function () {
+        handleUrlChange();
+      });
+
+      loadData();
+      bindStaticFilterHandlers();
+      handleUrlChange();
+    });
+  </script>
+</body>
+</html>

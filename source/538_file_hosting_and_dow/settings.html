@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Hosting Service - Settings</title>
+    
+    <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+    <header class="site-header">
+        <nav class="main-nav" aria-label="Main navigation">
+            <ul class="main-nav__list">
+                <li class="main-nav__item"><a href="index.html">Dashboard</a></li>
+                <li class="main-nav__item"><a href="explore.html">Explore</a></li>
+                <li class="main-nav__item"><a href="collections.html">Collections</a></li>
+                <li class="main-nav__item"><a href="download_queue.html">Download Queue</a></li>
+                <li class="main-nav__item"><a href="settings.html">Settings</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" class="site-content" role="main">
+        <h1>Settings</h1>
+
+        <nav aria-label="Settings sections" data-component="settings-tab-navigation">
+            <ul>
+                <li><a href="javascript:void(0)" data-action="activate-tab" data-tab-id="general">General</a></li>
+                <li><a href="javascript:void(0)" data-action="activate-tab" data-tab-id="downloads">Downloads</a></li>
+            </ul>
+        </nav>
+
+        <p data-component="downloads-status-indicator" data-populate="downloads-status">Downloads status: idle</p>
+
+        <section data-component="general-settings-panel" aria-label="General settings">
+            <h2>General settings</h2>
+            <p>General settings are not configured on this page. Use the Downloads tab to manage download-related preferences.</p>
+        </section>
+
+        <section data-component="downloads-settings-panel" data-populate="download-settings" aria-labelledby="downloads-settings-heading" hidden>
+            <h2 id="downloads-settings-heading">Download settings</h2>
+
+            <form id="downloads-settings-form">
+                <fieldset data-component="download-location-control">
+                    <legend>Download location</legend>
+                    <label>
+                        <input type="radio" name="downloadLocationMode" value="default_folder">
+                        Save to default folder
+                    </label><br>
+                    <label>
+                        <input type="radio" name="downloadLocationMode" value="ask_every_time">
+                        Ask every time
+                    </label><br>
+                    <label>
+                        <input type="radio" name="downloadLocationMode" value="last_used_folder">
+                        Use last used folder
+                    </label><br><br>
+                    <label for="defaultDownloadFolderInput">Default folder:</label>
+                    <input type="text" id="defaultDownloadFolderInput" name="defaultDownloadFolder">
+                    <div id="defaultFolderError" aria-live="polite"></div>
+                </fieldset>
+
+                <fieldset data-component="bandwidth-limit-control">
+                    <legend>Bandwidth limit</legend>
+                    <label>
+                        <input type="checkbox" id="bandwidthLimitEnabledInput" name="bandwidthLimitEnabled">
+                        Limit download speed
+                    </label><br><br>
+                    <label for="maxDownloadSpeedValueInput">Maximum speed:</label>
+                    <input type="number" id="maxDownloadSpeedValueInput" name="maxDownloadSpeedValue" min="0">
+                    <select id="maxDownloadSpeedUnitInput" name="maxDownloadSpeedUnit">
+                        <option value="">Select unit</option>
+                        <option value="kb_s">KB/s</option>
+                        <option value="mb_s">MB/s</option>
+                        <option value="gb_s">GB/s</option>
+                    </select>
+                    <div id="bandwidthError" aria-live="polite"></div>
+                </fieldset>
+            </form>
+
+            <div data-component="downloads-save-bar">
+                <button type="button" data-action="save-download-settings" disabled>Save changes</button>
+                <button type="button" data-action="discard-download-settings" disabled>Discard changes</button>
+            </div>
+
+            <nav aria-label="Downloads navigation" data-component="downloads-navigation-links">
+                <ul>
+                    <li><a href="javascript:void(0)" data-action="view-download-queue">View download queue</a></li>
+                    <li><a href="javascript:void(0)" data-action="back-to-dashboard">Back to Dashboard</a></li>
+                </ul>
+            </nav>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p class="site-footer__copy">
+            &copy; 2010-2026 Example File Hosting Service
+        </p>
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul class="footer-nav__list">
+                <li class="footer-nav__item"><a href="about.html">About</a></li>
+                <li class="footer-nav__item"><a href="help.html">Help &amp; Support</a></li>
+                <li class="footer-nav__item"><a href="terms.html">Terms of Service</a></li>
+                <li class="footer-nav__item"><a href="privacy.html">Privacy Policy</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var urlParams = new URLSearchParams(window.location.search);
+        var tabParam = urlParams.get('tab');
+
+        var downloadsStatusEl = document.querySelector('[data-component="downloads-status-indicator"]');
+        var downloadsPanel = document.querySelector('[data-component="downloads-settings-panel"]');
+        var generalPanel = document.querySelector('[data-component="general-settings-panel"]');
+        var form = document.getElementById('downloads-settings-form');
+        var saveButton = document.querySelector('[data-action="save-download-settings"]');
+        var discardButton = document.querySelector('[data-action="discard-download-settings"]');
+        var defaultFolderInput = document.getElementById('defaultDownloadFolderInput');
+        var defaultFolderErrorEl = document.getElementById('defaultFolderError');
+        var bandwidthToggle = document.getElementById('bandwidthLimitEnabledInput');
+        var maxSpeedValueInput = document.getElementById('maxDownloadSpeedValueInput');
+        var maxSpeedUnitInput = document.getElementById('maxDownloadSpeedUnitInput');
+        var bandwidthErrorEl = document.getElementById('bandwidthError');
+        var tabLinks = document.querySelectorAll('[data-action="activate-tab"]');
+
+        var activeTabId = tabParam === 'downloads' ? 'downloads' : 'general';
+
+        var currentSettings = null;
+        var draftSettings = null;
+        var downloadSettingsLoaded = false;
+        var hasUnsavedChanges = false;
+        var isLoadingSettings = false;
+        var isSavingSettings = false;
+
+        function renderDownloadsStatus(container, message) {
+            if (!container) {
+                return;
+            }
+            container.textContent = 'Downloads status: ' + message;
+        }
+
+        function cloneSettings(settings) {
+            if (!settings) {
+                return null;
+            }
+            return {
+                id: settings.id,
+                downloadLocationMode: settings.downloadLocationMode || 'default_folder',
+                defaultDownloadFolder: settings.defaultDownloadFolder || '',
+                bandwidthLimitEnabled: Boolean(settings.bandwidthLimitEnabled),
+                maxDownloadSpeedValue: typeof settings.maxDownloadSpeedValue === 'number' ? settings.maxDownloadSpeedValue : null,
+                maxDownloadSpeedUnit: settings.maxDownloadSpeedUnit || ''
+            };
+        }
+
+        function computeHasUnsavedChanges() {
+            if (!currentSettings || !draftSettings) {
+                return false;
+            }
+            var fields = ['downloadLocationMode', 'defaultDownloadFolder', 'bandwidthLimitEnabled', 'maxDownloadSpeedValue', 'maxDownloadSpeedUnit'];
+            for (var i = 0; i < fields.length; i += 1) {
+                var field = fields[i];
+                if (currentSettings[field] !== draftSettings[field]) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function validateDraftSettings() {
+            var errors = {};
+            if (!draftSettings) {
+                return { valid: false, errors: errors };
+            }
+
+            if (draftSettings.downloadLocationMode === 'default_folder') {
+                if (!draftSettings.defaultDownloadFolder || draftSettings.defaultDownloadFolder.trim() === '') {
+                    errors.defaultFolder = 'Default folder is required when using default folder mode.';
+                }
+            }
+
+            if (draftSettings.bandwidthLimitEnabled) {
+                var value = draftSettings.maxDownloadSpeedValue;
+                if (value == null || isNaN(value) || value <= 0) {
+                    errors.bandwidth = 'Enter a positive maximum download speed.';
+                } else if (!draftSettings.maxDownloadSpeedUnit) {
+                    errors.bandwidth = 'Select a speed unit.';
+                }
+            }
+
+            var valid = Object.keys(errors).length === 0;
+            return { valid: valid, errors: errors };
+        }
+
+        function updateValidationUI(result) {
+            if (!result) {
+                return;
+            }
+            if (defaultFolderErrorEl) {
+                if (result.errors && result.errors.defaultFolder) {
+                    defaultFolderErrorEl.textContent = result.errors.defaultFolder;
+                } else {
+                    defaultFolderErrorEl.textContent = '';
+                }
+            }
+            if (bandwidthErrorEl) {
+                if (result.errors && result.errors.bandwidth) {
+                    bandwidthErrorEl.textContent = result.errors.bandwidth;
+                } else {
+                    bandwidthErrorEl.textContent = '';
+                }
+            }
+        }
+
+        function updateSaveDiscardButtons() {
+            var validation = validateDraftSettings();
+            var disableSave = !downloadSettingsLoaded || !hasUnsavedChanges || !validation.valid || isLoadingSettings || isSavingSettings;
+            var disableDiscard = !downloadSettingsLoaded || !hasUnsavedChanges || isLoadingSettings || isSavingSettings;
+
+            if (saveButton) {
+                saveButton.disabled = disableSave;
+            }
+            if (discardButton) {
+                discardButton.disabled = disableDiscard;
+            }
+        }
+
+        function updateDefaultFolderEnabledState() {
+            if (!defaultFolderInput || !draftSettings) {
+                return;
+            }
+            var mode = draftSettings.downloadLocationMode;
+            if (mode === 'default_folder') {
+                defaultFolderInput.disabled = false;
+            } else {
+                defaultFolderInput.disabled = true;
+            }
+        }
+
+        function updateBandwidthInputsEnabledState() {
+            if (!bandwidthToggle) {
+                return;
+            }
+            var enabled = bandwidthToggle.checked;
+            if (maxSpeedValueInput) {
+                maxSpeedValueInput.disabled = !enabled;
+            }
+            if (maxSpeedUnitInput) {
+                maxSpeedUnitInput.disabled = !enabled;
+            }
+        }
+
+        function renderDownloadSettingsFormFromDraft() {
+            if (!draftSettings || !form) {
+                return;
+            }
+            var locationModeInputs = form.querySelectorAll('input[name="downloadLocationMode"]');
+            locationModeInputs.forEach(function(input) {
+                input.checked = input.value === draftSettings.downloadLocationMode;
+            });
+
+            if (defaultFolderInput) {
+                defaultFolderInput.value = draftSettings.defaultDownloadFolder || '';
+            }
+
+            if (bandwidthToggle) {
+                bandwidthToggle.checked = Boolean(draftSettings.bandwidthLimitEnabled);
+            }
+
+            if (maxSpeedValueInput) {
+                if (draftSettings.maxDownloadSpeedValue != null) {
+                    maxSpeedValueInput.value = draftSettings.maxDownloadSpeedValue;
+                } else {
+                    maxSpeedValueInput.value = '';
+                }
+            }
+
+            if (maxSpeedUnitInput) {
+                maxSpeedUnitInput.value = draftSettings.maxDownloadSpeedUnit || '';
+            }
+
+            updateDefaultFolderEnabledState();
+            updateBandwidthInputsEnabledState();
+        }
+
+        function ensureDownloadSettingsLoaded() {
+            if (!downloadSettingsLoaded && !isLoadingSettings) {
+                loadDownloadSettings();
+            }
+        }
+
+        function loadDownloadSettings() {
+            isLoadingSettings = true;
+            updateSaveDiscardButtons();
+            if (downloadsStatusEl) {
+                renderDownloadsStatus(downloadsStatusEl, 'Loading settings...');
+            }
+            try {
+                var response = WebsiteSDK.getDownloadSettings();
+                if (!response || !response.settings) {
+                    throw new Error('No settings returned');
+                }
+                currentSettings = cloneSettings(response.settings);
+                draftSettings = cloneSettings(response.settings);
+                downloadSettingsLoaded = true;
+                hasUnsavedChanges = false;
+                renderDownloadSettingsFormFromDraft();
+                var validation = validateDraftSettings();
+                updateValidationUI(validation);
+                updateSaveDiscardButtons();
+                if (downloadsStatusEl) {
+                    renderDownloadsStatus(downloadsStatusEl, 'Settings loaded.');
+                }
+            } catch (error) {
+                console.error(error);
+                if (downloadsStatusEl) {
+                    renderDownloadsStatus(downloadsStatusEl, 'Error loading settings.');
+                }
+            } finally {
+                isLoadingSettings = false;
+                updateSaveDiscardButtons();
+            }
+        }
+
+        function setActiveTab(tabId, options) {
+            if (!tabId) {
+                tabId = 'general';
+            }
+            activeTabId = tabId;
+
+            tabLinks.forEach(function(link) {
+                var thisTabId = link.getAttribute('data-tab-id');
+                if (thisTabId === tabId) {
+                    link.setAttribute('aria-current', 'page');
+                } else {
+                    link.removeAttribute('aria-current');
+                }
+            });
+
+            if (generalPanel) {
+                if (tabId === 'general') {
+                    generalPanel.removeAttribute('hidden');
+                } else {
+                    generalPanel.setAttribute('hidden', 'hidden');
+                }
+            }
+
+            if (downloadsPanel) {
+                if (tabId === 'downloads') {
+                    downloadsPanel.removeAttribute('hidden');
+                    ensureDownloadSettingsLoaded();
+                } else {
+                    downloadsPanel.setAttribute('hidden', 'hidden');
+                }
+            }
+
+            try {
+                var url = new URL(window.location.href);
+                if (tabId === 'downloads' || tabId === 'general') {
+                    url.searchParams.set('tab', tabId);
+                } else {
+                    url.searchParams.delete('tab');
+                }
+                var method = options && options.replaceState ? 'replaceState' : 'pushState';
+                window.history[method](null, '', url.toString());
+            } catch (e) {
+                // Fallback: ignore URL update errors
+            }
+        }
+
+        function markDirtyAndUpdate() {
+            hasUnsavedChanges = computeHasUnsavedChanges();
+            var validation = validateDraftSettings();
+            updateValidationUI(validation);
+            updateSaveDiscardButtons();
+        }
+
+        function handleLeaveWithUnsavedChanges(targetUrl) {
+            if (hasUnsavedChanges) {
+                var confirmLeave = window.confirm('You have unsaved changes to your download settings. Leave this page without saving?');
+                if (!confirmLeave) {
+                    return;
+                }
+            }
+            window.location.href = targetUrl;
+        }
+
+        // Initialize form event handlers
+        if (form) {
+            var locationModeInputs = form.querySelectorAll('input[name="downloadLocationMode"]');
+            locationModeInputs.forEach(function(input) {
+                input.addEventListener('change', function() {
+                    if (!draftSettings) {
+                        return;
+                    }
+                    draftSettings.downloadLocationMode = input.value;
+                    updateDefaultFolderEnabledState();
+                    markDirtyAndUpdate();
+                });
+            });
+        }
+
+        if (defaultFolderInput) {
+            defaultFolderInput.addEventListener('input', function() {
+                if (!draftSettings) {
+                    return;
+                }
+                draftSettings.defaultDownloadFolder = defaultFolderInput.value;
+                markDirtyAndUpdate();
+            });
+        }
+
+        if (bandwidthToggle) {
+            bandwidthToggle.addEventListener('change', function() {
+                if (!draftSettings) {
+                    return;
+                }
+                draftSettings.bandwidthLimitEnabled = bandwidthToggle.checked;
+                updateBandwidthInputsEnabledState();
+                markDirtyAndUpdate();
+            });
+        }
+
+        if (maxSpeedValueInput) {
+            maxSpeedValueInput.addEventListener('input', function() {
+                if (!draftSettings) {
+                    return;
+                }
+                var val = maxSpeedValueInput.value.trim();
+                if (val === '') {
+                    draftSettings.maxDownloadSpeedValue = null;
+                } else {
+                    var numeric = Number(val);
+                    draftSettings.maxDownloadSpeedValue = numeric;
+                }
+                markDirtyAndUpdate();
+            });
+        }
+
+        if (maxSpeedUnitInput) {
+            maxSpeedUnitInput.addEventListener('change', function() {
+                if (!draftSettings) {
+                    return;
+                }
+                draftSettings.maxDownloadSpeedUnit = maxSpeedUnitInput.value;
+                markDirtyAndUpdate();
+            });
+        }
+
+        if (saveButton) {
+            saveButton.addEventListener('click', function() {
+                if (!draftSettings || !downloadSettingsLoaded || isSavingSettings || isLoadingSettings) {
+                    return;
+                }
+                var validation = validateDraftSettings();
+                updateValidationUI(validation);
+                if (!validation.valid) {
+                    if (downloadsStatusEl) {
+                        renderDownloadsStatus(downloadsStatusEl, 'Please fix the highlighted errors.');
+                    }
+                    return;
+                }
+
+                isSavingSettings = true;
+                updateSaveDiscardButtons();
+                if (downloadsStatusEl) {
+                    renderDownloadsStatus(downloadsStatusEl, 'Saving changes...');
+                }
+
+                try {
+                    var response = WebsiteSDK.updateDownloadSettings(
+                        draftSettings.downloadLocationMode,
+                        draftSettings.defaultDownloadFolder,
+                        draftSettings.bandwidthLimitEnabled,
+                        draftSettings.maxDownloadSpeedValue,
+                        draftSettings.maxDownloadSpeedUnit
+                    );
+
+                    if (response && response.success && response.settings) {
+                        currentSettings = cloneSettings(response.settings);
+                        draftSettings = cloneSettings(response.settings);
+                        downloadSettingsLoaded = true;
+                        hasUnsavedChanges = false;
+                        renderDownloadSettingsFormFromDraft();
+                        updateSaveDiscardButtons();
+                        var msg = response.message || 'Changes saved.';
+                        if (downloadsStatusEl) {
+                            renderDownloadsStatus(downloadsStatusEl, msg);
+                        }
+                    } else {
+                        var errorMsg = response && response.message ? response.message : 'Error saving settings.';
+                        if (downloadsStatusEl) {
+                            renderDownloadsStatus(downloadsStatusEl, errorMsg);
+                        }
+                    }
+                } catch (error) {
+                    console.error(error);
+                    if (downloadsStatusEl) {
+                        renderDownloadsStatus(downloadsStatusEl, 'Error saving settings.');
+                    }
+                } finally {
+                    isSavingSettings = false;
+                    updateSaveDiscardButtons();
+                }
+            });
+        }
+
+        if (discardButton) {
+            discardButton.addEventListener('click', function() {
+                if (!downloadSettingsLoaded || !currentSettings) {
+                    return;
+                }
+                draftSettings = cloneSettings(currentSettings);
+                hasUnsavedChanges = false;
+                updateValidationUI({ valid: true, errors: {} });
+                renderDownloadSettingsFormFromDraft();
+                updateSaveDiscardButtons();
+                if (downloadsStatusEl) {
+                    renderDownloadsStatus(downloadsStatusEl, 'Changes discarded.');
+                }
+            });
+        }
+
+        // Tab navigation handlers
+        tabLinks.forEach(function(link) {
+            link.addEventListener('click', function() {
+                var tabId = link.getAttribute('data-tab-id');
+                setActiveTab(tabId, {});
+            });
+        });
+
+        // Other data-action handlers (navigation)
+        var actionElements = document.querySelectorAll('[data-action]');
+        actionElements.forEach(function(element) {
+            var action = element.getAttribute('data-action');
+            if (action === 'view-download-queue') {
+                element.addEventListener('click', function() {
+                    handleLeaveWithUnsavedChanges('download_queue.html?statusFilter=active');
+                });
+            } else if (action === 'back-to-dashboard') {
+                element.addEventListener('click', function() {
+                    handleLeaveWithUnsavedChanges('index.html?section=overview');
+                });
+            }
+        });
+
+        // Generic population based on data-populate
+        var populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function(element) {
+            var type = element.getAttribute('data-populate');
+            if (type === 'downloads-status') {
+                renderDownloadsStatus(element, 'idle');
+            } else if (type === 'download-settings') {
+                // The settings form is rendered when the Downloads tab is activated and settings are loaded.
+            }
+        });
+
+        // Initialize active tab and, if Downloads is active, trigger load
+        setActiveTab(activeTabId, { replaceState: true });
+    });
+    </script>
+</body>
+</html>

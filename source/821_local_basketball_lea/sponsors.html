@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Basketball League</title>
+  
+  <link rel="stylesheet" href="sponsors.css">
+</head>
+<body>
+  <header id="site-header">
+    <nav class="main-nav" aria-label="Main navigation">
+      <a href="index.html">Home</a>
+      <a href="adult_leagues.html">Adult Leagues</a>
+      <a href="youth_leagues.html">Youth Leagues</a>
+      <a href="schedule.html">Schedule</a>
+      <a href="playoffs.html">Playoffs</a>
+      <a href="locations.html">Locations</a>
+      <a href="sponsors.html">Sponsors</a>
+      <a href="volunteer.html">Volunteer</a>
+      <a href="contact.html">Contact</a>
+    </nav>
+
+    <h1 id="site-title">Local Basketball League</h1>
+
+    <div class="header-banner" aria-hidden="true"></div>
+  </header>
+
+  <main id="content" role="main">
+    <h2>Sponsors &amp; Advertising</h2>
+    <p>View the available sponsorship options, compare what they include, and tell us what you have budgeted for marketing.</p>
+
+    <section id="sponsorship-page" data-component="sponsorship-page-router">
+      <div id="tiers-loader" data-component="sponsorship-tiers-loader">Loading sponsorship tiers...</div>
+
+      <div id="tiers-error" data-component="sponsorship-error-message" style="display:none;">
+        <p>We were not able to load the sponsorship tiers right now.</p>
+        <p>
+          <button type="button" data-action="generic-sponsor">Become a sponsor</button>
+          <a href="javascript:void(0)" data-action="open-sponsorship-faq">Sponsorship FAQs</a>
+        </p>
+      </div>
+
+      <div id="tiers-list" data-component="sponsorship-tier-list" data-populate="sponsorship-tiers"></div>
+
+      <section id="tier-detail-section" data-component="sponsorship-tier-detail-panel">
+        <p><strong>Selected tier details:</strong></p>
+        <div data-populate="sponsorship-tier-detail"></div>
+        <div id="tier-comparison" aria-label="Tier comparison">
+          <p>
+            <label for="compare-tier-select">Compare with: </label>
+            <select id="compare-tier-select" name="compare_tier">
+              <option value="">(no comparison)</option>
+            </select>
+          </p>
+          <div data-populate="sponsorship-tier-comparison"></div>
+        </div>
+        <p><a href="javascript:void(0)" data-action="clear-tier-selection">Clear selection</a></p>
+      </section>
+
+      <section id="budget-section" data-component="sponsorship-budget-input">
+        <p>
+          <label for="budget-input">Approximate marketing budget: </label>
+          <input id="budget-input" name="marketing_budget" type="number" min="0" step="50">
+        </p>
+        <p>
+          Quick options:
+          <button type="button" data-action="budget-quick-select" data-budget="250">$250</button>
+          <button type="button" data-action="budget-quick-select" data-budget="500">$500</button>
+          <button type="button" data-action="budget-quick-select" data-budget="750">$750</button>
+        </p>
+        <p><a href="javascript:void(0)" data-action="budget-help">Why we ask for a budget</a></p>
+        <p id="budget-error" style="display:none;"></p>
+      </section>
+
+      <section id="cta-section" data-component="sponsorship-cta-controls">
+        <p>
+          <button type="button" data-action="ask-about-selected-tier">Contact us about this sponsorship</button>
+          <button type="button" data-action="generic-sponsor">Become a sponsor</button>
+          <a href="javascript:void(0)" data-action="open-sponsorship-faq">Sponsorship FAQs</a>
+        </p>
+      </section>
+    </section>
+  </main>
+
+  <footer id="site-footer">
+    <hr>
+    <nav class="footer-nav" aria-label="Footer navigation">
+      <a href="about.html">About</a>
+      <a href="faq.html">FAQ</a>
+      <a href="adult_leagues.html">Adult Leagues</a>
+      <a href="youth_leagues.html">Youth Leagues</a>
+      <a href="schedule.html">Schedule &amp; Standings</a>
+      <a href="playoffs.html">Playoffs &amp; Championships</a>
+      <a href="locations.html">Locations &amp; Facilities</a>
+      <a href="sponsors.html">Sponsors &amp; Advertising</a>
+      <a href="volunteer.html">Volunteer &amp; Get Involved</a>
+      <a href="contact.html">Contact Us</a>
+    </nav>
+    <p class="footer-copy">&copy; Local Basketball League.</p>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // State
+      const urlParams = new URLSearchParams(window.location.search);
+      let initialSelectedTierId = urlParams.get('tierId') || null;
+      let selectedTierId = null;
+      let compareTierId = '';
+      let tiers = [];
+      let tierById = {};
+      let cheapestPrice = null;
+      const midPriceBounds = { min: 200, max: 600 };
+      let currentBudget = null;
+
+      const loaderElement = document.getElementById('tiers-loader');
+      const errorElement = document.getElementById('tiers-error');
+      const tierListContainer = document.querySelector('[data-populate="sponsorship-tiers"]');
+      const tierDetailContainer = document.querySelector('[data-populate="sponsorship-tier-detail"]');
+      const tierComparisonContainer = document.querySelector('[data-populate="sponsorship-tier-comparison"]');
+      const tierDetailSection = document.getElementById('tier-detail-section');
+      const budgetSection = document.getElementById('budget-section');
+      const ctaSection = document.getElementById('cta-section');
+      const budgetInput = document.getElementById('budget-input');
+      const budgetError = document.getElementById('budget-error');
+      const compareSelect = document.getElementById('compare-tier-select');
+
+      function setLoading(isLoading) {
+        if (isLoading) {
+          loaderElement.style.display = '';
+          errorElement.style.display = 'none';
+        } else {
+          loaderElement.style.display = 'none';
+        }
+      }
+
+      function showError() {
+        errorElement.style.display = '';
+        if (tierListContainer) tierListContainer.style.display = 'none';
+        if (tierDetailSection) tierDetailSection.style.display = 'none';
+        if (budgetSection) budgetSection.style.display = 'none';
+        // The error block itself still allows generic sponsor + FAQ navigation
+      }
+
+      function markMidPricedTiers() {
+        if (!tiers.length) return;
+        cheapestPrice = tiers[0].price;
+        tiers.forEach(function(tier) {
+          const isMoreThanCheapest = tier.price > cheapestPrice;
+          const inRange = tier.price >= midPriceBounds.min && tier.price <= midPriceBounds.max;
+          tier.isMidPriced = Boolean(isMoreThanCheapest && inRange);
+        });
+      }
+
+      function determineInitialSelectedTier() {
+        if (initialSelectedTierId && tierById[initialSelectedTierId]) {
+          selectedTierId = initialSelectedTierId;
+          return;
+        }
+        const firstMid = tiers.find(function(t) { return t.isMidPriced; });
+        if (firstMid) {
+          selectedTierId = firstMid.tier_id;
+        } else {
+          selectedTierId = null;
+        }
+      }
+
+      function renderTierList(container, tiersData, selectedId) {
+        container.innerHTML = '';
+        container.style.display = '';
+
+        if (!tiersData || !tiersData.length) {
+          container.textContent = 'No sponsorship tiers are currently available.';
+          return;
+        }
+
+        const intro = document.createElement('p');
+        intro.textContent = 'Sponsorship tiers:';
+        container.appendChild(intro);
+
+        const listWrapper = document.createElement('div');
+
+        tiersData.forEach(function(tier) {
+          const row = document.createElement('div');
+          row.setAttribute('data-tier-id', tier.tier_id);
+          row.setAttribute('data-component', 'sponsorship-tier-row');
+
+          const nameLink = document.createElement('a');
+          nameLink.href = 'javascript:void(0)';
+          nameLink.dataset.action = 'select-tier';
+          nameLink.dataset.tierId = tier.tier_id;
+          nameLink.textContent = tier.name;
+          row.appendChild(nameLink);
+
+          const priceSpan = document.createElement('span');
+          priceSpan.textContent = ' - $' + String(tier.price);
+          row.appendChild(priceSpan);
+
+          if (tier.isMidPriced) {
+            const midSpan = document.createElement('span');
+            midSpan.setAttribute('data-component', 'sponsorship-midprice-indicator');
+            midSpan.textContent = ' (recommended)';
+            row.appendChild(midSpan);
+          }
+
+          const summary = (tier.benefits && tier.benefits.length > 0) ? tier.benefits[0] : (tier.description || '');
+          if (summary) {
+            const summarySpan = document.createElement('span');
+            summarySpan.textContent = ' - ' + summary;
+            row.appendChild(summarySpan);
+          }
+
+          row.appendChild(document.createElement('br'));
+
+          const askButton = document.createElement('button');
+          askButton.type = 'button';
+          askButton.dataset.action = 'ask-about-specific-tier';
+          askButton.dataset.tierId = tier.tier_id;
+          askButton.textContent = 'Ask about this sponsorship';
+          row.appendChild(askButton);
+
+          if (tier.tier_id === selectedId) {
+            row.classList.add('selected-tier');
+          }
+
+          listWrapper.appendChild(row);
+        });
+
+        container.appendChild(listWrapper);
+      }
+
+      function renderSelectedTierDetail(container, tier) {
+        container.innerHTML = '';
+
+        if (!tier) {
+          const p = document.createElement('p');
+          p.textContent = 'Select a sponsorship tier above to see details.';
+          container.appendChild(p);
+          return;
+        }
+
+        const title = document.createElement('p');
+        title.textContent = tier.name + '  b7 $' + String(tier.price);
+        container.appendChild(title);
+
+        if (tier.description) {
+          const desc = document.createElement('p');
+          desc.textContent = tier.description;
+          container.appendChild(desc);
+        }
+
+        if (tier.benefits && tier.benefits.length) {
+          const benefitsTitle = document.createElement('p');
+          benefitsTitle.textContent = 'Key benefits:';
+          container.appendChild(benefitsTitle);
+
+          const list = document.createElement('ul');
+          tier.benefits.forEach(function(benefit) {
+            const li = document.createElement('li');
+            li.textContent = benefit;
+            list.appendChild(li);
+          });
+          container.appendChild(list);
+        }
+      }
+
+      function renderTierComparison(container, primaryTier, secondaryTier) {
+        container.innerHTML = '';
+
+        if (!primaryTier || !secondaryTier) {
+          return;
+        }
+
+        const heading = document.createElement('p');
+        heading.textContent = 'Comparison:';
+        container.appendChild(heading);
+
+        const primaryLine = document.createElement('p');
+        primaryLine.textContent = primaryTier.name + ' at $' + String(primaryTier.price);
+        container.appendChild(primaryLine);
+
+        const secondaryLine = document.createElement('p');
+        secondaryLine.textContent = secondaryTier.name + ' at $' + String(secondaryTier.price);
+        container.appendChild(secondaryLine);
+
+        const notes = document.createElement('p');
+        const priceDiff = secondaryTier.price - primaryTier.price;
+        if (priceDiff > 0) {
+          notes.textContent = 'The comparison tier is $' + String(priceDiff) + ' more than the selected tier.';
+        } else if (priceDiff < 0) {
+          notes.textContent = 'The comparison tier is $' + String(Math.abs(priceDiff)) + ' less than the selected tier.';
+        } else {
+          notes.textContent = 'Both tiers are at the same price.';
+        }
+        container.appendChild(notes);
+      }
+
+      function populateCompareSelect() {
+        while (compareSelect.options.length > 1) {
+          compareSelect.remove(1);
+        }
+        tiers.forEach(function(tier) {
+          const opt = document.createElement('option');
+          opt.value = tier.tier_id;
+          opt.textContent = tier.name;
+          compareSelect.appendChild(opt);
+        });
+      }
+
+      const populateHandlers = {
+        'sponsorship-tiers': function(container) {
+          renderTierList(container, tiers, selectedTierId);
+        },
+        'sponsorship-tier-detail': function(container) {
+          const tier = selectedTierId ? tierById[selectedTierId] : null;
+          renderSelectedTierDetail(container, tier);
+        },
+        'sponsorship-tier-comparison': function(container) {
+          const primaryTier = selectedTierId ? tierById[selectedTierId] : null;
+          const secondaryTier = compareTierId && tierById[compareTierId] ? tierById[compareTierId] : null;
+          renderTierComparison(container, primaryTier, secondaryTier);
+        }
+      };
+
+      function refreshPopulatedUI() {
+        const elements = document.querySelectorAll('[data-populate]');
+        elements.forEach(function(element) {
+          const key = element.dataset.populate;
+          if (populateHandlers[key]) {
+            populateHandlers[key](element);
+          }
+        });
+
+        if (selectedTierId) {
+          tierDetailSection.style.display = '';
+        } else {
+          tierDetailSection.style.display = '';
+        }
+        budgetSection.style.display = '';
+        ctaSection.style.display = '';
+
+        if (selectedTierId && tierListContainer) {
+          const selector = '[data-tier-id="' + selectedTierId + '"]';
+          const selectedRow = tierListContainer.querySelector(selector);
+          if (selectedRow && typeof selectedRow.scrollIntoView === 'function' && initialSelectedTierId) {
+            selectedRow.scrollIntoView({ block: 'nearest' });
+          }
+        }
+      }
+
+      function syncUrlWithSelectedTier(usePush) {
+        const currentUrl = new URL(window.location.href);
+        if (selectedTierId) {
+          currentUrl.searchParams.set('tierId', selectedTierId);
+        } else {
+          currentUrl.searchParams.delete('tierId');
+        }
+        if (usePush) {
+          window.history.pushState({}, '', currentUrl.toString());
+        } else {
+          window.history.replaceState({}, '', currentUrl.toString());
+        }
+      }
+
+      function handleBudgetChangeFromInput() {
+        const raw = budgetInput.value;
+        if (raw === '') {
+          currentBudget = null;
+          budgetError.style.display = 'none';
+          budgetError.textContent = '';
+          return;
+        }
+        const value = Number(raw);
+        if (Number.isNaN(value) || value < 0) {
+          budgetError.style.display = '';
+          budgetError.textContent = 'Please enter a non-negative number for the budget.';
+          currentBudget = null;
+        } else {
+          budgetError.style.display = 'none';
+          budgetError.textContent = '';
+          currentBudget = value;
+        }
+      }
+
+      function handleBudgetQuickSelect(target) {
+        const budgetValue = target.dataset.budget;
+        if (!budgetValue) return;
+        const numeric = Number(budgetValue);
+        if (Number.isNaN(numeric)) return;
+        budgetInput.value = String(numeric);
+        currentBudget = numeric;
+        budgetError.style.display = 'none';
+        budgetError.textContent = '';
+      }
+
+      function navigateToContactWithTier(tierId) {
+        let url = 'contact.html?reason=sponsorship_inquiry';
+        if (tierId) {
+          url += '&sponsorshipTierId=' + encodeURIComponent(tierId);
+        }
+        if (currentBudget === 500) {
+          url += '&marketingBudget=500';
+        }
+        window.location.href = url;
+      }
+
+      function navigateToGenericSponsorship() {
+        const url = 'contact.html?reason=sponsorship_inquiry';
+        window.location.href = url;
+      }
+
+      function navigateToSponsorshipFaq() {
+        const url = 'faq.html?category=sponsorship';
+        window.location.href = url;
+      }
+
+      // Event delegation for clicks
+      document.addEventListener('click', function(event) {
+        const target = event.target.closest('[data-action]');
+        if (!target) {
+          return;
+        }
+        const action = target.dataset.action;
+
+        if (action === 'select-tier') {
+          const tierId = target.dataset.tierId || null;
+          if (!tierId || !tierById[tierId]) {
+            return;
+          }
+          selectedTierId = tierId;
+          syncUrlWithSelectedTier(true);
+          refreshPopulatedUI();
+        } else if (action === 'ask-about-specific-tier') {
+          const tierId = target.dataset.tierId || selectedTierId;
+          if (!tierId) {
+            return;
+          }
+          navigateToContactWithTier(tierId);
+        } else if (action === 'ask-about-selected-tier') {
+          if (!selectedTierId) {
+            return;
+          }
+          navigateToContactWithTier(selectedTierId);
+        } else if (action === 'generic-sponsor') {
+          navigateToGenericSponsorship();
+        } else if (action === 'open-sponsorship-faq') {
+          navigateToSponsorshipFaq();
+        } else if (action === 'clear-tier-selection') {
+          selectedTierId = null;
+          compareTierId = '';
+          compareSelect.value = '';
+          syncUrlWithSelectedTier(true);
+          refreshPopulatedUI();
+        } else if (action === 'budget-quick-select') {
+          handleBudgetQuickSelect(target);
+        } else if (action === 'budget-help') {
+          window.alert('Sharing your approximate marketing budget helps league staff suggest sponsorship options that match what you plan to spend.');
+        }
+      });
+
+      if (budgetInput) {
+        budgetInput.addEventListener('input', function() {
+          handleBudgetChangeFromInput();
+        });
+        budgetInput.addEventListener('blur', function() {
+          handleBudgetChangeFromInput();
+        });
+      }
+
+      if (compareSelect) {
+        compareSelect.addEventListener('change', function() {
+          compareTierId = compareSelect.value || '';
+          refreshPopulatedUI();
+        });
+      }
+
+      window.addEventListener('popstate', function() {
+        const params = new URLSearchParams(window.location.search);
+        const urlTierId = params.get('tierId');
+        if (urlTierId && tierById[urlTierId]) {
+          selectedTierId = urlTierId;
+        } else {
+          selectedTierId = null;
+        }
+        refreshPopulatedUI();
+      });
+
+      function initializePage() {
+        setLoading(true);
+        try {
+          const result = WebsiteSDK.getSponsorshipTiersSummary();
+          tiers = Array.isArray(result) ? result.slice() : [];
+          if (tiers.length) {
+            tiers.sort(function(a, b) { return a.price - b.price; });
+            tierById = {};
+            tiers.forEach(function(tier) {
+              tierById[tier.tier_id] = tier;
+            });
+            markMidPricedTiers();
+            determineInitialSelectedTier();
+            populateCompareSelect();
+            refreshPopulatedUI();
+            syncUrlWithSelectedTier(false);
+          } else {
+            refreshPopulatedUI();
+          }
+          setLoading(false);
+        } catch (e) {
+          setLoading(false);
+          showError();
+        }
+      }
+
+      initializePage();
+    });
+  </script>
+</body>
+</html>

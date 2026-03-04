@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Poetry Platform &mdash; Layout Framework</title>
+
+    <!-- Typography -->
+    <link rel='preconnect' href='https://fonts.googleapis.com'>
+    <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+    <link href='https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&amp;family=Libre+Baskerville:wght@400;700&amp;display=swap' rel='stylesheet'>
+
+    <!-- Site stylesheet -->
+    <link rel='stylesheet' href='styles.css'>
+    <!-- Prompt page stylesheet -->
+    <link rel='stylesheet' href='prompt.css'>
+
+    <!-- SDK / business logic -->
+    <script src='business_logic.js'></script>
+</head>
+<body>
+    <header class='site-header'>
+        <div class='header-hero'>
+            <div class='header-hero-overlay'></div>
+            <div class='container header-hero-inner'>
+                <a href='index.html' class='site-logo'>
+                    <span class='logo-primary'>poetic</span><span class='logo-secondary'>house</span><span class='logo-dot'>.com</span>
+                </a>
+
+                <div class='user-menu' aria-label='Account menu'>
+                    <div class='user-menu-toggle'>
+                        <span class='avatar-circle'>PH</span>
+                        <span class='user-menu-label'>Account</span>
+                        <span class='user-menu-caret'>▾</span>
+                    </div>
+                    <ul class='user-dropdown'>
+                        <li><a href='settings.html'>Settings</a></li>
+                        <li><a href='drafts.html'>My drafts</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class='header-nav-bar'>
+                <div class='container'>
+                    <nav class='main-nav' aria-label='Primary navigation'>
+                        <ul>
+                            <li><a href='index.html'>Home</a></li>
+                            <li><a href='browse.html'>Browse</a></li>
+                            <li><a href='prompts.html'>Prompts</a></li>
+                            <li><a href='spoken_word.html'>Spoken Word</a></li>
+                            <li><a href='lists.html'>Reading Lists</a></li>
+                            <li><a href='write.html'>Write</a></li>
+                        </ul>
+                    </nav>
+                </div>
+            </div>
+        </div>
+
+        <div class='header-subband'>
+            <div class='container header-subband-inner'>
+                <p class='header-subband-text'>A curated place to share, discover, and collect poetry.</p>
+            </div>
+        </div>
+    </header>
+
+    <main id='content' class='site-main'>
+        <div class='container content-container'>
+            <!-- Prompt Detail Page Shell -->
+            <section class='prompt-detail-page' data-component='prompt-detail-page-shell'>
+                <!-- Prompt header + CTA band (dark hero-style band as per layout spec) -->
+                <section class='prompt-hero-band' data-component='prompt-header' aria-labelledby='prompt-title'>
+                    <div class='prompt-hero-inner' data-populate='prompt-header'></div>
+                    <div class='prompt-hero-cta'>
+                        <a href='javascript:void(0)' class='btn btn-primary prompt-write-cta' data-component='write-response-cta' data-action='write-response-cta'>Write a response</a>
+                    </div>
+                </section>
+
+                <!-- Responses controls bar (light grey utility band) -->
+                <section class='responses-controls-band' data-component='responses-controls-bar'>
+                    <div class='responses-controls-inner' data-populate='responses-controls'></div>
+                </section>
+
+                <!-- Responses list area -->
+                <section class='responses-list-section' data-component='responses-list'>
+                    <div class='responses-list' data-populate='responses-list'></div>
+                </section>
+
+                <!-- Pagination controls -->
+                <nav class='responses-pagination' data-component='responses-pagination' aria-label='Responses pagination'>
+                    <div class='responses-pagination-inner' data-populate='responses-pagination'></div>
+                </nav>
+            </section>
+        </div>
+    </main>
+
+    <footer class='site-footer'>
+        <div class='footer-main'>
+            <div class='container footer-main-inner'>
+                <nav class='footer-nav' aria-label='Footer navigation'>
+                    <ul>
+                        <li><a href='about.html'>About</a></li>
+                        <li><a href='help.html'>Help / FAQ</a></li>
+                        <li><a href='terms.html'>Terms &amp; Guidelines</a></li>
+                        <li><a href='privacy.html'>Privacy Policy</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+        <div class='footer-bottom'>
+            <div class='container footer-bottom-inner'>
+                <p class='footer-meta'>&copy; <span class='footer-site-name'>Poetry Platform</span>. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        'use strict';
+
+        var DEFAULT_PAGE_SIZE = 20;
+
+        var state = {
+            promptId: null,
+            responsesSort: null,
+            page: 1,
+            sortOptions: [],
+            prompt: null,
+            responses: null,
+            error: null,
+            lowLikeThreshold: null,
+            lowLikeHighlightEnabled: false,
+            sortOptionsLoaded: false
+        };
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) {
+                return '';
+            }
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function loadSortOptionsIfNeeded() {
+            if (state.sortOptionsLoaded) {
+                return;
+            }
+            try {
+                var filters = WebsiteSDK.getPoemFilterOptions('prompts');
+                state.sortOptions = (filters && filters.sort_options) ? filters.sort_options : [];
+            } catch (e) {
+                console.error('Error loading sort options for prompts context', e);
+                state.sortOptions = [];
+            }
+            state.sortOptionsLoaded = true;
+        }
+
+        function initStateFromUrlFirstLoad() {
+            loadSortOptionsIfNeeded();
+
+            var search = window.location.search || '';
+            var params = new URLSearchParams(search);
+
+            var id = params.get('id');
+            state.promptId = id && id.trim() ? id.trim() : null;
+
+            var requestedSort = params.get('responsesSort');
+            var validSortValues = state.sortOptions.map(function(opt) { return opt.value; });
+            var effectiveSort = requestedSort && validSortValues.indexOf(requestedSort) !== -1 ? requestedSort : null;
+
+            if (!effectiveSort) {
+                var defaultOption = null;
+                for (var i = 0; i < state.sortOptions.length; i++) {
+                    var opt = state.sortOptions[i];
+                    if (opt && Array.isArray(opt.default_for_contexts) && opt.default_for_contexts.indexOf('prompts') !== -1) {
+                        defaultOption = opt;
+                        break;
+                    }
+                }
+                if (!defaultOption && state.sortOptions.length > 0) {
+                    defaultOption = state.sortOptions[0];
+                }
+                if (defaultOption) {
+                    effectiveSort = defaultOption.value;
+                }
+            }
+
+            if (effectiveSort) {
+                params.set('responsesSort', effectiveSort);
+            } else {
+                params.delete('responsesSort');
+            }
+            state.responsesSort = effectiveSort;
+
+            var pageParam = params.get('page');
+            var pageNum = parseInt(pageParam, 10);
+            if (!pageNum || pageNum < 1) {
+                pageNum = 1;
+            }
+            state.page = pageNum;
+            params.set('page', String(pageNum));
+
+            if (state.promptId) {
+                params.set('id', state.promptId);
+            } else {
+                params.delete('id');
+            }
+
+            var newQuery = params.toString();
+            var currentQuery = search.replace(/^\?/, '');
+            if (newQuery !== currentQuery) {
+                var newUrl = window.location.pathname + (newQuery ? ('?' + newQuery) : '');
+                window.history.replaceState({}, '', newUrl);
+            }
+        }
+
+        function readStateFromUrlForPopstate() {
+            var search = window.location.search || '';
+            var params = new URLSearchParams(search);
+
+            var id = params.get('id');
+            state.promptId = id && id.trim() ? id.trim() : null;
+
+            var sort = params.get('responsesSort');
+            state.responsesSort = sort || null;
+
+            var pageParam = params.get('page');
+            var pageNum = parseInt(pageParam, 10);
+            if (!pageNum || pageNum < 1) {
+                pageNum = 1;
+            }
+            state.page = pageNum;
+        }
+
+        function loadPromptData() {
+            state.prompt = null;
+            state.responses = null;
+            state.error = null;
+
+            if (!state.promptId) {
+                state.error = {
+                    type: 'missing-id',
+                    message: 'No prompt selected. This page requires an "id" parameter in the URL.'
+                };
+                renderAll();
+                return;
+            }
+
+            try {
+                var result = WebsiteSDK.getPromptDetail(state.promptId, state.responsesSort || null, state.page, DEFAULT_PAGE_SIZE);
+                if (!result || !result.prompt) {
+                    state.error = {
+                        type: 'not-found',
+                        message: 'The requested prompt could not be found.'
+                    };
+                } else {
+                    state.prompt = result.prompt;
+                    state.responses = result.responses || {
+                        total_count: 0,
+                        page: state.page,
+                        page_size: DEFAULT_PAGE_SIZE,
+                        items: []
+                    };
+
+                    if (typeof state.responses.page === 'number') {
+                        state.page = state.responses.page;
+                    }
+                }
+            } catch (e) {
+                console.error('Error loading prompt detail', e);
+                state.error = {
+                    type: 'load-failed',
+                    message: 'Unable to load this prompt right now. Please try again later.'
+                };
+            }
+
+            renderAll();
+        }
+
+        function renderPromptHeader(container) {
+            container.innerHTML = '';
+
+            if (state.error) {
+                container.innerHTML = '<div class="prompt-error-message">' + escapeHtml(state.error.message) + '</div>';
+                return;
+            }
+
+            if (!state.prompt) {
+                container.innerHTML = '<div class="prompt-loading">Loading prompt...</div>';
+                return;
+            }
+
+            var prompt = state.prompt;
+            var responsesCount = state.responses && typeof state.responses.total_count === 'number'
+                ? state.responses.total_count
+                : 0;
+
+            var descriptionHtml = escapeHtml(prompt.description || '').replace(/\n/g, '<br>');
+
+            var metaParts = [];
+            if (prompt.prompt_type) {
+                metaParts.push('<span class="prompt-type">' + escapeHtml(prompt.prompt_type) + '</span>');
+            }
+            if (prompt.status) {
+                metaParts.push('<span class="prompt-status">' + escapeHtml(prompt.status) + '</span>');
+            }
+            if (responsesCount > 0) {
+                var label = responsesCount === 1 ? 'response' : 'responses';
+                metaParts.push('<span class="prompt-responses-count">' + responsesCount + ' ' + label + '</span>');
+            }
+
+            var metaHtml = '';
+            if (metaParts.length > 0) {
+                metaHtml = '<p class="prompt-meta">' + metaParts.join(' &middot; ') + '</p>';
+            }
+
+            container.innerHTML = (
+                '<header class="prompt-header" data-component="prompt-header">' +
+                    metaHtml +
+                    '<h1 class="prompt-title" id="prompt-title">' + escapeHtml(prompt.title || '') + '</h1>' +
+                    '<div class="prompt-description">' + descriptionHtml + '</div>' +
+                '</header>'
+            );
+        }
+
+        function renderResponsesControls(container) {
+            container.innerHTML = '';
+
+            var headingHtml = '<h2 class="section-title">Responses</h2>';
+
+            var countText = '';
+            if (state.responses && typeof state.responses.total_count === 'number') {
+                var total = state.responses.total_count;
+                if (total > 0) {
+                    var label = total === 1 ? 'response' : 'responses';
+                    countText = '<p class="responses-count">' + total + ' ' + label + '</p>';
+                } else {
+                    countText = '<p class="responses-count responses-count-empty">No responses yet</p>';
+                }
+            } else if (state.error) {
+                countText = '';
+            } else {
+                countText = '<p class="responses-count">&nbsp;</p>';
+            }
+
+            var sortOptionsHtml = '';
+            if (state.sortOptions && state.sortOptions.length > 0) {
+                var optionsHtml = state.sortOptions.map(function(opt) {
+                    var value = opt && opt.value ? String(opt.value) : '';
+                    var label = opt && opt.label ? opt.label : value;
+                    var selected = (state.responsesSort && value === state.responsesSort) ? ' selected' : '';
+                    return '<option value="' + escapeHtml(value) + '"' + selected + '>' + escapeHtml(label) + '</option>';
+                }).join('');
+
+                sortOptionsHtml = (
+                    '<label class="sort-label" for="responsesSortSelect">Sort by</label>' +
+                    '<select id="responsesSortSelect" name="responsesSort" class="sort-select" data-action="change-sort">' +
+                        optionsHtml +
+                    '</select>'
+                );
+            }
+
+            var thresholdValue = state.lowLikeThreshold !== null && state.lowLikeThreshold !== undefined
+                ? String(state.lowLikeThreshold)
+                : '';
+            var highlightChecked = state.lowLikeHighlightEnabled ? ' checked' : '';
+
+            var lowLikeHtml = (
+                '<div class="low-like-controls-group">' +
+                    '<span class="low-like-label">Highlight low-like responses</span>' +
+                    '<div class="low-like-controls-row">' +
+                        '<label class="low-like-threshold-label" for="lowLikeThresholdInput">Under</label>' +
+                        '<input type="number" min="0" step="1" id="lowLikeThresholdInput" class="low-like-threshold-input" data-action="low-like-threshold" value="' + escapeHtml(thresholdValue) + '">' +
+                        '<span class="low-like-suffix">likes</span>' +
+                        '<label class="low-like-toggle-label">' +
+                            '<input type="checkbox" class="low-like-toggle" data-action="low-like-toggle"' + highlightChecked + '> Enable' +
+                        '</label>' +
+                    '</div>' +
+                '</div>'
+            );
+
+            container.innerHTML = (
+                '<div class="responses-controls-layout">' +
+                    '<div class="responses-controls-left">' +
+                        headingHtml +
+                        countText +
+                    '</div>' +
+                    '<div class="responses-controls-right">' +
+                        (sortOptionsHtml ? '<div class="sort-controls">' + sortOptionsHtml + '</div>' : '') +
+                        lowLikeHtml +
+                    '</div>' +
+                '</div>'
+            );
+        }
+
+        function renderResponsesList(container) {
+            container.innerHTML = '';
+
+            if (state.error) {
+                if (state.error.type === 'missing-id' || state.error.type === 'not-found' || state.error.type === 'load-failed') {
+                    container.innerHTML = '';
+                }
+                return;
+            }
+
+            if (!state.prompt) {
+                container.innerHTML = '<p class="responses-loading">Loading responses...</p>';
+                return;
+            }
+
+            if (!state.responses || !Array.isArray(state.responses.items) || state.responses.items.length === 0) {
+                container.innerHTML = '<p class="responses-empty">No responses yet. Be the first to write one.</p>';
+                return;
+            }
+
+            var threshold = null;
+            if (state.lowLikeHighlightEnabled && state.lowLikeThreshold !== null && state.lowLikeThreshold !== undefined) {
+                var t = parseInt(state.lowLikeThreshold, 10);
+                if (!isNaN(t) && t >= 0) {
+                    threshold = t;
+                }
+            }
+
+            var itemsHtml = state.responses.items.map(function(entry) {
+                var poem = entry.poem || {};
+                var poet = entry.poet || {};
+                var poemId = poem.id || '';
+                var title = poem.title || '(Untitled)';
+                var poetName = poet.display_name || 'Unknown poet';
+                var likeCount = typeof poem.like_count === 'number' ? poem.like_count : 0;
+                var liked = !!poem.liked_by_current_user;
+
+                var highlightClass = '';
+                if (threshold !== null && likeCount < threshold) {
+                    highlightClass = ' response-card--low-like';
+                }
+
+                var likeButtonClass = liked ? 'like-button is-liked' : 'like-button';
+
+                return (
+                    '<article class="response-card' + highlightClass + '" data-component="response-card" data-poem-id="' + escapeHtml(poemId) + '">' +
+                        '<header class="response-card-header">' +
+                            '<div class="response-card-header-main">' +
+                                '<h3 class="response-title">' +
+                                    '<a href="javascript:void(0)" class="response-title-link" data-action="open-poem">' + escapeHtml(title) + '</a>' +
+                                '</h3>' +
+                                '<div class="response-meta">by ' + escapeHtml(poetName) + '</div>' +
+                            '</div>' +
+                            '<div class="response-card-header-actions" data-component="like-action-handler">' +
+                                '<button type="button" class="' + likeButtonClass + '" data-action="toggle-like">' +
+                                    '<span class="like-icon">&#9829;</span>' +
+                                    '<span class="like-count">' + likeCount + '</span>' +
+                                '</button>' +
+                            '</div>' +
+                        '</header>' +
+                    '</article>'
+                );
+            }).join('');
+
+            container.innerHTML = itemsHtml;
+        }
+
+        function renderResponsesPagination(container) {
+            container.innerHTML = '';
+
+            if (!state.responses || typeof state.responses.total_count !== 'number') {
+                return;
+            }
+
+            var total = state.responses.total_count;
+            var pageSize = state.responses.page_size || DEFAULT_PAGE_SIZE;
+            if (!pageSize || pageSize < 1) {
+                pageSize = DEFAULT_PAGE_SIZE;
+            }
+
+            var totalPages = Math.ceil(total / pageSize);
+            if (totalPages <= 1) {
+                return;
+            }
+
+            var currentPage = state.responses.page || state.page || 1;
+
+            var prevDisabled = currentPage <= 1;
+            var nextDisabled = currentPage >= totalPages;
+
+            var pagesHtml = '';
+            for (var p = 1; p <= totalPages; p++) {
+                var pageClass = 'pagination-page';
+                if (p === currentPage) {
+                    pageClass += ' is-current';
+                }
+                pagesHtml += (
+                    '<button type="button" class="' + pageClass + '" data-action="pagination-page" data-page="' + p + '">' + p + '</button>'
+                );
+            }
+
+            var prevHtml = '<button type="button" class="pagination-prev" data-action="pagination-prev"' + (prevDisabled ? ' disabled' : '') + '>Previous</button>';
+            var nextHtml = '<button type="button" class="pagination-next" data-action="pagination-next"' + (nextDisabled ? ' disabled' : '') + '>Next</button>';
+
+            container.innerHTML = (
+                '<div class="pagination-controls">' +
+                    prevHtml +
+                    '<div class="pagination-pages">' + pagesHtml + '</div>' +
+                    nextHtml +
+                '</div>'
+            );
+        }
+
+        var renderers = {
+            'prompt-header': renderPromptHeader,
+            'responses-controls': renderResponsesControls,
+            'responses-list': renderResponsesList,
+            'responses-pagination': renderResponsesPagination
+        };
+
+        function renderAll() {
+            var populateElements = document.querySelectorAll('[data-populate]');
+            populateElements.forEach(function(el) {
+                var type = el.dataset.populate;
+                var renderer = renderers[type];
+                if (typeof renderer === 'function') {
+                    renderer(el);
+                }
+            });
+        }
+
+        function updateUrlAndReload(newValues) {
+            var params = new URLSearchParams(window.location.search || '');
+
+            if (state.promptId) {
+                params.set('id', state.promptId);
+            } else {
+                params.delete('id');
+            }
+
+            if (newValues.responsesSort !== undefined) {
+                if (newValues.responsesSort) {
+                    params.set('responsesSort', newValues.responsesSort);
+                } else {
+                    params.delete('responsesSort');
+                }
+                state.responsesSort = newValues.responsesSort;
+            }
+
+            if (newValues.page !== undefined) {
+                var pageNum = parseInt(newValues.page, 10);
+                if (!pageNum || pageNum < 1) {
+                    pageNum = 1;
+                }
+                params.set('page', String(pageNum));
+                state.page = pageNum;
+            }
+
+            var newQuery = params.toString();
+            var newUrl = window.location.pathname + (newQuery ? ('?' + newQuery) : '');
+            window.history.pushState({}, '', newUrl);
+
+            loadPromptData();
+        }
+
+        function handleWriteResponseClick() {
+            var promptId = null;
+            if (state.prompt && state.prompt.id) {
+                promptId = state.prompt.id;
+            } else if (state.promptId) {
+                promptId = state.promptId;
+            }
+            if (!promptId) {
+                return;
+            }
+            window.location.href = 'write.html?promptId=' + encodeURIComponent(promptId);
+        }
+
+        function handleOpenPoemClick(target) {
+            var card = target.closest('[data-component="response-card"]');
+            if (!card) {
+                return;
+            }
+            var poemId = card.getAttribute('data-poem-id');
+            if (!poemId) {
+                return;
+            }
+            window.location.href = 'poem.html?id=' + encodeURIComponent(poemId);
+        }
+
+        function handleToggleLikeClick(target) {
+            var card = target.closest('[data-component="response-card"]');
+            if (!card) {
+                return;
+            }
+            var poemId = card.getAttribute('data-poem-id');
+            if (!poemId) {
+                return;
+            }
+
+            try {
+                var result = WebsiteSDK.toggleLikePoem(poemId);
+                if (!result || !result.success) {
+                    console.warn('toggleLikePoem did not succeed for poem', poemId);
+                    return;
+                }
+
+                if (state.responses && Array.isArray(state.responses.items)) {
+                    for (var i = 0; i < state.responses.items.length; i++) {
+                        var entry = state.responses.items[i];
+                        if (entry.poem && entry.poem.id === poemId) {
+                            entry.poem.liked_by_current_user = !!result.liked;
+                            entry.poem.like_count = typeof result.new_like_count === 'number' ? result.new_like_count : entry.poem.like_count;
+                            break;
+                        }
+                    }
+                }
+
+                renderAll();
+            } catch (e) {
+                console.error('Error toggling like for poem', poemId, e);
+            }
+        }
+
+        function handleChangeSort(selectEl) {
+            var newSort = selectEl.value || null;
+            if (!newSort || newSort === state.responsesSort) {
+                return;
+            }
+            updateUrlAndReload({ responsesSort: newSort, page: 1 });
+        }
+
+        function handleLowLikeThresholdChange(inputEl) {
+            var raw = (inputEl.value || '').trim();
+            if (raw === '') {
+                state.lowLikeThreshold = null;
+            } else {
+                var num = parseInt(raw, 10);
+                if (!isNaN(num) && num >= 0) {
+                    state.lowLikeThreshold = num;
+                }
+            }
+            renderAll();
+        }
+
+        function handleLowLikeToggleChange(checkboxEl) {
+            state.lowLikeHighlightEnabled = !!checkboxEl.checked;
+            renderAll();
+        }
+
+        function handlePaginationPageClick(buttonEl) {
+            var pageAttr = buttonEl.getAttribute('data-page');
+            var pageNum = parseInt(pageAttr, 10);
+            if (!pageNum || pageNum < 1) {
+                return;
+            }
+            if (state.responses && typeof state.responses.total_count === 'number') {
+                var total = state.responses.total_count;
+                var size = state.responses.page_size || DEFAULT_PAGE_SIZE;
+                var totalPages = Math.ceil(total / size);
+                if (pageNum > totalPages) {
+                    pageNum = totalPages;
+                }
+            }
+            if (pageNum === state.page) {
+                return;
+            }
+            updateUrlAndReload({ page: pageNum });
+        }
+
+        function handlePaginationPrevClick() {
+            if (!state.responses) {
+                return;
+            }
+            var currentPage = state.responses.page || state.page || 1;
+            if (currentPage <= 1) {
+                return;
+            }
+            updateUrlAndReload({ page: currentPage - 1 });
+        }
+
+        function handlePaginationNextClick() {
+            if (!state.responses || typeof state.responses.total_count !== 'number') {
+                return;
+            }
+            var total = state.responses.total_count;
+            var size = state.responses.page_size || DEFAULT_PAGE_SIZE;
+            var totalPages = Math.ceil(total / size);
+            var currentPage = state.responses.page || state.page || 1;
+            if (currentPage >= totalPages) {
+                return;
+            }
+            updateUrlAndReload({ page: currentPage + 1 });
+        }
+
+        document.addEventListener('click', function(event) {
+            var actionEl = event.target.closest('[data-action]');
+            if (!actionEl) {
+                return;
+            }
+            var action = actionEl.dataset.action;
+            if (!action) {
+                return;
+            }
+
+            if (action === 'write-response-cta') {
+                event.preventDefault();
+                handleWriteResponseClick();
+            } else if (action === 'open-poem') {
+                event.preventDefault();
+                handleOpenPoemClick(actionEl);
+            } else if (action === 'toggle-like') {
+                event.preventDefault();
+                event.stopPropagation();
+                handleToggleLikeClick(actionEl);
+            } else if (action === 'pagination-page') {
+                event.preventDefault();
+                handlePaginationPageClick(actionEl);
+            } else if (action === 'pagination-prev') {
+                event.preventDefault();
+                handlePaginationPrevClick();
+            } else if (action === 'pagination-next') {
+                event.preventDefault();
+                handlePaginationNextClick();
+            }
+        });
+
+        document.addEventListener('change', function(event) {
+            var actionEl = event.target.closest('[data-action]');
+            if (!actionEl) {
+                return;
+            }
+            var action = actionEl.dataset.action;
+            if (!action) {
+                return;
+            }
+
+            if (action === 'change-sort') {
+                handleChangeSort(actionEl);
+            } else if (action === 'low-like-threshold') {
+                handleLowLikeThresholdChange(actionEl);
+            } else if (action === 'low-like-toggle') {
+                handleLowLikeToggleChange(actionEl);
+            }
+        });
+
+        window.addEventListener('popstate', function() {
+            readStateFromUrlForPopstate();
+            loadPromptData();
+        });
+
+        initStateFromUrlFirstLoad();
+        loadPromptData();
+    });
+    </script>
+</body>
+</html>

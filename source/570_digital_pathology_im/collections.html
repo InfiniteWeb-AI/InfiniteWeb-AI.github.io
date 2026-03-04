@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Digital Pathology Image Analysis Platform - Collections</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="View and manage slide collections, including searching, renaming, deleting, and opening a specific collection for detailed review.">
+    
+    <link rel="stylesheet" href="collections.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <div class="site-branding">
+                <span class="site-title">Digital Pathology Image Analysis</span>
+            </div>
+            <nav class="site-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html">Dashboard</a></li>
+                    <li><a href="projects.html">Projects</a></li>
+                    <li><a href="slide_library.html">Slide Library</a></li>
+                    <li><a href="analytics_biomarker_browser.html">Analytics</a></li>
+                    <li><a href="collections.html">Collections</a></li>
+                    <li><a href="cohorts.html">Cohorts</a></li>
+                    <li><a href="algorithms.html">Algorithms</a></li>
+                    <li><a href="qc_dashboard.html">QC</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id="content" class="site-content" role="main">
+        <section data-component="collections-page-controller">
+            <h1>Collections</h1>
+            <p data-populate="collections-meta"></p>
+        </section>
+
+        <section data-component="collections-search-form">
+            <form data-action="collections-search">
+                <label for="collectionsSearchInput">Search collections by name</label>
+                <input type="search" id="collectionsSearchInput" name="searchName">
+                <button type="submit">Search</button>
+            </form>
+        </section>
+
+        <section data-component="collections-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Source</th>
+                        <th scope="col">Description</th>
+                        <th scope="col">Created</th>
+                        <th scope="col">Actions</th>
+                    </tr>
+                </thead>
+                <tbody data-populate="collections-list">
+                    <!-- Collections rows populated via JavaScript -->
+                </tbody>
+            </table>
+        </section>
+
+        <nav data-component="collections-pagination" aria-label="Collections pagination" data-populate="collections-pagination">
+            <!-- Pagination populated via JavaScript -->
+        </nav>
+
+        <div data-component="collection-delete-dialog" class="collection-delete-dialog" role="dialog" aria-modal="true" aria-hidden="true">
+            <div class="collection-delete-dialog__content">
+                <p data-role="delete-message"></p>
+                <p data-role="delete-error" class="error-message" aria-live="polite"></p>
+                <div class="dialog-actions">
+                    <button type="button" data-action="cancel-delete">Cancel</button>
+                    <button type="button" data-action="confirm-delete">Delete collection</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="about.html">About</a></li>
+                    <li><a href="help.html">Help &amp; User Guide</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">Digital pathology image analysis platform</p>
+        </div>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const DEFAULT_PAGE = 1;
+        const DEFAULT_PAGE_SIZE = 25;
+
+        const populateElements = {};
+        document.querySelectorAll('[data-populate]').forEach(function(el) {
+            const key = el.dataset.populate;
+            if (key) {
+                populateElements[key] = el;
+            }
+        });
+
+        const searchFormSection = document.querySelector('[data-component="collections-search-form"]');
+        const searchForm = searchFormSection ? searchFormSection.querySelector('form[data-action="collections-search"]') : null;
+        const searchInput = document.getElementById('collectionsSearchInput');
+
+        const deleteDialog = document.querySelector('[data-component="collection-delete-dialog"]');
+        const deleteMessageEl = deleteDialog ? deleteDialog.querySelector('[data-role="delete-message"]') : null;
+        const deleteErrorEl = deleteDialog ? deleteDialog.querySelector('[data-role="delete-error"]') : null;
+
+        let currentCollections = [];
+        let pendingDeleteCollectionId = null;
+
+        function parsePositiveInt(value, defaultValue) {
+            const num = parseInt(value, 10);
+            if (Number.isNaN(num) || num <= 0) {
+                return defaultValue;
+            }
+            return num;
+        }
+
+        function getCurrentParams() {
+            const params = new URLSearchParams(window.location.search);
+            const searchNameRaw = params.get('searchName') || '';
+            const page = parsePositiveInt(params.get('page'), DEFAULT_PAGE);
+            const pageSize = parsePositiveInt(params.get('pageSize'), DEFAULT_PAGE_SIZE);
+            return {
+                searchName: searchNameRaw,
+                page: page,
+                pageSize: pageSize
+            };
+        }
+
+        function updateUrlParams(newParams, options) {
+            const opts = options || {};
+            const current = getCurrentParams();
+
+            const merged = {
+                searchName: Object.prototype.hasOwnProperty.call(newParams, 'searchName') ? newParams.searchName : current.searchName,
+                page: Object.prototype.hasOwnProperty.call(newParams, 'page') ? newParams.page : current.page,
+                pageSize: Object.prototype.hasOwnProperty.call(newParams, 'pageSize') ? newParams.pageSize : current.pageSize
+            };
+
+            const urlParams = new URLSearchParams();
+
+            if (merged.searchName && merged.searchName !== '') {
+                urlParams.set('searchName', merged.searchName);
+            }
+            if (merged.page && merged.page !== DEFAULT_PAGE) {
+                urlParams.set('page', String(merged.page));
+            }
+            if (merged.pageSize && merged.pageSize !== DEFAULT_PAGE_SIZE) {
+                urlParams.set('pageSize', String(merged.pageSize));
+            }
+
+            const queryString = urlParams.toString();
+            const newUrl = queryString ? (window.location.pathname + '?' + queryString) : window.location.pathname;
+
+            if (opts.replace) {
+                window.history.replaceState(null, '', newUrl);
+            } else {
+                window.history.pushState(null, '', newUrl);
+            }
+        }
+
+        function formatSource(source) {
+            if (!source) {
+                return '';
+            }
+            switch (source) {
+                case 'biomarker_browser':
+                    return 'Biomarker browser';
+                case 'manual':
+                    return 'Manual';
+                case 'other':
+                    return 'Other';
+                default:
+                    return source;
+            }
+        }
+
+        function formatDate(value) {
+            if (!value) {
+                return '';
+            }
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                return '';
+            }
+            return date.toLocaleDateString();
+        }
+
+        function renderCollectionsMeta(container, totalCount, params) {
+            if (!container) {
+                return;
+            }
+            if (totalCount === 0) {
+                if (params.searchName && params.searchName !== '') {
+                    container.textContent = 'No collections found for \'' + params.searchName + '\'.';
+                } else {
+                    container.textContent = 'No collections available.';
+                }
+                return;
+            }
+            if (params.searchName && params.searchName !== '') {
+                container.textContent = 'Showing ' + totalCount + ' collections matching \'' + params.searchName + '\'.';
+            } else {
+                container.textContent = 'Showing ' + totalCount + ' collections.';
+            }
+        }
+
+        function renderCollectionsList(container, items) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+
+            if (!items || items.length === 0) {
+                const row = document.createElement('tr');
+                const cell = document.createElement('td');
+                cell.colSpan = 5;
+                cell.textContent = 'No collections found.';
+                row.appendChild(cell);
+                container.appendChild(row);
+                return;
+            }
+
+            items.forEach(function(item) {
+                const row = document.createElement('tr');
+                row.dataset.collectionId = item.id;
+
+                const nameCell = document.createElement('td');
+                const nameView = document.createElement('div');
+                nameView.dataset.role = 'name-view';
+
+                const nameLink = document.createElement('a');
+                nameLink.href = 'javascript:void(0)';
+                nameLink.textContent = item.name || '';
+                nameLink.dataset.action = 'open-collection';
+                nameLink.dataset.collectionId = item.id;
+
+                nameView.appendChild(nameLink);
+
+                const renameForm = document.createElement('form');
+                renameForm.dataset.component = 'collection-rename-inline-form';
+                renameForm.dataset.action = 'collection-rename-form';
+                renameForm.dataset.collectionId = item.id;
+                renameForm.style.display = 'none';
+
+                const renameInput = document.createElement('input');
+                renameInput.type = 'text';
+                renameInput.name = 'name';
+                renameInput.required = true;
+                renameInput.value = item.name || '';
+
+                const saveButton = document.createElement('button');
+                saveButton.type = 'submit';
+                saveButton.textContent = 'Save';
+
+                const cancelButton = document.createElement('button');
+                cancelButton.type = 'button';
+                cancelButton.textContent = 'Cancel';
+                cancelButton.dataset.action = 'cancel-rename';
+
+                const errorSpan = document.createElement('span');
+                errorSpan.dataset.role = 'rename-error';
+                errorSpan.className = 'error-message';
+                errorSpan.setAttribute('aria-live', 'polite');
+
+                renameForm.appendChild(renameInput);
+                renameForm.appendChild(saveButton);
+                renameForm.appendChild(cancelButton);
+                renameForm.appendChild(errorSpan);
+
+                nameCell.appendChild(nameView);
+                nameCell.appendChild(renameForm);
+
+                const sourceCell = document.createElement('td');
+                sourceCell.textContent = formatSource(item.source);
+
+                const descriptionCell = document.createElement('td');
+                descriptionCell.textContent = item.description || '';
+
+                const createdCell = document.createElement('td');
+                createdCell.textContent = formatDate(item.createdAt);
+
+                const actionsCell = document.createElement('td');
+
+                const renameButton = document.createElement('button');
+                renameButton.type = 'button';
+                renameButton.textContent = 'Rename';
+                renameButton.dataset.action = 'rename-collection';
+                renameButton.dataset.collectionId = item.id;
+
+                const deleteButton = document.createElement('button');
+                deleteButton.type = 'button';
+                deleteButton.textContent = 'Delete';
+                deleteButton.dataset.action = 'delete-collection';
+                deleteButton.dataset.collectionId = item.id;
+
+                actionsCell.appendChild(renameButton);
+                actionsCell.appendChild(deleteButton);
+
+                row.appendChild(nameCell);
+                row.appendChild(sourceCell);
+                row.appendChild(descriptionCell);
+                row.appendChild(createdCell);
+                row.appendChild(actionsCell);
+
+                container.appendChild(row);
+            });
+        }
+
+        function renderPagination(container, totalCount, page, pageSize) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+
+            if (!totalCount || totalCount === 0) {
+                return;
+            }
+
+            const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+
+            const infoSpan = document.createElement('span');
+            infoSpan.textContent = 'Page ' + page + ' of ' + totalPages + ' (' + totalCount + ' collections)';
+            container.appendChild(infoSpan);
+
+            const controlsWrapper = document.createElement('span');
+
+            const prevButton = document.createElement('button');
+            prevButton.type = 'button';
+            prevButton.textContent = 'Previous';
+            if (page > 1) {
+                prevButton.dataset.action = 'change-page';
+                prevButton.dataset.page = String(page - 1);
+            } else {
+                prevButton.disabled = true;
+            }
+            controlsWrapper.appendChild(prevButton);
+
+            const nextButton = document.createElement('button');
+            nextButton.type = 'button';
+            nextButton.textContent = 'Next';
+            if (page < totalPages) {
+                nextButton.dataset.action = 'change-page';
+                nextButton.dataset.page = String(page + 1);
+            } else {
+                nextButton.disabled = true;
+            }
+            controlsWrapper.appendChild(nextButton);
+
+            container.appendChild(controlsWrapper);
+
+            const pageSizeWrapper = document.createElement('span');
+            const pageSizeLabel = document.createElement('label');
+            pageSizeLabel.textContent = ' Per page:';
+
+            const pageSizeSelect = document.createElement('select');
+            pageSizeSelect.dataset.action = 'change-page-size';
+
+            [10, 25, 50, 100].forEach(function(size) {
+                const opt = document.createElement('option');
+                opt.value = String(size);
+                opt.textContent = String(size);
+                if (size === pageSize) {
+                    opt.selected = true;
+                }
+                pageSizeSelect.appendChild(opt);
+            });
+
+            pageSizeLabel.appendChild(pageSizeSelect);
+            pageSizeWrapper.appendChild(pageSizeLabel);
+            container.appendChild(pageSizeWrapper);
+        }
+
+        function openDeleteDialog(collection) {
+            if (!deleteDialog) {
+                return;
+            }
+            pendingDeleteCollectionId = collection ? collection.id : null;
+            if (deleteMessageEl) {
+                const nameText = collection && collection.name ? collection.name : '';
+                deleteMessageEl.textContent = nameText ? (
+                    'Delete collection \'' + nameText + '\'? This will remove the collection and its membership, but slides remain intact.'
+                ) : 'Delete this collection? This will remove the collection and its membership, but slides remain intact.';
+            }
+            if (deleteErrorEl) {
+                deleteErrorEl.textContent = '';
+            }
+            deleteDialog.setAttribute('aria-hidden', 'false');
+            deleteDialog.style.display = 'block';
+        }
+
+        function closeDeleteDialog() {
+            if (!deleteDialog) {
+                return;
+            }
+            pendingDeleteCollectionId = null;
+            if (deleteErrorEl) {
+                deleteErrorEl.textContent = '';
+            }
+            deleteDialog.setAttribute('aria-hidden', 'true');
+            deleteDialog.style.display = 'none';
+        }
+
+        function loadCollections() {
+            const params = getCurrentParams();
+
+            if (searchInput) {
+                searchInput.value = params.searchName || '';
+            }
+
+            let result;
+            try {
+                const searchParam = params.searchName && params.searchName !== '' ? params.searchName : undefined;
+                result = WebsiteSDK.getCollectionsList(searchParam, params.page, params.pageSize);
+            } catch (e) {
+                if (populateElements['collections-meta']) {
+                    populateElements['collections-meta'].textContent = 'Error loading collections.';
+                }
+                if (populateElements['collections-list']) {
+                    populateElements['collections-list'].innerHTML = '';
+                }
+                if (populateElements['collections-pagination']) {
+                    populateElements['collections-pagination'].innerHTML = '';
+                }
+                return;
+            }
+
+            let items = result && Array.isArray(result.items) ? result.items : [];
+            let totalCount = result && typeof result.totalCount === 'number' ? result.totalCount : 0;
+
+            if (items.length === 0 && params.page > DEFAULT_PAGE) {
+                const newPage = params.page - 1;
+                updateUrlParams({ page: newPage }, { replace: true });
+                const updatedParams = getCurrentParams();
+                try {
+                    const updatedSearchParam = updatedParams.searchName && updatedParams.searchName !== '' ? updatedParams.searchName : undefined;
+                    const secondResult = WebsiteSDK.getCollectionsList(updatedSearchParam, updatedParams.page, updatedParams.pageSize);
+                    items = secondResult && Array.isArray(secondResult.items) ? secondResult.items : [];
+                    totalCount = secondResult && typeof secondResult.totalCount === 'number' ? secondResult.totalCount : 0;
+                    params.page = updatedParams.page;
+                    params.pageSize = updatedParams.pageSize;
+                    params.searchName = updatedParams.searchName;
+                } catch (e2) {
+                    if (populateElements['collections-meta']) {
+                        populateElements['collections-meta'].textContent = 'Error loading collections.';
+                    }
+                    if (populateElements['collections-list']) {
+                        populateElements['collections-list'].innerHTML = '';
+                    }
+                    if (populateElements['collections-pagination']) {
+                        populateElements['collections-pagination'].innerHTML = '';
+                    }
+                    return;
+                }
+            }
+
+            currentCollections = items;
+
+            if (populateElements['collections-meta']) {
+                renderCollectionsMeta(populateElements['collections-meta'], totalCount, params);
+            }
+            if (populateElements['collections-list']) {
+                renderCollectionsList(populateElements['collections-list'], items);
+            }
+            if (populateElements['collections-pagination']) {
+                renderPagination(populateElements['collections-pagination'], totalCount, params.page, params.pageSize);
+            }
+        }
+
+        if (searchForm && searchInput) {
+            searchForm.addEventListener('submit', function(event) {
+                event.preventDefault();
+                const term = searchInput.value ? searchInput.value.trim() : '';
+                updateUrlParams({ searchName: term || null, page: DEFAULT_PAGE });
+                loadCollections();
+            });
+        }
+
+        document.addEventListener('click', function(event) {
+            const target = event.target;
+            if (!target || typeof target.closest !== 'function') {
+                return;
+            }
+            const actionElement = target.closest('[data-action]');
+            if (!actionElement) {
+                return;
+            }
+            const action = actionElement.dataset.action;
+            if (!action) {
+                return;
+            }
+
+            if (action === 'open-collection') {
+                event.preventDefault();
+                const collectionId = actionElement.dataset.collectionId;
+                if (!collectionId) {
+                    return;
+                }
+                const url = 'collection_detail.html?collectionId=' + encodeURIComponent(collectionId);
+                window.location.href = url;
+            } else if (action === 'rename-collection') {
+                event.preventDefault();
+                const row = actionElement.closest('tr');
+                if (!row) {
+                    return;
+                }
+
+                document.querySelectorAll('form[data-component="collection-rename-inline-form"]').forEach(function(form) {
+                    const rowEl = form.closest('tr');
+                    if (!rowEl) {
+                        return;
+                    }
+                    const view = rowEl.querySelector('[data-role="name-view"]');
+                    if (view) {
+                        view.style.display = '';
+                    }
+                    form.style.display = 'none';
+                    const err = form.querySelector('[data-role="rename-error"]');
+                    if (err) {
+                        err.textContent = '';
+                    }
+                });
+
+                const nameView = row.querySelector('[data-role="name-view"]');
+                const form = row.querySelector('form[data-component="collection-rename-inline-form"]');
+                if (nameView && form) {
+                    nameView.style.display = 'none';
+                    form.style.display = 'inline';
+                    const input = form.elements.name;
+                    if (input) {
+                        input.focus();
+                        input.select();
+                    }
+                }
+            } else if (action === 'cancel-rename') {
+                event.preventDefault();
+                const form = actionElement.closest('form[data-component="collection-rename-inline-form"]');
+                if (!form) {
+                    return;
+                }
+                const row = form.closest('tr');
+                const nameView = row ? row.querySelector('[data-role="name-view"]') : null;
+                if (nameView) {
+                    nameView.style.display = '';
+                }
+                form.style.display = 'none';
+                const err = form.querySelector('[data-role="rename-error"]');
+                if (err) {
+                    err.textContent = '';
+                }
+            } else if (action === 'change-page') {
+                event.preventDefault();
+                const pageValue = actionElement.dataset.page;
+                const newPage = parsePositiveInt(pageValue, DEFAULT_PAGE);
+                const params = getCurrentParams();
+                if (newPage === params.page) {
+                    return;
+                }
+                updateUrlParams({ page: newPage });
+                loadCollections();
+            } else if (action === 'delete-collection') {
+                event.preventDefault();
+                const collectionId = actionElement.dataset.collectionId;
+                if (!collectionId) {
+                    return;
+                }
+                const collection = currentCollections.find(function(c) { return c.id === collectionId; });
+                openDeleteDialog(collection || null);
+            } else if (action === 'cancel-delete') {
+                event.preventDefault();
+                closeDeleteDialog();
+            } else if (action === 'confirm-delete') {
+                event.preventDefault();
+                if (!pendingDeleteCollectionId) {
+                    return;
+                }
+                if (deleteErrorEl) {
+                    deleteErrorEl.textContent = '';
+                }
+                let result;
+                try {
+                    result = WebsiteSDK.deleteCollection(pendingDeleteCollectionId);
+                } catch (e) {
+                    if (deleteErrorEl) {
+                        deleteErrorEl.textContent = 'Failed to delete collection.';
+                    }
+                    return;
+                }
+                if (!result || result.success !== true) {
+                    if (deleteErrorEl) {
+                        deleteErrorEl.textContent = 'Deletion was not successful.';
+                    }
+                    return;
+                }
+                closeDeleteDialog();
+                loadCollections();
+            }
+        });
+
+        document.addEventListener('change', function(event) {
+            const target = event.target;
+            if (!target || !target.dataset) {
+                return;
+            }
+            const action = target.dataset.action;
+            if (action === 'change-page-size') {
+                const newSize = parsePositiveInt(target.value, DEFAULT_PAGE_SIZE);
+                const params = getCurrentParams();
+                updateUrlParams({ pageSize: newSize, page: DEFAULT_PAGE, searchName: params.searchName || null });
+                loadCollections();
+            }
+        });
+
+        document.addEventListener('submit', function(event) {
+            const form = event.target;
+            if (!form || !form.dataset) {
+                return;
+            }
+            const action = form.dataset.action;
+            if (action === 'collection-rename-form') {
+                event.preventDefault();
+                const collectionId = form.dataset.collectionId;
+                if (!collectionId) {
+                    return;
+                }
+                const nameField = form.elements.name;
+                const newName = nameField ? nameField.value.trim() : '';
+                const errorSpan = form.querySelector('[data-role="rename-error"]');
+                if (!newName) {
+                    if (errorSpan) {
+                        errorSpan.textContent = 'Name is required.';
+                    }
+                    return;
+                }
+                if (errorSpan) {
+                    errorSpan.textContent = '';
+                }
+                let result;
+                try {
+                    result = WebsiteSDK.renameCollection(collectionId, newName);
+                } catch (e) {
+                    if (errorSpan) {
+                        errorSpan.textContent = 'Failed to rename collection.';
+                    }
+                    return;
+                }
+                if (!result || result.success !== true) {
+                    if (errorSpan) {
+                        errorSpan.textContent = 'Rename was not successful.';
+                    }
+                    return;
+                }
+                loadCollections();
+            }
+        });
+
+        window.addEventListener('popstate', function() {
+            loadCollections();
+        });
+
+        loadCollections();
+    });
+    </script>
+</body>
+</html>

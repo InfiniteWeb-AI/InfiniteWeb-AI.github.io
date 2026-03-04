@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>JRPG Content Blog Framework</title>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='framework.css'>
+  <link rel='stylesheet' href='news.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='header-bar container'>
+      <nav class='primary-nav' aria-label='Main site navigation'>
+        <ul class='nav-list'>
+          <li class='nav-item'><a href='index.html' title='Homepage with featured JRPG content and global navigation'>Home</a></li>
+          <li class='nav-item'><a href='recommendations.html' title='Browse filtered JRPG recommendations and reviews'>Game Recommendations</a></li>
+          <li class='nav-item'><a href='news.html' title='JRPG news and release-date updates'>News</a></li>
+          <li class='nav-item'><a href='features.html' title='Long-form JRPG features and narrative analysis'>Features</a></li>
+          <li class='nav-item'><a href='guides.html' title='Gameplay, beginner, and trophy guides for JRPGs'>Guides</a></li>
+          <li class='nav-item'><a href='top_lists.html' title='Ranked lists such as Top 10 classic JRPGs'>Top Lists</a></li>
+          <li class='nav-item'><a href='game_finder.html' title='Interactive JRPG recommendation tool'>Game Finder</a></li>
+          <li class='nav-item'><a href='library.html' title='View and manage your reading list, wishlist, bookmarks, collections, and followed releases'>My Library</a></li>
+        </ul>
+      </nav>
+      <div class='header-tools' aria-hidden='true'>
+        <span class='nav-search-icon' role='img'></span>
+      </div>
+    </div>
+  </header>
+
+  <main id='content' class='content-area'>
+    <section class='news-layout' aria-label='JRPG news listing'>
+      <h1 class='visually-hidden'>JRPG news</h1>
+
+      <!-- Filters + sort toolbar (sticky panel) -->
+      <div class='news-toolbar sticky-panel' data-component='news-filters-bar'>
+        <div class='news-toolbar-inner' data-populate='news-filters'></div>
+      </div>
+
+      <!-- Active filters bar -->
+      <div class='news-active-filters-bar' data-component='news-active-filters-bar'>
+        <div class='active-filters-inner' data-populate='active-filters' aria-live='polite'></div>
+      </div>
+
+      <!-- Articles region: loading/error, empty state, list -->
+      <section class='news-list-region' aria-live='polite'>
+        <div class='news-loading-error' data-component='news-loading-error-manager'></div>
+
+        <div class='news-empty-state' data-component='news-empty-state' hidden>
+          <div class='empty-state-inner'>
+            <p class='empty-state-title'>No news articles match these filters.</p>
+            <p class='empty-state-body'>Try a different platform, release timing, or clear all filters to see more JRPG news.</p>
+            <button type='button' class='btn btn-secondary' data-action='clear-all-filters'>Clear filters</button>
+          </div>
+        </div>
+
+        <div class='news-articles-list' data-component='news-articles-list' data-populate='news-articles'></div>
+      </section>
+
+      <!-- Pagination controls -->
+      <nav class='news-pagination' aria-label='News pagination' data-component='news-pagination-controls'>
+        <div class='pagination-inner' data-populate='news-pagination'></div>
+      </nav>
+    </section>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner container'>
+      <nav class='footer-nav' aria-label='Footer navigation'>
+        <ul class='footer-links'>
+          <li class='footer-item'><a href='about.html' title='Learn more about the site and its mission'>About</a></li>
+          <li class='footer-item'><a href='contact.html' title='Get in touch with the site maintainers'>Contact</a></li>
+          <li class='footer-item'><a href='newsletter.html' title='Sign up for the JRPG newsletter and set your preferences'>Newsletter</a></li>
+          <li class='footer-item'><a href='privacy.html' title='Read about how your data and preferences are handled'>Privacy Policy</a></li>
+          <li class='footer-item'><a href='terms.html' title='Review the terms and conditions for using the site'>Terms of Use</a></li>
+        </ul>
+      </nav>
+      <div class='footer-meta'>
+        <p class='footer-copy'>&copy; <span class='footer-year'>2026</span> JRPG Content Blog. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var PAGE_SIZE = 12;
+
+    var filterOptions = null;
+    var state = null;
+    var isFiltersLoading = false;
+    var isArticlesLoading = false;
+    var filtersError = null;
+    var articlesError = null;
+    var hasBoundPopstate = false;
+
+    var containers = {
+      filters: document.querySelector('[data-populate="news-filters"]'),
+      activeFilters: document.querySelector('[data-populate="active-filters"]'),
+      articles: document.querySelector('[data-populate="news-articles"]'),
+      pagination: document.querySelector('[data-populate="news-pagination"]'),
+      loadingError: document.querySelector('[data-component="news-loading-error-manager"]'),
+      emptyState: document.querySelector('[data-component="news-empty-state"]')
+    };
+
+    if (!containers.filters || !containers.articles) {
+      return;
+    }
+
+    function escapeHtml(value) {
+      if (value === null || value === undefined) return '';
+      return String(value).replace(/[&<>"']/g, function(ch) {
+        switch (ch) {
+          case '&': return '&amp;';
+          case '<': return '&lt;';
+          case '>': return '&gt;';
+          case '"': return '&quot;';
+          case '\'': return '&#039;';
+          default: return ch;
+        }
+      });
+    }
+
+    function formatDate(value) {
+      if (!value) return '';
+      var date = new Date(value);
+      if (isNaN(date.getTime())) return '';
+      var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return months[date.getMonth()] + ' ' + date.getDate() + ', ' + date.getFullYear();
+    }
+
+    function parseUrlState(options) {
+      var params = new URLSearchParams(window.location.search);
+      var s = {
+        platform: undefined,
+        releaseYear: undefined,
+        releaseWindow: undefined,
+        tag: undefined,
+        sortBy: undefined,
+        page: 1
+      };
+
+      var platformParam = params.get('platform') || '';
+      var validPlatforms = (options.platforms || []).map(function(p) { return p.value; });
+      if (platformParam && validPlatforms.indexOf(platformParam) !== -1) {
+        s.platform = platformParam;
+      }
+
+      var yearParam = params.get('releaseYear');
+      var parsedYear = yearParam ? parseInt(yearParam, 10) : NaN;
+      var validYears = (options.releaseYears || []).map(function(y) { return y.year; });
+      var hasValidYear = !isNaN(parsedYear) && validYears.indexOf(parsedYear) !== -1;
+
+      var windowParam = params.get('releaseWindow') || '';
+      var validWindows = (options.releaseWindows || []).map(function(w) { return w.value; });
+      var hasValidWindow = windowParam && validWindows.indexOf(windowParam) !== -1;
+
+      if (hasValidYear) {
+        s.releaseYear = parsedYear;
+        s.releaseWindow = undefined;
+      } else if (hasValidWindow) {
+        s.releaseWindow = windowParam;
+      }
+
+      var tagParam = params.get('tag') || '';
+      var validTags = (options.tagOptions || []).map(function(t) { return t.tag; });
+      if (tagParam && validTags.indexOf(tagParam) !== -1) {
+        s.tag = tagParam;
+      }
+
+      var sortParam = params.get('sortBy') || '';
+      var validSorts = (options.sortOptions || []).map(function(o) { return o.value; });
+      if (sortParam && validSorts.indexOf(sortParam) !== -1) {
+        s.sortBy = sortParam;
+      } else if (options.sortOptions && options.sortOptions.length > 0) {
+        s.sortBy = options.sortOptions[0].value;
+      }
+
+      var pageParam = params.get('page');
+      var parsedPage = pageParam ? parseInt(pageParam, 10) : 1;
+      if (!isNaN(parsedPage) && parsedPage > 0) {
+        s.page = parsedPage;
+      }
+
+      return s;
+    }
+
+    function updateUrlFromState(currentState, options) {
+      options = options || {};
+      var params = new URLSearchParams(window.location.search);
+
+      if (currentState.platform) {
+        params.set('platform', currentState.platform);
+      } else {
+        params.delete('platform');
+      }
+
+      if (currentState.releaseYear) {
+        params.set('releaseYear', String(currentState.releaseYear));
+        params.delete('releaseWindow');
+      } else if (currentState.releaseWindow) {
+        params.set('releaseWindow', currentState.releaseWindow);
+        params.delete('releaseYear');
+      } else {
+        params.delete('releaseYear');
+        params.delete('releaseWindow');
+      }
+
+      if (currentState.tag) {
+        params.set('tag', currentState.tag);
+      } else {
+        params.delete('tag');
+      }
+
+      if (currentState.sortBy) {
+        params.set('sortBy', currentState.sortBy);
+      } else {
+        params.delete('sortBy');
+      }
+
+      if (currentState.page && currentState.page !== 1) {
+        params.set('page', String(currentState.page));
+      } else {
+        params.delete('page');
+      }
+
+      var newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+      var method = options.replace ? 'replaceState' : 'pushState';
+      window.history[method](currentState, '', newUrl);
+    }
+
+    function renderFilters(container, options, currentState) {
+      if (!container) return;
+
+      var platformOptionsHtml = (options.platforms || []).map(function(opt) {
+        var selected = currentState.platform === opt.value ? ' selected' : '';
+        return '<option value="' + escapeHtml(opt.value) + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
+      }).join('');
+
+      var releaseYearOptionsHtml = (options.releaseYears || []).map(function(opt) {
+        var selected = currentState.releaseYear === opt.year ? ' selected' : '';
+        return '<option value="' + String(opt.year) + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
+      }).join('');
+
+      var releaseWindowOptionsHtml = (options.releaseWindows || []).map(function(opt) {
+        var selected = currentState.releaseWindow === opt.value ? ' selected' : '';
+        return '<option value="' + escapeHtml(opt.value) + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
+      }).join('');
+
+      var tagOptionsHtml = (options.tagOptions || []).map(function(opt) {
+        var selected = currentState.tag === opt.tag ? ' selected' : '';
+        return '<option value="' + escapeHtml(opt.tag) + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
+      }).join('');
+
+      var sortOptionsHtml = (options.sortOptions || []).map(function(opt) {
+        var selected = currentState.sortBy === opt.value ? ' selected' : '';
+        return '<option value="' + escapeHtml(opt.value) + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
+      }).join('');
+
+      container.innerHTML = '\n        <div class="news-filters-bar-layout">\n          <div class="news-filters-left">\n            <div class="filter-group">\n              <label for="news-filter-platform" class="filter-label">Platform</label>\n              <select id="news-filter-platform" name="platform" class="filter-select" data-action="platform-change">\n                <option value="">All platforms</option>\n                ' + platformOptionsHtml + '\n              </select>\n            </div>\n            <div class="filter-group filter-group-timing">\n              <span class="filter-label">Release timing</span>\n              <div class="filter-timing-row">\n                <label for="news-filter-release-year" class="filter-sublabel">Year</label>\n                <select id="news-filter-release-year" name="releaseYear" class="filter-select" data-action="release-year-change">\n                  <option value="">Any year</option>\n                  ' + releaseYearOptionsHtml + '\n                </select>\n              </div>\n              <div class="filter-timing-row">\n                <label for="news-filter-release-window" class="filter-sublabel">Window</label>\n                <select id="news-filter-release-window" name="releaseWindow" class="filter-select" data-action="release-window-change">\n                  <option value="">Any window</option>\n                  ' + releaseWindowOptionsHtml + '\n                </select>\n              </div>\n            </div>\n            <div class="filter-group">\n              <label for="news-filter-tag" class="filter-label">Tag</label>\n              <select id="news-filter-tag" name="tag" class="filter-select" data-action="tag-change">\n                <option value="">All tags</option>\n                ' + tagOptionsHtml + '\n              </select>\n            </div>\n            <button type="button" class="btn btn-text clear-filters-btn" data-action="clear-all-filters">Clear all</button>\n          </div>\n          <div class="news-filters-right" data-component="news-sort-control">\n            <label for="news-sort-by" class="filter-label sort-label">Sort by</label>\n            <select id="news-sort-by" name="sortBy" class="filter-select sort-select" data-action="sort-change">\n              ' + sortOptionsHtml + '\n            </select>\n          </div>\n        </div>\n      ';
+    }
+
+    function renderActiveFilters(container, currentState, options) {
+      if (!container) return;
+
+      var chips = [];
+
+      if (currentState.platform) {
+        var platformOpt = (options.platforms || []).find(function(p) { return p.value === currentState.platform; });
+        chips.push({ key: 'platform', label: platformOpt ? platformOpt.label : currentState.platform });
+      }
+
+      if (currentState.releaseYear) {
+        var yearOpt = (options.releaseYears || []).find(function(y) { return y.year === currentState.releaseYear; });
+        chips.push({ key: 'releaseYear', label: yearOpt ? yearOpt.label : String(currentState.releaseYear) });
+      } else if (currentState.releaseWindow) {
+        var windowOpt = (options.releaseWindows || []).find(function(w) { return w.value === currentState.releaseWindow; });
+        chips.push({ key: 'releaseWindow', label: windowOpt ? windowOpt.label : currentState.releaseWindow });
+      }
+
+      if (currentState.tag) {
+        var tagOpt = (options.tagOptions || []).find(function(t) { return t.tag === currentState.tag; });
+        chips.push({ key: 'tag', label: tagOpt ? tagOpt.label : currentState.tag });
+      }
+
+      if (!chips.length) {
+        container.innerHTML = '';
+        if (container.parentElement) {
+          container.parentElement.classList.add('is-empty');
+        }
+        return;
+      }
+
+      if (container.parentElement) {
+        container.parentElement.classList.remove('is-empty');
+      }
+
+      var chipsHtml = chips.map(function(chip) {
+        return '\n          <button type="button" class="filter-chip" data-action="remove-filter" data-filter-key="' + escapeHtml(chip.key) + '">\n            <span class="chip-label">' + escapeHtml(chip.label) + '</span>\n            <span class="chip-close" aria-hidden="true">&times;</span>\n            <span class="sr-only">Remove filter ' + escapeHtml(chip.label) + '</span>\n          </button>\n        ';
+      }).join('');
+
+      container.innerHTML = '\n        <div class="active-filters-row">\n          <span class="active-filters-title">Active filters:</span>\n          <div class="active-filters-chips">\n            ' + chipsHtml + '\n          </div>\n          <button type="button" class="btn btn-text active-filters-clear" data-action="clear-all-filters">Clear all</button>\n        </div>\n      ';
+    }
+
+    function renderArticles(container, articles) {
+      if (!container) return;
+      if (!Array.isArray(articles)) articles = [];
+
+      var cardsHtml = articles.map(function(article) {
+        var id = escapeHtml(article.id || '');
+        var title = escapeHtml(article.title || '');
+        var summary = escapeHtml(article.summary || article.helpfulSnippet || '');
+        var dateText = article.publishedAt ? formatDate(article.publishedAt) : '';
+
+        var releasePieces = [];
+        if (article.releaseYear) {
+          releasePieces.push('Release ' + article.releaseYear);
+        }
+        if (article.releaseWindow) {
+          releasePieces.push(article.releaseWindow);
+        }
+        var releaseInfo = releasePieces.join(' · ');
+
+        var platformsText = '';
+        if (Array.isArray(article.platforms) && article.platforms.length) {
+          platformsText = article.platforms.map(function(p) { return p; }).join(', ');
+        }
+
+        var tagsHtml = '';
+        if (Array.isArray(article.tags) && article.tags.length) {
+          tagsHtml = article.tags.slice(0, 4).map(function(tag) {
+            return '<span class="news-tag">' + escapeHtml(tag) + '</span>';
+          }).join('');
+        }
+
+        var metaParts = [];
+        if (dateText) {
+          metaParts.push('<span class="news-meta-item news-date">' + escapeHtml(dateText) + '</span>');
+        }
+        if (releaseInfo) {
+          metaParts.push('<span class="news-meta-item news-release">' + escapeHtml(releaseInfo) + '</span>');
+        }
+        if (platformsText) {
+          metaParts.push('<span class="news-meta-item news-platforms">' + escapeHtml(platformsText) + '</span>');
+        }
+        if (typeof article.commentCount === 'number' && article.commentCount > 0) {
+          var commentLabel = article.commentCount === 1 ? 'comment' : 'comments';
+          metaParts.push('<span class="news-meta-item news-comments">' + article.commentCount + ' ' + commentLabel + '</span>');
+        }
+
+        var metaHtml = metaParts.join('<span class="meta-separator">•</span>');
+
+        return '\n          <article class="news-card" data-article-id="' + id + '">\n            <button type="button" class="news-card-link" data-action="open-article" data-article-id="' + id + '">\n              <div class="news-card-media-placeholder" aria-hidden="true"></div>\n              <div class="news-card-content">\n                <h2 class="news-card-title">' + title + '</h2>\n                <div class="news-card-meta">' + metaHtml + '</div>\n                ' + (summary ? '<p class="news-card-summary">' + summary + '</p>' : '') + '\n                ' + (tagsHtml ? '<div class="news-card-tags">' + tagsHtml + '</div>' : '') + '\n              </div>\n            </button>\n          </article>\n        ';
+      }).join('');
+
+      container.innerHTML = '\n        <div class="news-cards-stack">\n          ' + cardsHtml + '\n        </div>\n      ';
+    }
+
+    function renderPagination(container, totalCount, currentPage, pageSize) {
+      if (!container) return;
+      var totalPages = pageSize ? Math.ceil(totalCount / pageSize) : 1;
+
+      if (totalPages <= 1) {
+        container.innerHTML = '';
+        if (container.parentElement) {
+          container.parentElement.classList.add('is-hidden');
+        }
+        return;
+      }
+
+      if (container.parentElement) {
+        container.parentElement.classList.remove('is-hidden');
+      }
+
+      function makePageButton(page, label, isCurrent, isDisabled, extraClass) {
+        var safeLabel = escapeHtml(String(label));
+        var classes = 'page-btn' + (isCurrent ? ' is-active' : '') + (extraClass ? ' ' + extraClass : '');
+        var attrs = '';
+        if (isCurrent) {
+          attrs += ' aria-current="page"';
+        }
+        if (isDisabled && !isCurrent) {
+          attrs += ' disabled aria-disabled="true"';
+        }
+        if (isDisabled && !isCurrent) {
+          return '<button type="button" class="' + classes + '"' + attrs + '>' + safeLabel + '</button>';
+        }
+        return '<button type="button" class="' + classes + '" data-action="change-page" data-page="' + page + '"' + attrs + '>' + safeLabel + '</button>';
+      }
+
+      var pageButtons = [];
+
+      pageButtons.push(makePageButton(Math.max(1, currentPage - 1), 'Prev', false, currentPage === 1, 'page-prev'));
+
+      var maxButtons = 7;
+      if (totalPages <= maxButtons) {
+        for (var p = 1; p <= totalPages; p++) {
+          pageButtons.push(makePageButton(p, p, p === currentPage, false, ''));
+        }
+      } else {
+        var firstPage = 1;
+        var lastPage = totalPages;
+        var windowStart = Math.max(firstPage + 1, currentPage - 1);
+        var windowEnd = Math.min(lastPage - 1, currentPage + 1);
+
+        pageButtons.push(makePageButton(firstPage, firstPage, currentPage === firstPage, false, ''));
+        if (windowStart > firstPage + 1) {
+          pageButtons.push('<span class="page-ellipsis" aria-hidden="true">•••</span>');
+        }
+        for (var i = windowStart; i <= windowEnd; i++) {
+          pageButtons.push(makePageButton(i, i, i === currentPage, false, ''));
+        }
+        if (windowEnd < lastPage - 1) {
+          pageButtons.push('<span class="page-ellipsis" aria-hidden="true">•••</span>');
+        }
+        pageButtons.push(makePageButton(lastPage, lastPage, currentPage === lastPage, false, ''));
+      }
+
+      pageButtons.push(makePageButton(Math.min(totalPages, currentPage + 1), 'Next', false, currentPage === totalPages, 'page-next'));
+
+      container.innerHTML = '\n        <div class="pagination-controls">' + pageButtons.join('') + '</div>\n      ';
+    }
+
+    function renderLoadingError(container, flags) {
+      if (!container) return;
+      var isLoading = flags.isFiltersLoading || flags.isArticlesLoading;
+      var hasError = !!(flags.filtersError || flags.articlesError);
+      if (!isLoading && !hasError) {
+        container.innerHTML = '';
+        container.hidden = true;
+        return;
+      }
+
+      container.hidden = false;
+
+      if (isLoading) {
+        container.innerHTML = '\n          <div class="loading-state">\n            <div class="spinner" aria-hidden="true"></div>\n            <p class="loading-text">Loading news…</p>\n          </div>\n        ';
+        return;
+      }
+
+      var errorText = escapeHtml(flags.filtersError || flags.articlesError || 'Something went wrong.');
+      var retryAction = flags.filtersError ? 'retry-filters' : 'retry-articles';
+
+      container.innerHTML = '\n        <div class="error-state" role="alert">\n          <p class="error-text">' + errorText + '</p>\n          <button type="button" class="btn btn-primary" data-action="' + retryAction + '">Retry</button>\n        </div>\n      ';
+    }
+
+    function updateLoadingError() {
+      if (!containers.loadingError) return;
+      renderLoadingError(containers.loadingError, {
+        isFiltersLoading: isFiltersLoading,
+        isArticlesLoading: isArticlesLoading,
+        filtersError: filtersError,
+        articlesError: articlesError
+      });
+    }
+
+    function fetchAndRenderArticles() {
+      if (!state) return;
+
+      isArticlesLoading = true;
+      articlesError = null;
+      updateLoadingError();
+
+      if (containers.emptyState) {
+        containers.emptyState.hidden = true;
+      }
+      containers.articles.innerHTML = '';
+
+      var platform = state.platform || undefined;
+      var releaseYear = state.releaseYear || undefined;
+      var releaseWindow = state.releaseWindow || undefined;
+      var tag = state.tag || undefined;
+      var sortBy = state.sortBy || undefined;
+      var page = state.page || 1;
+
+      try {
+        var result = WebsiteSDK.getNewsArticles(platform, releaseYear, releaseWindow, tag, sortBy, page, PAGE_SIZE);
+        isArticlesLoading = false;
+
+        var articles = result && result.articles ? result.articles : [];
+        var totalCount = typeof result.totalCount === 'number' ? result.totalCount : articles.length;
+        var pageFromResult = typeof result.page === 'number' ? result.page : page;
+        var pageSizeFromResult = typeof result.pageSize === 'number' ? result.pageSize : PAGE_SIZE;
+
+        state.page = pageFromResult;
+        updateUrlFromState(state, { replace: true });
+
+        if (!articles.length) {
+          containers.articles.innerHTML = '';
+          if (containers.emptyState) {
+            containers.emptyState.hidden = false;
+          }
+          renderPagination(containers.pagination, 0, 1, pageSizeFromResult);
+        } else {
+          if (containers.emptyState) {
+            containers.emptyState.hidden = true;
+          }
+          renderArticles(containers.articles, articles);
+          renderPagination(containers.pagination, totalCount, pageFromResult, pageSizeFromResult);
+        }
+
+        updateLoadingError();
+      } catch (err) {
+        isArticlesLoading = false;
+        articlesError = 'Unable to load news articles. Please try again.';
+        updateLoadingError();
+      }
+    }
+
+    function loadFiltersAndInit() {
+      isFiltersLoading = true;
+      filtersError = null;
+      updateLoadingError();
+
+      try {
+        filterOptions = WebsiteSDK.getNewsFilterOptions();
+        isFiltersLoading = false;
+
+        state = parseUrlState(filterOptions);
+        updateUrlFromState(state, { replace: true });
+
+        renderFilters(containers.filters, filterOptions, state);
+        renderActiveFilters(containers.activeFilters, state, filterOptions);
+
+        if (!hasBoundPopstate) {
+          window.addEventListener('popstate', function() {
+            if (!filterOptions) return;
+            state = parseUrlState(filterOptions);
+            renderFilters(containers.filters, filterOptions, state);
+            renderActiveFilters(containers.activeFilters, state, filterOptions);
+            fetchAndRenderArticles();
+          });
+          hasBoundPopstate = true;
+        }
+
+        fetchAndRenderArticles();
+      } catch (err) {
+        isFiltersLoading = false;
+        filtersError = 'Unable to load filters. Please try again.';
+        updateLoadingError();
+      }
+    }
+
+    document.addEventListener('change', function(event) {
+      var target = event.target;
+      if (!target || !target.dataset || !target.dataset.action) return;
+      if (!filterOptions || !state) return;
+
+      var action = target.dataset.action;
+
+      if (action === 'platform-change') {
+        var platformValue = target.value || '';
+        state.platform = platformValue || undefined;
+        state.page = 1;
+        updateUrlFromState(state);
+        renderFilters(containers.filters, filterOptions, state);
+        renderActiveFilters(containers.activeFilters, state, filterOptions);
+        fetchAndRenderArticles();
+      } else if (action === 'release-year-change') {
+        var yearValue = target.value || '';
+        if (!yearValue) {
+          state.releaseYear = undefined;
+        } else {
+          var parsedYear = parseInt(yearValue, 10);
+          var validYears = (filterOptions.releaseYears || []).map(function(y) { return y.year; });
+          if (!isNaN(parsedYear) && validYears.indexOf(parsedYear) !== -1) {
+            state.releaseYear = parsedYear;
+          } else {
+            state.releaseYear = undefined;
+          }
+        }
+        state.releaseWindow = undefined;
+        state.page = 1;
+        updateUrlFromState(state);
+        renderFilters(containers.filters, filterOptions, state);
+        renderActiveFilters(containers.activeFilters, state, filterOptions);
+        fetchAndRenderArticles();
+      } else if (action === 'release-window-change') {
+        var windowValue = target.value || '';
+        if (!windowValue) {
+          state.releaseWindow = undefined;
+        } else {
+          var validWindows = (filterOptions.releaseWindows || []).map(function(w) { return w.value; });
+          if (validWindows.indexOf(windowValue) !== -1) {
+            state.releaseWindow = windowValue;
+          } else {
+            state.releaseWindow = undefined;
+          }
+        }
+        state.releaseYear = undefined;
+        state.page = 1;
+        updateUrlFromState(state);
+        renderFilters(containers.filters, filterOptions, state);
+        renderActiveFilters(containers.activeFilters, state, filterOptions);
+        fetchAndRenderArticles();
+      } else if (action === 'tag-change') {
+        var tagValue = target.value || '';
+        state.tag = tagValue || undefined;
+        state.page = 1;
+        updateUrlFromState(state);
+        renderFilters(containers.filters, filterOptions, state);
+        renderActiveFilters(containers.activeFilters, state, filterOptions);
+        fetchAndRenderArticles();
+      } else if (action === 'sort-change') {
+        var sortValue = target.value || '';
+        var validSorts = (filterOptions.sortOptions || []).map(function(o) { return o.value; });
+        if (sortValue && validSorts.indexOf(sortValue) !== -1) {
+          state.sortBy = sortValue;
+        } else if (filterOptions.sortOptions && filterOptions.sortOptions.length > 0) {
+          state.sortBy = filterOptions.sortOptions[0].value;
+        }
+        state.page = 1;
+        updateUrlFromState(state);
+        renderFilters(containers.filters, filterOptions, state);
+        renderActiveFilters(containers.activeFilters, state, filterOptions);
+        fetchAndRenderArticles();
+      }
+    });
+
+    document.addEventListener('click', function(event) {
+      var el = event.target.closest('[data-action]');
+      if (!el) return;
+      var action = el.dataset.action;
+
+      if (action === 'open-article') {
+        var articleId = el.dataset.articleId;
+        if (!articleId) {
+          var card = el.closest('[data-article-id]');
+          if (card) {
+            articleId = card.getAttribute('data-article-id');
+          }
+        }
+        if (!articleId) return;
+        var url = 'article.html?id=' + encodeURIComponent(articleId) + '&source=news';
+        window.location.href = url;
+      } else if (action === 'clear-all-filters') {
+        if (!filterOptions || !state) return;
+        state.platform = undefined;
+        state.releaseYear = undefined;
+        state.releaseWindow = undefined;
+        state.tag = undefined;
+        state.page = 1;
+        updateUrlFromState(state);
+        renderFilters(containers.filters, filterOptions, state);
+        renderActiveFilters(containers.activeFilters, state, filterOptions);
+        fetchAndRenderArticles();
+      } else if (action === 'remove-filter') {
+        if (!filterOptions || !state) return;
+        var key = el.dataset.filterKey;
+        if (key === 'platform') {
+          state.platform = undefined;
+        } else if (key === 'releaseYear') {
+          state.releaseYear = undefined;
+        } else if (key === 'releaseWindow') {
+          state.releaseWindow = undefined;
+        } else if (key === 'tag') {
+          state.tag = undefined;
+        }
+        state.page = 1;
+        updateUrlFromState(state);
+        renderFilters(containers.filters, filterOptions, state);
+        renderActiveFilters(containers.activeFilters, state, filterOptions);
+        fetchAndRenderArticles();
+      } else if (action === 'change-page') {
+        if (!state) return;
+        if (el.disabled) return;
+        var pageValue = parseInt(el.dataset.page || '0', 10);
+        if (!pageValue || pageValue === state.page) return;
+        state.page = pageValue;
+        updateUrlFromState(state);
+        fetchAndRenderArticles();
+      } else if (action === 'retry-filters') {
+        loadFiltersAndInit();
+      } else if (action === 'retry-articles') {
+        fetchAndRenderArticles();
+      }
+    });
+
+    loadFiltersAndInit();
+  });
+  </script>
+</body>
+</html>

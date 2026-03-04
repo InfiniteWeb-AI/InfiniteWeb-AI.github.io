@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Logs - Cloud Platform</title>
+  <meta name='description' content='Browse and search log streams, filter them by tags, and open a selected log stream for detailed analysis.'>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=Source+Code+Pro:wght@400;500&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='logs.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='header-inner container'>
+      <a href='index.html' class='logo' aria-label='Cloud platform home'>
+        <span class='logo-primary'>iKala</span>
+        <span class='logo-secondary'>Cloud</span>
+      </a>
+      <nav class='main-nav' aria-label='Main navigation'>
+        <ul class='nav-list'>
+          <li class='nav-item'><a href='index.html' class='nav-link'>Home</a></li>
+          <li class='nav-item'><a href='vms.html' class='nav-link'>Virtual Machines</a></li>
+          <li class='nav-item'><a href='autoscaling_groups.html' class='nav-link'>Auto-Scaling Groups</a></li>
+          <li class='nav-item'><a href='managed_databases.html' class='nav-link'>Managed Databases</a></li>
+          <li class='nav-item'><a href='dashboards.html' class='nav-link'>Dashboards</a></li>
+          <li class='nav-item'><a href='alerts.html' class='nav-link'>Alerts</a></li>
+          <li class='nav-item'><a href='logs.html' class='nav-link'>Logs</a></li>
+          <li class='nav-item'><a href='incident_rules.html' class='nav-link'>Incident Rules</a></li>
+          <li class='nav-item'><a href='pricing_calculator.html' class='nav-link'>Pricing Calculator</a></li>
+          <li class='nav-item'><a href='docs.html' class='nav-link'>Docs</a></li>
+        </ul>
+      </nav>
+      <a href='contact.html' class='btn btn-primary nav-cta'>Contact</a>
+    </div>
+  </header>
+
+  <main id='content' class='site-main'>
+    <div class='container content-inner'>
+      <div data-component='logs-url-state-manager' aria-hidden='true' hidden></div>
+
+      <section class='page-header logs-page-header'>
+        <h1 class='page-title'>Logs</h1>
+        <div class='page-title-underline page-title-underline--accent'></div>
+        <p class='page-subtitle'>Browse and search log streams by text and tags.</p>
+      </section>
+
+      <section class='logs-search-section' aria-label='Search log streams'>
+        <form class='logs-search-form' data-component='logs-search-form'>
+          <div class='form-group'>
+            <label for='logs-search-input' class='form-label'>Search</label>
+            <div class='search-input-row'>
+              <input
+                type='search'
+                id='logs-search-input'
+                name='query'
+                class='form-control'
+                placeholder='Search by log stream name, tag, or service'
+                autocomplete='off'
+              >
+              <button type='submit' class='btn btn-primary search-submit'>Search</button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <section class='logs-tag-filter-section' aria-label='Tag filter toolbar'>
+        <div class='logs-tag-filter' data-component='logs-tag-filter'>
+          <div class='tag-filter-inner'>
+            <div class='tag-filter-input'>
+              <label for='logs-tag-input' class='form-label'>Filter by tag</label>
+              <div class='tag-filter-row'>
+                <input
+                  type='text'
+                  id='logs-tag-input'
+                  name='tag'
+                  class='form-control tag-input'
+                  placeholder='e.g. environment:production'
+                  autocomplete='off'
+                >
+                <button type='button' class='btn btn-secondary tag-apply-btn' data-action='apply-tag-filter'>Apply</button>
+              </div>
+            </div>
+            <div class='tag-filter-active' data-element='tag-filter-active' aria-live='polite'></div>
+          </div>
+        </div>
+      </section>
+
+      <section class='logs-results-region' aria-label='Log stream search results'>
+        <div class='logs-loading-indicator' data-component='logs-loading-indicator' hidden aria-live='polite'>
+          <div class='spinner'></div>
+          <p class='loading-text'>Loading logs…</p>
+        </div>
+
+        <div class='logs-empty-state' data-component='logs-empty-state' hidden aria-live='polite'></div>
+
+        <div class='logs-results-list' data-component='logs-results-list' data-populate='logs-results-list' aria-live='polite'></div>
+
+        <div class='logs-pagination' data-component='logs-pagination'></div>
+      </section>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='container footer-inner'>
+      <div class='footer-links'>
+        <a href='about.html' class='footer-link'>About</a>
+        <a href='contact.html' class='footer-link'>Contact</a>
+        <a href='favorites.html' class='footer-link'>Favorites</a>
+        <a href='docs.html' class='footer-link'>Documentation</a>
+        <a href='managed_databases.html' class='footer-link'>Managed Databases</a>
+        <a href='vms.html' class='footer-link'>Virtual Machines</a>
+        <a href='pricing_calculator.html' class='footer-link'>Pricing Calculator</a>
+      </div>
+      <div class='footer-meta'>
+        <span class='footer-copy'>&copy; <span class='footer-year'>2024</span> iKala Cloud. All rights reserved.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var DEFAULT_PAGE = 1;
+      var DEFAULT_PAGE_SIZE = 20;
+
+      var state = {
+        query: '',
+        tag: null,
+        page: DEFAULT_PAGE,
+        pageSize: DEFAULT_PAGE_SIZE,
+        totalCount: 0,
+        items: [],
+        loading: false,
+        error: null
+      };
+
+      var components = {
+        urlManager: document.querySelector('[data-component="logs-url-state-manager"]'),
+        searchForm: document.querySelector('[data-component="logs-search-form"]'),
+        tagFilter: document.querySelector('[data-component="logs-tag-filter"]'),
+        resultsList: document.querySelector('[data-component="logs-results-list"]'),
+        pagination: document.querySelector('[data-component="logs-pagination"]'),
+        emptyState: document.querySelector('[data-component="logs-empty-state"]'),
+        loadingIndicator: document.querySelector('[data-component="logs-loading-indicator"]')
+      };
+
+      var searchInput = document.getElementById('logs-search-input');
+      var tagInput = document.getElementById('logs-tag-input');
+      var activeTagContainer = document.querySelector('[data-element="tag-filter-active"]');
+
+      function readStateFromUrl() {
+        var params = new URLSearchParams(window.location.search);
+
+        var queryParam = params.get('query');
+        state.query = queryParam !== null ? queryParam : '';
+
+        var tagParam = params.get('tag');
+        state.tag = tagParam !== null && tagParam !== '' ? tagParam : null;
+
+        var pageParamRaw = params.get('page');
+        var pageParam = pageParamRaw !== null ? parseInt(pageParamRaw, 10) : NaN;
+        state.page = !isNaN(pageParam) && pageParam > 0 ? pageParam : DEFAULT_PAGE;
+
+        var pageSizeParamRaw = params.get('pageSize');
+        var pageSizeParam = pageSizeParamRaw !== null ? parseInt(pageSizeParamRaw, 10) : NaN;
+        state.pageSize = !isNaN(pageSizeParam) && pageSizeParam > 0 ? pageSizeParam : DEFAULT_PAGE_SIZE;
+      }
+
+      function updateUrlFromState(shouldReplace) {
+        var params = new URLSearchParams();
+
+        if (state.query) {
+          params.set('query', state.query);
+        }
+        if (state.tag) {
+          params.set('tag', state.tag);
+        }
+        if (state.page && state.page !== DEFAULT_PAGE) {
+          params.set('page', String(state.page));
+        }
+        if (state.pageSize && state.pageSize !== DEFAULT_PAGE_SIZE) {
+          params.set('pageSize', String(state.pageSize));
+        }
+
+        var queryString = params.toString();
+        var newRelativeUrl = queryString ? window.location.pathname + '?' + queryString : window.location.pathname;
+
+        if (shouldReplace) {
+          window.history.replaceState(null, '', newRelativeUrl);
+        } else {
+          window.history.pushState(null, '', newRelativeUrl);
+        }
+      }
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+
+      function escapeAttribute(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/'/g, '&#039;');
+      }
+
+      function renderActiveTag(container, tag) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (!tag) {
+          return;
+        }
+        var safeTag = escapeHtml(tag);
+        container.innerHTML = "<span class='tag-pill tag-pill--active'><span class='tag-pill-label'>" + safeTag + "</span><button type='button' class='tag-pill-clear' data-action='clear-tag-filter' aria-label='Clear tag filter'>&times;</button></span>";
+      }
+
+      function renderLoadingIndicator(container) {
+        if (!container) {
+          return;
+        }
+        if (state.loading) {
+          container.hidden = false;
+        } else {
+          container.hidden = true;
+        }
+      }
+
+      function renderResults(container, items) {
+        if (!container) {
+          return;
+        }
+        if (!Array.isArray(items) || items.length === 0) {
+          container.innerHTML = '';
+          return;
+        }
+        var html = '';
+        for (var i = 0; i < items.length; i++) {
+          var item = items[i] || {};
+          var id = item.id || '';
+          var name = item.name ? escapeHtml(item.name) : '';
+          var description = item.description ? escapeHtml(item.description) : '';
+          var serviceName = item.serviceName ? escapeHtml(item.serviceName) : '';
+          var createdAt = item.createdAt ? escapeHtml(item.createdAt) : '';
+          var tagsArray = Array.isArray(item.tags) ? item.tags : [];
+
+          var tagsHtml = '';
+          for (var j = 0; j < tagsArray.length; j++) {
+            var tag = tagsArray[j];
+            if (tag === null || tag === undefined) {
+              continue;
+            }
+            var tagSafeText = escapeHtml(tag);
+            var tagSafeAttr = escapeAttribute(tag);
+            tagsHtml += "<button type='button' class='tag-pill' data-action='result-tag-click' data-tag-value='" + tagSafeAttr + "'>" + tagSafeText + "</button>";
+          }
+
+          var serviceMeta = serviceName ? "<span class='log-stream-service'>Service: " + serviceName + "</span>" : '';
+          var createdMeta = createdAt ? "<span class='log-stream-created'>Created: " + createdAt + "</span>" : '';
+          var metaHtml = '';
+          if (serviceMeta || createdMeta) {
+            metaHtml = "<div class='log-stream-meta'>" + serviceMeta + createdMeta + "</div>";
+          }
+
+          var descriptionHtml = description ? "<p class='log-stream-description'>" + description + "</p>" : '';
+          var tagsBlockHtml = tagsHtml ? "<div class='log-stream-tags' aria-label='Tags'>" + tagsHtml + "</div>" : '';
+
+          var displayName = name || '(unnamed log stream)';
+          var href = 'log_stream.html?logStreamId=' + encodeURIComponent(id);
+
+          html += "<article class='log-stream-item'>" +
+            "<header class='log-stream-item-header'>" +
+              "<h3 class='log-stream-name'>" +
+                "<a href='" + href + "' class='log-stream-link'>" + displayName + "</a>" +
+              "</h3>" +
+              metaHtml +
+            "</header>" +
+            descriptionHtml +
+            tagsBlockHtml +
+          "</article>";
+        }
+        container.innerHTML = html;
+      }
+
+      function renderPagination(container) {
+        if (!container) {
+          return;
+        }
+        if (!state.totalCount || state.totalCount <= 0 || state.error) {
+          container.innerHTML = '';
+          return;
+        }
+
+        var totalPages = Math.max(1, Math.ceil(state.totalCount / state.pageSize));
+        if (state.page > totalPages) {
+          state.page = totalPages;
+        }
+        var currentPage = state.page;
+
+        var start = (currentPage - 1) * state.pageSize + 1;
+        var end = currentPage * state.pageSize;
+        if (end > state.totalCount) {
+          end = state.totalCount;
+        }
+
+        var maxPagesToShow = 5;
+        var startPage = Math.max(1, currentPage - 2);
+        var endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+        if (endPage - startPage < maxPagesToShow - 1) {
+          startPage = Math.max(1, endPage - maxPagesToShow + 1);
+        }
+
+        var pageButtonsHtml = '';
+        for (var p = startPage; p <= endPage; p++) {
+          var activeClass = p === currentPage ? ' pagination-page--active' : '';
+          pageButtonsHtml += "<button type='button' class='pagination-page" + activeClass + "' data-action='page-change' data-page='" + p + "'>" + p + "</button>";
+        }
+
+        var prevDisabled = currentPage === 1;
+        var nextDisabled = currentPage === totalPages;
+
+        var pageSizes = [10, 20, 50, 100];
+        var pageSizeOptionsHtml = '';
+        for (var i = 0; i < pageSizes.length; i++) {
+          var size = pageSizes[i];
+          var selected = size === state.pageSize ? ' selected' : '';
+          pageSizeOptionsHtml += "<option value='" + size + "'" + selected + ">" + size + " / page</option>";
+        }
+
+        var summaryText = 'Showing ' + start + '–' + end + ' of ' + state.totalCount + ' log streams';
+
+        var html = "<div class='pagination-inner'>" +
+          "<div class='pagination-summary'>" + summaryText + "</div>" +
+          "<div class='pagination-controls'>" +
+            "<button type='button' class='pagination-prev' data-action='page-change' data-page='" + (currentPage - 1) + "'" + (prevDisabled ? ' disabled' : '') + ">Previous</button>" +
+            pageButtonsHtml +
+            "<button type='button' class='pagination-next' data-action='page-change' data-page='" + (currentPage + 1) + "'" + (nextDisabled ? ' disabled' : '') + ">Next</button>" +
+            "<label class='pagination-page-size'>" +
+              "<span class='pagination-page-size-label'>Page size</span>" +
+              "<select data-action='page-size-change' class='pagination-page-size-select'>" +
+                pageSizeOptionsHtml +
+              "</select>" +
+            "</label>" +
+          "</div>" +
+        "</div>";
+
+        container.innerHTML = html;
+      }
+
+      function renderEmptyState(container) {
+        if (!container) {
+          return;
+        }
+        if (state.loading) {
+          container.hidden = true;
+          container.innerHTML = '';
+          return;
+        }
+
+        if (state.error) {
+          container.hidden = false;
+          var errorText = escapeHtml(state.error);
+          container.innerHTML = "<div class='empty-state-inner'>" +
+            "<h3 class='empty-state-title'>Something went wrong</h3>" +
+            "<p class='empty-state-body'>" + errorText + "</p>" +
+          "</div>";
+          return;
+        }
+
+        if (state.totalCount && state.totalCount > 0) {
+          container.hidden = true;
+          container.innerHTML = '';
+          return;
+        }
+
+        var queryPart = state.query ? " for '<span class='empty-state-emphasis'>" + escapeHtml(state.query) + "</span>'" : '';
+        var tagPart = state.tag ? " with tag '<span class='empty-state-emphasis'>" + escapeHtml(state.tag) + "</span>'" : '';
+        var message = 'No log streams found' + (queryPart || tagPart ? queryPart + tagPart : '') + '.';
+
+        container.hidden = false;
+        container.innerHTML = "<div class='empty-state-inner'>" +
+          "<h3 class='empty-state-title'>No log streams to display</h3>" +
+          "<p class='empty-state-body'>" + message + "</p>" +
+          "<p class='empty-state-hint'>Try adjusting your search text or clearing filters.</p>" +
+        "</div>";
+      }
+
+      function renderAll() {
+        renderLoadingIndicator(components.loadingIndicator);
+
+        if (state.totalCount > 0 && !state.error) {
+          if (components.resultsList) {
+            components.resultsList.hidden = false;
+            renderResults(components.resultsList, state.items);
+          }
+        } else {
+          if (components.resultsList) {
+            components.resultsList.hidden = true;
+            components.resultsList.innerHTML = '';
+          }
+        }
+
+        renderPagination(components.pagination);
+        renderEmptyState(components.emptyState);
+      }
+
+      function syncUIFromState() {
+        if (searchInput) {
+          searchInput.value = state.query || '';
+        }
+        if (tagInput) {
+          tagInput.value = state.tag || '';
+        }
+        renderActiveTag(activeTagContainer, state.tag);
+      }
+
+      function performSearchAndRender() {
+        state.loading = true;
+        state.error = null;
+        renderLoadingIndicator(components.loadingIndicator);
+
+        try {
+          var tagsArray = state.tag ? [state.tag] : [];
+          var result = WebsiteSDK.searchLogStreams(state.query || '', tagsArray, state.page, state.pageSize);
+
+          if (!result || typeof result !== 'object') {
+            state.totalCount = 0;
+            state.items = [];
+          } else {
+            state.totalCount = typeof result.totalCount === 'number' ? result.totalCount : 0;
+            state.items = Array.isArray(result.items) ? result.items : [];
+          }
+        } catch (e) {
+          state.totalCount = 0;
+          state.items = [];
+          state.error = 'Failed to load log streams.';
+        }
+
+        state.loading = false;
+        renderAll();
+      }
+
+      readStateFromUrl();
+      syncUIFromState();
+
+      var populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function(element) {
+        var dataType = element.getAttribute('data-populate');
+        if (dataType === 'logs-results-list') {
+          components.resultsList = element;
+          performSearchAndRender();
+        }
+      });
+
+      window.addEventListener('popstate', function() {
+        readStateFromUrl();
+        syncUIFromState();
+        performSearchAndRender();
+      });
+
+      if (components.searchForm) {
+        components.searchForm.addEventListener('submit', function(event) {
+          event.preventDefault();
+          var newQuery = searchInput ? searchInput.value.trim() : '';
+          state.query = newQuery;
+          state.page = DEFAULT_PAGE;
+          state.error = null;
+          updateUrlFromState(false);
+          performSearchAndRender();
+        });
+      }
+
+      if (components.tagFilter) {
+        components.tagFilter.addEventListener('click', function(event) {
+          var target = event.target;
+          if (!target || !target.getAttribute) {
+            return;
+          }
+          var action = target.getAttribute('data-action');
+          if (action === 'apply-tag-filter') {
+            var newTag = tagInput ? tagInput.value.trim() : '';
+            state.tag = newTag || null;
+            state.page = DEFAULT_PAGE;
+            state.error = null;
+            updateUrlFromState(false);
+            renderActiveTag(activeTagContainer, state.tag);
+            performSearchAndRender();
+          } else if (action === 'clear-tag-filter') {
+            state.tag = null;
+            state.page = DEFAULT_PAGE;
+            state.error = null;
+            if (tagInput) {
+              tagInput.value = '';
+            }
+            updateUrlFromState(false);
+            renderActiveTag(activeTagContainer, state.tag);
+            performSearchAndRender();
+          }
+        });
+      }
+
+      if (components.resultsList) {
+        components.resultsList.addEventListener('click', function(event) {
+          var target = event.target;
+          if (!target || !target.getAttribute) {
+            return;
+          }
+          var action = target.getAttribute('data-action');
+          if (action === 'result-tag-click') {
+            var tagValue = target.getAttribute('data-tag-value') || '';
+            if (!tagValue) {
+              return;
+            }
+            state.tag = tagValue;
+            state.page = DEFAULT_PAGE;
+            state.error = null;
+            if (tagInput) {
+              tagInput.value = tagValue;
+            }
+            updateUrlFromState(false);
+            renderActiveTag(activeTagContainer, state.tag);
+            performSearchAndRender();
+          }
+        });
+      }
+
+      if (components.pagination) {
+        components.pagination.addEventListener('click', function(event) {
+          var target = event.target;
+          if (!target || !target.getAttribute) {
+            return;
+          }
+          var action = target.getAttribute('data-action');
+          if (action === 'page-change') {
+            var pageValueRaw = target.getAttribute('data-page');
+            var pageValue = pageValueRaw !== null ? parseInt(pageValueRaw, 10) : NaN;
+            if (isNaN(pageValue) || pageValue < 1 || pageValue === state.page) {
+              return;
+            }
+            state.page = pageValue;
+            state.error = null;
+            updateUrlFromState(false);
+            performSearchAndRender();
+          }
+        });
+
+        components.pagination.addEventListener('change', function(event) {
+          var target = event.target;
+          if (!target || !target.getAttribute) {
+            return;
+          }
+          var action = target.getAttribute('data-action');
+          if (action === 'page-size-change') {
+            var sizeValueRaw = target.value;
+            var sizeValue = sizeValueRaw !== null ? parseInt(sizeValueRaw, 10) : NaN;
+            if (isNaN(sizeValue) || sizeValue <= 0 || sizeValue === state.pageSize) {
+              return;
+            }
+            state.pageSize = sizeValue;
+            state.page = DEFAULT_PAGE;
+            state.error = null;
+            updateUrlFromState(false);
+            performSearchAndRender();
+          }
+        });
+      }
+    });
+  </script>
+</body>
+</html>

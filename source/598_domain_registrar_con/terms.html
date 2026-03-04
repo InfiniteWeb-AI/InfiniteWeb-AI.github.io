@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Domain Registrar Portal</title>
+    
+    <link rel="stylesheet" href="terms.css">
+</head>
+<body>
+    <header class="site-header">
+        <nav class="primary-nav" aria-label="Primary navigation">
+            <ul class="nav-list">
+                <li class="nav-item"><a href="index.html">Dashboard</a></li>
+                <li class="nav-item"><a href="my_domains.html">My Domains</a></li>
+                <li class="nav-item"><a href="contact_verification_center.html">Contact Verification</a></li>
+                <li class="nav-item"><a href="account_settings.html">Account Settings</a></li>
+                <li class="nav-item"><a href="help.html">Help</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" class="site-main" role="main">
+        <h1 data-component="terms-page-title" data-populate="terms-title">Terms of Service</h1>
+
+        <p data-component="terms-state-indicator" data-populate="terms-state-indicator">Status: Loading terms…</p>
+
+        <nav aria-label="Terms sections" data-component="terms-section-navigator"></nav>
+
+        <p data-component="terms-static-content-loader" data-populate="terms-loader" aria-live="polite">Loading Terms of Service content…</p>
+
+        <div data-component="terms-error-display" data-populate="terms-error" hidden></div>
+
+        <article data-component="terms-content-viewer" data-populate="terms-content" hidden></article>
+    </main>
+
+    <footer class="site-footer">
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul class="footer-nav-list">
+                <li class="footer-nav-item"><a href="about.html">About</a></li>
+                <li class="footer-nav-item"><a href="help.html">Help &amp; Support</a></li>
+                <li class="footer-nav-item"><a href="contact.html">Contact Us</a></li>
+                <li class="footer-nav-item"><a href="privacy.html">Privacy Policy</a></li>
+                <li class="footer-nav-item"><a href="terms.html">Terms of Service</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var pageKey = 'terms_of_service';
+
+        var pageState = {
+            status: 'loading',
+            title: '',
+            bodyHtml: '',
+            lastUpdatedAt: '',
+            sections: [],
+            activeSectionId: null
+        };
+
+        var pendingSectionId = null;
+
+        var rootElements = {
+            titleEl: document.querySelector('[data-component="terms-page-title"]'),
+            stateIndicatorEl: document.querySelector('[data-component="terms-state-indicator"]'),
+            navEl: document.querySelector('[data-component="terms-section-navigator"]'),
+            loaderEl: document.querySelector('[data-component="terms-static-content-loader"]'),
+            errorEl: document.querySelector('[data-component="terms-error-display"]'),
+            contentEl: document.querySelector('[data-component="terms-content-viewer"]')
+        };
+
+        function deriveSectionIdFromUrl() {
+            var hash = window.location.hash ? window.location.hash.substring(1) : '';
+            if (hash) {
+                return decodeURIComponent(hash);
+            }
+            var params = new URLSearchParams(window.location.search);
+            var section = params.get('section');
+            return section || null;
+        }
+
+        function formatLastUpdated(dateString) {
+            if (!dateString) {
+                return '';
+            }
+            var d = new Date(dateString);
+            if (isNaN(d.getTime())) {
+                return '';
+            }
+            try {
+                return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function updateStateIndicator() {
+            if (!rootElements.stateIndicatorEl) {
+                return;
+            }
+            var text = '';
+            if (pageState.status === 'loading') {
+                text = 'Status: Loading terms…';
+            } else if (pageState.status === 'loaded') {
+                text = 'Status: Loaded';
+                var formatted = formatLastUpdated(pageState.lastUpdatedAt);
+                if (formatted) {
+                    text += ' · Last updated ' + formatted;
+                }
+            } else if (pageState.status === 'error') {
+                text = 'Status: Error loading terms';
+            } else {
+                text = '';
+            }
+            rootElements.stateIndicatorEl.textContent = text;
+        }
+
+        function renderLoader() {
+            if (!rootElements.loaderEl) {
+                return;
+            }
+            if (pageState.status === 'loading') {
+                rootElements.loaderEl.hidden = false;
+                rootElements.loaderEl.textContent = 'Loading Terms of Service content…';
+            } else {
+                rootElements.loaderEl.hidden = true;
+                rootElements.loaderEl.textContent = '';
+            }
+        }
+
+        function renderError() {
+            var container = rootElements.errorEl;
+            if (!container) {
+                return;
+            }
+            if (pageState.status !== 'error') {
+                container.hidden = true;
+                container.innerHTML = '';
+                return;
+            }
+
+            container.hidden = false;
+            container.innerHTML = '';
+
+            var p1 = document.createElement('p');
+            p1.textContent = 'The Terms of Service cannot be loaded at this time.';
+            container.appendChild(p1);
+
+            var p2 = document.createElement('p');
+            var retryLink = document.createElement('a');
+            retryLink.href = 'javascript:void(0)';
+            retryLink.setAttribute('data-action', 'retry-load');
+            retryLink.textContent = 'Retry loading this page';
+            p2.appendChild(retryLink);
+
+            p2.appendChild(document.createTextNode(' or '));
+
+            var contactLink = document.createElement('a');
+            contactLink.href = 'javascript:void(0)';
+            contactLink.setAttribute('data-component', 'terms-contact-link');
+            contactLink.setAttribute('data-action', 'open-contact');
+            contactLink.textContent = 'contact support';
+            p2.appendChild(contactLink);
+
+            p2.appendChild(document.createTextNode(' for assistance.'));
+
+            container.appendChild(p2);
+        }
+
+        function buildSectionsFromContent(bodyContainer) {
+            pageState.sections = [];
+            if (!bodyContainer) {
+                renderSectionNavigator();
+                return;
+            }
+            var headingEls = bodyContainer.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            var index = 0;
+            headingEls.forEach(function (heading) {
+                var id = heading.id;
+                if (!id) {
+                    var base = heading.textContent || '';
+                    base = base.trim().toLowerCase();
+                    base = base.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+                    if (!base) {
+                        base = 'section-' + index;
+                    }
+                    id = base;
+                    // Ensure uniqueness
+                    var uniqueId = id;
+                    var counter = 1;
+                    while (bodyContainer.querySelector('[id="' + uniqueId.replace(/"/g, '\\"') + '"]')) {
+                        uniqueId = id + '-' + counter;
+                        counter += 1;
+                    }
+                    id = uniqueId;
+                    heading.id = id;
+                }
+                pageState.sections.push({
+                    id: id,
+                    title: (heading.textContent || '').trim(),
+                    level: parseInt(heading.tagName.substring(1), 10) || 0,
+                    order: index
+                });
+                index += 1;
+            });
+            renderSectionNavigator();
+        }
+
+        function renderSectionNavigator() {
+            var navEl = rootElements.navEl;
+            if (!navEl) {
+                return;
+            }
+            navEl.innerHTML = '';
+            if (!pageState.sections || pageState.sections.length === 0) {
+                return;
+            }
+            var p = document.createElement('p');
+            p.textContent = 'Sections: ';
+
+            pageState.sections.forEach(function (sec, idx) {
+                var link = document.createElement('a');
+                link.href = '#' + encodeURIComponent(sec.id);
+                link.setAttribute('data-action', 'toc-section');
+                link.setAttribute('data-section-id', sec.id);
+                link.textContent = sec.title || ('Section ' + (idx + 1));
+                if (pageState.activeSectionId && pageState.activeSectionId === sec.id) {
+                    link.classList.add('active-section');
+                }
+                p.appendChild(link);
+                if (idx < pageState.sections.length - 1) {
+                    p.appendChild(document.createTextNode(' | '));
+                }
+            });
+
+            navEl.appendChild(p);
+        }
+
+        function highlightActiveSection() {
+            var navEl = rootElements.navEl;
+            if (!navEl) {
+                return;
+            }
+            var links = navEl.querySelectorAll('[data-action="toc-section"]');
+            links.forEach(function (link) {
+                if (pageState.activeSectionId && link.getAttribute('data-section-id') === pageState.activeSectionId) {
+                    link.classList.add('active-section');
+                } else {
+                    link.classList.remove('active-section');
+                }
+            });
+        }
+
+        function scrollToSection(sectionId) {
+            if (!sectionId || !rootElements.contentEl || rootElements.contentEl.hidden) {
+                return;
+            }
+            var bodyContainer = rootElements.contentEl.querySelector('[data-role="terms-body"]') || rootElements.contentEl;
+            var safeId = sectionId.replace(/"/g, '\\"');
+            var target = bodyContainer.querySelector('[id="' + safeId + '"]');
+            if (!target) {
+                target = bodyContainer.querySelector('a[name="' + safeId + '"]');
+            }
+            if (target && typeof target.scrollIntoView === 'function') {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                pageState.activeSectionId = sectionId;
+                highlightActiveSection();
+            }
+        }
+
+        function renderContent() {
+            var container = rootElements.contentEl;
+            if (!container) {
+                return;
+            }
+            if (pageState.status !== 'loaded' || !pageState.bodyHtml) {
+                container.hidden = true;
+                container.innerHTML = '';
+                return;
+            }
+
+            container.hidden = false;
+            container.innerHTML = '';
+
+            // Inline last updated information inside the content viewer
+            if (pageState.lastUpdatedAt) {
+                var lastUpdatedPara = document.createElement('p');
+                lastUpdatedPara.setAttribute('data-role', 'terms-last-updated-inline');
+                var formatted = formatLastUpdated(pageState.lastUpdatedAt);
+                if (formatted) {
+                    lastUpdatedPara.textContent = 'Last updated: ' + formatted;
+                    container.appendChild(lastUpdatedPara);
+                }
+            }
+
+            var bodyWrapper = document.createElement('div');
+            bodyWrapper.setAttribute('data-role', 'terms-body');
+            bodyWrapper.innerHTML = pageState.bodyHtml;
+            container.appendChild(bodyWrapper);
+
+            var contactPara = document.createElement('p');
+            contactPara.setAttribute('data-role', 'terms-contact-inline');
+            contactPara.appendChild(document.createTextNode('Questions about these terms? '));
+            var inlineContactLink = document.createElement('a');
+            inlineContactLink.href = 'javascript:void(0)';
+            inlineContactLink.setAttribute('data-component', 'terms-contact-link');
+            inlineContactLink.setAttribute('data-action', 'open-contact');
+            inlineContactLink.textContent = 'Contact support';
+            contactPara.appendChild(inlineContactLink);
+            contactPara.appendChild(document.createTextNode('.'));
+            container.appendChild(contactPara);
+
+            buildSectionsFromContent(bodyWrapper);
+
+            var requestedSectionId = pendingSectionId || deriveSectionIdFromUrl();
+            if (requestedSectionId) {
+                scrollToSection(requestedSectionId);
+            }
+        }
+
+        function renderAllAfterLoad() {
+            if (rootElements.titleEl) {
+                rootElements.titleEl.textContent = pageState.title || 'Terms of Service';
+            }
+            updateStateIndicator();
+            renderLoader();
+            renderError();
+            renderContent();
+        }
+
+        function renderAfterError() {
+            updateStateIndicator();
+            renderLoader();
+            renderError();
+            renderContent();
+        }
+
+        function loadTerms() {
+            pageState.status = 'loading';
+            pageState.title = '';
+            pageState.bodyHtml = '';
+            pageState.lastUpdatedAt = '';
+            pageState.sections = [];
+            pageState.activeSectionId = null;
+            pendingSectionId = deriveSectionIdFromUrl();
+
+            updateStateIndicator();
+            renderLoader();
+            renderError();
+            renderContent();
+
+            try {
+                var response = WebsiteSDK.getStaticPageContent(pageKey);
+                if (!response || typeof response.bodyHtml !== 'string' || !response.bodyHtml.trim()) {
+                    throw new Error('Empty terms content');
+                }
+                pageState.status = 'loaded';
+                pageState.title = typeof response.title === 'string' && response.title.trim() ? response.title : 'Terms of Service';
+                pageState.bodyHtml = response.bodyHtml;
+                pageState.lastUpdatedAt = typeof response.lastUpdatedAt === 'string' ? response.lastUpdatedAt : '';
+                renderAllAfterLoad();
+            } catch (err) {
+                console.error('Failed to load Terms of Service content:', err);
+                pageState.status = 'error';
+                renderAfterError();
+            }
+        }
+
+        function navigateToContact() {
+            var sectionId = pageState.activeSectionId || deriveSectionIdFromUrl();
+            var params = new URLSearchParams();
+            params.set('topic', 'general');
+            params.set('ref', 'terms');
+            if (sectionId) {
+                params.set('section', sectionId);
+            }
+            var query = params.toString();
+            var url = 'contact.html';
+            if (query) {
+                url += '?' + query;
+            }
+            window.location.href = url;
+        }
+
+        document.addEventListener('click', function (evt) {
+            var target = evt.target.closest('[data-action]');
+            if (!target) {
+                return;
+            }
+            var action = target.getAttribute('data-action');
+            if (!action) {
+                return;
+            }
+            if (action === 'toc-section') {
+                evt.preventDefault();
+                var sectionId = target.getAttribute('data-section-id');
+                if (!sectionId) {
+                    return;
+                }
+                pageState.activeSectionId = sectionId;
+                var currentUrl = new URL(window.location.href);
+                currentUrl.hash = '#' + encodeURIComponent(sectionId);
+                history.pushState(null, '', currentUrl.toString());
+                scrollToSection(sectionId);
+                renderSectionNavigator();
+            } else if (action === 'open-contact') {
+                evt.preventDefault();
+                navigateToContact();
+            } else if (action === 'retry-load') {
+                evt.preventDefault();
+                loadTerms();
+            }
+        });
+
+        window.addEventListener('hashchange', function () {
+            var newSection = deriveSectionIdFromUrl();
+            if (pageState.status === 'loaded') {
+                scrollToSection(newSection);
+            } else {
+                pendingSectionId = newSection;
+            }
+        });
+
+        window.addEventListener('popstate', function () {
+            var newSection = deriveSectionIdFromUrl();
+            if (pageState.status === 'loaded') {
+                scrollToSection(newSection);
+            } else {
+                pendingSectionId = newSection;
+            }
+        });
+
+        // Initialize data rendering using data-populate attributes (simple, state-driven)
+        var populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function (element) {
+            var dataType = element.getAttribute('data-populate');
+            if (dataType === 'terms-title') {
+                if (pageState.title) {
+                    element.textContent = pageState.title;
+                }
+            } else if (dataType === 'terms-state-indicator') {
+                updateStateIndicator();
+            } else if (dataType === 'terms-loader') {
+                renderLoader();
+            } else if (dataType === 'terms-error') {
+                renderError();
+            } else if (dataType === 'terms-content') {
+                renderContent();
+            }
+        });
+
+        loadTerms();
+    });
+    </script>
+</body>
+</html>

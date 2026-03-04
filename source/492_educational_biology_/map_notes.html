@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Aquatic Insects Educational Site - Map Notes</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='map_notes.css'>
+</head>
+<body>
+  <header class='site-header' role='banner'>
+    <div class='site-header-inner'>
+      <div class='site-identity'>
+        <h1 class='site-title'>Aquatic Insects</h1>
+      </div>
+      <nav class='site-nav' aria-label='Primary navigation'>
+        <a href='index.html' title='Homepage and overview'>Home</a>
+        <a href='species.html' title='Browse and filter aquatic insect species'>Species</a>
+        <a href='compare.html' title='Compare insect orders and their life cycles'>Compare</a>
+        <a href='quizzes.html' title='Browse quizzes and build custom quizzes'>Quizzes</a>
+        <a href='lesson_builder.html' title='Create lesson plans and manage reading paths'>Lesson Builder</a>
+        <a href='articles.html' title='Browse learning articles and resources'>Articles</a>
+        <a href='maps.html' title='Explore species distribution maps'>Maps</a>
+        <a href='glossary.html' title='Search and filter glossary terms'>Glossary</a>
+        <a href='taxonomy.html' title='Browse insect orders and build metamorphosis charts'>Taxonomy</a>
+        <a href='study_list.html' title='View and manage your species study list'>My Study List</a>
+        <a href='collections.html' title='View and manage your species collections'>Collections</a>
+        <a href='map_notes.html' title='Access your saved distribution maps'>Map Notes</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-content' role='main'>
+    <h1>Map Notes</h1>
+    <p>View, organize, and annotate saved species distribution maps, with quick navigation back to each map's detail page.</p>
+
+    <section data-component='map-notes-list-selector' style='margin-top: 20px;'>
+      <label for='mapNotesListSelect'>Map notes list:</label>
+      <br>
+      <select id='mapNotesListSelect' name='mapNotesListId' data-populate='mapNotesLists' data-action='select-map-notes-list'>
+        <option value=''>Loading map notes lists...</option>
+      </select>
+      <p id='mapNotesListsStatus' aria-live='polite'></p>
+    </section>
+
+    <section data-component='map-notes-list-details-panel' style='margin-top: 32px;'>
+      <h2 data-populate='selectedMapNotesListName'>No list selected</h2>
+      <p data-populate='selectedMapNotesListDescription'></p>
+      <div data-populate='featuredMap'></div>
+    </section>
+
+    <section data-component='map-note-item-list' style='margin-top: 32px;'>
+      <h3>Saved map notes</h3>
+      <div id='mapNoteItemsContainer' data-populate='mapNoteItems'></div>
+    </section>
+
+    <p id='mapNotesEmptyState' data-component='map-notes-empty-state-handler' aria-live='polite' style='margin-top: 32px;'></p>
+
+    <section data-component='map-note-item-edit-controller' style='margin-top: 32px;'>
+      <h3>Edit tags and notes</h3>
+      <p id='editControllerStatus'>Select a map entry above to edit its annotations.</p>
+      <form id='mapNoteEditForm'>
+        <div>
+          <label for='editTagsInput'>Tags (comma-separated)</label>
+          <br>
+          <input type='text' id='editTagsInput' name='tags'>
+        </div>
+        <div style='margin-top: 8px;'>
+          <label for='editNoteInput'>Note</label>
+          <br>
+          <textarea id='editNoteInput' name='note' rows='4'></textarea>
+        </div>
+        <div style='margin-top: 8px;'>
+          <button type='submit' data-action='save-map-note-edit'>Save changes</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <footer class='site-footer' role='contentinfo'>
+    <nav class='footer-nav' aria-label='Footer navigation'>
+      <a href='about.html' title='About this educational biology website'>About</a>
+    </nav>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var mapNotesListSelect = document.getElementById('mapNotesListSelect');
+      var mapNotesListStatus = document.getElementById('mapNotesListsStatus');
+      var listNameEl = document.querySelector('[data-populate=selectedMapNotesListName]');
+      var listDescEl = document.querySelector('[data-populate=selectedMapNotesListDescription]');
+      var featuredMapContainer = document.querySelector('[data-populate=featuredMap]');
+      var mapNoteItemsContainer = document.querySelector('[data-populate=mapNoteItems]');
+      var emptyStateEl = document.getElementById('mapNotesEmptyState');
+      var editForm = document.getElementById('mapNoteEditForm');
+      var editTagsInput = document.getElementById('editTagsInput');
+      var editNoteInput = document.getElementById('editNoteInput');
+      var editStatusEl = document.getElementById('editControllerStatus');
+
+      var state = {
+        mapNotesLists: [],
+        currentListId: null,
+        currentListDetails: null
+      };
+      var activeItemId = null;
+
+      function getCurrentUrlMapNotesListId() {
+        var params = new URLSearchParams(window.location.search);
+        var id = params.get('mapNotesListId');
+        return id && id.trim() !== '' ? id : null;
+      }
+
+      function updateUrlMapNotesListId(id, replace) {
+        var url = new URL(window.location.href);
+        if (id) {
+          url.searchParams.set('mapNotesListId', id);
+        } else {
+          url.searchParams.delete('mapNotesListId');
+        }
+        if (replace) {
+          window.history.replaceState({}, '', url.toString());
+        } else {
+          window.history.pushState({}, '', url.toString());
+        }
+      }
+
+      function formatSpeciesName(species) {
+        if (!species) {
+          return 'Unknown species';
+        }
+        var name = species.scientificName || 'Unknown species';
+        if (species.commonName) {
+          name += ' (' + species.commonName + ')';
+        }
+        return name;
+      }
+
+      function formatDisplayDate(value) {
+        if (!value) {
+          return '';
+        }
+        var d = new Date(value);
+        if (isNaN(d.getTime())) {
+          return value;
+        }
+        return d.toLocaleDateString();
+      }
+
+      function renderMapNotesLists(container, lists, selectedId) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        var placeholder = document.createElement('option');
+        placeholder.value = '';
+        if (!lists || !lists.length) {
+          placeholder.textContent = 'No map notes lists available';
+        } else {
+          placeholder.textContent = 'Select a map notes list';
+        }
+        container.appendChild(placeholder);
+        if (lists && lists.length) {
+          lists.forEach(function(list) {
+            var opt = document.createElement('option');
+            opt.value = list.id;
+            opt.textContent = list.name;
+            container.appendChild(opt);
+          });
+          if (selectedId) {
+            container.value = selectedId;
+          } else {
+            container.value = '';
+          }
+          container.disabled = false;
+        } else {
+          container.disabled = true;
+        }
+      }
+
+      function renderSelectedListName(container, details) {
+        if (!container) {
+          return;
+        }
+        if (!details || !details.mapNotesList) {
+          container.textContent = 'No list selected';
+        } else {
+          container.textContent = details.mapNotesList.name;
+        }
+      }
+
+      function renderSelectedListDescription(container, details) {
+        if (!container) {
+          return;
+        }
+        if (!details || !details.mapNotesList || !details.mapNotesList.description) {
+          container.textContent = '';
+        } else {
+          container.textContent = details.mapNotesList.description;
+        }
+      }
+
+      function renderFeaturedMap(container, details) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (!details || !details.items || !details.items.length) {
+          return;
+        }
+        var item = details.items[0];
+        var title = document.createElement('h3');
+        title.textContent = formatSpeciesName(item.species);
+        container.appendChild(title);
+        if (item.distributionMap && item.distributionMap.mapImageUrl) {
+          var img = document.createElement('img');
+          img.src = item.distributionMap.mapImageUrl;
+          img.alt = 'Distribution map for ' + formatSpeciesName(item.species);
+          img.style.maxWidth = '100%';
+          container.appendChild(img);
+        }
+        if (item.species && item.species.distributionSummary) {
+          var summaryP = document.createElement('p');
+          summaryP.textContent = item.species.distributionSummary;
+          container.appendChild(summaryP);
+        }
+      }
+
+      function renderMapNoteItems(container, details) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (!details || !details.items || !details.items.length) {
+          return;
+        }
+        details.items.forEach(function(item) {
+          var article = document.createElement('article');
+          article.setAttribute('data-component', 'map-note-item-row');
+          article.className = 'map-note-item-row';
+          article.dataset.mapNoteItemId = item.mapNoteItemId;
+          if (item.distributionMap && item.distributionMap.id) {
+            article.dataset.distributionMapId = item.distributionMap.id;
+          }
+
+          var header = document.createElement('header');
+          var h4 = document.createElement('h4');
+          h4.textContent = formatSpeciesName(item.species);
+          header.appendChild(h4);
+          article.appendChild(header);
+
+          if (item.addedAt) {
+            var metaP = document.createElement('p');
+            var timeEl = document.createElement('time');
+            timeEl.dateTime = item.addedAt;
+            timeEl.textContent = formatDisplayDate(item.addedAt);
+            metaP.textContent = 'Saved on ';
+            metaP.appendChild(timeEl);
+            article.appendChild(metaP);
+          }
+
+          var tagsP = document.createElement('p');
+          tagsP.textContent = 'Tags: ';
+          var tagsSpan = document.createElement('span');
+          tagsSpan.setAttribute('data-role', 'tags-text');
+          if (item.tags && item.tags.length) {
+            tagsSpan.textContent = item.tags.join(', ');
+          } else {
+            tagsSpan.textContent = 'None';
+          }
+          tagsP.appendChild(tagsSpan);
+          article.appendChild(tagsP);
+
+          var noteP = document.createElement('p');
+          noteP.textContent = 'Note: ';
+          var noteSpan = document.createElement('span');
+          noteSpan.setAttribute('data-role', 'note-text');
+          if (item.note) {
+            noteSpan.textContent = item.note;
+          } else {
+            noteSpan.textContent = 'None';
+          }
+          noteP.appendChild(noteSpan);
+          article.appendChild(noteP);
+
+          var actionsP = document.createElement('p');
+          if (item.distributionMap && item.distributionMap.id) {
+            var openLink = document.createElement('a');
+            openLink.href = 'javascript:void(0)';
+            openLink.dataset.action = 'open-map';
+            openLink.textContent = 'Open map';
+            actionsP.appendChild(openLink);
+          }
+
+          var editLink = document.createElement('a');
+          editLink.href = 'javascript:void(0)';
+          editLink.dataset.action = 'edit-map-note';
+          editLink.textContent = 'Edit annotations below';
+          if (actionsP.childNodes.length) {
+            actionsP.appendChild(document.createTextNode(' | '));
+          }
+          actionsP.appendChild(editLink);
+
+          var removeLink = document.createElement('a');
+          removeLink.href = 'javascript:void(0)';
+          removeLink.dataset.action = 'remove-map-note';
+          removeLink.textContent = 'Remove from list';
+          actionsP.appendChild(document.createTextNode(' | '));
+          actionsP.appendChild(removeLink);
+
+          article.appendChild(actionsP);
+
+          container.appendChild(article);
+        });
+      }
+
+      function disableEditForm() {
+        activeItemId = null;
+        editTagsInput.value = '';
+        editNoteInput.value = '';
+        editTagsInput.disabled = true;
+        editNoteInput.disabled = true;
+        var submitButton = editForm.querySelector('button[type=submit]');
+        if (submitButton) {
+          submitButton.disabled = true;
+        }
+        editStatusEl.textContent = 'Select a map entry above to edit its annotations.';
+      }
+
+      function resetEditFormAfterListChange() {
+        disableEditForm();
+      }
+
+      function resetEditFormAfterItemRemoval() {
+        disableEditForm();
+      }
+
+      function showNoListsState() {
+        mapNotesListStatus.textContent = 'No map notes lists are available yet.';
+        renderSelectedListName(listNameEl, null);
+        renderSelectedListDescription(listDescEl, null);
+        featuredMapContainer.innerHTML = '';
+        mapNoteItemsContainer.innerHTML = '';
+        emptyStateEl.textContent = 'Save a distribution map from a species detail page to create your first Map Notes list.';
+        disableEditForm();
+      }
+
+      function initializeOrRefreshFromUrl(isPopstate) {
+        var urlListId = getCurrentUrlMapNotesListId();
+        mapNotesListStatus.textContent = '';
+        emptyStateEl.textContent = '';
+        try {
+          var lists = WebsiteSDK.getMapNotesLists();
+          state.mapNotesLists = Array.isArray(lists) ? lists : [];
+          renderMapNotesLists(mapNotesListSelect, state.mapNotesLists, urlListId);
+
+          if (!state.mapNotesLists.length) {
+            showNoListsState();
+            return;
+          }
+
+          if (urlListId) {
+            var exists = state.mapNotesLists.some(function(list) {
+              return list.id === urlListId;
+            });
+            if (!exists) {
+              updateUrlMapNotesListId(null, true);
+              state.currentListId = null;
+              state.currentListDetails = null;
+              renderSelectedListName(listNameEl, null);
+              renderSelectedListDescription(listDescEl, null);
+              featuredMapContainer.innerHTML = '';
+              mapNoteItemsContainer.innerHTML = '';
+              emptyStateEl.textContent = 'The map notes list in the URL could not be found. Please choose one from the selector above.';
+              disableEditForm();
+              return;
+            }
+            state.currentListId = urlListId;
+            loadMapNotesListDetails(urlListId);
+          } else {
+            var defaultList = state.mapNotesLists[0];
+            if (!defaultList) {
+              showNoListsState();
+              return;
+            }
+            state.currentListId = defaultList.id;
+            updateUrlMapNotesListId(defaultList.id, !isPopstate);
+            loadMapNotesListDetails(defaultList.id);
+          }
+        } catch (e) {
+          mapNotesListStatus.textContent = 'An error occurred while loading your map notes lists.';
+          renderSelectedListName(listNameEl, null);
+          renderSelectedListDescription(listDescEl, null);
+          featuredMapContainer.innerHTML = '';
+          mapNoteItemsContainer.innerHTML = '';
+          emptyStateEl.textContent = '';
+          disableEditForm();
+        }
+      }
+
+      function loadMapNotesListDetails(listId) {
+        try {
+          var details = WebsiteSDK.getMapNotesListDetails(listId);
+          if (!details || !details.mapNotesList) {
+            throw new Error('Invalid list details');
+          }
+          var items = Array.isArray(details.items) ? details.items : [];
+          var itemsMap = {};
+          items.forEach(function(item) {
+            if (item && item.mapNoteItemId) {
+              itemsMap[item.mapNoteItemId] = item;
+            }
+          });
+          details.items = items;
+          details.itemsMap = itemsMap;
+          state.currentListId = listId;
+          state.currentListDetails = details;
+
+          renderSelectedListName(listNameEl, details);
+          renderSelectedListDescription(listDescEl, details);
+          renderFeaturedMap(featuredMapContainer, details);
+          renderMapNoteItems(mapNoteItemsContainer, details);
+
+          if (!items.length) {
+            emptyStateEl.textContent = 'No maps have been saved to this list yet.';
+          } else {
+            emptyStateEl.textContent = '';
+          }
+          resetEditFormAfterListChange();
+        } catch (e) {
+          mapNotesListStatus.textContent = 'The selected map notes list could not be loaded.';
+          state.currentListId = null;
+          state.currentListDetails = null;
+          renderSelectedListName(listNameEl, null);
+          renderSelectedListDescription(listDescEl, null);
+          featuredMapContainer.innerHTML = '';
+          mapNoteItemsContainer.innerHTML = '';
+          emptyStateEl.textContent = '';
+          disableEditForm();
+        }
+      }
+
+      mapNotesListSelect.addEventListener('change', function() {
+        var newId = mapNotesListSelect.value || null;
+        if (!newId) {
+          state.currentListId = null;
+          state.currentListDetails = null;
+          updateUrlMapNotesListId(null, false);
+          renderSelectedListName(listNameEl, null);
+          renderSelectedListDescription(listDescEl, null);
+          featuredMapContainer.innerHTML = '';
+          mapNoteItemsContainer.innerHTML = '';
+          emptyStateEl.textContent = 'Please select a Map Notes list to view its maps.';
+          disableEditForm();
+          return;
+        }
+        if (newId === state.currentListId) {
+          return;
+        }
+        updateUrlMapNotesListId(newId, false);
+        loadMapNotesListDetails(newId);
+      });
+
+      document.addEventListener('click', function(event) {
+        var actionElement = event.target.closest('[data-action]');
+        if (!actionElement) {
+          return;
+        }
+        var action = actionElement.dataset.action;
+        if (action === 'open-map') {
+          var row = actionElement.closest('[data-component=map-note-item-row]');
+          if (!row) {
+            return;
+          }
+          var mapId = row.dataset.distributionMapId;
+          if (!mapId) {
+            return;
+          }
+          window.location.href = 'map_detail.html?distributionMapId=' + encodeURIComponent(mapId);
+        } else if (action === 'edit-map-note') {
+          var editRow = actionElement.closest('[data-component=map-note-item-row]');
+          if (!editRow || !state.currentListDetails || !state.currentListDetails.itemsMap) {
+            return;
+          }
+          var itemId = editRow.dataset.mapNoteItemId;
+          if (!itemId) {
+            return;
+          }
+          var item = state.currentListDetails.itemsMap[itemId];
+          if (!item) {
+            return;
+          }
+          activeItemId = itemId;
+          editTagsInput.disabled = false;
+          editNoteInput.disabled = false;
+          var submitButton = editForm.querySelector('button[type=submit]');
+          if (submitButton) {
+            submitButton.disabled = false;
+          }
+          editTagsInput.value = item.tags && item.tags.length ? item.tags.join(', ') : '';
+          editNoteInput.value = item.note || '';
+          editStatusEl.textContent = 'Editing annotations for: ' + formatSpeciesName(item.species);
+          editForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else if (action === 'remove-map-note') {
+          var removeRow = actionElement.closest('[data-component=map-note-item-row]');
+          if (!removeRow) {
+            return;
+          }
+          var removeItemId = removeRow.dataset.mapNoteItemId;
+          if (!removeItemId || !state.currentListId) {
+            return;
+          }
+          var confirmed = window.confirm('Remove this saved map from the current list?');
+          if (!confirmed) {
+            return;
+          }
+          try {
+            var result = WebsiteSDK.removeMapFromNotesList(removeItemId);
+            if (result && result.success) {
+              if (activeItemId === removeItemId) {
+                resetEditFormAfterItemRemoval();
+              }
+              loadMapNotesListDetails(state.currentListId);
+            } else {
+              window.alert('The map could not be removed. Please try again.');
+            }
+          } catch (e) {
+            window.alert('An error occurred while removing the map from this list.');
+          }
+        }
+      });
+
+      editForm.addEventListener('submit', function(event) {
+        event.preventDefault();
+        if (!activeItemId || !state.currentListDetails || !state.currentListDetails.itemsMap) {
+          window.alert('Select a map entry above before saving.');
+          return;
+        }
+        var existing = state.currentListDetails.itemsMap[activeItemId];
+        if (!existing) {
+          window.alert('The selected map entry could not be found.');
+          return;
+        }
+        var tagsValue = editTagsInput.value || '';
+        var tagsArray = tagsValue.split(',').map(function(tag) {
+          return tag.trim();
+        }).filter(function(tag) {
+          return tag.length > 0;
+        });
+        var noteValue = editNoteInput.value || '';
+        try {
+          var response = WebsiteSDK.updateMapNoteItem(activeItemId, tagsArray, noteValue);
+          if (response && response.mapNoteItem) {
+            var updated = response.mapNoteItem;
+            existing.tags = Array.isArray(updated.tags) ? updated.tags : [];
+            existing.note = updated.note || '';
+
+            var row = null;
+            var rows = mapNoteItemsContainer.querySelectorAll('[data-component=map-note-item-row]');
+            rows.forEach(function(r) {
+              if (!row && r.dataset.mapNoteItemId === activeItemId) {
+                row = r;
+              }
+            });
+            if (row) {
+              var tagsSpan = row.querySelector('span[data-role=tags-text]');
+              if (tagsSpan) {
+                tagsSpan.textContent = existing.tags.length ? existing.tags.join(', ') : 'None';
+              }
+              var noteSpan = row.querySelector('span[data-role=note-text]');
+              if (noteSpan) {
+                noteSpan.textContent = existing.note || 'None';
+              }
+            }
+            editTagsInput.value = existing.tags.length ? existing.tags.join(', ') : '';
+            editNoteInput.value = existing.note || '';
+            editStatusEl.textContent = 'Changes saved for: ' + formatSpeciesName(existing.species);
+          } else {
+            window.alert('The map note could not be updated. Please try again.');
+          }
+        } catch (e) {
+          window.alert('An error occurred while saving your changes.');
+        }
+      });
+
+      window.addEventListener('popstate', function() {
+        initializeOrRefreshFromUrl(true);
+      });
+
+      disableEditForm();
+      initializeOrRefreshFromUrl(false);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Employee Benefits &amp; Pension Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="investment_allocation_review.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header">
+      <div class="header-inner">
+        <a href="index.html" class="logo" aria-label="Employee benefits home">
+          <span class="logo-text">M&amp;S</span>
+        </a>
+        <nav class="main-nav" aria-label="Primary">
+          <ul class="nav-list">
+            <li class="nav-item"><a href="index.html" class="nav-link">Dashboard</a></li>
+            <li class="nav-item"><a href="retirement_contributions.html" class="nav-link">Retirement</a></li>
+            <li class="nav-item"><a href="investments_overview.html" class="nav-link">Investments</a></li>
+            <li class="nav-item"><a href="benefits_overview.html" class="nav-link">Benefits</a></li>
+            <li class="nav-item"><a href="pension_statements.html" class="nav-link">Pension</a></li>
+            <li class="nav-item"><a href="profile_settings.html" class="nav-link">Profile &amp; Settings</a></li>
+          </ul>
+        </nav>
+        <div class="header-controls">
+          <div class="language-switcher">
+            <label for="language-select" class="sr-only">Language</label>
+            <select id="language-select" name="language" class="language-select">
+              <option value="en" selected>English</option>
+              <option value="es">Español</option>
+              <option value="fr">Français</option>
+            </select>
+          </div>
+          <div class="user-menu">
+            <button class="user-avatar" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Open user menu">
+              <span class="avatar-initials">JS</span>
+            </button>
+            <div class="user-dropdown" role="menu">
+              <a href="profile_settings.html" class="user-menu-link" role="menuitem">Profile &amp; Settings</a>
+              <a href="beneficiaries.html" class="user-menu-link" role="menuitem">Beneficiaries</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main id="content" class="site-main" role="main">
+      <section class="allocation-review-page gradient-background">
+        <div class="allocation-review-page-inner">
+          <section class="card allocation-review-card" data-component="allocation-review-root" data-populate="investment-allocation-review">
+            <!-- Investment allocation review content is rendered by JavaScript -->
+          </section>
+        </div>
+      </section>
+      <script src="business_logic.js"></script>
+      <script>
+        (function() {
+          'use strict';
+
+          document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const navigationContext = urlParams.get('from') === 'change_investments' ? 'change_investments' : 'default';
+
+            let allocationSummary = null;
+            let isSummaryLoading = false;
+            let summaryError = null;
+            let isConfirming = false;
+            let isConfirmed = false;
+            let confirmResult = null;
+            let confirmError = null;
+            let sortByNameAsc = true;
+
+            const populateElements = document.querySelectorAll('[data-populate]');
+
+            function escapeHtml(value) {
+              if (value === null || value === undefined) {
+                return '';
+              }
+              return String(value).replace(/[&<>"']/g, function(ch) {
+                switch (ch) {
+                  case '&': return '&amp;';
+                  case '<': return '&lt;';
+                  case '>': return '&gt;';
+                  case '"': return '&quot;';
+                  case '\'': return '&#39;';
+                  default: return ch;
+                }
+              });
+            }
+
+            function formatPercent(value) {
+              if (typeof value !== 'number' || isNaN(value)) {
+                return '0%';
+              }
+              return value.toFixed(2).replace(/\.00$/, '') + '%';
+            }
+
+            function formatCurrency(value) {
+              if (typeof value !== 'number' || isNaN(value)) {
+                return '';
+              }
+              return '$' + value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+
+            function formatDate(value) {
+              if (!value) {
+                return '';
+              }
+              const d = new Date(value);
+              if (isNaN(d.getTime())) {
+                return '';
+              }
+              return d.toLocaleDateString();
+            }
+
+            function getHeaderDescription() {
+              if (navigationContext === 'change_investments') {
+                return 'You\'ve just updated your investment mix. Review the summary of your current and new allocations below, then confirm to apply these changes.';
+              }
+              return 'Review how your current allocations compare to any pending changes. When you\'re ready, confirm to apply the new allocation mix to your portfolio.';
+            }
+
+            function renderAllocationReview(container) {
+              let headerDescription = getHeaderDescription();
+              let portfolio = allocationSummary && allocationSummary.portfolio ? allocationSummary.portfolio : null;
+
+              let headerHtml = '\n                <header class="card-header allocation-header" data-component="portfolio-summary-header">\n                  <h1 class="card-title">Investment Allocation Review</h1>\n                  <p class="card-subtitle">' + escapeHtml(headerDescription) + '</p>';
+
+              if (portfolio) {
+                const portfolioName = portfolio.name ? portfolio.name : 'Retirement portfolio';
+                const portfolioDesc = portfolio.description ? portfolio.description : '';
+                const balanceText = typeof portfolio.totalBalance === 'number' ? formatCurrency(portfolio.totalBalance) : '';
+                const updatedText = portfolio.lastUpdatedAt ? formatDate(portfolio.lastUpdatedAt) : '';
+
+                headerHtml += '\n                  <div class="portfolio-meta">\n                    <div class="portfolio-meta-row">\n                      <span class="portfolio-meta-label">Portfolio</span>\n                      <span class="portfolio-meta-value">' + escapeHtml(portfolioName) + '</span>\n                    </div>';
+                if (portfolioDesc) {
+                  headerHtml += '\n                    <div class="portfolio-meta-row">\n                      <span class="portfolio-meta-label">Description</span>\n                      <span class="portfolio-meta-value">' + escapeHtml(portfolioDesc) + '</span>\n                    </div>';
+                }
+                if (balanceText) {
+                  headerHtml += '\n                    <div class="portfolio-meta-row">\n                      <span class="portfolio-meta-label">Total balance</span>\n                      <span class="portfolio-meta-value">' + escapeHtml(balanceText) + '</span>\n                    </div>';
+                }
+                if (updatedText) {
+                  headerHtml += '\n                    <div class="portfolio-meta-row">\n                      <span class="portfolio-meta-label">Last updated</span>\n                      <span class="portfolio-meta-value">' + escapeHtml(updatedText) + '</span>\n                    </div>';
+                }
+                headerHtml += '\n                  </div>';
+              }
+
+              headerHtml += '\n                </header>';
+
+              let alertsHtml = '';
+              if (summaryError) {
+                alertsHtml += '\n                <div class="alert alert-error" data-component="allocation-error-alert" role="alert">\n                  <div class="alert-content">\n                    <h2 class="alert-title">We couldn\'t load your allocation review</h2>\n                    <p class="alert-message">' + escapeHtml(summaryError) + '</p>\n                  </div>\n                  <div class="alert-actions">\n                    <button type="button" class="btn btn-tertiary" data-action="retry-summary-load">Retry</button>\n                  </div>\n                </div>';
+              }
+              if (confirmError) {
+                alertsHtml += '\n                <div class="alert alert-error" data-component="allocation-error-alert" role="alert">\n                  <div class="alert-content">\n                    <h2 class="alert-title">We couldn\'t confirm your changes</h2>\n                    <p class="alert-message">' + escapeHtml(confirmError) + '</p>\n                  </div>\n                </div>';
+              }
+
+              let validationHtml = '';
+              if (allocationSummary && allocationSummary.validationMessage) {
+                const isValid = !!allocationSummary.isAllocationValid;
+                const bannerClass = isValid ? 'validation-banner validation-banner--success' : 'validation-banner validation-banner--warning';
+                const statusLabel = isValid ? 'Allocation ready to confirm' : 'Allocation needs attention';
+
+                validationHtml = '\n                <div class="' + bannerClass + '" data-component="allocation-validation-status" role="status">\n                  <div class="validation-status-label">' + escapeHtml(statusLabel) + '</div>\n                  <div class="validation-message">' + escapeHtml(allocationSummary.validationMessage) + '</div>\n                </div>';
+              }
+
+              let bodyHtml = '';
+
+              if (isSummaryLoading) {
+                bodyHtml = '\n              <div class="card-body">\n                ' + alertsHtml + '\n                <div class="allocation-loader" data-component="allocation-review-init-loader">\n                  <div class="spinner" aria-hidden="true"></div>\n                  <p class="loader-text">Loading your investment allocation review…</p>\n                </div>\n              </div>';
+                container.innerHTML = headerHtml + bodyHtml;
+                return;
+              }
+
+              if (!allocationSummary && summaryError) {
+                bodyHtml = '\n              <div class="card-body">\n                ' + alertsHtml + '\n              </div>';
+                container.innerHTML = headerHtml + bodyHtml;
+                return;
+              }
+
+              if (isConfirmed && confirmResult && confirmResult.success) {
+                const successMessage = confirmResult.message ? confirmResult.message : 'Your investment allocation changes have been confirmed and will be applied to your portfolio.';
+
+                bodyHtml = '\n              <div class="card-body card-body--post-confirm">\n                ' + alertsHtml + '\n                ' + validationHtml + '\n                <section class="post-confirmation" data-component="post-confirmation-message">\n                  <h2 class="post-confirmation-title">Allocation changes confirmed</h2>\n                  <p class="post-confirmation-message">' + escapeHtml(successMessage) + '</p>\n                </section>\n                <section class="post-confirm-actions" data-component="post-confirm-navigation">\n                  <div class="post-confirm-actions-inner">\n                    <div class="post-confirm-secondary">\n                      <button type="button" class="link-button" data-action="go-to-dashboard">Back to Dashboard</button>\n                    </div>\n                    <div class="post-confirm-primary">\n                      <button type="button" class="btn btn-primary" data-action="go-to-investments-overview">Go to Investments Overview</button>\n                    </div>\n                  </div>\n                </section>\n              </div>';
+
+                container.innerHTML = headerHtml + bodyHtml;
+                return;
+              }
+
+              let allocations = allocationSummary && Array.isArray(allocationSummary.allocationChanges) ? allocationSummary.allocationChanges.slice() : [];
+
+              let totalCurrent = 0;
+              let totalPending = 0;
+              allocations.forEach(function(item) {
+                const current = typeof item.currentAllocationPercent === 'number' ? item.currentAllocationPercent : 0;
+                const pending = typeof item.pendingAllocationPercent === 'number' ? item.pendingAllocationPercent : 0;
+                totalCurrent += current;
+                totalPending += pending;
+              });
+
+              allocations.sort(function(a, b) {
+                const nameA = a.fund && a.fund.name ? a.fund.name : '';
+                const nameB = b.fund && b.fund.name ? b.fund.name : '';
+                if (sortByNameAsc) {
+                  return nameA.localeCompare(nameB);
+                }
+                return nameB.localeCompare(nameA);
+              });
+
+              let tableRowsHtml = '';
+
+              if (allocations.length === 0) {
+                tableRowsHtml = '\n                  <tr class="allocation-row allocation-row--empty">\n                    <td colspan="4">There are no pending allocation changes to review.</td>\n                  </tr>';
+              } else {
+                allocations.forEach(function(item) {
+                  const fund = item.fund || {};
+                  const fundName = fund.name ? fund.name : 'Unnamed fund';
+                  const ticker = fund.ticker ? '(' + fund.ticker + ')' : '';
+                  const current = typeof item.currentAllocationPercent === 'number' ? item.currentAllocationPercent : 0;
+                  const pending = typeof item.pendingAllocationPercent === 'number' ? item.pendingAllocationPercent : 0;
+                  const diff = pending - current;
+                  const hasChange = Math.abs(diff) > 0.0001;
+                  const diffLabel = diff === 0 ? '—' : (diff > 0 ? '+' : '') + diff.toFixed(2).replace(/\.00$/, '') + '%';
+
+                  const rowClass = hasChange ? 'allocation-row allocation-row--changed' : 'allocation-row';
+
+                  tableRowsHtml += '\n                  <tr class="' + rowClass + '" data-action="toggle-row-highlight">\n                    <td class="allocation-cell allocation-cell--fund">\n                      <div class="fund-name">' + escapeHtml(fundName) + '</div>';
+                  if (ticker) {
+                    tableRowsHtml += '\n                      <div class="fund-ticker">' + escapeHtml(ticker) + '</div>';
+                  }
+                  tableRowsHtml += '\n                    </td>\n                    <td class="allocation-cell allocation-cell--current">' + escapeHtml(formatPercent(current)) + '</td>\n                    <td class="allocation-cell allocation-cell--pending">' + escapeHtml(formatPercent(pending)) + '</td>\n                    <td class="allocation-cell allocation-cell--diff">' + escapeHtml(diffLabel) + '</td>\n                  </tr>';
+                });
+              }
+
+              let tableFooterHtml = '';
+              if (allocations.length > 0) {
+                tableFooterHtml = '\n                <tfoot class="allocation-table-foot">\n                  <tr class="allocation-row allocation-row--totals">\n                    <td class="allocation-cell allocation-cell--label">Total</td>\n                    <td class="allocation-cell allocation-cell--current">' + escapeHtml(formatPercent(totalCurrent)) + '</td>\n                    <td class="allocation-cell allocation-cell--pending">' + escapeHtml(formatPercent(totalPending)) + '</td>\n                    <td class="allocation-cell allocation-cell--diff">' + escapeHtml(formatPercent(totalPending - totalCurrent)) + '</td>\n                  </tr>\n                </tfoot>';
+              }
+
+              const canConfirm = !!(allocationSummary && allocationSummary.isAllocationValid && allocations.length > 0 && !summaryError);
+              const confirmDisabled = !canConfirm || isConfirming;
+
+              let confirmHelperText = '';
+              if (allocationSummary && !allocationSummary.isAllocationValid && allocationSummary.validationMessage) {
+                confirmHelperText = 'You will need to correct your allocation on the previous step before you can confirm. Use your browser\'s Back button and update your selections.';
+              } else if (!allocations.length) {
+                confirmHelperText = 'There are no pending changes to confirm. You can return to your investments overview at any time.';
+              } else {
+                confirmHelperText = 'Once you confirm, your new allocation mix will replace your current allocation for future contributions.';
+              }
+
+              const confirmButtonTitle = !canConfirm && allocationSummary && !allocationSummary.isAllocationValid && allocationSummary.validationMessage
+                ? allocationSummary.validationMessage
+                : '';
+
+              const confirmLabel = isConfirming ? 'Confirming…' : 'Confirm allocation';
+
+              bodyHtml = '\n              <div class="card-body">\n                ' + alertsHtml + '\n                ' + validationHtml + '\n                <section class="allocation-table-section" aria-label="Allocation comparison">\n                  <div class="allocation-table-header-row">\n                    <h2 class="section-title">Current vs pending allocations</h2>\n                    <div class="allocation-table-tools">\n                      <button type="button" class="link-button" data-action="refresh-summary">Refresh review</button>\n                    </div>\n                  </div>\n                  <div class="allocation-table-wrapper" data-component="allocation-summary-table">\n                    <table class="allocation-table" aria-describedby="allocation-table-caption">\n                      <caption id="allocation-table-caption" class="sr-only">Comparison of current and pending allocation percentages for each fund.</caption>\n                      <thead class="allocation-table-head">\n                        <tr>\n                          <th scope="col" class="allocation-header allocation-header--fund">\n                            <button type="button" class="table-sort-button" data-action="toggle-sort-name">Fund' + (sortByNameAsc ? ' \u2191' : ' \u2193') + '</button>\n                          </th>\n                          <th scope="col" class="allocation-header allocation-header--current">Current allocation</th>\n                          <th scope="col" class="allocation-header allocation-header--pending">Pending allocation</th>\n                          <th scope="col" class="allocation-header allocation-header--diff">Change</th>\n                        </tr>\n                      </thead>\n                      <tbody class="allocation-table-body">' + tableRowsHtml + '\n                      </tbody>' + tableFooterHtml + '\n                    </table>\n                  </div>\n                </section>\n                <section class="allocation-confirm-section" data-component="allocation-confirm-form">\n                  <div class="allocation-confirm-content">\n                    <p class="allocation-confirm-helper">' + escapeHtml(confirmHelperText) + '</p>\n                  </div>\n                  <div class="allocation-confirm-actions">\n                    <div class="allocation-confirm-secondary">\n                      <p class="allocation-confirm-secondary-text">If you need to make changes, use your browser\'s Back button to return to the previous screen.</p>\n                    </div>\n                    <div class="allocation-confirm-primary">\n                      <button type="button" class="btn btn-primary" data-action="confirm-allocation"' + (confirmDisabled ? ' disabled aria-disabled="true"' : '') + (confirmButtonTitle ? ' title="' + escapeHtml(confirmButtonTitle) + '"' : '') + '>' + escapeHtml(confirmLabel) + '</button>\n                    </div>\n                  </div>\n                </section>\n              </div>';
+
+              container.innerHTML = headerHtml + bodyHtml;
+            }
+
+            function attachActionHandlers() {
+              const actionElements = document.querySelectorAll('[data-action]');
+
+              actionElements.forEach(function(element) {
+                const action = element.dataset.action;
+
+                if (action === 'retry-summary-load') {
+                  element.addEventListener('click', function() {
+                    loadSummary();
+                  });
+                }
+
+                if (action === 'refresh-summary') {
+                  element.addEventListener('click', function() {
+                    loadSummary();
+                  });
+                }
+
+                if (action === 'confirm-allocation') {
+                  element.addEventListener('click', function() {
+                    handleConfirm();
+                  });
+                }
+
+                if (action === 'toggle-sort-name') {
+                  element.addEventListener('click', function() {
+                    sortByNameAsc = !sortByNameAsc;
+                    updateView();
+                  });
+                }
+
+                if (action === 'toggle-row-highlight') {
+                  element.addEventListener('click', function(evt) {
+                    const row = evt.currentTarget;
+                    if (row && row.classList) {
+                      row.classList.toggle('allocation-row--selected');
+                    }
+                  });
+                }
+
+                if (action === 'go-to-investments-overview') {
+                  element.addEventListener('click', function() {
+                    window.location.href = 'investments_overview.html?message=allocation_confirmed';
+                  });
+                }
+
+                if (action === 'go-to-dashboard') {
+                  element.addEventListener('click', function() {
+                    window.location.href = 'index.html?message=allocation_confirmed';
+                  });
+                }
+              });
+            }
+
+            function updateView() {
+              populateElements.forEach(function(element) {
+                const dataType = element.dataset.populate;
+                if (dataType === 'investment-allocation-review') {
+                  renderAllocationReview(element);
+                }
+              });
+              attachActionHandlers();
+            }
+
+            function loadSummary() {
+              isSummaryLoading = true;
+              summaryError = null;
+              allocationSummary = null;
+              confirmError = null;
+              updateView();
+
+              try {
+                allocationSummary = WebsiteSDK.getInvestmentAllocationReviewSummary();
+              } catch (e) {
+                console.error('Error loading investment allocation review summary', e);
+                summaryError = 'Please try again in a few moments. If the problem continues, contact the plan administrator.';
+              } finally {
+                isSummaryLoading = false;
+                updateView();
+              }
+            }
+
+            function handleConfirm() {
+              if (!allocationSummary || !allocationSummary.isAllocationValid || isConfirming || isConfirmed) {
+                return;
+              }
+
+              isConfirming = true;
+              confirmError = null;
+              updateView();
+
+              try {
+                const result = WebsiteSDK.confirmInvestmentAllocationChanges();
+                confirmResult = result;
+
+                if (result && result.success) {
+                  isConfirmed = true;
+                } else {
+                  const msg = result && result.message ? result.message : 'We could not confirm your changes. Please review your allocations and try again.';
+                  confirmError = msg;
+                }
+              } catch (e) {
+                console.error('Error confirming investment allocation changes', e);
+                confirmError = 'Something went wrong while confirming your allocation changes. Please try again.';
+              } finally {
+                isConfirming = false;
+                updateView();
+              }
+            }
+
+            loadSummary();
+          });
+        })();
+      </script>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <nav class="footer-nav" aria-label="Quick links">
+          <ul class="footer-links">
+            <li class="footer-item"><a href="retirement_contributions.html" class="footer-link">Retirement Contributions</a></li>
+            <li class="footer-item"><a href="auto_increase.html" class="footer-link">Automatic Contribution Increases</a></li>
+            <li class="footer-item"><a href="change_investments.html" class="footer-link">Change Investments</a></li>
+            <li class="footer-item"><a href="health_plans.html" class="footer-link">Health Plan Enrollment</a></li>
+            <li class="footer-item"><a href="beneficiaries.html" class="footer-link">Beneficiaries</a></li>
+            <li class="footer-item"><a href="pension_statements.html" class="footer-link">Pension Statements</a></li>
+          </ul>
+        </nav>
+        <p class="footer-meta">&copy; <span class="current-year">2024</span> Employee Benefits &amp; Pension Portal. All rights reserved.</p>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

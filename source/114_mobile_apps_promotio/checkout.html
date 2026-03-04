@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Checkout - Mobile Apps Website</title>
+  
+  <link rel="stylesheet" href="checkout.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="top-nav" aria-label="Main navigation">
+      <ul class="nav-list">
+        <li class="nav-item"><a href="index.html">Home</a></li>
+        <li class="nav-item"><a href="apps.html">Apps</a></li>
+        <li class="nav-item"><a href="pricing.html">Pricing</a></li>
+        <li class="nav-item"><a href="resources.html">Resources</a></li>
+        <li class="nav-item"><a href="support.html">Support</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="content">
+    <div class="checkout-site-preference-bar" data-component="site-preference-bar" data-populate="site-preference">
+      <!-- Site preference bar is populated by JavaScript -->
+    </div>
+
+    <div class="checkout-content-wrapper">
+      <section class="checkout-status-banner" data-component="checkout-status-banner" data-populate="checkout-status" aria-live="polite">
+        <!-- Status banner populated by JavaScript -->
+      </section>
+
+      <section class="checkout-main-row">
+        <div class="checkout-column checkout-column-summary" data-component="order-summary-panel" data-populate="order-summary">
+          <!-- Order summary populated by JavaScript -->
+        </div>
+
+        <div class="checkout-column checkout-column-form" data-component="checkout-form-main" data-populate="checkout-form">
+          <!-- Checkout form populated by JavaScript -->
+        </div>
+
+        <aside class="checkout-column checkout-column-help" data-component="billing-help-link">
+          <p><strong>Need help with billing?</strong></p>
+          <p><a href="javascript:void(0)" data-action="billing-help">Go to billing &amp; payment support</a></p>
+        </aside>
+      </section>
+
+      <section class="checkout-confirmation-section" data-component="checkout-confirmation-section" data-populate="checkout-confirmation">
+        <!-- Confirmation details populated by JavaScript -->
+      </section>
+
+      <section class="checkout-empty-state" data-populate="checkout-empty-state">
+        <!-- Empty state populated by JavaScript when there is no active order -->
+      </section>
+
+      <div class="checkout-return-home" data-component="return-home-link" data-populate="return-home-link">
+        <!-- Return home link populated by JavaScript -->
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="footer-links">
+        <a href="about.html">About</a>
+        <span class="footer-separator">|</span>
+        <a href="apps.html">Apps Catalog</a>
+        <span class="footer-separator">|</span>
+        <a href="pricing.html">Pricing &amp; Plans</a>
+        <span class="footer-separator">|</span>
+        <a href="faq_list.html">FAQs / Help Center</a>
+        <span class="footer-separator">|</span>
+        <a href="contact_support.html">Contact Support</a>
+        <span class="footer-separator">|</span>
+        <a href="resources.html">Guides &amp; Tutorials</a>
+        <span class="footer-separator">|</span>
+        <a href="privacy.html">Privacy Policy</a>
+        <span class="footer-separator">|</span>
+        <a href="terms.html">Terms of Use</a>
+      </div>
+      <p class="footer-copy">&copy; 2026 Your Company Name</p>
+    </div>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var state = {
+        sitePreference: null,
+        hasOrder: false,
+        order: null,
+        viewMode: 'checkout', // 'checkout' or 'confirmation'
+        banner: null, // { type: 'info'|'success'|'error', message: string }
+        statusParam: null,
+        errorParam: null,
+        fromParam: null
+      };
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function getUrl() {
+        return new URL(window.location.href);
+      }
+
+      function syncUrlPreferenceParams(currency, region) {
+        var url = getUrl();
+        var params = url.searchParams;
+        if (currency) {
+          params.set('currency', currency);
+        } else {
+          params.delete('currency');
+        }
+        if (region) {
+          params.set('region', region);
+        } else {
+          params.delete('region');
+        }
+        history.replaceState(null, '', url.toString());
+      }
+
+      function updateUrlStatus(status, errorMessage) {
+        var url = getUrl();
+        var params = url.searchParams;
+        if (status) {
+          params.set('status', status);
+        } else {
+          params.delete('status');
+        }
+        if (errorMessage) {
+          params.set('error', encodeURIComponent(errorMessage));
+        } else {
+          params.delete('error');
+        }
+        history.replaceState(null, '', url.toString());
+        state.statusParam = status;
+        state.errorParam = errorMessage ? encodeURIComponent(errorMessage) : null;
+      }
+
+      function updateUrlView(view) {
+        var url = getUrl();
+        var params = url.searchParams;
+        if (view) {
+          params.set('view', view);
+        } else {
+          params.delete('view');
+        }
+        history.replaceState(null, '', url.toString());
+      }
+
+      function computeStatusBannerFromState() {
+        var url = getUrl();
+        var params = url.searchParams;
+        var statusParam = params.get('status');
+        var errorParam = params.get('error');
+        state.statusParam = statusParam;
+        state.errorParam = errorParam;
+
+        var orderStatus = state.order && state.order.status ? state.order.status : null;
+
+        if (statusParam === 'failed') {
+          var msg = 'There was a problem completing your checkout. Please review your details and try again.';
+          if (errorParam) {
+            try {
+              msg = decodeURIComponent(errorParam);
+            } catch (e) {
+              // keep default
+            }
+          }
+          state.banner = { type: 'error', message: msg };
+          return;
+        }
+
+        if (statusParam === 'completed' || orderStatus === 'completed') {
+          state.banner = {
+            type: 'success',
+            message: 'Your checkout is complete. You can review your order details below.'
+          };
+          return;
+        }
+
+        state.banner = {
+          type: 'info',
+          message: 'Secure checkout. Review your order and complete the steps on this page.'
+        };
+      }
+
+      function renderSitePreferenceBar(container, sitePreference) {
+        if (!sitePreference) {
+          container.innerHTML = '<div class="site-pref-inner">Loading preferences...</div>';
+          return;
+        }
+
+        var currency = sitePreference.currency || 'usd';
+        var region = sitePreference.region || '';
+
+        var knownRegions = ['United States', 'Germany', 'Canada', 'United Kingdom', 'Australia'];
+        var hasRegionInList = knownRegions.indexOf(region) !== -1;
+
+        var regionOptionsHtml = '<option value="">Select region</option>';
+        for (var i = 0; i < knownRegions.length; i++) {
+          var r = knownRegions[i];
+          var selectedAttr = region === r ? ' selected' : '';
+          regionOptionsHtml += '<option value="' + escapeHtml(r) + '"' + selectedAttr + '>' + escapeHtml(r) + '</option>';
+        }
+        if (region && !hasRegionInList) {
+          regionOptionsHtml += '<option value="' + escapeHtml(region) + '" selected>' + escapeHtml(region) + '</option>';
+        }
+
+        container.innerHTML = (
+          '<div class="site-pref-inner">' +
+            '<span class="site-pref-label">Currency:</span> ' +
+            '<select name="currency" data-action="change-currency">' +
+              '<option value="usd"' + (currency === 'usd' ? ' selected' : '') + '>USD</option>' +
+              '<option value="eur"' + (currency === 'eur' ? ' selected' : '') + '>EUR</option>' +
+            '</select>' +
+            '<span class="site-pref-label">Region:</span> ' +
+            '<select name="region" data-action="change-region">' +
+              regionOptionsHtml +
+            '</select>' +
+          '</div>'
+        );
+      }
+
+      function renderOrderSummary(container) {
+        if (!state.hasOrder || !state.order) {
+          container.innerHTML = (
+            '<h2>Your order</h2>' +
+            '<p>There is no active order associated with this checkout session.</p>'
+          );
+          return;
+        }
+
+        var order = state.order;
+
+        var orderTypeLabel = '';
+        if (order.orderType === 'plan_subscription') {
+          orderTypeLabel = 'Subscription plan';
+        } else if (order.orderType === 'app_purchase') {
+          orderTypeLabel = 'App purchase';
+        } else if (order.orderType === 'app_subscription_trial') {
+          orderTypeLabel = 'App subscription trial';
+        } else {
+          orderTypeLabel = 'Order';
+        }
+
+        var name = '';
+        if (order.plan && order.plan.name) {
+          name = order.plan.name;
+        } else if (order.app && order.app.name) {
+          name = order.app.name;
+        }
+
+        var billingLabel = '';
+        if (order.billingFrequency === 'monthly') {
+          billingLabel = 'Billed monthly';
+        } else if (order.billingFrequency === 'yearly') {
+          billingLabel = 'Billed yearly';
+        } else if (order.billingFrequency === 'one_time') {
+          billingLabel = 'One-time charge';
+        }
+
+        var totalAmount = typeof order.totalAmount === 'number' ? order.totalAmount : 0;
+        var currencyCode = (order.currency || '').toUpperCase();
+        var totalAmountText = currencyCode + ' ' + totalAmount.toFixed(2);
+
+        var chargeNote = '';
+        if (totalAmount === 0) {
+          chargeNote = 'No charge will occur at this step.';
+        } else {
+          chargeNote = 'This amount will be charged when you complete checkout.';
+        }
+
+        var trialHtml = '';
+        if (typeof order.trialDays === 'number' && order.trialDays > 0) {
+          trialHtml = '<p>Trial: ' + escapeHtml(order.trialDays) + ' days of free access are included.</p>';
+        }
+
+        var summaryLinesHtml = '';
+        if (Array.isArray(order.summaryLines) && order.summaryLines.length > 0) {
+          var itemsHtml = '';
+          for (var i = 0; i < order.summaryLines.length; i++) {
+            itemsHtml += '<li>' + escapeHtml(order.summaryLines[i]) + '</li>';
+          }
+          summaryLinesHtml = (
+            '<div class="order-summary-details" style="display:none;">' +
+              '<ul>' + itemsHtml + '</ul>' +
+            '</div>' +
+            '<p><a href="javascript:void(0)" data-action="toggle-summary-details">Show details</a></p>'
+          );
+        }
+
+        container.innerHTML = (
+          '<h2>Your order</h2>' +
+          '<p><strong>Type:</strong> ' + escapeHtml(orderTypeLabel) + '</p>' +
+          (name ? '<p><strong>Name:</strong> ' + escapeHtml(name) + '</p>' : '') +
+          (billingLabel ? '<p><strong>Billing:</strong> ' + escapeHtml(billingLabel) + '</p>' : '') +
+          trialHtml +
+          '<p><strong>Total due now:</strong> ' + escapeHtml(totalAmountText) + '</p>' +
+          '<p>' + escapeHtml(chargeNote) + '</p>' +
+          summaryLinesHtml
+        );
+      }
+
+      function renderCheckoutForm(container) {
+        if (!state.hasOrder || !state.order) {
+          container.innerHTML = (
+            '<h1 class="page-title">Checkout</h1>' +
+            '<p>There is no active order to check out. Use the link below to return to the home page and start again.</p>'
+          );
+          return;
+        }
+
+        var order = state.order;
+        var totalAmount = typeof order.totalAmount === 'number' ? order.totalAmount : 0;
+        var currencyCode = (order.currency || '').toUpperCase();
+        var totalAmountText = currencyCode + ' ' + totalAmount.toFixed(2);
+
+        var billingLabel = '';
+        if (order.billingFrequency === 'monthly') {
+          billingLabel = 'per month';
+        } else if (order.billingFrequency === 'yearly') {
+          billingLabel = 'per year';
+        } else if (order.billingFrequency === 'one_time') {
+          billingLabel = 'one-time';
+        }
+
+        if (state.viewMode === 'confirmation' || order.status === 'completed') {
+          container.innerHTML = (
+            '<h1 class="page-title">Checkout</h1>' +
+            '<p>Your order has already been completed. You can review the summary on this page or return home.</p>'
+          );
+          return;
+        }
+
+        var paymentSectionHtml = '';
+        if (totalAmount > 0) {
+          paymentSectionHtml = (
+            '<div class="form-group">' +
+              '<label for="paymentMethodSelect">Payment method</label><br>' +
+              '<select id="paymentMethodSelect" name="paymentMethod" data-action="payment-method-change">' +
+                '<option value="">Select a payment method</option>' +
+                '<option value="card">Credit or debit card</option>' +
+                '<option value="paypal">PayPal</option>' +
+              '</select>' +
+            '</div>'
+          );
+        } else {
+          paymentSectionHtml = (
+            '<div class="form-group">' +
+              '<p>No payment is required today. This action will start or confirm your trial or free access as described in your order summary.</p>' +
+            '</div>'
+          );
+        }
+
+        container.innerHTML = (
+          '<h1 class="page-title">Checkout</h1>' +
+          '<form data-action="submit-checkout">' +
+            '<div class="form-group">' +
+              '<p><strong>Amount due now:</strong> ' + escapeHtml(totalAmountText) + (billingLabel ? ' (' + escapeHtml(billingLabel) + ')' : '') + '</p>' +
+            '</div>' +
+            paymentSectionHtml +
+            '<div class="form-group">' +
+              '<label>' +
+                '<input type="checkbox" id="acceptTermsInput" name="acceptTerms" data-action="toggle-terms"> ' +
+                'I accept the <a href="terms.html" target="_blank" rel="noopener">Terms of Use</a>.' +
+              '</label>' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<input type="submit" value="Complete checkout" disabled>' +
+            '</div>' +
+          '</form>'
+        );
+      }
+
+      function renderStatusBanner(container) {
+        if (!state.banner) {
+          container.innerHTML = '';
+          return;
+        }
+        var typeClass = 'status-info';
+        if (state.banner.type === 'error') {
+          typeClass = 'status-error';
+        } else if (state.banner.type === 'success') {
+          typeClass = 'status-success';
+        }
+        container.innerHTML = (
+          '<div class="checkout-status-inner ' + escapeHtml(typeClass) + '">' +
+            '<span>' + escapeHtml(state.banner.message) + '</span>' +
+            '<a href="javascript:void(0)" class="status-dismiss" data-action="dismiss-status">Dismiss</a>' +
+          '</div>'
+        );
+      }
+
+      function renderConfirmationSection(container) {
+        if (!state.hasOrder || !state.order) {
+          container.innerHTML = '';
+          return;
+        }
+        var order = state.order;
+        var isCompleted = order.status === 'completed';
+        if (!(state.viewMode === 'confirmation' && isCompleted)) {
+          container.innerHTML = '';
+          return;
+        }
+
+        var name = '';
+        if (order.plan && order.plan.name) {
+          name = order.plan.name;
+        } else if (order.app && order.app.name) {
+          name = order.app.name;
+        }
+
+        var mainLine = '';
+        if (order.orderType === 'plan_subscription') {
+          mainLine = 'Your subscription plan' + (name ? ' "' + name + '"' : '') + ' is now active.';
+        } else if (order.orderType === 'app_purchase') {
+          mainLine = 'Your purchase' + (name ? ' of "' + name + '"' : '') + ' is complete.';
+        } else if (order.orderType === 'app_subscription_trial') {
+          mainLine = 'Your app trial' + (name ? ' for "' + name + '"' : '') + ' has started.';
+        } else {
+          mainLine = 'Your order is complete.';
+        }
+
+        var extraLines = '';
+        extraLines += '<p>You can now install or open the app on your devices using your store account.</p>';
+
+        container.innerHTML = (
+          '<h2>Thank you for your order</h2>' +
+          '<p>' + escapeHtml(mainLine) + '</p>' +
+          extraLines
+        );
+      }
+
+      function renderEmptyState(container) {
+        if (state.hasOrder) {
+          container.innerHTML = '';
+          return;
+        }
+        container.innerHTML = (
+          '<h2>No active order</h2>' +
+          '<p>We could not find an active order for this checkout page.</p>' +
+          '<p>You can return to the home page to browse apps and plans, then start a new checkout.</p>' +
+          '<p><a href="javascript:void(0)" data-action="back-home">Back to home</a></p>'
+        );
+      }
+
+      function renderReturnHome(container) {
+        var label = '';
+        var url = getUrl();
+        var from = url.searchParams.get('from');
+        state.fromParam = from;
+
+        if (!state.hasOrder) {
+          label = 'Back to home';
+        } else if (state.order && state.order.status === 'completed') {
+          if (from === 'apps') {
+            label = 'Back to apps';
+          } else if (from === 'pricing') {
+            label = 'Back to pricing & plans';
+          } else {
+            label = 'Back to home';
+          }
+        } else {
+          container.innerHTML = '';
+          return;
+        }
+
+        container.innerHTML = '<a href="javascript:void(0)" data-action="back-home">' + escapeHtml(label) + '</a>';
+      }
+
+      function renderAll() {
+        var populateElements = document.querySelectorAll('[data-populate]');
+        for (var i = 0; i < populateElements.length; i++) {
+          var element = populateElements[i];
+          var type = element.dataset.populate;
+          if (type === 'site-preference') {
+            renderSitePreferenceBar(element, state.sitePreference);
+          } else if (type === 'order-summary') {
+            renderOrderSummary(element);
+          } else if (type === 'checkout-form') {
+            renderCheckoutForm(element);
+          } else if (type === 'checkout-status') {
+            renderStatusBanner(element);
+          } else if (type === 'checkout-confirmation') {
+            renderConfirmationSection(element);
+          } else if (type === 'checkout-empty-state') {
+            renderEmptyState(element);
+          } else if (type === 'return-home-link') {
+            renderReturnHome(element);
+          }
+        }
+        bindEventHandlers();
+      }
+
+      function handleCurrencyChange(event) {
+        var newCurrency = event.target.value;
+        var currentRegion = state.sitePreference && state.sitePreference.region ? state.sitePreference.region : '';
+        try {
+          var updateResult = WebsiteSDK.updateSitePreference(newCurrency, currentRegion);
+          if (!updateResult || !updateResult.success) {
+            var msg = (updateResult && updateResult.message) ? updateResult.message : 'Unable to update currency preference.';
+            state.banner = { type: 'error', message: msg };
+            renderAll();
+            return;
+          }
+          var confirmedPref = WebsiteSDK.getSitePreference();
+          state.sitePreference = confirmedPref;
+          syncUrlPreferenceParams(confirmedPref.currency, confirmedPref.region);
+          var orderSummaryResponse = WebsiteSDK.getCurrentOrderSummary();
+          state.hasOrder = !!orderSummaryResponse && !!orderSummaryResponse.hasOrder;
+          state.order = state.hasOrder ? orderSummaryResponse.order : null;
+          computeStatusBannerFromState();
+          renderAll();
+        } catch (e) {
+          state.banner = { type: 'error', message: 'There was a problem updating your currency preference.' };
+          renderAll();
+        }
+      }
+
+      function handleRegionChange(event) {
+        var newRegion = event.target.value;
+        var currentCurrency = state.sitePreference && state.sitePreference.currency ? state.sitePreference.currency : 'usd';
+        try {
+          var updateResult = WebsiteSDK.updateSitePreference(currentCurrency, newRegion);
+          if (!updateResult || !updateResult.success) {
+            var msg = (updateResult && updateResult.message) ? updateResult.message : 'Unable to update region preference.';
+            state.banner = { type: 'error', message: msg };
+            renderAll();
+            return;
+          }
+          var confirmedPref = WebsiteSDK.getSitePreference();
+          state.sitePreference = confirmedPref;
+          syncUrlPreferenceParams(confirmedPref.currency, confirmedPref.region);
+          var orderSummaryResponse = WebsiteSDK.getCurrentOrderSummary();
+          state.hasOrder = !!orderSummaryResponse && !!orderSummaryResponse.hasOrder;
+          state.order = state.hasOrder ? orderSummaryResponse.order : null;
+          computeStatusBannerFromState();
+          renderAll();
+        } catch (e) {
+          state.banner = { type: 'error', message: 'There was a problem updating your region preference.' };
+          renderAll();
+        }
+      }
+
+      function handleToggleSummaryDetails(event) {
+        event.preventDefault();
+        var link = event.currentTarget;
+        var container = link.closest('[data-populate="order-summary"]');
+        if (!container) {
+          return;
+        }
+        var details = container.querySelector('.order-summary-details');
+        if (!details) {
+          return;
+        }
+        var isHidden = details.style.display === 'none' || details.style.display === '' && details.offsetParent === null;
+        if (details.style.display === 'none') {
+          details.style.display = '';
+          link.textContent = 'Hide details';
+        } else if (!details.style.display) {
+          // If empty string but hidden via CSS, toggle
+          var currentlyHidden = details.offsetHeight === 0;
+          if (currentlyHidden) {
+            details.style.display = '';
+            link.textContent = 'Hide details';
+          } else {
+            details.style.display = 'none';
+            link.textContent = 'Show details';
+          }
+        } else {
+          details.style.display = 'none';
+          link.textContent = 'Show details';
+        }
+      }
+
+      function handlePaymentMethodChange(event) {
+        // Local state can be updated here if needed; for now we rely on reading the form on submit.
+        var value = event.target.value;
+        if (!value) {
+          return;
+        }
+      }
+
+      function handleToggleTerms(event) {
+        var checkbox = event.target;
+        var form = checkbox.form;
+        if (!form) {
+          return;
+        }
+        var submitButton = form.querySelector('input[type="submit"]');
+        if (!submitButton) {
+          return;
+        }
+        submitButton.disabled = !checkbox.checked;
+      }
+
+      function handleSubmitCheckout(event) {
+        event.preventDefault();
+
+        if (!state.hasOrder || !state.order) {
+          state.banner = { type: 'error', message: 'There is no active order to check out.' };
+          updateUrlStatus('failed', 'There is no active order to check out.');
+          renderAll();
+          return;
+        }
+
+        var form = event.target;
+        var order = state.order;
+        var totalAmount = typeof order.totalAmount === 'number' ? order.totalAmount : 0;
+
+        var acceptTermsInput = form.querySelector('input[name="acceptTerms"]');
+        var accepted = !!(acceptTermsInput && acceptTermsInput.checked);
+        if (!accepted) {
+          var msgTerms = 'Please accept the Terms of Use to continue.';
+          state.banner = { type: 'error', message: msgTerms };
+          updateUrlStatus('failed', msgTerms);
+          renderAll();
+          return;
+        }
+
+        var paymentMethod = 'none';
+        if (totalAmount > 0) {
+          var methodSelect = form.querySelector('select[name="paymentMethod"]');
+          if (!methodSelect || !methodSelect.value) {
+            var msgMethod = 'Please select a payment method to continue.';
+            state.banner = { type: 'error', message: msgMethod };
+            updateUrlStatus('failed', msgMethod);
+            renderAll();
+            return;
+          }
+          paymentMethod = methodSelect.value;
+        } else {
+          paymentMethod = 'none';
+        }
+
+        try {
+          var response = WebsiteSDK.submitCheckout(paymentMethod, accepted);
+          if (response && response.success && response.orderStatus === 'completed') {
+            var successMsg = response.message || 'Your checkout is complete.';
+            state.banner = { type: 'success', message: successMsg };
+            state.viewMode = 'confirmation';
+            updateUrlStatus('completed', null);
+            updateUrlView('confirmation');
+            var orderSummaryResponse = WebsiteSDK.getCurrentOrderSummary();
+            state.hasOrder = !!orderSummaryResponse && !!orderSummaryResponse.hasOrder;
+            state.order = state.hasOrder ? orderSummaryResponse.order : null;
+            computeStatusBannerFromState();
+            renderAll();
+          } else {
+            var failureMsg = (response && response.message) ? response.message : 'Unable to complete checkout. Please review your details and try again.';
+            state.banner = { type: 'error', message: failureMsg };
+            updateUrlStatus('failed', failureMsg);
+            state.viewMode = 'checkout';
+            computeStatusBannerFromState();
+            renderAll();
+          }
+        } catch (e) {
+          var errorMsg = 'An unexpected error occurred while submitting your checkout. Please try again.';
+          state.banner = { type: 'error', message: errorMsg };
+          updateUrlStatus('failed', errorMsg);
+          state.viewMode = 'checkout';
+          computeStatusBannerFromState();
+          renderAll();
+        }
+      }
+
+      function handleBillingHelpClick(event) {
+        event.preventDefault();
+        var targetUrl = 'support.html?issueType=billing_payments';
+        window.location.href = targetUrl;
+      }
+
+      function handleBackHomeClick(event) {
+        event.preventDefault();
+        var url = getUrl();
+        var params = url.searchParams;
+        var currency = params.get('currency');
+        var region = params.get('region');
+        var from = params.get('from');
+        var outParams = new URLSearchParams();
+        if (currency) {
+          outParams.set('currency', currency);
+        }
+        if (region) {
+          outParams.set('region', region);
+        }
+        if (from) {
+          outParams.set('from', from);
+        }
+        var target = 'index.html';
+        var query = outParams.toString();
+        if (query) {
+          target += '?' + query;
+        }
+        window.location.href = target;
+      }
+
+      function handleDismissStatus(event) {
+        event.preventDefault();
+        state.banner = null;
+        updateUrlStatus(null, null);
+        renderAll();
+      }
+
+      function bindEventHandlers() {
+        var actionElements = document.querySelectorAll('[data-action]');
+        for (var i = 0; i < actionElements.length; i++) {
+          var el = actionElements[i];
+          if (el.dataset.bound === 'true') {
+            continue;
+          }
+          var action = el.dataset.action;
+          if (action === 'change-currency') {
+            el.addEventListener('change', handleCurrencyChange);
+          } else if (action === 'change-region') {
+            el.addEventListener('change', handleRegionChange);
+          } else if (action === 'toggle-summary-details') {
+            el.addEventListener('click', handleToggleSummaryDetails);
+          } else if (action === 'payment-method-change') {
+            el.addEventListener('change', handlePaymentMethodChange);
+          } else if (action === 'toggle-terms') {
+            el.addEventListener('change', handleToggleTerms);
+          } else if (action === 'submit-checkout') {
+            el.addEventListener('submit', handleSubmitCheckout);
+          } else if (action === 'billing-help') {
+            el.addEventListener('click', handleBillingHelpClick);
+          } else if (action === 'back-home') {
+            el.addEventListener('click', handleBackHomeClick);
+          } else if (action === 'dismiss-status') {
+            el.addEventListener('click', handleDismissStatus);
+          }
+          el.dataset.bound = 'true';
+        }
+      }
+
+      function initializePage() {
+        try {
+          var url = getUrl();
+          var params = url.searchParams;
+          var currencyParam = params.get('currency');
+          var regionParam = params.get('region');
+          var viewParam = params.get('view');
+
+          if (currencyParam || regionParam) {
+            try {
+              var updateResult = WebsiteSDK.updateSitePreference(currencyParam || 'usd', regionParam || '');
+              if (!updateResult || !updateResult.success) {
+                // Non-fatal; continue with whatever preference is stored
+              }
+            } catch (e) {
+              // Ignore and continue with existing preference
+            }
+          }
+
+          var sitePref = WebsiteSDK.getSitePreference();
+          state.sitePreference = sitePref;
+
+          syncUrlPreferenceParams(sitePref.currency, sitePref.region);
+
+          var orderSummaryResponse = WebsiteSDK.getCurrentOrderSummary();
+          state.hasOrder = !!orderSummaryResponse && !!orderSummaryResponse.hasOrder;
+          state.order = state.hasOrder ? orderSummaryResponse.order : null;
+
+          var orderStatus = state.order && state.order.status ? state.order.status : null;
+          if (viewParam === 'confirmation' || orderStatus === 'completed') {
+            state.viewMode = 'confirmation';
+          } else {
+            state.viewMode = 'checkout';
+          }
+
+          computeStatusBannerFromState();
+          renderAll();
+        } catch (e) {
+          var statusContainer = document.querySelector('[data-populate="checkout-status"]');
+          if (statusContainer) {
+            statusContainer.innerHTML = '<div class="checkout-status-inner status-error">' +
+              '<span>Unable to load checkout information. Please refresh the page to try again.</span>' +
+            '</div>';
+          }
+        }
+      }
+
+      initializePage();
+    });
+  </script>
+</body>
+</html>

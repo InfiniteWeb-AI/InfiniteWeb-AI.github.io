@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='product_detail.css'>
+<script src='business_logic.js'></script>
+
+<div class='product-detail-page' data-component='product-detail-page-controller'>
+  <div class='product-detail-inner'>
+    <nav class='breadcrumb-bar' data-component='breadcrumb-bar' aria-label='Breadcrumb'>
+      <a href='javascript:void(0)' class='breadcrumb-back-link' data-action='back-to-results' hidden>&larr; Back to results</a>
+    </nav>
+
+    <section class='product-title-bubble' aria-live='polite'>
+      <h1 class='product-title-text' data-populate='product-title'>Loading product...</h1>
+      <p class='product-type-label' data-populate='product-type-label'></p>
+    </section>
+
+    <section class='post-add-notification' data-component='post-add-notification' aria-live='polite' hidden>
+      <div class='notification-inner'>
+        <p class='notification-message' data-populate='post-add-message'></p>
+        <div class='notification-actions'>
+          <button type='button' class='link-button' data-action='view-cart' hidden>View cart</button>
+          <button type='button' class='link-button' data-action='go-to-library' hidden>Go to Library</button>
+          <button type='button' class='link-button' data-action='dismiss-notification'>Dismiss</button>
+        </div>
+      </div>
+    </section>
+
+    <div class='product-loading' aria-live='polite'>
+      Fetching giggles from the warehouse...
+    </div>
+
+    <div class='product-error' role='alert' hidden>
+      <p class='product-error-message' data-populate='error-message'></p>
+    </div>
+
+    <div class='product-main-layout' aria-busy='true'>
+      <div class='product-main-column'>
+        <section class='product-main-info' data-component='product-main-info' data-populate='product-main-info'>
+          <!-- Product main info populated by JavaScript -->
+        </section>
+
+        <section class='technical-metadata-panel' data-component='technical-metadata-panel' data-populate='technical-metadata'>
+          <!-- Technical metadata populated by JavaScript -->
+        </section>
+
+        <section class='related-products-section' data-component='related-products-section'>
+          <h2 class='related-products-heading'>Related collections</h2>
+          <div class='related-products-list' data-populate='related-products'>
+            <!-- Related products populated by JavaScript or server-side HTML -->
+          </div>
+        </section>
+      </div>
+
+      <aside class='purchase-actions-column'>
+        <section class='purchase-actions-panel' data-component='purchase-actions-panel' data-populate='purchase-actions-panel' aria-label='Purchase options'>
+          <!-- Purchase actions populated by JavaScript -->
+        </section>
+      </aside>
+    </div>
+
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const productId = urlParams.get('id');
+  const categoryCode = urlParams.get('categoryCode') || '';
+
+  const controller = document.querySelector('[data-component="product-detail-page-controller"]');
+  if (!controller) return;
+
+  const loadingEl = controller.querySelector('.product-loading');
+  const errorEl = controller.querySelector('.product-error');
+  const errorMsgEl = controller.querySelector('[data-populate="error-message"]');
+  const mainLayout = controller.querySelector('.product-main-layout');
+  const titleEl = controller.querySelector('[data-populate="product-title"]');
+  const typeLabelEl = controller.querySelector('[data-populate="product-type-label"]');
+  const breadcrumbBack = controller.querySelector('[data-action="back-to-results"]');
+  const postAddSection = controller.querySelector('[data-component="post-add-notification"]');
+  const postAddMessageEl = controller.querySelector('[data-populate="post-add-message"]');
+  const viewCartBtn = controller.querySelector('[data-action="view-cart"]');
+  const goLibraryBtn = controller.querySelector('[data-action="go-to-library"]');
+
+  if (categoryCode && breadcrumbBack) {
+    breadcrumbBack.hidden = false;
+  } else if (breadcrumbBack) {
+    breadcrumbBack.hidden = true;
+  }
+
+  let currentProduct = null;
+  let isProcessingAction = false;
+
+  function setLoading(isLoading) {
+    if (loadingEl) loadingEl.style.display = isLoading ? '' : 'none';
+    if (mainLayout) mainLayout.style.display = isLoading ? 'none' : '';
+    const bubble = controller.querySelector('.product-title-bubble');
+    if (bubble) {
+      bubble.classList.toggle('is-loading', !!isLoading);
+    }
+    if (mainLayout) mainLayout.setAttribute('aria-busy', isLoading ? 'true' : 'false');
+  }
+
+  function showError(message) {
+    if (errorEl) {
+      errorEl.hidden = false;
+    }
+    if (errorMsgEl) {
+      errorMsgEl.textContent = message || 'Something went wrong loading this product.';
+    }
+    if (mainLayout) mainLayout.style.display = 'none';
+  }
+
+  function hideError() {
+    if (errorEl) {
+      errorEl.hidden = true;
+    }
+  }
+
+  function humanizeProductType(product) {
+    if (!product) return '';
+    if (product.productType === 'physical_book') return 'Physical book';
+    if (product.productType === 'digital_collection') return 'Digital collection';
+    if (product.productType === 'merchandise') return 'Merchandise';
+    return 'Product';
+  }
+
+  function buildRatingSummary(product) {
+    if (!product) return 'No ratings yet';
+    const avg = typeof product.ratingAverage === 'number' ? product.ratingAverage.toFixed(1) : null;
+    const count = typeof product.reviewCount === 'number' ? product.reviewCount : 0;
+    if (!avg && !count) return 'No ratings yet';
+    const plural = count === 1 ? 'review' : 'reviews';
+    if (!avg) return count + ' ' + plural;
+    return avg + ' / 5 · ' + count + ' ' + plural;
+  }
+
+  function formatPrice(product) {
+    if (!product || typeof product.price !== 'number') return '';
+    const value = product.price.toFixed(2);
+    if (product.currency === 'usd') {
+      return '$' + value + ' USD';
+    }
+    return (value + ' ' + (product.currency || '')).trim();
+  }
+
+  function renderProductTitle(container, product) {
+    if (!container) return;
+    if (!product) {
+      container.textContent = 'Unknown product';
+      return;
+    }
+    container.textContent = product.title || 'Untitled product';
+  }
+
+  function renderProductTypeLabel(container, product) {
+    if (!container) return;
+    if (!product) {
+      container.textContent = '';
+      return;
+    }
+    const bits = [];
+    const typeLabel = humanizeProductType(product);
+    if (typeLabel) bits.push(typeLabel);
+    if (product.isPhysical && !product.isDigital) bits.push('(ships to you)');
+    if (product.isDigital && !product.isPhysical) bits.push('(goes to your Library)');
+    if (product.isDigital && product.isPhysical) bits.push('(digital + physical combo)');
+    container.textContent = bits.join(' ');
+  }
+
+  function renderProductMainInfo(container, product) {
+    if (!container) return;
+    if (!product) {
+      container.innerHTML = '<p>We could not find details for this product.</p>';
+      return;
+    }
+    const priceText = formatPrice(product);
+    const ratingSummary = buildRatingSummary(product);
+    const pageCountText = typeof product.pageCount === 'number' && product.pageCount > 0
+      ? product.pageCount + ' pages'
+      : '';
+    const physicalFlag = product.isPhysical ? 'Yes' : 'No';
+    const digitalFlag = product.isDigital ? 'Yes' : 'No';
+    const safeTitle = product.title ? String(product.title).replace(/"/g, '&quot;') : 'Product cover';
+    const imgHtml = product.imageUrl
+      ? '<img src="' + product.imageUrl + '" alt="' + safeTitle + '" class="product-main-image">'
+      : '<div class="product-image-placeholder">No cover image yet</div>';
+
+    const descriptionHtml = product.description
+      ? '<p class="product-summary-description">' + product.description + '</p>'
+      : '<p class="product-summary-description">No description available. The jokes are still in the mail.</p>';
+
+    container.innerHTML = (
+      '<div class="product-main-card">' +
+        '<div class="product-image-wrapper">' +
+          imgHtml +
+        '</div>' +
+        '<div class="product-summary">' +
+          '<p class="product-summary-type">' + humanizeProductType(product) + '</p>' +
+          descriptionHtml +
+          '<dl class="product-summary-meta">' +
+            '<div class="meta-row">' +
+              '<dt>Price</dt>' +
+              '<dd>' + (priceText || '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;') + '</dd>' +
+            '</div>' +
+            '<div class="meta-row">' +
+              '<dt>Rating</dt>' +
+              '<dd>' + ratingSummary + '</dd>' +
+            '</div>' +
+            (pageCountText ? (
+              '<div class="meta-row">' +
+                '<dt>Length</dt>' +
+                '<dd>' + pageCountText + '</dd>' +
+              '</div>'
+            ) : '') +
+            '<div class="meta-row">' +
+              '<dt>Physical</dt>' +
+              '<dd>' + physicalFlag + '</dd>' +
+            '</div>' +
+            '<div class="meta-row">' +
+              '<dt>Digital</dt>' +
+              '<dd>' + digitalFlag + '</dd>' +
+            '</div>' +
+          '</dl>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function renderTechnicalMetadata(container, product) {
+    if (!container) return;
+    if (!product) {
+      container.innerHTML = '';
+      return;
+    }
+    const created = product.createdAt ? new Date(product.createdAt) : null;
+    const createdText = created && !isNaN(created.getTime())
+      ? created.toLocaleDateString()
+      : 'Unknown';
+    const genre = product.genre || 'Uncategorized';
+    const gag = product.isGagStripCollection ? 'Yes' : 'No';
+    const type = humanizeProductType(product);
+    const salesRank = typeof product.salesRank === 'number' ? '#' + product.salesRank : 'Not ranked';
+
+    container.innerHTML = (
+      '<h2 class="technical-metadata-heading">Tech specs (for nerds and librarians)</h2>' +
+      '<dl class="technical-metadata-list">' +
+        '<div class="meta-row">' +
+          '<dt>Product ID</dt>' +
+          '<dd>' + product.id + '</dd>' +
+        '</div>' +
+        '<div class="meta-row">' +
+          '<dt>Category ID</dt>' +
+          '<dd>' + product.categoryId + '</dd>' +
+        '</div>' +
+        '<div class="meta-row">' +
+          '<dt>Type</dt>' +
+          '<dd>' + type + '</dd>' +
+        '</div>' +
+        '<div class="meta-row">' +
+          '<dt>Genre</dt>' +
+          '<dd>' + genre + '</dd>' +
+        '</div>' +
+        '<div class="meta-row">' +
+          '<dt>Gag strip collection</dt>' +
+          '<dd>' + gag + '</dd>' +
+        '</div>' +
+        '<div class="meta-row">' +
+          '<dt>Sales rank</dt>' +
+          '<dd>' + salesRank + '</dd>' +
+        '</div>' +
+        '<div class="meta-row">' +
+          '<dt>Created</dt>' +
+          '<dd>' + createdText + '</dd>' +
+        '</div>' +
+      '</dl>'
+    );
+  }
+
+  function renderPurchaseActionsPanel(container, product) {
+    if (!container) return;
+    if (!product) {
+      container.innerHTML = '<p>Purchase options are not available.</p>';
+      return;
+    }
+
+    const priceText = formatPrice(product);
+    const isPhysical = !!product.isPhysical;
+    const isDigital = !!product.isDigital;
+
+    let physicalBlock = '';
+    if (isPhysical) {
+      physicalBlock = (
+        '<div class="purchase-block purchase-block-physical">' +
+          '<h2 class="purchase-heading">Get the book</h2>' +
+          '<p class="purchase-price">' + (priceText || 'Price unavailable') + '</p>' +
+          '<label class="quantity-label">' +
+            'Qty:' +
+            '<input type="number" min="1" step="1" value="1" class="quantity-input" data-component="quantity-selector" data-action="quantity-change">' +
+          '</label>' +
+          '<button type="button" class="primary-button" data-action="add-to-cart">' +
+            'Add to cart' +
+          '</button>' +
+          '<p class="purchase-hint">Ships with extra bubble wrap for the jokes.</p>' +
+          '<p class="purchase-error" data-populate="purchase-error-cart"></p>' +
+        '</div>'
+      );
+    }
+
+    let digitalBlock = '';
+    if (isDigital) {
+      digitalBlock = (
+        '<div class="purchase-block purchase-block-digital">' +
+          '<h2 class="purchase-heading">Add to Library</h2>' +
+          '<p class="purchase-price">' + (priceText || 'Price unavailable') + '</p>' +
+          '<button type="button" class="primary-button" data-action="add-to-library">' +
+            'Add to Library' +
+          '</button>' +
+          '<p class="purchase-hint">Instant access in your Library; no shipping gags required.</p>' +
+          '<p class="purchase-error" data-populate="purchase-error-library"></p>' +
+        '</div>'
+      );
+    }
+
+    if (!isPhysical && !isDigital) {
+      container.innerHTML = (
+        '<div class="purchase-block purchase-block-unavailable">' +
+          '<h2 class="purchase-heading">Not available for purchase</h2>' +
+          '<p>We don\'t have a way to sell this item online yet. Try checking back later or browse other collections.</p>' +
+        '</div>'
+      );
+      return;
+    }
+
+    container.innerHTML = physicalBlock + digitalBlock;
+  }
+
+  function renderRelatedProducts(container) {
+    if (!container) return;
+    container.innerHTML = '<p class="related-empty">No related collections to show right now. The recommendation hamster is still waking up.</p>';
+  }
+
+  function openPostAddNotification(context, message) {
+    if (postAddSection) {
+      postAddSection.hidden = false;
+    }
+    if (postAddMessageEl) {
+      postAddMessageEl.textContent = message || (context === 'cart'
+        ? 'Added to your cart.'
+        : 'Added to your Library.');
+    }
+    if (viewCartBtn) {
+      viewCartBtn.hidden = context === 'cart' ? false : true;
+    }
+    if (goLibraryBtn) {
+      goLibraryBtn.hidden = context === 'library' ? false : true;
+    }
+  }
+
+  function dismissPostAddNotification() {
+    if (postAddSection) {
+      postAddSection.hidden = true;
+    }
+  }
+
+  function getCurrentQuantity() {
+    const qtyInput = controller.querySelector('[data-component="quantity-selector"]');
+    if (!qtyInput) return 1;
+    const value = parseInt(qtyInput.value, 10);
+    if (Number.isNaN(value) || value < 1) {
+      return 1;
+    }
+    return value;
+  }
+
+  function setProcessing(isProcessing) {
+    isProcessingAction = isProcessing;
+    const buttons = controller.querySelectorAll('.purchase-actions-panel button.primary-button');
+    buttons.forEach(function(btn) {
+      if (isProcessing) {
+        btn.setAttribute('data-original-text', btn.textContent);
+        btn.textContent = 'Working...';
+        btn.disabled = true;
+      } else {
+        const original = btn.getAttribute('data-original-text');
+        if (original) {
+          btn.textContent = original;
+          btn.removeAttribute('data-original-text');
+        }
+        btn.disabled = false;
+      }
+    });
+  }
+
+  function clearPurchaseErrors() {
+    const cartErrorEl = controller.querySelector('[data-populate="purchase-error-cart"]');
+    const libErrorEl = controller.querySelector('[data-populate="purchase-error-library"]');
+    if (cartErrorEl) cartErrorEl.textContent = '';
+    if (libErrorEl) libErrorEl.textContent = '';
+  }
+
+  function handleAddToCartClick() {
+    if (!currentProduct || !currentProduct.id) return;
+    if (isProcessingAction) return;
+    clearPurchaseErrors();
+    setProcessing(true);
+
+    const quantity = getCurrentQuantity();
+    let response;
+    try {
+      response = WebsiteSDK.addProductToCart(currentProduct.id, quantity);
+    } catch (err) {
+      const cartErrorEl = controller.querySelector('[data-populate="purchase-error-cart"]');
+      if (cartErrorEl) {
+        cartErrorEl.textContent = 'Could not add to cart. Please try again.';
+      }
+      setProcessing(false);
+      return;
+    }
+
+    if (response && response.success) {
+      const message = response.message || ('Added ' + quantity + ' item' + (quantity === 1 ? '' : 's') + ' to your cart.');
+      openPostAddNotification('cart', message);
+    } else {
+      const cartErrorEl = controller.querySelector('[data-populate="purchase-error-cart"]');
+      if (cartErrorEl) {
+        cartErrorEl.textContent = 'Could not add to cart. Please try again.';
+      }
+    }
+    setProcessing(false);
+  }
+
+  function handleAddToLibraryClick() {
+    if (!currentProduct || !currentProduct.id) return;
+    if (isProcessingAction) return;
+    clearPurchaseErrors();
+    setProcessing(true);
+
+    let response;
+    try {
+      response = WebsiteSDK.addProductToLibrary(currentProduct.id);
+    } catch (err) {
+      const libErrorEl = controller.querySelector('[data-populate="purchase-error-library"]');
+      if (libErrorEl) {
+        libErrorEl.textContent = 'Could not add to Library. Please try again.';
+      }
+      setProcessing(false);
+      return;
+    }
+
+    if (response && response.success) {
+      openPostAddNotification('library', 'Added to your Library.');
+    } else {
+      const libErrorEl = controller.querySelector('[data-populate="purchase-error-library"]');
+      if (libErrorEl) {
+        libErrorEl.textContent = 'Could not add to Library. Please try again.';
+      }
+    }
+    setProcessing(false);
+  }
+
+  function handleBackToResultsClick() {
+    if (!categoryCode) return;
+    const targetUrl = 'products_list.html?categoryCode=' + encodeURIComponent(categoryCode);
+    window.location.href = targetUrl;
+  }
+
+  function handleViewCartClick() {
+    window.location.href = 'cart.html';
+  }
+
+  function handleGoToLibraryClick() {
+    window.location.href = 'library.html';
+  }
+
+  function handleRelatedProductClick(targetEl) {
+    if (!targetEl) return;
+    const relatedId = targetEl.getAttribute('data-product-id');
+    if (!relatedId) return;
+    const relatedCategory = categoryCode || targetEl.getAttribute('data-category-code') || '';
+    let url = 'product_detail.html?id=' + encodeURIComponent(relatedId);
+    if (relatedCategory) {
+      url += '&categoryCode=' + encodeURIComponent(relatedCategory);
+    }
+    window.location.href = url;
+  }
+
+  function setupActionHandlers() {
+    const actionElements = controller.querySelectorAll('[data-action]');
+    actionElements.forEach(function(el) {
+      if (el.dataset.bound === 'true') return;
+      const action = el.dataset.action;
+      if (!action) return;
+
+      if (action === 'add-to-cart') {
+        el.addEventListener('click', handleAddToCartClick);
+      } else if (action === 'add-to-library') {
+        el.addEventListener('click', handleAddToLibraryClick);
+      } else if (action === 'back-to-results') {
+        el.addEventListener('click', function(evt) {
+          evt.preventDefault();
+          handleBackToResultsClick();
+        });
+      } else if (action === 'view-cart') {
+        el.addEventListener('click', function(evt) {
+          evt.preventDefault();
+          handleViewCartClick();
+        });
+      } else if (action === 'go-to-library') {
+        el.addEventListener('click', function(evt) {
+          evt.preventDefault();
+          handleGoToLibraryClick();
+        });
+      } else if (action === 'dismiss-notification') {
+        el.addEventListener('click', function(evt) {
+          evt.preventDefault();
+          dismissPostAddNotification();
+        });
+      } else if (action === 'open-related-product') {
+        el.addEventListener('click', function(evt) {
+          evt.preventDefault();
+          handleRelatedProductClick(el);
+        });
+      } else if (action === 'quantity-change') {
+        el.addEventListener('change', function() {
+          // Quantity is read when the user clicks Add to cart.
+        });
+      }
+
+      el.dataset.bound = 'true';
+    });
+  }
+
+  function initPage() {
+    const mainInfoContainer = controller.querySelector('[data-populate="product-main-info"]');
+    const metadataContainer = controller.querySelector('[data-populate="technical-metadata"]');
+    const purchaseContainer = controller.querySelector('[data-populate="purchase-actions-panel"]');
+    const relatedContainer = controller.querySelector('[data-populate="related-products"]');
+
+    if (!productId) {
+      setLoading(false);
+      if (titleEl) {
+        titleEl.textContent = 'No product selected';
+      }
+      if (typeLabelEl) {
+        typeLabelEl.textContent = '';
+      }
+      showError('We could not figure out which product to show. The link might be missing an id parameter.');
+      renderProductMainInfo(mainInfoContainer, null);
+      renderTechnicalMetadata(metadataContainer, null);
+      renderPurchaseActionsPanel(purchaseContainer, null);
+      renderRelatedProducts(relatedContainer);
+      setupActionHandlers();
+      return;
+    }
+
+    setLoading(true);
+    hideError();
+
+    let product;
+    try {
+      product = WebsiteSDK.getProductDetail(productId);
+    } catch (err) {
+      setLoading(false);
+      showError('We hit a snag loading this product. Please try refreshing the page.');
+      return;
+    }
+
+    if (!product) {
+      setLoading(false);
+      showError('We could not find that product. It may have been removed from the store.');
+      return;
+    }
+
+    currentProduct = product;
+
+    renderProductTitle(titleEl, product);
+    renderProductTypeLabel(typeLabelEl, product);
+    renderProductMainInfo(mainInfoContainer, product);
+    renderTechnicalMetadata(metadataContainer, product);
+    renderPurchaseActionsPanel(purchaseContainer, product);
+    renderRelatedProducts(relatedContainer);
+
+    setLoading(false);
+    setupActionHandlers();
+  }
+
+  initPage();
+});
+</script>

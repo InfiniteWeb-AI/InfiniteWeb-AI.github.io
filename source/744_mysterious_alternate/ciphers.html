@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ciphers | The Initiative</title>
+    
+    <link rel="stylesheet" href="ciphers.css">
+</head>
+<body>
+    <div class="page">
+        <header class="site-header">
+            <div class="site-identity">
+                <span class="site-title">The Initiative</span>
+            </div>
+            <nav class="site-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html" title="Homepage and primary entry into the ARG experience">Home</a></li>
+                    <li><a href="transmission_logs.html" title="Browse transmissions and unlock the Phase I teaser via Prelude logs">Transmission Logs</a></li>
+                    <li><a href="timeline.html" title="Chronological view of events with filters and severity controls">Timeline</a></li>
+                    <li><a href="timeline.html?view=watchlist" title="List of events the user has flagged for monitoring">Watchlist</a></li>
+                    <li><a href="characters.html" title="Directory of Initiative characters, including Project Orion profiles">Characters</a></li>
+                    <li><a href="anomaly_map.html" title="Interactive map and list of anomalous locations and case files">Anomaly Map</a></li>
+                    <li><a href="media_videos.html" title="Media gallery for teaser and briefing videos">Videos</a></li>
+                    <li><a href="incident_logs.html" title="Searchable archive of incident logs and low-threat reports">Incident Logs</a></li>
+                    <li><a href="signals.html" title="Live signal stream used as clues for theories">Signals</a></li>
+                    <li><a href="ciphers.html" title="Tools and cipher list for decoding and theory building">Ciphers</a></li>
+                    <li><a href="theory_board.html" title="Workspace for assembling clues into named theories">Theory Board</a></li>
+                    <li><a href="artifacts.html" title="Catalog of recovered artifacts and their risk levels">Artifacts</a></li>
+                    <li><a href="recruitment.html" title="Recruitment and assessment form for new operatives">Join the Initiative</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id="content" class="site-main" tabindex="-1">
+            <div data-component="query-state-manager" aria-hidden="true" hidden></div>
+
+            <h1>Ciphers</h1>
+            <section aria-describedby="cipher-page-description">
+                <p id="cipher-page-description">
+                    Browse and filter available ciphers, then open a cipher's details to associate it with theories on the Theory Board.
+                </p>
+            </section>
+
+            <section data-component="cipher-filter-bar" data-populate="cipher-filter-bar" aria-label="Cipher filters">
+                <!-- Filter controls rendered by JavaScript -->
+            </section>
+
+            <section data-component="cipher-list" aria-label="Cipher results">
+                <div data-populate="cipher-list">
+                    <!-- Cipher list rendered by JavaScript -->
+                </div>
+            </section>
+
+            <nav data-component="cipher-pagination" aria-label="Cipher pagination">
+                <div data-populate="cipher-pagination">
+                    <!-- Pagination rendered by JavaScript -->
+                </div>
+            </nav>
+        </main>
+
+        <footer class="site-footer">
+            <hr class="footer-rule">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="about.html" title="About the Initiative and the ARG universe">About</a></li>
+                    <li><a href="transmission_logs.html" title="Access the transmission archive">Transmission Logs</a></li>
+                    <li><a href="incident_logs.html" title="Access the incident log archives">Incident Logs</a></li>
+                    <li><a href="artifacts.html" title="Browse artifacts by origin and corruption risk">Artifacts Catalog</a></li>
+                    <li><a href="recruitment.html" title="Create your recruitment profile">Join the Initiative</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">The Initiative</p>
+        </footer>
+    </div>
+
+    <script src="business_logic.js"></script>
+    <script>
+    (function() {
+        const defaultPage = 1;
+        const defaultPageSize = 20;
+
+        const state = {
+            filterOptions: null,
+            current: null,
+            results: null,
+            defaults: {
+                page: defaultPage,
+                pageSize: defaultPageSize,
+                sort: null
+            }
+        };
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) {
+                return '';
+            }
+            return String(str).replace(/[&<>"']/g, function(ch) {
+                switch (ch) {
+                    case '&': return '&amp;';
+                    case '<': return '&lt;';
+                    case '>': return '&gt;';
+                    case '"': return '&quot;';
+                    case "'": return '&#39;';
+                    default: return ch;
+                }
+            });
+        }
+
+        function escapeAttr(str) {
+            return escapeHtml(str);
+        }
+
+        function readUrlState() {
+            const params = new URLSearchParams(window.location.search);
+            const difficultyValues = (state.filterOptions && state.filterOptions.difficulty_options || []).map(function(opt) {
+                return opt.value;
+            });
+            const sortValues = (state.filterOptions && state.filterOptions.sort_options || []).map(function(opt) {
+                return opt.key;
+            });
+
+            let difficulty = params.get('difficulty') || '';
+            if (difficulty && difficultyValues.indexOf(difficulty) === -1) {
+                difficulty = '';
+            }
+
+            let sort = params.get('sort') || '';
+            if (!sort || sortValues.indexOf(sort) === -1) {
+                sort = state.defaults.sort || '';
+            }
+
+            const q = params.get('q') || '';
+
+            const pageParam = parseInt(params.get('page'), 10);
+            const page = !isNaN(pageParam) && pageParam > 0 ? pageParam : state.defaults.page;
+
+            const pageSizeParam = parseInt(params.get('pageSize'), 10);
+            const pageSize = !isNaN(pageSizeParam) && pageSizeParam > 0 ? pageSizeParam : state.defaults.pageSize;
+
+            return {
+                difficulty: difficulty,
+                sort: sort,
+                q: q,
+                page: page,
+                pageSize: pageSize
+            };
+        }
+
+        function renderFilterBar(container) {
+            const options = state.filterOptions || { difficulty_options: [], sort_options: [] };
+            const current = state.current || { difficulty: '', sort: '', q: '' };
+
+            const difficultyOptionsHtml = options.difficulty_options.map(function(opt) {
+                const selected = current.difficulty === opt.value ? ' selected' : '';
+                return '<option value="' + escapeAttr(opt.value) + '"' + selected + '>' + escapeHtml(opt.label || opt.value) + '</option>';
+            }).join('');
+
+            const sortOptionsHtml = options.sort_options.map(function(opt) {
+                const selected = current.sort === opt.key ? ' selected' : '';
+                return '<option value="' + escapeAttr(opt.key) + '"' + selected + '>' + escapeHtml(opt.label || opt.key) + '</option>';
+            }).join('');
+
+            const qValue = current.q ? escapeAttr(current.q) : '';
+
+            container.innerHTML = '' +
+                '<form data-component="cipher-filter-form">' +
+                    '<div>' +
+                        '<label for="cipherDifficulty">Difficulty:</label> ' +
+                        '<select id="cipherDifficulty" name="difficulty">' +
+                            '<option value="">Any</option>' +
+                            difficultyOptionsHtml +
+                        '</select>' +
+                    '</div>' +
+                    '<div>' +
+                        '<label for="cipherSort">Sort:</label> ' +
+                        '<select id="cipherSort" name="sort">' +
+                            sortOptionsHtml +
+                        '</select>' +
+                    '</div>' +
+                    '<div>' +
+                        '<label for="cipherSearch">Search:</label> ' +
+                        '<input type="search" id="cipherSearch" name="q" value="' + qValue + '">' +
+                        ' <button type="submit" data-action="search-submit">Apply</button>' +
+                        ' <button type="button" data-action="search-clear">Clear</button>' +
+                    '</div>' +
+                '</form>';
+        }
+
+        function bindFilterBarEvents(container) {
+            const form = container.querySelector('form');
+            if (!form) {
+                return;
+            }
+
+            const difficultySelect = form.querySelector('select[name="difficulty"]');
+            const sortSelect = form.querySelector('select[name="sort"]');
+            const searchInput = form.querySelector('input[name="q"]');
+            const clearButton = form.querySelector('button[data-action="search-clear"]');
+
+            if (difficultySelect) {
+                difficultySelect.addEventListener('change', function() {
+                    const value = difficultySelect.value || '';
+                    updateUrlAndSearch({ difficulty: value, page: 1 });
+                });
+            }
+
+            if (sortSelect) {
+                sortSelect.addEventListener('change', function() {
+                    const value = sortSelect.value || '';
+                    updateUrlAndSearch({ sort: value, page: 1 });
+                });
+            }
+
+            form.addEventListener('submit', function(event) {
+                event.preventDefault();
+                const value = searchInput && searchInput.value ? searchInput.value.trim() : '';
+                updateUrlAndSearch({ q: value, page: 1 });
+            });
+
+            if (clearButton) {
+                clearButton.addEventListener('click', function() {
+                    updateUrlAndSearch({ q: '', page: 1 });
+                });
+            }
+        }
+
+        function renderCipherList(container) {
+            const results = state.results || { items: [], total: 0 };
+            const items = results.items || [];
+
+            if (!results.total || items.length === 0) {
+                container.innerHTML = '<p>No ciphers were found for these filters.</p>';
+                return;
+            }
+
+            let listHtml = '<ul>';
+            items.forEach(function(item) {
+                const idAttr = escapeAttr(item.id);
+                const name = escapeHtml(item.name || '');
+                const description = escapeHtml(item.description || '');
+                const difficulty = escapeHtml(item.difficulty || '');
+
+                listHtml += '' +
+                    '<li data-action="open-cipher" data-cipher-id="' + idAttr + '">' +
+                        '<div>' + name + '</div>' +
+                        '<div>' + description + '</div>' +
+                        '<div>Difficulty: ' + difficulty + '</div>' +
+                    '</li>';
+            });
+            listHtml += '</ul>';
+
+            container.innerHTML = listHtml;
+        }
+
+        function bindCipherListEvents(container) {
+            container.addEventListener('click', function(event) {
+                const target = event.target;
+                if (!target) {
+                    return;
+                }
+                const row = target.closest('[data-action="open-cipher"]');
+                if (!row) {
+                    return;
+                }
+                const cipherId = row.getAttribute('data-cipher-id');
+                if (!cipherId) {
+                    return;
+                }
+                const url = 'clue_detail.html?clue_type=cipher&clueId=' + encodeURIComponent(cipherId);
+                window.location.href = url;
+            });
+        }
+
+        function renderPagination(container) {
+            const results = state.results || { total: 0, page: state.defaults.page, pageSize: state.defaults.pageSize };
+            const total = results.total || 0;
+            const page = results.page || state.defaults.page;
+            const pageSize = results.pageSize || state.defaults.pageSize;
+
+            if (!total || total <= pageSize) {
+                container.innerHTML = '';
+                return;
+            }
+
+            const pageCount = Math.ceil(total / pageSize);
+            let linksHtml = '<div>';
+            linksHtml += '<span>Page ' + page + ' of ' + pageCount + '</span> ';
+
+            if (page > 1) {
+                linksHtml += '<a href="javascript:void(0)" data-action="change-page" data-page="' + (page - 1) + '">Previous</a> ';
+            }
+
+            const maxPagesToShow = 5;
+            let start = Math.max(1, page - 2);
+            let end = Math.min(pageCount, start + maxPagesToShow - 1);
+            if (end - start < maxPagesToShow - 1) {
+                start = Math.max(1, end - maxPagesToShow + 1);
+            }
+
+            for (let p = start; p <= end; p++) {
+                if (p === page) {
+                    linksHtml += '<span>[' + p + ']</span> ';
+                } else {
+                    linksHtml += '<a href="javascript:void(0)" data-action="change-page" data-page="' + p + '">' + p + '</a> ';
+                }
+            }
+
+            if (page < pageCount) {
+                linksHtml += '<a href="javascript:void(0)" data-action="change-page" data-page="' + (page + 1) + '">Next</a> ';
+            }
+
+            linksHtml += '<label> Page size: ' +
+                '<select data-action="change-page-size">' +
+                    '<option value="10"' + (pageSize === 10 ? ' selected' : '') + '>10</option>' +
+                    '<option value="20"' + (pageSize === 20 ? ' selected' : '') + '>20</option>' +
+                    '<option value="50"' + (pageSize === 50 ? ' selected' : '') + '>50</option>' +
+                '</select>' +
+            '</label>';
+
+            linksHtml += '</div>';
+            container.innerHTML = linksHtml;
+        }
+
+        function bindPaginationEvents(container) {
+            container.addEventListener('click', function(event) {
+                const target = event.target;
+                if (!target) {
+                    return;
+                }
+                const link = target.closest('a[data-action="change-page"]');
+                if (!link) {
+                    return;
+                }
+                event.preventDefault();
+                const pageStr = link.getAttribute('data-page');
+                const page = parseInt(pageStr, 10);
+                if (!isNaN(page) && page > 0) {
+                    updateUrlAndSearch({ page: page });
+                }
+            });
+
+            const select = container.querySelector('select[data-action="change-page-size"]');
+            if (select) {
+                select.addEventListener('change', function() {
+                    const val = parseInt(select.value, 10);
+                    if (!isNaN(val) && val > 0) {
+                        updateUrlAndSearch({ pageSize: val, page: 1 });
+                    }
+                });
+            }
+        }
+
+        function updateUrlAndSearch(changes) {
+            const params = new URLSearchParams(window.location.search);
+
+            if (Object.prototype.hasOwnProperty.call(changes, 'difficulty')) {
+                const value = changes.difficulty;
+                if (value) {
+                    params.set('difficulty', value);
+                } else {
+                    params.delete('difficulty');
+                }
+            }
+
+            if (Object.prototype.hasOwnProperty.call(changes, 'sort')) {
+                const value = changes.sort;
+                if (value) {
+                    params.set('sort', value);
+                } else {
+                    params.delete('sort');
+                }
+            }
+
+            if (Object.prototype.hasOwnProperty.call(changes, 'q')) {
+                const value = changes.q;
+                if (value) {
+                    params.set('q', value);
+                } else {
+                    params.delete('q');
+                }
+            }
+
+            if (Object.prototype.hasOwnProperty.call(changes, 'page')) {
+                const value = changes.page;
+                if (typeof value === 'number' && value > 0) {
+                    params.set('page', String(value));
+                } else {
+                    params.delete('page');
+                }
+            }
+
+            if (Object.prototype.hasOwnProperty.call(changes, 'pageSize')) {
+                const value = changes.pageSize;
+                if (typeof value === 'number' && value > 0) {
+                    params.set('pageSize', String(value));
+                } else {
+                    params.delete('pageSize');
+                }
+            }
+
+            const queryString = params.toString();
+            const newUrl = window.location.pathname + (queryString ? '?' + queryString : '');
+            history.pushState(null, '', newUrl);
+
+            const filterBarContainer = document.querySelector('[data-populate="cipher-filter-bar"]');
+            const listContainer = document.querySelector('[data-populate="cipher-list"]');
+            const paginationContainer = document.querySelector('[data-populate="cipher-pagination"]');
+
+            syncFromUrlAndSearch(filterBarContainer, listContainer, paginationContainer);
+        }
+
+        function syncFromUrlAndSearch(filterBarContainer, listContainer, paginationContainer) {
+            const urlState = readUrlState();
+            state.current = urlState;
+
+            let results;
+            try {
+                const filters = {};
+                if (urlState.difficulty) {
+                    filters.difficulty = urlState.difficulty;
+                }
+                if (urlState.q) {
+                    filters.query = urlState.q;
+                }
+                results = WebsiteSDK.searchCiphers(filters, urlState.sort, urlState.page, urlState.pageSize);
+            } catch (err) {
+                console.error('Failed to search ciphers', err);
+                results = { items: [], total: 0, page: urlState.page, pageSize: urlState.pageSize };
+            }
+
+            state.results = results;
+
+            if (filterBarContainer) {
+                renderFilterBar(filterBarContainer);
+                bindFilterBarEvents(filterBarContainer);
+            }
+            if (listContainer) {
+                renderCipherList(listContainer);
+                bindCipherListEvents(listContainer);
+            }
+            if (paginationContainer) {
+                renderPagination(paginationContainer);
+                bindPaginationEvents(paginationContainer);
+            }
+        }
+
+        function init() {
+            if (typeof WebsiteSDK === 'undefined') {
+                console.error('WebsiteSDK is not available.');
+                return;
+            }
+
+            const populateElements = document.querySelectorAll('[data-populate]');
+            let filterBarContainer = null;
+            let listContainer = null;
+            let paginationContainer = null;
+
+            populateElements.forEach(function(element) {
+                const dataType = element.dataset.populate;
+                if (dataType === 'cipher-filter-bar') {
+                    filterBarContainer = element;
+                } else if (dataType === 'cipher-list') {
+                    listContainer = element;
+                } else if (dataType === 'cipher-pagination') {
+                    paginationContainer = element;
+                }
+            });
+
+            if (!filterBarContainer || !listContainer || !paginationContainer) {
+                console.error('Required containers for Ciphers page are missing.');
+                return;
+            }
+
+            let options;
+            try {
+                options = WebsiteSDK.getCipherFilterOptions();
+            } catch (err) {
+                console.error('Failed to load cipher filter options', err);
+                options = { difficulty_options: [], sort_options: [] };
+            }
+
+            state.filterOptions = options || { difficulty_options: [], sort_options: [] };
+            state.defaults.sort = (state.filterOptions.sort_options[0] && state.filterOptions.sort_options[0].key) || '';
+
+            syncFromUrlAndSearch(filterBarContainer, listContainer, paginationContainer);
+
+            window.addEventListener('popstate', function() {
+                syncFromUrlAndSearch(filterBarContainer, listContainer, paginationContainer);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Abha Card – Digital Health Card</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+
+    <!-- Site stylesheet -->
+    
+    <!-- Plans & pricing page stylesheet -->
+    <link rel="stylesheet" href="plans_pricing.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a href="index.html" class="brand" aria-label="Abha Card home">
+                Abha Card
+            </a>
+            <nav class="primary-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html">Home</a></li>
+                    <li><a href="eligibility.html">Check eligibility</a></li>
+                    <li><a href="plans_pricing.html">Plans &amp; pricing</a></li>
+                    <li><a href="cost_estimator.html">Cost estimator</a></li>
+                    <li><a href="provider_search.html">Find a provider</a></li>
+                    <li><a href="coverage_overview.html">Coverage</a></li>
+                    <li><a href="usage_scenarios.html">How to use your card</a></li>
+                    <li><a href="resources.html">Resources</a></li>
+                    <li><a href="help_faqs.html">Help &amp; FAQs</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <div class="page-background">
+        <main id="content" class="content-shell" role="main">
+            <div class="page-card plans-pricing-card">
+                <header class="page-header-block">
+                    <h1 class="page-title">Plans &amp; pricing</h1>
+                    <p class="page-intro">Browse available digital health card plans, then compare coverage side by side, including emergency room visits.</p>
+                </header>
+
+                <section class="plans-section" aria-labelledby="plans-section-heading">
+                    <h2 id="plans-section-heading" class="section-title">Choose your plan</h2>
+                    <p class="section-subtitle">Select one or more plans to compare monthly price and key benefits.</p>
+
+                    <div class="plans-status" aria-live="polite">
+                        <div class="plans-loading" data-role="plans-loading" aria-hidden="true"></div>
+                        <div class="plans-error" data-role="plans-error" aria-hidden="true"></div>
+                    </div>
+
+                    <div data-component="plan-list" data-populate="plans-list" class="plan-list" aria-live="polite">
+                        <!-- Plan cards rendered by JavaScript -->
+                    </div>
+                </section>
+
+                <section class="selection-summary-section" aria-label="Plan comparison selection summary">
+                    <div data-component="selection-summary-bar" data-populate="selection-summary" class="selection-summary-bar">
+                        <!-- Selection summary rendered by JavaScript -->
+                    </div>
+                </section>
+
+                <section class="comparison-section" aria-labelledby="comparison-section-heading">
+                    <h2 id="comparison-section-heading" class="section-title">Compare selected plans</h2>
+                    <div data-component="comparison-table" data-populate="comparison-table" class="comparison-table-wrapper" aria-live="polite">
+                        <!-- Comparison table rendered by JavaScript -->
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="accessibility.html">Accessibility</a></li>
+                    <li><a href="help_faqs.html">Help &amp; FAQs</a></li>
+                    <li><a href="coverage_overview.html">Coverage overview</a></li>
+                    <li><a href="resources.html">Resources</a></li>
+                    <li><a href="provider_search.html">Find a provider</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">&copy; 2024 Abha Card. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <!-- SDK / business logic bundle -->
+    <script src="business_logic.js"></script>
+
+    <!-- Page-specific UI logic -->
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const MAX_SELECTED_PLANS = 3;
+
+        const state = {
+            plans: [],
+            selectedPlanIds: [],
+            comparisonData: null,
+            comparisonError: null
+        };
+
+        const components = {
+            planList: null,
+            selectionSummary: null,
+            comparisonTable: null
+        };
+
+        function parseSelectedPlansFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            const raw = params.get('selectedPlans') || '';
+            if (!raw) {
+                return [];
+            }
+            const parts = raw.split(',');
+            const ids = [];
+            parts.forEach(function(part) {
+                const trimmed = part.trim();
+                if (trimmed && ids.indexOf(trimmed) === -1) {
+                    ids.push(trimmed);
+                }
+            });
+            return ids;
+        }
+
+        function updateUrlSelectedPlans(selectedPlanIds, options) {
+            const url = new URL(window.location.href);
+            if (selectedPlanIds && selectedPlanIds.length) {
+                url.searchParams.set('selectedPlans', selectedPlanIds.join(','));
+            } else {
+                url.searchParams.delete('selectedPlans');
+            }
+            const newSearch = url.searchParams.toString();
+            const newUrl = url.pathname + (newSearch ? '?' + newSearch : '') + url.hash;
+            if (options && options.replace) {
+                window.history.replaceState({}, '', newUrl);
+            } else {
+                window.history.pushState({}, '', newUrl);
+            }
+        }
+
+        function syncSelectedPlanIdsWithKnownPlans() {
+            if (!state.plans || !state.plans.length) {
+                return;
+            }
+            const knownIds = new Set();
+            state.plans.forEach(function(plan) {
+                if (plan && plan.id) {
+                    knownIds.add(plan.id);
+                }
+            });
+            const sanitized = state.selectedPlanIds.filter(function(id) {
+                return knownIds.has(id);
+            });
+            if (sanitized.length !== state.selectedPlanIds.length) {
+                state.selectedPlanIds = sanitized;
+                updateUrlSelectedPlans(state.selectedPlanIds, { replace: true });
+            }
+        }
+
+        function formatPlanTypeLabel(type) {
+            if (type === 'adult') {
+                return 'Adult plan';
+            }
+            if (type === 'child') {
+                return 'Child plan';
+            }
+            if (type === 'family') {
+                return 'Family plan';
+            }
+            if (type === 'student') {
+                return 'Student plan';
+            }
+            return 'Plan';
+        }
+
+        function formatCurrencyAmount(amount, currency) {
+            if (typeof amount !== 'number' || isNaN(amount)) {
+                return '';
+            }
+            if (currency === 'usd') {
+                return '$' + amount.toFixed(0);
+            }
+            return amount.toFixed(0);
+        }
+
+        function renderPlanList(container, plans, selectedPlanIds) {
+            if (!container) {
+                return;
+            }
+            if (!plans || !plans.length) {
+                container.innerHTML = '<p class="empty-state">No plans are currently available.</p>';
+                return;
+            }
+            const selectedSet = new Set(selectedPlanIds || []);
+            let html = '';
+            plans.forEach(function(plan) {
+                const isSelected = selectedSet.has(plan.id);
+                const price = formatCurrencyAmount(plan.monthly_price, plan.currency);
+                const typeLabel = formatPlanTypeLabel(plan.type);
+                const description = plan.description ? plan.description : '';
+                let tagsHtml = '';
+                if (plan.highlight_tags && plan.highlight_tags.length) {
+                    let tagsItems = '';
+                    plan.highlight_tags.forEach(function(tag) {
+                        tagsItems += '<li class="plan-tag">' + String(tag).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</li>';
+                    });
+                    tagsHtml = '<ul class="plan-tags" aria-label="Plan highlights">' + tagsItems + '</ul>';
+                }
+
+                html += '\n<div class="plan-card" data-plan-id="' + String(plan.id).replace(/"/g, '&quot;') + '">';
+                html += '\n  <div class="plan-card-main">';
+                html += '\n    <div class="plan-card-header">';
+                html += '\n      <h3 class="plan-name">' + String(plan.name).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</h3>';
+                html += '\n      <span class="plan-type-badge">' + typeLabel + '</span>';
+                html += '\n    </div>';
+                if (description) {
+                    html += '\n    <p class="plan-description">' + String(description).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>';
+                }
+                html += '\n    <div class="plan-price-row">';
+                html += '\n      <span class="price-amount">' + price + '</span>'; 
+                html += '\n      <span class="price-period">/month</span>';
+                html += '\n    </div>';
+                if (tagsHtml) {
+                    html += '\n    ' + tagsHtml;
+                }
+                html += '\n  </div>';
+                html += '\n  <div class="plan-card-compare">';
+                html += '\n    <label class="compare-checkbox-label">';
+                html += '\n      <input type="checkbox" class="compare-checkbox" data-action="toggle-compare" data-plan-id="' + String(plan.id).replace(/"/g, '&quot;') + '" ' + (isSelected ? 'checked ' : '') + 'aria-label="Select ' + String(plan.name).replace(/"/g, '&quot;') + ' for comparison" />';
+                html += '\n      <span class="compare-label-text">Compare</span>';
+                html += '\n    </label>';
+                html += '\n  </div>';
+                html += '\n</div>';
+            });
+            container.innerHTML = html;
+        }
+
+        function renderSelectionSummary(container, selectedPlanIds, plans) {
+            if (!container) {
+                return;
+            }
+            const count = selectedPlanIds ? selectedPlanIds.length : 0;
+            const disabledAttr = count === 0 ? ' disabled' : '';
+            const compareDisabledAttr = count === 0 ? ' disabled' : '';
+
+            let selectedNamesText = '';
+            if (count && plans && plans.length) {
+                const idSet = new Set(selectedPlanIds);
+                const names = [];
+                plans.forEach(function(plan) {
+                    if (idSet.has(plan.id)) {
+                        names.push(plan.name);
+                    }
+                });
+                if (names.length) {
+                    selectedNamesText = '<p class="selection-summary-names">Selected: ' + names.map(function(name) {
+                        return String(name).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    }).join(', ') + '</p>';
+                }
+            }
+
+            let message = '';
+            if (count === 0) {
+                message = 'No plans selected for comparison yet.';
+            } else if (count === 1) {
+                message = '1 plan selected. You can add up to ' + MAX_SELECTED_PLANS + ' plans.';
+            } else {
+                message = count + ' plans selected. You can compare up to ' + MAX_SELECTED_PLANS + ' plans.';
+            }
+
+            let html = '';
+            html += '\n<div class="selection-summary-content">';
+            html += '\n  <div class="selection-summary-text">';
+            html += '\n    <p class="selection-summary-message">' + message + '</p>';
+            if (selectedNamesText) {
+                html += '\n    ' + selectedNamesText;
+            }
+            html += '\n  </div>';
+            html += '\n  <div class="selection-summary-actions">';
+            html += '\n    <button type="button" class="primary-button" data-action="scroll-to-comparison"' + compareDisabledAttr + '>View comparison</button>';
+            html += '\n    <button type="button" class="ghost-button" data-action="clear-selection"' + disabledAttr + '>Clear selection</button>';
+            html += '\n  </div>';
+            html += '\n</div>';
+
+            container.innerHTML = html;
+        }
+
+        function buildBenefitTypesIndex(planGroups) {
+            const benefitTypeMap = {};
+            if (!planGroups || !planGroups.length) {
+                return benefitTypeMap;
+            }
+            planGroups.forEach(function(group) {
+                const benefits = group.benefits || [];
+                benefits.forEach(function(benefit) {
+                    if (benefit && benefit.is_displayed_in_comparison && benefit.benefit_type) {
+                        if (!Object.prototype.hasOwnProperty.call(benefitTypeMap, benefit.benefit_type)) {
+                            benefitTypeMap[benefit.benefit_type] = {
+                                type: benefit.benefit_type,
+                                label: benefit.name
+                            };
+                        }
+                    }
+                });
+            });
+
+            if (!Object.prototype.hasOwnProperty.call(benefitTypeMap, 'emergency_room_visit')) {
+                planGroups.forEach(function(group) {
+                    const benefits = group.benefits || [];
+                    for (let i = 0; i < benefits.length; i += 1) {
+                        const benefit = benefits[i];
+                        if (benefit && benefit.benefit_type === 'emergency_room_visit') {
+                            benefitTypeMap['emergency_room_visit'] = {
+                                type: benefit.benefit_type,
+                                label: benefit.name
+                            };
+                            return;
+                        }
+                    }
+                });
+            }
+
+            return benefitTypeMap;
+        }
+
+        function formatBenefitCoverage(benefit) {
+            if (!benefit) {
+                return '';
+            }
+            const coverageType = benefit.coverage_type;
+            let parts = [];
+            if (coverageType === 'not_covered') {
+                parts.push('Not covered');
+            } else if (coverageType === 'included') {
+                parts.push('Included');
+            } else if (coverageType === 'copay') {
+                if (typeof benefit.copay_amount === 'number') {
+                    parts.push('$' + benefit.copay_amount.toFixed(0) + ' copay');
+                } else {
+                    parts.push('Copay');
+                }
+            } else if (coverageType === 'coinsurance') {
+                if (typeof benefit.coinsurance_percent === 'number') {
+                    parts.push(benefit.coinsurance_percent.toFixed(0) + '% coinsurance');
+                } else {
+                    parts.push('Coinsurance');
+                }
+            } else if (coverageType === 'deductible') {
+                if (typeof benefit.deductible_amount === 'number') {
+                    parts.push('Counts toward deductible: $' + benefit.deductible_amount.toFixed(0));
+                } else {
+                    parts.push('Subject to deductible');
+                }
+            }
+
+            if (benefit.coverage_notes) {
+                parts.push(String(benefit.coverage_notes));
+            }
+
+            return parts.join('. ');
+        }
+
+        function renderComparisonEmptyState(container) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '<p class="empty-state">Select one or more plans above to see a side-by-side comparison of benefits, including emergency room visits.</p>';
+        }
+
+        function renderComparisonErrorState(container) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '<p class="error-state">We\'re having trouble loading comparison details right now. Please try again.</p>';
+        }
+
+        function renderComparisonTable(container, comparisonData, selectedPlanIds) {
+            if (!container) {
+                return;
+            }
+            if (!comparisonData || !comparisonData.plans || !comparisonData.plans.length || !selectedPlanIds || !selectedPlanIds.length) {
+                renderComparisonEmptyState(container);
+                return;
+            }
+
+            const groupsByPlanId = {};
+            comparisonData.plans.forEach(function(group) {
+                if (group && group.plan && group.plan.id) {
+                    groupsByPlanId[group.plan.id] = group;
+                }
+            });
+
+            const orderedGroups = [];
+            selectedPlanIds.forEach(function(id) {
+                if (groupsByPlanId[id]) {
+                    orderedGroups.push(groupsByPlanId[id]);
+                }
+            });
+            if (!orderedGroups.length) {
+                renderComparisonEmptyState(container);
+                return;
+            }
+
+            const benefitTypeMap = buildBenefitTypesIndex(orderedGroups);
+            const benefitTypes = Object.keys(benefitTypeMap).map(function(key) {
+                return benefitTypeMap[key];
+            });
+
+            benefitTypes.sort(function(a, b) {
+                if (a.type === 'emergency_room_visit' && b.type !== 'emergency_room_visit') {
+                    return -1;
+                }
+                if (b.type === 'emergency_room_visit' && a.type !== 'emergency_room_visit') {
+                    return 1;
+                }
+                return String(a.label || '').localeCompare(String(b.label || ''));
+            });
+
+            let html = '';
+            html += '\n<div class="comparison-table-scroll">';
+            html += '\n  <table class="comparison-table" aria-describedby="comparison-section-heading">';
+            html += '\n    <thead>'; 
+            html += '\n      <tr>'; 
+            html += '\n        <th scope="col" class="benefit-header-cell">Benefit</th>';
+
+            orderedGroups.forEach(function(group) {
+                const plan = group.plan || {};
+                const typeLabel = formatPlanTypeLabel(plan.type);
+                const price = formatCurrencyAmount(plan.monthly_price, plan.currency);
+                html += '\n        <th scope="col" class="plan-header-cell">';
+                html += '\n          <div class="plan-column-header">';
+                html += '\n            <div class="plan-column-heading-main">';
+                html += '\n              <span class="plan-column-name">' + String(plan.name || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+                html += '\n              <span class="plan-column-type">' + typeLabel + '</span>';
+                html += '\n            </div>';
+                html += '\n            <div class="plan-column-price">';
+                html += '\n              <span class="price-amount">' + price + '</span><span class="price-period">/month</span>';
+                html += '\n            </div>';
+                html += '\n            <button type="button" class="see-full-coverage-link" data-action="see-full-coverage" data-plan-id="' + String(plan.id || '').replace(/"/g, '&quot;') + '">See full coverage</button>';
+                html += '\n          </div>';
+                html += '\n        </th>';
+            });
+
+            html += '\n      </tr>'; 
+            html += '\n    </thead>';
+            html += '\n    <tbody>';
+
+            benefitTypes.forEach(function(benefitType) {
+                const typeKey = benefitType.type;
+                const label = benefitType.label || '';
+                html += '\n      <tr data-benefit-type="' + String(typeKey).replace(/"/g, '&quot;') + '">';
+                html += '\n        <th scope="row" class="benefit-label-cell">' + String(label).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</th>';
+
+                orderedGroups.forEach(function(group) {
+                    const benefits = group.benefits || [];
+                    let matchingBenefit = null;
+                    for (let i = 0; i < benefits.length; i += 1) {
+                        if (benefits[i] && benefits[i].benefit_type === typeKey) {
+                            matchingBenefit = benefits[i];
+                            break;
+                        }
+                    }
+                    html += '\n        <td class="benefit-value-cell">';
+                    if (matchingBenefit) {
+                        const coverageText = formatBenefitCoverage(matchingBenefit);
+                        if (coverageText) {
+                            html += String(coverageText).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        } else {
+                            html += 'Covered (details vary).';
+                        }
+                    } else {
+                        html += '<span class="benefit-not-listed">Not listed</span>';
+                    }
+                    html += '</td>';
+                });
+
+                html += '\n      </tr>';
+            });
+
+            html += '\n    </tbody>';
+            html += '\n  </table>';
+            html += '\n</div>';
+
+            container.innerHTML = html;
+        }
+
+        function loadComparisonData() {
+            if (!components.comparisonTable) {
+                return;
+            }
+            if (!state.selectedPlanIds || !state.selectedPlanIds.length) {
+                state.comparisonData = null;
+                state.comparisonError = null;
+                renderComparisonEmptyState(components.comparisonTable);
+                return;
+            }
+            try {
+                state.comparisonError = null;
+                const response = WebsiteSDK.getPlanComparisonDetails(state.selectedPlanIds);
+                state.comparisonData = response;
+                renderComparisonTable(components.comparisonTable, response, state.selectedPlanIds);
+            } catch (error) {
+                state.comparisonError = error;
+                renderComparisonErrorState(components.comparisonTable);
+            }
+        }
+
+        function handleSelectionChange(newSelectedPlanIds, options) {
+            state.selectedPlanIds = newSelectedPlanIds.slice();
+            updateUrlSelectedPlans(state.selectedPlanIds, options || {});
+            if (components.selectionSummary) {
+                renderSelectionSummary(components.selectionSummary, state.selectedPlanIds, state.plans);
+            }
+            if (state.selectedPlanIds.length) {
+                loadComparisonData();
+            } else if (components.comparisonTable) {
+                renderComparisonEmptyState(components.comparisonTable);
+            }
+        }
+
+        function handleCompareToggle(checkbox) {
+            const planId = checkbox.getAttribute('data-plan-id');
+            if (!planId) {
+                return;
+            }
+            const currentlySelected = state.selectedPlanIds ? state.selectedPlanIds.slice() : [];
+            const index = currentlySelected.indexOf(planId);
+            let updated = currentlySelected.slice();
+
+            if (checkbox.checked) {
+                if (index === -1) {
+                    updated.push(planId);
+                }
+                if (updated.length > MAX_SELECTED_PLANS) {
+                    const removedId = updated.shift();
+                    const removedCheckboxes = document.querySelectorAll('[data-action="toggle-compare"][data-plan-id="' + removedId.replace(/"/g, '\"') + '"]');
+                    removedCheckboxes.forEach(function(cb) {
+                        cb.checked = false;
+                    });
+                }
+            } else {
+                if (index !== -1) {
+                    updated.splice(index, 1);
+                }
+            }
+
+            const deduped = [];
+            updated.forEach(function(id) {
+                if (deduped.indexOf(id) === -1) {
+                    deduped.push(id);
+                }
+            });
+
+            handleSelectionChange(deduped, { replace: false });
+        }
+
+        function handleClearSelection() {
+            const checkboxes = document.querySelectorAll('[data-action="toggle-compare"]');
+            checkboxes.forEach(function(cb) {
+                cb.checked = false;
+            });
+            handleSelectionChange([], { replace: false });
+        }
+
+        function handleScrollToComparison() {
+            const sectionHeading = document.getElementById('comparison-section-heading');
+            if (sectionHeading && typeof sectionHeading.scrollIntoView === 'function') {
+                sectionHeading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        function initializeComponents() {
+            const populateElements = document.querySelectorAll('[data-populate]');
+            populateElements.forEach(function(element) {
+                const type = element.getAttribute('data-populate');
+                if (type === 'plans-list') {
+                    components.planList = element;
+                } else if (type === 'selection-summary') {
+                    components.selectionSummary = element;
+                } else if (type === 'comparison-table') {
+                    components.comparisonTable = element;
+                }
+            });
+        }
+
+        function initializePlans() {
+            const loadingEl = document.querySelector('[data-role="plans-loading"]');
+            const errorEl = document.querySelector('[data-role="plans-error"]');
+            if (loadingEl) {
+                loadingEl.textContent = 'Loading plans...';
+                loadingEl.setAttribute('aria-hidden', 'false');
+            }
+            if (errorEl) {
+                errorEl.textContent = '';
+                errorEl.setAttribute('aria-hidden', 'true');
+            }
+
+            try {
+                state.plans = WebsiteSDK.getPlansForPricingPage();
+            } catch (error) {
+                if (loadingEl) {
+                    loadingEl.textContent = '';
+                    loadingEl.setAttribute('aria-hidden', 'true');
+                }
+                if (errorEl) {
+                    errorEl.textContent = 'We could not load plans right now. Please try again later.';
+                    errorEl.setAttribute('aria-hidden', 'false');
+                }
+                return;
+            }
+
+            if (loadingEl) {
+                loadingEl.textContent = '';
+                loadingEl.setAttribute('aria-hidden', 'true');
+            }
+
+            syncSelectedPlanIdsWithKnownPlans();
+
+            if (components.planList) {
+                renderPlanList(components.planList, state.plans, state.selectedPlanIds);
+            }
+            if (components.selectionSummary) {
+                renderSelectionSummary(components.selectionSummary, state.selectedPlanIds, state.plans);
+            }
+
+            if (components.comparisonTable) {
+                if (state.selectedPlanIds && state.selectedPlanIds.length) {
+                    loadComparisonData();
+                } else {
+                    renderComparisonEmptyState(components.comparisonTable);
+                }
+            }
+        }
+
+        function initializeUrlState() {
+            state.selectedPlanIds = parseSelectedPlansFromUrl();
+        }
+
+        initializeComponents();
+        initializeUrlState();
+        initializePlans();
+
+        window.addEventListener('popstate', function() {
+            state.selectedPlanIds = parseSelectedPlansFromUrl();
+            syncSelectedPlanIdsWithKnownPlans();
+            if (components.planList) {
+                renderPlanList(components.planList, state.plans, state.selectedPlanIds);
+            }
+            if (components.selectionSummary) {
+                renderSelectionSummary(components.selectionSummary, state.selectedPlanIds, state.plans);
+            }
+            if (state.selectedPlanIds && state.selectedPlanIds.length) {
+                loadComparisonData();
+            } else if (components.comparisonTable) {
+                renderComparisonEmptyState(components.comparisonTable);
+            }
+        });
+
+        document.addEventListener('change', function(event) {
+            const target = event.target;
+            if (!target) {
+                return;
+            }
+            if (target.matches('[data-action="toggle-compare"]')) {
+                handleCompareToggle(target);
+            }
+        });
+
+        document.addEventListener('click', function(event) {
+            const target = event.target;
+            if (!target) {
+                return;
+            }
+            if (target.matches('[data-action="clear-selection"]')) {
+                event.preventDefault();
+                handleClearSelection();
+            } else if (target.matches('[data-action="scroll-to-comparison"]')) {
+                event.preventDefault();
+                handleScrollToComparison();
+            } else if (target.matches('[data-action="see-full-coverage"]')) {
+                event.preventDefault();
+                const planId = target.getAttribute('data-plan-id');
+                if (planId) {
+                    window.location.href = 'plan_detail.html?planId=' + encodeURIComponent(planId);
+                }
+            }
+        });
+    });
+    </script>
+</body>
+</html>

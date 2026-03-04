@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<link rel="stylesheet" href="contact.css">
+
+<div class="contact-page">
+  <div class="contact-page__loader page-loader-overlay" data-component="page-content-loader" hidden>
+    <div class="page-loader-overlay__inner">
+      <p>Loading contact information...</p>
+    </div>
+  </div>
+
+  <div class="contact-layout">
+    <section class="card contact-card">
+      <header class="contact-card__header" data-component="static-content-section" data-populate="static-page-content">
+        <p class="breadcrumb">Home &raquo; Contact</p>
+        <h1 class="page-title">Contact</h1>
+        <p>If you have questions about puppy training or this site, use the form below to send us a note.</p>
+      </header>
+
+      <div class="contact-card__status">
+        <div class="status-banner" data-component="submission-status-banner" aria-live="polite" hidden>
+          <div class="status-banner__content">
+            <p class="status-banner__message"></p>
+            <p class="status-banner__reference" aria-hidden="true"></p>
+          </div>
+          <button type="button" class="status-banner__close" data-action="dismiss-status" aria-label="Dismiss message">&times;</button>
+        </div>
+      </div>
+
+      <div class="contact-card__body">
+        <form class="contact-form" data-component="contact-form" data-action="submit-contact-form" novalidate>
+          <div class="form-group">
+            <label for="contact-name">Name (optional)</label>
+            <input type="text" id="contact-name" name="name" autocomplete="name" />
+            <p class="form-error" data-field-error="name" aria-live="polite"></p>
+          </div>
+
+          <div class="form-group">
+            <label for="contact-email">Email address</label>
+            <input type="email" id="contact-email" name="email" required autocomplete="email" />
+            <p class="form-help">We use this only to reply to your message.</p>
+            <p class="form-error" data-field-error="email" aria-live="polite"></p>
+          </div>
+
+          <div class="form-group">
+            <label for="contact-subject">Subject</label>
+            <input type="text" id="contact-subject" name="subject" required />
+            <p class="form-error" data-field-error="subject" aria-live="polite"></p>
+          </div>
+
+          <div class="form-group">
+            <label for="contact-message">Message</label>
+            <textarea id="contact-message" name="message" rows="6" required></textarea>
+            <p class="form-error" data-field-error="message" aria-live="polite"></p>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" data-role="submit-button">\n              Send message\n            </button>
+            <p class="form-meta">We usually respond within 1-2 business days.</p>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <aside class="card contact-sidebar-card" data-component="faq-navigation-block">
+      <header class="contact-sidebar-card__header">
+        <h2 class="sidebar-title">FAQ &amp; Help</h2>
+      </header>
+      <div class="contact-sidebar-card__body">
+        <p>For quick answers to common puppy training and site questions, check our FAQ before sending a message.</p>
+        <a href="faq.html" class="btn-link" data-action="go-to-faq">Visit FAQ / Help</a>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script src="business_logic.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  'use strict';
+
+  // URL parameters
+  const urlParams = new URLSearchParams(window.location.search);
+  const initialSubjectParam = urlParams.get('subject') || '';
+
+  const loader = document.querySelector('[data-component="page-content-loader"]');
+  const contactForm = document.querySelector('[data-component="contact-form"]');
+  const submitButton = contactForm ? contactForm.querySelector('[data-role="submit-button"]') : null;
+  const subjectInput = contactForm ? contactForm.querySelector('#contact-subject') : null;
+  const statusBanner = document.querySelector('[data-component="submission-status-banner"]');
+  const statusMessageEl = statusBanner ? statusBanner.querySelector('.status-banner__message') : null;
+  const statusRefEl = statusBanner ? statusBanner.querySelector('.status-banner__reference') : null;
+
+  let isSubmitting = false;
+  let subjectEdited = false;
+
+  function showLoader() {
+    if (loader) {
+      loader.hidden = false;
+    }
+  }
+
+  function hideLoader() {
+    if (loader) {
+      loader.hidden = true;
+    }
+  }
+
+  function renderStaticPageContent(container, data) {
+    container.innerHTML = '';
+
+    const breadcrumb = document.createElement('p');
+    breadcrumb.className = 'breadcrumb';
+    breadcrumb.textContent = 'Home bb Contact';
+    container.appendChild(breadcrumb);
+
+    const title = document.createElement('h1');
+    title.className = 'page-title';
+    title.textContent = data && data.title ? data.title : 'Contact';
+    container.appendChild(title);
+
+    if (data && Array.isArray(data.sections)) {
+      data.sections.forEach(function(section) {
+        if (!section) {
+          return;
+        }
+        if (section.heading) {
+          const h2 = document.createElement('h2');
+          h2.className = 'section-heading';
+          h2.textContent = section.heading;
+          container.appendChild(h2);
+        }
+        if (section.body) {
+          const body = document.createElement('p');
+          body.className = 'section-body';
+          body.innerHTML = section.body;
+          container.appendChild(body);
+        }
+      });
+    }
+
+    if (data && data.last_updated) {
+      const meta = document.createElement('p');
+      meta.className = 'page-meta';
+      meta.textContent = 'Last updated: ' + data.last_updated;
+      container.appendChild(meta);
+    }
+  }
+
+  function renderStaticPageContentError(container) {
+    container.innerHTML = `
+      <h1 class="page-title">Contact</h1>
+      <p>We could not load additional contact information right now. You can still send us a message using the form below.</p>
+    `;
+  }
+
+  function setStatusBanner(result) {
+    if (!statusBanner || !statusMessageEl) {
+      return;
+    }
+
+    if (!result) {
+      statusBanner.hidden = true;
+      statusBanner.classList.remove('status-banner--success', 'status-banner--error');
+      statusMessageEl.textContent = '';
+      if (statusRefEl) {
+        statusRefEl.textContent = '';
+      }
+      return;
+    }
+
+    statusBanner.hidden = false;
+    statusBanner.classList.remove('status-banner--success', 'status-banner--error');
+
+    if (result.success) {
+      statusBanner.classList.add('status-banner--success');
+    } else {
+      statusBanner.classList.add('status-banner--error');
+    }
+
+    statusMessageEl.textContent = result.message || (result.success ? 'Your message has been sent.' : 'There was a problem sending your message.');
+    if (statusRefEl) {
+      statusRefEl.textContent = result.reference_id ? 'Reference ID: ' + result.reference_id : '';
+    }
+  }
+
+  function handleDismissStatus(event) {
+    event.preventDefault();
+    setStatusBanner(null);
+  }
+
+  function validateEmail(value) {
+    if (!value) {
+      return 'Please enter your email address.';
+    }
+    const pattern = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    if (!pattern.test(value)) {
+      return 'Please enter a valid email address.';
+    }
+    return '';
+  }
+
+  function setFieldError(fieldName, message) {
+    const errorEl = document.querySelector('[data-field-error="' + fieldName + '"]');
+    if (errorEl) {
+      errorEl.textContent = message || '';
+    }
+  }
+
+  function clearFieldError(fieldName) {
+    setFieldError(fieldName, '');
+  }
+
+  function handleContactFormSubmit(event) {
+    event.preventDefault();
+    if (!contactForm || isSubmitting) {
+      return;
+    }
+
+    setStatusBanner(null);
+
+    const formData = new FormData(contactForm);
+    const name = (formData.get('name') || '').toString().trim();
+    const email = (formData.get('email') || '').toString().trim();
+    const subject = (formData.get('subject') || '').toString().trim();
+    const message = (formData.get('message') || '').toString().trim();
+
+    let hasError = false;
+
+    clearFieldError('name');
+    clearFieldError('email');
+    clearFieldError('subject');
+    clearFieldError('message');
+
+    const emailError = validateEmail(email);
+    if (emailError) {
+      setFieldError('email', emailError);
+      hasError = true;
+    }
+
+    if (!subject) {
+      setFieldError('subject', 'Please add a subject for your message.');
+      hasError = true;
+    }
+
+    if (!message) {
+      setFieldError('message', 'Please enter a message so we know how to help.');
+      hasError = true;
+    }
+
+    if (hasError) {
+      return;
+    }
+
+    isSubmitting = true;
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Sending...';
+    }
+
+    let response = null;
+    try {
+      response = WebsiteSDK.submitContactMessage(name, email, subject, message);
+    } catch (error) {
+      response = {
+        success: false,
+        message: 'We could not send your message right now. Please try again in a moment.'
+      };
+    }
+
+    isSubmitting = false;
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = 'Send message';
+    }
+
+    if (!response || typeof response.success !== 'boolean') {
+      response = {
+        success: false,
+        message: 'We could not send your message right now. Please try again later.'
+      };
+    }
+
+    setStatusBanner(response);
+
+    if (response.success && contactForm) {
+      contactForm.reset();
+      subjectEdited = false;
+      if (initialSubjectParam && subjectInput && !subjectEdited) {
+        subjectInput.value = initialSubjectParam;
+      }
+    }
+  }
+
+  function handleFieldInput(event) {
+    const target = event.target;
+    if (!target || !target.name) {
+      return;
+    }
+    clearFieldError(target.name);
+
+    if (target.name === 'subject') {
+      subjectEdited = true;
+    }
+  }
+
+  function handleGoToFaq(event) {
+    event.preventDefault();
+    window.location.href = 'faq.html';
+  }
+
+  function initializeSubjectFromParam() {
+    if (!subjectInput) {
+      return;
+    }
+    if (!subjectEdited && initialSubjectParam) {
+      subjectInput.value = initialSubjectParam;
+    }
+  }
+
+  function setupUrlSubjectSync() {
+    window.addEventListener('popstate', function() {
+      const params = new URLSearchParams(window.location.search);
+      const newSubject = params.get('subject') || '';
+      if (!subjectEdited && subjectInput) {
+        subjectInput.value = newSubject;
+      }
+    });
+  }
+
+  function initPopulateElements() {
+    const populateElements = document.querySelectorAll('[data-populate]');
+    populateElements.forEach(function(element) {
+      const dataType = element.dataset.populate;
+      if (dataType === 'static-page-content') {
+        showLoader();
+        try {
+          const pageKey = 'contact';
+          const data = WebsiteSDK.getStaticPageContent(pageKey);
+          renderStaticPageContent(element, data);
+        } catch (error) {
+          renderStaticPageContentError(element);
+        }
+        hideLoader();
+      }
+    });
+  }
+
+  function initActions() {
+    const actionElements = document.querySelectorAll('[data-action]');
+    actionElements.forEach(function(element) {
+      const action = element.dataset.action;
+      if (action === 'submit-contact-form') {
+        element.addEventListener('submit', handleContactFormSubmit);
+      } else if (action === 'dismiss-status') {
+        element.addEventListener('click', handleDismissStatus);
+      } else if (action === 'go-to-faq') {
+        element.addEventListener('click', handleGoToFaq);
+      }
+    });
+
+    if (contactForm) {
+      contactForm.addEventListener('input', handleFieldInput);
+    }
+  }
+
+  initPopulateElements();
+  initializeSubjectFromParam();
+  setupUrlSubjectSync();
+  initActions();
+});
+</script>

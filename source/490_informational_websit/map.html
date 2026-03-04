@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <title>Indigenous Cultures – Site Framework</title>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+
+  <!-- Typography -->
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=Source+Code+Pro:wght@400;500&amp;display=swap' rel='stylesheet'>
+
+  <!-- Main stylesheet -->
+  <link rel='stylesheet' href='styles.css'>
+  <!-- Page-specific stylesheet -->
+  <link rel='stylesheet' href='map.css'>
+</head>
+<body>
+  <header class='site-header' role='banner'>
+    <div class='site-header-inner'>
+      <nav class='primary-nav' aria-label='Primary'>
+        <ul class='primary-nav-list'>
+          <li class='primary-nav-item'>
+            <a href='index.html' class='primary-nav-link' data-description='Homepage with featured Indigenous content and global search.'>Home</a>
+          </li>
+          <li class='primary-nav-item'>
+            <a href='map.html' class='primary-nav-link' data-description='Interactive map for exploring Indigenous communities by region.'>World Cultures Map</a>
+          </li>
+          <li class='primary-nav-item'>
+            <a href='educator_resources.html' class='primary-nav-link' data-description='Classroom activities and teaching materials on Indigenous topics.'>Educator Resources</a>
+          </li>
+          <li class='primary-nav-item'>
+            <a href='timelines.html' class='primary-nav-link' data-description='Historical and thematic timelines related to Indigenous histories.'>Timelines</a>
+          </li>
+          <li class='primary-nav-item'>
+            <a href='media_library.html' class='primary-nav-link' data-description='Browse audio, video, and other media about Indigenous cultures.'>Media Library</a>
+          </li>
+          <li class='primary-nav-item'>
+            <a href='glossary.html' class='primary-nav-link' data-description='Definitions of key Indigenous studies terms and concepts.'>Glossary</a>
+          </li>
+          <li class='primary-nav-item'>
+            <a href='events.html' class='primary-nav-link' data-description='Calendar and listings for Indigenous-related events and programs.'>Events</a>
+          </li>
+          <li class='primary-nav-item'>
+            <a href='quizzes.html' class='primary-nav-link' data-description='Learning quizzes and assessments on Indigenous topics.'>Quizzes</a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-main' role='main'>
+    <section class='map-page' data-component='map-page-controller'>
+      <!-- Slim, centered control strip for region selection -->
+      <div class='map-controls-shell'>
+        <div class='map-region-filter' data-component='map-region-filter' data-populate='map-region-options'>
+          <!-- Region options populated via JS -->
+        </div>
+      </div>
+
+      <!-- Main map + bookmarks layout -->
+      <div class='map-layout'>
+        <section class='map-view-shell' aria-label='World cultures map area'>
+          <div class='map-view-inner' data-component='cultures-map-view' data-populate='map-communities'>
+            <!-- Map markers rendered here via JS -->
+          </div>
+
+          <!-- Marker popup overlay -->
+          <div class='map-marker-popup' data-component='map-marker-popup' hidden>
+            <!-- Popup content injected via JS -->
+          </div>
+        </section>
+
+        <!-- Bookmarked communities panel overlaying the right side -->
+        <aside class='bookmarked-panel-shell' data-component='bookmarked-communities-panel' data-populate='bookmarked-communities' aria-label='Bookmarked communities'>
+          <!-- Bookmarked communities rendered via JS -->
+        </aside>
+
+        <!-- Non-visual router-sync component -->
+        <div data-component='url-state-sync' aria-hidden='true'></div>
+      </div>
+    </section>
+
+    <!-- SDK for data access -->
+    <script src='business_logic.js'></script>
+    <script>
+      (function() {
+        const MapPageState = {
+          selectedRegion: null,
+          regionOptions: [],
+          communities: [],
+          bookmarks: []
+        };
+
+        function getRegionFromUrl() {
+          const params = new URLSearchParams(window.location.search);
+          const region = params.get('region');
+          return region || null;
+        }
+
+        function updateRegionInUrl(region) {
+          try {
+            const url = new URL(window.location.href);
+            if (region) {
+              url.searchParams.set('region', region);
+            } else {
+              url.searchParams.delete('region');
+            }
+            window.history.pushState({ region: region || null }, '', url.toString());
+          } catch (err) {
+            console.error('Unable to update region in URL', err);
+          }
+        }
+
+        function getRegionLabel(regionValue) {
+          if (!regionValue) return '';
+          const match = MapPageState.regionOptions.find(function(opt) { return opt.value === regionValue; });
+          return match ? match.label : regionValue;
+        }
+
+        function renderRegionFilter(container) {
+          container.innerHTML = '';
+
+          const wrapper = document.createElement('div');
+          wrapper.className = 'map-region-filter-inner';
+
+          const label = document.createElement('label');
+          label.className = 'map-region-label';
+          label.textContent = 'Region';
+
+          const select = document.createElement('select');
+          select.className = 'map-region-select';
+          select.setAttribute('data-action', 'change-region');
+          select.setAttribute('aria-label', 'Select map region');
+
+          const defaultOption = document.createElement('option');
+          defaultOption.value = '';
+          defaultOption.textContent = 'All regions';
+          select.appendChild(defaultOption);
+
+          MapPageState.regionOptions.forEach(function(opt) {
+            const option = document.createElement('option');
+            option.value = opt.value;
+            option.textContent = opt.label;
+            select.appendChild(option);
+          });
+
+          if (MapPageState.selectedRegion) {
+            select.value = MapPageState.selectedRegion;
+          }
+
+          wrapper.appendChild(label);
+          wrapper.appendChild(select);
+          container.appendChild(wrapper);
+        }
+
+        function renderMap(container) {
+          container.innerHTML = '';
+
+          const mapCanvas = document.createElement('div');
+          mapCanvas.className = 'map-canvas';
+          mapCanvas.setAttribute('role', 'region');
+          mapCanvas.setAttribute('aria-label', 'Indigenous communities map');
+
+          if (!MapPageState.communities || MapPageState.communities.length === 0) {
+            const emptyState = document.createElement('p');
+            emptyState.className = 'map-empty-state';
+            emptyState.textContent = 'No communities found for this view yet.';
+            mapCanvas.appendChild(emptyState);
+            container.appendChild(mapCanvas);
+            return;
+          }
+
+          const list = document.createElement('ul');
+          list.className = 'map-marker-list';
+
+          MapPageState.communities.forEach(function(community) {
+            const listItem = document.createElement('li');
+            listItem.className = 'map-marker-item';
+
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'map-marker';
+            button.setAttribute('data-action', 'marker-click');
+            button.setAttribute('data-community-id', community.id);
+            if (community.region) {
+              button.setAttribute('data-community-region', community.region);
+            }
+            button.textContent = community.marker_label || community.name || 'Community';
+
+            listItem.appendChild(button);
+            list.appendChild(listItem);
+          });
+
+          mapCanvas.appendChild(list);
+          container.appendChild(mapCanvas);
+        }
+
+        function renderBookmarks(container) {
+          container.innerHTML = '';
+
+          const panel = document.createElement('div');
+          panel.className = 'bookmarks-panel';
+
+          const header = document.createElement('div');
+          header.className = 'bookmarks-header';
+
+          const title = document.createElement('h2');
+          title.className = 'bookmarks-title';
+          title.textContent = 'Bookmarked communities';
+
+          const toggleButton = document.createElement('button');
+          toggleButton.type = 'button';
+          toggleButton.className = 'bookmarks-toggle';
+          toggleButton.setAttribute('data-action', 'toggle-bookmarks-panel');
+          toggleButton.textContent = 'Hide';
+
+          header.appendChild(title);
+          header.appendChild(toggleButton);
+          panel.appendChild(header);
+
+          const body = document.createElement('div');
+          body.className = 'bookmarks-body';
+
+          if (!MapPageState.bookmarks || MapPageState.bookmarks.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'bookmarks-empty';
+            empty.textContent = 'You have no bookmarked communities yet.';
+            body.appendChild(empty);
+          } else {
+            const list = document.createElement('ul');
+            list.className = 'bookmarks-list';
+
+            MapPageState.bookmarks.forEach(function(entry) {
+              var community = entry && entry.community ? entry.community : null;
+              var bookmark = entry && entry.bookmark ? entry.bookmark : null;
+              if (!community || !community.id) {
+                return;
+              }
+
+              const li = document.createElement('li');
+              li.className = 'bookmarks-item';
+
+              const button = document.createElement('button');
+              button.type = 'button';
+              button.className = 'bookmarks-item-button';
+              button.setAttribute('data-action', 'select-bookmark');
+              button.setAttribute('data-community-id', community.id);
+              if (community.region) {
+                button.setAttribute('data-community-region', community.region);
+              }
+
+              const label = document.createElement('span');
+              label.className = 'bookmarks-item-label';
+              label.textContent = (bookmark && bookmark.label) || community.name || 'Community';
+
+              const meta = document.createElement('span');
+              meta.className = 'bookmarks-item-meta';
+              meta.textContent = getRegionLabel(community.region);
+
+              button.appendChild(label);
+              if (meta.textContent) {
+                button.appendChild(meta);
+              }
+
+              li.appendChild(button);
+              list.appendChild(li);
+            });
+
+            body.appendChild(list);
+          }
+
+          panel.appendChild(body);
+          container.appendChild(panel);
+        }
+
+        function openMarkerPopup(community) {
+          const popupContainer = document.querySelector('[data-component="map-marker-popup"]');
+          if (!popupContainer) {
+            return;
+          }
+
+          popupContainer.innerHTML = '';
+
+          const card = document.createElement('div');
+          card.className = 'marker-popup-card';
+
+          const header = document.createElement('div');
+          header.className = 'marker-popup-header';
+
+          const title = document.createElement('h3');
+          title.className = 'marker-popup-title';
+          title.textContent = community.name || 'Community';
+
+          const closeButton = document.createElement('button');
+          closeButton.type = 'button';
+          closeButton.className = 'marker-popup-close';
+          closeButton.setAttribute('data-action', 'close-popup');
+          closeButton.setAttribute('aria-label', 'Close community details');
+          closeButton.textContent = '×';
+
+          header.appendChild(title);
+          header.appendChild(closeButton);
+          card.appendChild(header);
+
+          const body = document.createElement('div');
+          body.className = 'marker-popup-body';
+
+          if (community.location_description) {
+            const loc = document.createElement('p');
+            loc.className = 'marker-popup-location';
+            loc.textContent = community.location_description;
+            body.appendChild(loc);
+          }
+
+          if (community.language_family || (community.languages && community.languages.length)) {
+            const lang = document.createElement('p');
+            lang.className = 'marker-popup-language';
+            var text = '';
+            if (community.language_family) {
+              text += community.language_family;
+            }
+            if (community.languages && community.languages.length) {
+              if (text) {
+                text += ' · ';
+              }
+              text += community.languages.join(', ');
+            }
+            lang.textContent = text;
+            body.appendChild(lang);
+          }
+
+          if (community.history_summary) {
+            const summary = document.createElement('p');
+            summary.className = 'marker-popup-summary';
+            summary.textContent = community.history_summary;
+            body.appendChild(summary);
+          } else if (community.cultural_notes) {
+            const notes = document.createElement('p');
+            notes.className = 'marker-popup-summary';
+            notes.textContent = community.cultural_notes;
+            body.appendChild(notes);
+          }
+
+          const footer = document.createElement('div');
+          footer.className = 'marker-popup-footer';
+
+          const viewLink = document.createElement('a');
+          viewLink.className = 'marker-popup-link';
+          viewLink.href = 'community.html?communityId=' + encodeURIComponent(community.id);
+          viewLink.textContent = 'View Community';
+
+          footer.appendChild(viewLink);
+          card.appendChild(body);
+          card.appendChild(footer);
+
+          popupContainer.appendChild(card);
+          popupContainer.hidden = false;
+
+          const markers = document.querySelectorAll('.map-marker.is-focused');
+          markers.forEach(function(marker) {
+            marker.classList.remove('is-focused');
+          });
+          const marker = document.querySelector('.map-marker[data-community-id="' + community.id + '"]');
+          if (marker) {
+            marker.classList.add('is-focused');
+          }
+        }
+
+        function closeMarkerPopup() {
+          const popupContainer = document.querySelector('[data-component="map-marker-popup"]');
+          if (popupContainer) {
+            popupContainer.hidden = true;
+            popupContainer.innerHTML = '';
+          }
+          const markers = document.querySelectorAll('.map-marker.is-focused');
+          markers.forEach(function(marker) {
+            marker.classList.remove('is-focused');
+          });
+        }
+
+        function focusOnCommunityById(communityId) {
+          if (!communityId) {
+            return;
+          }
+          const community = MapPageState.communities.find(function(c) { return c.id === communityId; });
+          if (!community) {
+            return;
+          }
+          const mapContainer = document.querySelector('[data-component="cultures-map-view"]');
+          if (mapContainer) {
+            const marker = mapContainer.querySelector('.map-marker[data-community-id="' + communityId + '"]');
+            if (marker && typeof marker.scrollIntoView === 'function') {
+              marker.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+            }
+          }
+          openMarkerPopup(community);
+        }
+
+        function loadCommunitiesAndRender(region, options) {
+          const mapContainer = document.querySelector('[data-populate="map-communities"]');
+          if (!mapContainer) {
+            return;
+          }
+
+          var communities = [];
+          try {
+            if (region) {
+              communities = WebsiteSDK.getMapCommunities(region) || [];
+            } else {
+              communities = WebsiteSDK.getMapCommunities() || [];
+            }
+          } catch (err) {
+            console.error('Error loading communities', err);
+          }
+
+          MapPageState.communities = communities;
+          renderMap(mapContainer);
+
+          if (options && options.focusCommunityId) {
+            focusOnCommunityById(options.focusCommunityId);
+          } else {
+            closeMarkerPopup();
+          }
+        }
+
+        function handleRegionChange(event) {
+          const select = event.target;
+          const newRegion = select.value || null;
+          if (MapPageState.selectedRegion === newRegion) {
+            return;
+          }
+          MapPageState.selectedRegion = newRegion;
+          updateRegionInUrl(newRegion);
+          loadCommunitiesAndRender(newRegion, {});
+        }
+
+        function handleMarkerClick(element) {
+          const communityId = element.getAttribute('data-community-id');
+          if (!communityId) {
+            return;
+          }
+          focusOnCommunityById(communityId);
+        }
+
+        function handleBookmarkSelect(element) {
+          const communityId = element.getAttribute('data-community-id');
+          const communityRegion = element.getAttribute('data-community-region') || null;
+          if (!communityId) {
+            return;
+          }
+
+          const currentRegion = MapPageState.selectedRegion || null;
+
+          if (communityRegion && communityRegion !== currentRegion) {
+            MapPageState.selectedRegion = communityRegion;
+            const select = document.querySelector('.map-region-select');
+            if (select) {
+              select.value = communityRegion;
+            }
+            updateRegionInUrl(communityRegion);
+            loadCommunitiesAndRender(communityRegion, { focusCommunityId: communityId });
+          } else {
+            focusOnCommunityById(communityId);
+          }
+        }
+
+        function handleToggleBookmarksPanel(element) {
+          const panel = element.closest('.bookmarks-panel');
+          if (!panel) {
+            return;
+          }
+          const isCollapsed = panel.classList.toggle('is-collapsed');
+          element.textContent = isCollapsed ? 'Show' : 'Hide';
+        }
+
+        function handlePopState() {
+          const regionFromUrl = getRegionFromUrl();
+          var normalizedRegion = null;
+          if (regionFromUrl && MapPageState.regionOptions.some(function(opt) { return opt.value === regionFromUrl; })) {
+            normalizedRegion = regionFromUrl;
+          }
+          if (normalizedRegion === (MapPageState.selectedRegion || null)) {
+            return;
+          }
+
+          MapPageState.selectedRegion = normalizedRegion;
+
+          const select = document.querySelector('.map-region-select');
+          if (select) {
+            select.value = normalizedRegion || '';
+          }
+
+          loadCommunitiesAndRender(normalizedRegion, {});
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+          const urlRegion = getRegionFromUrl();
+
+          try {
+            MapPageState.regionOptions = WebsiteSDK.getMapRegionOptions() || [];
+          } catch (err) {
+            console.error('Error loading region options', err);
+            MapPageState.regionOptions = [];
+          }
+
+          if (urlRegion && MapPageState.regionOptions.some(function(opt) { return opt.value === urlRegion; })) {
+            MapPageState.selectedRegion = urlRegion;
+          } else {
+            MapPageState.selectedRegion = null;
+          }
+
+          const regionFilterContainer = document.querySelector('[data-populate="map-region-options"]');
+          if (regionFilterContainer) {
+            renderRegionFilter(regionFilterContainer);
+          }
+
+          const bookmarksContainer = document.querySelector('[data-populate="bookmarked-communities"]');
+          try {
+            MapPageState.bookmarks = WebsiteSDK.getBookmarkedCommunities() || [];
+          } catch (err) {
+            console.error('Error loading bookmarked communities', err);
+            MapPageState.bookmarks = [];
+          }
+          if (bookmarksContainer) {
+            renderBookmarks(bookmarksContainer);
+          }
+
+          loadCommunitiesAndRender(MapPageState.selectedRegion, {});
+
+          window.addEventListener('popstate', handlePopState);
+        });
+
+        document.addEventListener('click', function(event) {
+          const actionElement = event.target.closest('[data-action]');
+          if (!actionElement) {
+            return;
+          }
+          const action = actionElement.getAttribute('data-action');
+          if (action === 'marker-click') {
+            handleMarkerClick(actionElement);
+          } else if (action === 'select-bookmark') {
+            handleBookmarkSelect(actionElement);
+          } else if (action === 'toggle-bookmarks-panel') {
+            handleToggleBookmarksPanel(actionElement);
+          } else if (action === 'close-popup') {
+            closeMarkerPopup();
+          }
+        });
+
+        document.addEventListener('change', function(event) {
+          const actionElement = event.target.closest('[data-action]');
+          if (!actionElement) {
+            return;
+          }
+          const action = actionElement.getAttribute('data-action');
+          if (action === 'change-region') {
+            handleRegionChange(event);
+          }
+        });
+      })();
+    </script>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='site-footer-inner'>
+      <nav class='footer-nav' aria-label='Footer'>
+        <ul class='footer-nav-list'>
+          <li class='footer-nav-item'>
+            <a href='index.html' class='footer-nav-link' data-description='Return to the homepage.'>Home</a>
+          </li>
+          <li class='footer-nav-item'>
+            <a href='educator_resources.html' class='footer-nav-link' data-description='Access teaching resources and classroom activities.'>Educator Resources</a>
+          </li>
+          <li class='footer-nav-item'>
+            <a href='media_library.html' class='footer-nav-link' data-description='Explore audio and video collections.'>Media Library</a>
+          </li>
+          <li class='footer-nav-item'>
+            <a href='timelines.html' class='footer-nav-link' data-description='View historical timelines.'>Timelines</a>
+          </li>
+          <li class='footer-nav-item'>
+            <a href='glossary.html' class='footer-nav-link' data-description='Look up key terms and concepts.'>Glossary</a>
+          </li>
+        </ul>
+      </nav>
+      <p class='site-footer-meta'>&copy; <span class='site-footer-year'>2026</span> Indigenous Cultures Information Site.</p>
+    </div>
+  </footer>
+</body>
+</html>

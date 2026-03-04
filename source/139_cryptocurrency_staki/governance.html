@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crypto Staking &amp; Rewards Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="governance.css">
+</head>
+<body>
+  <div class="site-shell">
+    <header class="site-header">
+      <div class="header-inner">
+        <div class="header-brand">
+          <span class="login-label">LOGIN WITH</span>
+          <a href="index.html" class="brand-link">
+            <span class="brand-logo" aria-hidden="true"></span>
+            <span class="brand-name">CONTRIB</span>
+          </a>
+        </div>
+        <nav class="main-nav" aria-label="Primary">
+          <ul class="nav-list">
+            <li class="nav-item"><a href="index.html" class="nav-link">Home</a></li>
+            <li class="nav-item"><a href="staking.html?tab=all_pools" class="nav-link">Staking</a></li>
+            <li class="nav-item"><a href="portfolio.html" class="nav-link">Portfolio</a></li>
+            <li class="nav-item"><a href="rewards.html" class="nav-link">Rewards</a></li>
+            <li class="nav-item"><a href="promotions.html" class="nav-link">Promotions</a></li>
+            <li class="nav-item"><a href="governance.html" class="nav-link">Governance</a></li>
+            <li class="nav-item"><a href="earnings_calculator.html" class="nav-link">Tools</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id="content" class="site-main" role="main">
+      <section class="governance-page" aria-labelledby="governance-page-title">
+        <div class="governance-page-inner">
+          <!-- Header user summary row -->
+          <section
+            class="user-summary-bar"
+            data-component="header-user-summary"
+            data-populate="current-user-summary"
+            aria-label="User summary">
+          </section>
+
+          <!-- Central governance card -->
+          <section class="governance-card" aria-label="Governance proposals">
+            <div class="governance-card-inner">
+              <header class="governance-card-header">
+                <h1 id="governance-page-title" class="governance-page-title">Governance Proposals</h1>
+                <div class="governance-card-controls">
+                  <div
+                    class="governance-filters-container"
+                    data-component="governance-filters-bar"
+                    data-populate="governance-filters">
+                  </div>
+                  <div
+                    class="governance-sort-container"
+                    data-component="governance-sort-control"
+                    data-populate="governance-sort">
+                  </div>
+                </div>
+              </header>
+
+              <section class="governance-card-body">
+                <div
+                  class="governance-proposals-container"
+                  data-component="governance-proposals-list"
+                  data-populate="governance-proposals">
+                </div>
+
+                <div
+                  class="governance-empty-or-error-container"
+                  data-component="empty-state-handler"
+                  hidden>
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <span class="footer-logo-mark" aria-hidden="true"></span>
+          <span class="footer-brand-name">Crypto Staking Platform</span>
+        </div>
+        <nav class="footer-nav" aria-label="Footer">
+          <ul class="footer-nav-list">
+            <li class="footer-nav-item"><a href="about.html" class="footer-link">About</a></li>
+            <li class="footer-nav-item"><a href="help.html" class="footer-link">Help &amp; FAQ</a></li>
+            <li class="footer-nav-item"><a href="contact.html" class="footer-link">Contact</a></li>
+            <li class="footer-nav-item"><a href="terms.html" class="footer-link">Terms of Use</a></li>
+            <li class="footer-nav-item"><a href="privacy.html" class="footer-link">Privacy Policy</a></li>
+          </ul>
+        </nav>
+        <p class="footer-meta">&copy; <span data-year>2026</span> Crypto Staking Platform. All rights reserved.</p>
+      </div>
+    </footer>
+  </div>
+
+  <script src="business_logic.js"></script>
+  <script>
+    (function() {
+      'use strict';
+
+      var filterOptions = null;
+      var filtersError = null;
+      var lastProposalsError = null;
+      var governanceInitialized = false;
+
+      function escapeHtml(str) {
+        if (str === null || str === undefined) {
+          return '';
+        }
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function formatCurrencyUSD(value) {
+        if (typeof value !== 'number' || isNaN(value)) {
+          return '$0.00';
+        }
+        try {
+          return value.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+        } catch (e) {
+          var rounded = Math.round(value * 100) / 100;
+          return '$' + rounded.toString();
+        }
+      }
+
+      function formatDateTime(isoString) {
+        if (!isoString) {
+          return '';
+        }
+        var date = new Date(isoString);
+        if (isNaN(date.getTime())) {
+          return '';
+        }
+        try {
+          return date.toLocaleString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+        } catch (e) {
+          return date.toISOString();
+        }
+      }
+
+      function formatEndsIn(isoString) {
+        if (!isoString) {
+          return '';
+        }
+        var end = new Date(isoString);
+        if (isNaN(end.getTime())) {
+          return '';
+        }
+        var now = new Date();
+        var diffMs = end.getTime() - now.getTime();
+        if (diffMs <= 0) {
+          return 'Ended';
+        }
+        var diffMinutes = Math.floor(diffMs / 60000);
+        var diffHours = Math.floor(diffMinutes / 60);
+        var diffDays = Math.floor(diffHours / 24);
+        if (diffDays > 0) {
+          return 'Ends in ' + diffDays + 'd ' + (diffHours % 24) + 'h';
+        }
+        if (diffHours > 0) {
+          return 'Ends in ' + diffHours + 'h ' + (diffMinutes % 60) + 'm';
+        }
+        return 'Ends in ' + diffMinutes + 'm';
+      }
+
+      function parseUrlParams() {
+        var params = new URLSearchParams(window.location.search);
+
+        var status = params.get('status') || '';
+
+        var deadlineRaw = params.get('deadline_within_days');
+        var deadlineWithinDays = null;
+        if (deadlineRaw !== null && deadlineRaw !== '') {
+          var deadlineNumeric = Number(deadlineRaw);
+          if (!isNaN(deadlineNumeric) && deadlineNumeric > 0) {
+            deadlineWithinDays = Math.floor(deadlineNumeric);
+          }
+        }
+
+        var minQuorumRaw = params.get('min_quorum_percent');
+        var minQuorumPercent = null;
+        if (minQuorumRaw !== null && minQuorumRaw !== '') {
+          var quorumNumeric = Number(minQuorumRaw);
+          if (!isNaN(quorumNumeric)) {
+            minQuorumPercent = quorumNumeric;
+          }
+        }
+
+        if (filterOptions && filterOptions.quorum_requirement_range_percent && minQuorumPercent !== null) {
+          var quorumRange = filterOptions.quorum_requirement_range_percent;
+          var minPercent = quorumRange.min_percent;
+          var maxPercent = quorumRange.max_percent;
+          if (typeof minPercent === 'number' && typeof maxPercent === 'number') {
+            if (minQuorumPercent < minPercent || minQuorumPercent > maxPercent) {
+              minQuorumPercent = null;
+            }
+          }
+        }
+
+        var sortParam = params.get('sort') || '';
+        var sortKey = sortParam;
+
+        return {
+          status: status,
+          deadlineWithinDays: deadlineWithinDays,
+          minQuorumPercent: minQuorumPercent,
+          sortKey: sortKey
+        };
+      }
+
+      function buildFiltersFromState(state) {
+        var filters = {};
+        if (state.status) {
+          filters.statuses = [state.status];
+        }
+        if (state.deadlineWithinDays !== null && state.deadlineWithinDays !== undefined) {
+          filters.ending_within_days = state.deadlineWithinDays;
+        }
+        if (state.minQuorumPercent !== null && state.minQuorumPercent !== undefined) {
+          filters.min_quorum_requirement_percent = state.minQuorumPercent;
+        }
+        return filters;
+      }
+
+      function buildSortFromState(state) {
+        var key = state.sortKey || 'ending_soonest';
+        var sort = null;
+        if (key === 'ending_soonest') {
+          sort = { sort_by: 'ending_soonest', sort_direction: 'asc' };
+        } else if (key === 'quorum_highest') {
+          sort = { sort_by: 'quorum_requirement', sort_direction: 'desc' };
+        } else if (key === 'newest') {
+          sort = { sort_by: 'created_at', sort_direction: 'desc' };
+        }
+        return sort;
+      }
+
+      function updateUrlParamsFromState(partialUpdate) {
+        var currentState = parseUrlParams();
+        var newState = {
+          status: currentState.status,
+          deadlineWithinDays: currentState.deadlineWithinDays,
+          minQuorumPercent: currentState.minQuorumPercent,
+          sortKey: currentState.sortKey
+        };
+
+        if (Object.prototype.hasOwnProperty.call(partialUpdate, 'status')) {
+          newState.status = partialUpdate.status;
+        }
+        if (Object.prototype.hasOwnProperty.call(partialUpdate, 'deadlineWithinDays')) {
+          newState.deadlineWithinDays = partialUpdate.deadlineWithinDays;
+        }
+        if (Object.prototype.hasOwnProperty.call(partialUpdate, 'minQuorumPercent')) {
+          newState.minQuorumPercent = partialUpdate.minQuorumPercent;
+        }
+        if (Object.prototype.hasOwnProperty.call(partialUpdate, 'sortKey')) {
+          newState.sortKey = partialUpdate.sortKey;
+        }
+
+        var params = new URLSearchParams(window.location.search);
+
+        if (newState.status) {
+          params.set('status', newState.status);
+        } else {
+          params.delete('status');
+        }
+
+        if (newState.deadlineWithinDays !== null && newState.deadlineWithinDays !== undefined && !isNaN(newState.deadlineWithinDays) && newState.deadlineWithinDays > 0) {
+          params.set('deadline_within_days', String(newState.deadlineWithinDays));
+        } else {
+          params.delete('deadline_within_days');
+          newState.deadlineWithinDays = null;
+        }
+
+        if (newState.minQuorumPercent !== null && newState.minQuorumPercent !== undefined && !isNaN(newState.minQuorumPercent)) {
+          params.set('min_quorum_percent', String(newState.minQuorumPercent));
+        } else {
+          params.delete('min_quorum_percent');
+          newState.minQuorumPercent = null;
+        }
+
+        if (newState.sortKey && typeof newState.sortKey === 'string') {
+          params.set('sort', newState.sortKey);
+        } else {
+          params.delete('sort');
+          newState.sortKey = '';
+        }
+
+        var queryString = params.toString();
+        var newUrl = window.location.pathname + (queryString ? ('?' + queryString) : '');
+        window.history.pushState({}, '', newUrl);
+
+        syncFromUrl();
+      }
+
+      function renderUserSummary(container, summary) {
+        if (!container) {
+          return;
+        }
+        if (!summary || summary.is_authenticated === false) {
+          container.innerHTML = (
+            "<div class=\"user-summary user-summary--guest\">" +
+              "<div class=\"user-summary-main\">" +
+                "<span class=\"user-summary-label\">Browsing as guest</span>" +
+                "<span class=\"user-summary-text\">Connect your wallet to vote on governance proposals.</span>" +
+              "</div>" +
+            "</div>"
+          );
+          return;
+        }
+
+        var displayName = summary.display_name ? escapeHtml(summary.display_name) : 'User';
+        var portfolioValue = formatCurrencyUSD(summary.total_portfolio_value_usd || 0);
+        var stakedValue = formatCurrencyUSD(summary.total_staked_value_usd || 0);
+
+        container.innerHTML = (
+          "<div class=\"user-summary user-summary--auth\">" +
+            "<div class=\"user-summary-main\">" +
+              "<div class=\"user-summary-identity\">" +
+                "<span class=\"user-summary-label\">Signed in as</span>" +
+                "<span class=\"user-summary-name\">" + displayName + "</span>" +
+              "</div>" +
+              "<div class=\"user-summary-metrics\">" +
+                "<div class=\"user-summary-metric\">" +
+                  "<span class=\"metric-label\">Portfolio</span>" +
+                  "<span class=\"metric-value\">" + portfolioValue + "</span>" +
+                "</div>" +
+                "<div class=\"user-summary-metric\">" +
+                  "<span class=\"metric-label\">Staked</span>" +
+                  "<span class=\"metric-value\">" + stakedValue + "</span>" +
+                "</div>" +
+              "</div>" +
+            "</div>" +
+          "</div>"
+        );
+      }
+
+      function renderFilters(container, state) {
+        if (!container) {
+          return;
+        }
+        if (filtersError || !filterOptions) {
+          container.innerHTML = (
+            "<div class=\"filters-error\">" +
+              "<p class=\"filters-error-message\">We couldn't load governance filters. Please try again.</p>" +
+              "<button type=\"button\" class=\"btn btn-secondary\" data-action=\"retry-filters\">Retry</button>" +
+            "</div>"
+          );
+          return;
+        }
+
+        var statuses = filterOptions.statuses || [];
+        var quorumRange = filterOptions.quorum_requirement_range_percent || {};
+        var minPercent = typeof quorumRange.min_percent === 'number' ? quorumRange.min_percent : 0;
+        var maxPercent = typeof quorumRange.max_percent === 'number' ? quorumRange.max_percent : 100;
+        var stepPercent = typeof quorumRange.step_percent === 'number' ? quorumRange.step_percent : 1;
+
+        var selectedStatus = state.status || '';
+        var deadlineVal = (state.deadlineWithinDays !== null && state.deadlineWithinDays !== undefined) ? String(state.deadlineWithinDays) : '';
+        var quorumVal = (state.minQuorumPercent !== null && state.minQuorumPercent !== undefined) ? state.minQuorumPercent : '';
+        var quorumLabel = (state.minQuorumPercent !== null && state.minQuorumPercent !== undefined)
+          ? (state.minQuorumPercent + '%+')
+          : 'Any quorum';
+
+        var statusOptionsHtml = '<option value="">All statuses</option>';
+        for (var i = 0; i < statuses.length; i++) {
+          var status = statuses[i];
+          var safeStatus = escapeHtml(status);
+          var selectedAttr = (status === selectedStatus) ? ' selected' : '';
+          statusOptionsHtml += '<option value="' + safeStatus + '"' + selectedAttr + '>' + safeStatus.charAt(0).toUpperCase() + safeStatus.slice(1) + '</option>';
+        }
+
+        var quorumInputValueAttr = '';
+        if (quorumVal !== '') {
+          quorumInputValueAttr = ' value="' + String(quorumVal) + '"';
+        }
+
+        container.innerHTML = (
+          "<div class=\"governance-filters\">" +
+            "<div class=\"filters-left\">" +
+              "<div class=\"filter-group\">" +
+                "<label for=\"statusFilter\" class=\"filter-label\">Status</label>" +
+                "<select id=\"statusFilter\" class=\"filter-select\" data-action=\"status-filter-change\">" +
+                  statusOptionsHtml +
+                "</select>" +
+              "</div>" +
+
+              "<div class=\"filter-group\">" +
+                "<label for=\"deadlineFilter\" class=\"filter-label\">Ending within (days)</label>" +
+                "<input id=\"deadlineFilter\" type=\"number\" min=\"1\" step=\"1\"" +
+                  " class=\"filter-input\" placeholder=\"e.g. 7\" data-action=\"deadline-filter-change\"" +
+                  (deadlineVal ? (' value=\"' + escapeHtml(deadlineVal) + '\"') : '') +
+                ">" +
+              "</div>" +
+
+              "<div class=\"filter-group filter-group-quorum\">" +
+                "<label for=\"quorumFilter\" class=\"filter-label\">Minimum quorum</label>" +
+                "<div class=\"quorum-filter-control\">" +
+                  "<input id=\"quorumFilter\" type=\"range\" class=\"quorum-range\"" +
+                    " min=\"" + String(minPercent) + "\"" +
+                    " max=\"" + String(maxPercent) + "\"" +
+                    " step=\"" + String(stepPercent) + "\"" +
+                    " data-action=\"quorum-filter-change\"" +
+                    quorumInputValueAttr +
+                  ">" +
+                  "<span class=\"quorum-value-label\" data-role=\"quorum-value-label\">" + escapeHtml(quorumLabel) + "</span>" +
+                  "<button type=\"button\" class=\"link-button reset-quorum-filter\" data-action=\"clear-quorum-filter\">Any quorum</button>" +
+                "</div>" +
+              "</div>" +
+            "</div>" +
+
+            "<div class=\"filters-right\">" +
+              "<button type=\"button\" class=\"link-button clear-filters\" data-action=\"filters-reset\">Clear filters</button>" +
+            "</div>" +
+          "</div>"
+        );
+      }
+
+      function renderSortControl(container, state) {
+        if (!container) {
+          return;
+        }
+        var sortKey = state.sortKey || 'ending_soonest';
+
+        var options = [
+          { value: 'ending_soonest', label: 'Ending soonest' },
+          { value: 'newest', label: 'Newest' },
+          { value: 'quorum_highest', label: 'Highest quorum requirement' }
+        ];
+
+        var optionsHtml = '';
+        for (var i = 0; i < options.length; i++) {
+          var opt = options[i];
+          var selectedAttr = (opt.value === sortKey) ? ' selected' : '';
+          optionsHtml += '<option value="' + escapeHtml(opt.value) + '"' + selectedAttr + '>' + escapeHtml(opt.label) + '</option>';
+        }
+
+        container.innerHTML = (
+          "<div class=\"sort-control\">" +
+            "<label for=\"sortSelect\" class=\"sort-label\">Sort by</label>" +
+            "<select id=\"sortSelect\" class=\"sort-select\" data-action=\"sort-change\">" +
+              optionsHtml +
+            "</select>" +
+          "</div>"
+        );
+      }
+
+      function renderProposalsLoading(container, emptyContainer) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = (
+          "<div class=\"proposals-loading\">" +
+            "<div class=\"loading-spinner\" aria-hidden=\"true\"></div>" +
+            "<p class=\"loading-text\">Loading proposals...</p>" +
+          "</div>"
+        );
+        if (emptyContainer) {
+          emptyContainer.hidden = true;
+          emptyContainer.innerHTML = '';
+        }
+      }
+
+      function renderProposals(container, proposals) {
+        if (!container) {
+          return;
+        }
+        var listHtml = '<ul class="proposals-list" aria-label="Governance proposals">';
+
+        for (var i = 0; i < proposals.length; i++) {
+          var p = proposals[i];
+          var id = p.id ? String(p.id) : '';
+          var title = p.title ? String(p.title) : '';
+          var shortDesc = p.short_description ? String(p.short_description) : '';
+          var status = p.status ? String(p.status) : '';
+          var quorum = (typeof p.quorum_requirement_percent === 'number') ? p.quorum_requirement_percent : null;
+          var votingStart = formatDateTime(p.voting_start_datetime);
+          var votingEnd = formatDateTime(p.voting_end_datetime);
+          var endsIn = formatEndsIn(p.voting_end_datetime);
+
+          var quorumText = quorum !== null ? (quorum + '% required') : 'Not specified';
+          var statusLabel = status ? (status.charAt(0).toUpperCase() + status.slice(1)) : 'Unknown';
+
+          listHtml += (
+            '<li class="proposal-item" data-proposal-id="' + escapeHtml(id) + '" data-status="' + escapeHtml(status) + '" data-action="proposal-row-click">' +
+              '<div class="proposal-item-header">' +
+                '<h2 class="proposal-title">' +
+                  '<button type="button" class="proposal-title-button" data-action="proposal-title-click" data-proposal-id="' + escapeHtml(id) + '">' + escapeHtml(title) + '</button>' +
+                '</h2>' +
+                '<span class="proposal-status-pill status-' + escapeHtml(status) + '">' + escapeHtml(statusLabel) + '</span>' +
+              '</div>' +
+              '<div class="proposal-item-body">' +
+                (shortDesc ? ('<p class="proposal-summary">' + escapeHtml(shortDesc) + '</p>') : '') +
+                '<dl class="proposal-meta">' +
+                  '<div class="proposal-meta-item">' +
+                    '<dt>Quorum</dt>' +
+                    '<dd>' + escapeHtml(quorumText) + '</dd>' +
+                  '</div>' +
+                  '<div class="proposal-meta-item">' +
+                    '<dt>Voting window</dt>' +
+                    '<dd>' + escapeHtml(votingStart) + ' b7 ' + escapeHtml(votingEnd) + '</dd>' +
+                  '</div>' +
+                  '<div class="proposal-meta-item">' +
+                    '<dt>Status</dt>' +
+                    '<dd>' + escapeHtml(statusLabel) + (endsIn ? (' b7 ' + escapeHtml(endsIn)) : '') + '</dd>' +
+                  '</div>' +
+                '</dl>' +
+              '</div>' +
+            '</li>'
+          );
+        }
+
+        listHtml += '</ul>';
+        container.innerHTML = listHtml;
+      }
+
+      function renderEmptyState(proposalsContainer, emptyContainer, state) {
+        if (!proposalsContainer) {
+          return;
+        }
+        proposalsContainer.innerHTML = '';
+        if (!emptyContainer) {
+          return;
+        }
+        emptyContainer.hidden = false;
+
+        var hasFilters = !!(state.status || state.deadlineWithinDays || state.minQuorumPercent);
+        var message = hasFilters
+          ? 'No proposals match your current filters.'
+          : 'There are no governance proposals available right now.';
+
+        var suggestion = hasFilters
+          ? 'Try clearing or relaxing your filters to see more proposals.'
+          : 'Please check back later for new governance proposals.';
+
+        emptyContainer.innerHTML = (
+          "<div class=\"empty-state\">" +
+            "<p class=\"empty-state-message\">" + escapeHtml(message) + "</p>" +
+            "<p class=\"empty-state-suggestion\">" + escapeHtml(suggestion) + "</p>" +
+            (hasFilters
+              ? "<button type=\"button\" class=\"btn btn-secondary\" data-action=\"filters-reset\">Clear filters</button>"
+              : "") +
+          "</div>"
+        );
+      }
+
+      function renderProposalsError(proposalsContainer, emptyContainer, error) {
+        if (!proposalsContainer) {
+          return;
+        }
+        proposalsContainer.innerHTML = '';
+        if (!emptyContainer) {
+          return;
+        }
+        emptyContainer.hidden = false;
+
+        var message = 'We were unable to load governance proposals. Please try again.';
+        if (error && error.message) {
+          message = error.message;
+        }
+
+        emptyContainer.innerHTML = (
+          "<div class=\"error-state\">" +
+            "<p class=\"error-state-message\">" + escapeHtml(message) + "</p>" +
+            "<button type=\"button\" class=\"btn btn-secondary\" data-action=\"retry-proposals\">Retry</button>" +
+          "</div>"
+        );
+      }
+
+      function loadAndRenderProposals(proposalsContainer, emptyContainer, state) {
+        if (!proposalsContainer) {
+          return;
+        }
+        renderProposalsLoading(proposalsContainer, emptyContainer);
+
+        var proposals = [];
+        lastProposalsError = null;
+        try {
+          var filters = buildFiltersFromState(state);
+          var sort = buildSortFromState(state);
+          proposals = WebsiteSDK.getGovernanceProposals(filters, sort);
+        } catch (err) {
+          lastProposalsError = err;
+        }
+
+        if (lastProposalsError) {
+          renderProposalsError(proposalsContainer, emptyContainer, lastProposalsError);
+        } else if (!proposals || proposals.length === 0) {
+          renderEmptyState(proposalsContainer, emptyContainer, state);
+        } else {
+          if (emptyContainer) {
+            emptyContainer.hidden = true;
+            emptyContainer.innerHTML = '';
+          }
+          renderProposals(proposalsContainer, proposals);
+        }
+      }
+
+      function syncFromUrl() {
+        var state = parseUrlParams();
+        var filtersContainer = document.querySelector('[data-populate="governance-filters"]');
+        var sortContainer = document.querySelector('[data-populate="governance-sort"]');
+        var proposalsContainer = document.querySelector('[data-populate="governance-proposals"]');
+        var emptyContainer = document.querySelector('[data-component="empty-state-handler"]');
+
+        if (filtersContainer) {
+          renderFilters(filtersContainer, state);
+        }
+        if (sortContainer) {
+          renderSortControl(sortContainer, state);
+        }
+        if (proposalsContainer) {
+          loadAndRenderProposals(proposalsContainer, emptyContainer, state);
+        }
+
+        bindActionHandlers();
+      }
+
+      function onStatusFilterChange(event) {
+        var select = event.target;
+        var value = select.value || '';
+        updateUrlParamsFromState({ status: value });
+      }
+
+      function onDeadlineFilterChange(event) {
+        var input = event.target;
+        var raw = input.value;
+        var deadlineWithinDays = null;
+        if (raw !== null && raw !== undefined && String(raw).trim() !== '') {
+          var numeric = Number(raw);
+          if (!isNaN(numeric) && numeric > 0) {
+            deadlineWithinDays = Math.floor(numeric);
+            input.value = String(deadlineWithinDays);
+          } else {
+            deadlineWithinDays = null;
+            input.value = '';
+          }
+        }
+        updateUrlParamsFromState({ deadlineWithinDays: deadlineWithinDays });
+      }
+
+      function onQuorumFilterChange(event) {
+        var input = event.target;
+        var raw = input.value;
+        var minQuorumPercent = null;
+        if (raw !== null && raw !== undefined && String(raw).trim() !== '') {
+          var numeric = Number(raw);
+          if (!isNaN(numeric)) {
+            minQuorumPercent = numeric;
+          }
+        }
+        var filtersRoot = input.closest('[data-component="governance-filters-bar"]');
+        if (filtersRoot) {
+          var labelEl = filtersRoot.querySelector('[data-role="quorum-value-label"]');
+          if (labelEl) {
+            if (minQuorumPercent !== null && minQuorumPercent !== undefined) {
+              labelEl.textContent = minQuorumPercent + '%+';
+            } else {
+              labelEl.textContent = 'Any quorum';
+            }
+          }
+        }
+        updateUrlParamsFromState({ minQuorumPercent: minQuorumPercent });
+      }
+
+      function onClearQuorumFilter(event) {
+        event.preventDefault();
+        var filtersRoot = event.target.closest('[data-component="governance-filters-bar"]');
+        if (filtersRoot) {
+          var slider = filtersRoot.querySelector('#quorumFilter');
+          var labelEl = filtersRoot.querySelector('[data-role="quorum-value-label"]');
+          if (slider) {
+            var quorumRange = filterOptions && filterOptions.quorum_requirement_range_percent ? filterOptions.quorum_requirement_range_percent : null;
+            if (quorumRange && typeof quorumRange.min_percent === 'number') {
+              slider.value = String(quorumRange.min_percent);
+            } else {
+              slider.value = '';
+            }
+          }
+          if (labelEl) {
+            labelEl.textContent = 'Any quorum';
+          }
+        }
+        updateUrlParamsFromState({ minQuorumPercent: null });
+      }
+
+      function onFiltersReset(event) {
+        if (event) {
+          event.preventDefault();
+        }
+        updateUrlParamsFromState({
+          status: '',
+          deadlineWithinDays: null,
+          minQuorumPercent: null
+        });
+      }
+
+      function onSortChange(event) {
+        var select = event.target;
+        var value = select.value || '';
+        updateUrlParamsFromState({ sortKey: value });
+      }
+
+      function goToProposalDetail(proposalId) {
+        if (!proposalId) {
+          return;
+        }
+        var url = 'proposal_detail.html?proposalId=' + encodeURIComponent(String(proposalId));
+        window.location.href = url;
+      }
+
+      function onProposalRowClick(event) {
+        var target = event.currentTarget;
+        var proposalId = target.getAttribute('data-proposal-id');
+        if (!proposalId) {
+          return;
+        }
+        goToProposalDetail(proposalId);
+      }
+
+      function onProposalTitleClick(event) {
+        event.stopPropagation();
+        var target = event.currentTarget;
+        var proposalId = target.getAttribute('data-proposal-id');
+        if (!proposalId) {
+          return;
+        }
+        goToProposalDetail(proposalId);
+      }
+
+      function onRetryFilters(event) {
+        event.preventDefault();
+        filtersError = null;
+        try {
+          filterOptions = WebsiteSDK.getGovernanceFilterOptions();
+        } catch (err) {
+          filterOptions = null;
+          filtersError = err;
+        }
+        syncFromUrl();
+      }
+
+      function onRetryProposals(event) {
+        event.preventDefault();
+        var state = parseUrlParams();
+        var proposalsContainer = document.querySelector('[data-populate="governance-proposals"]');
+        var emptyContainer = document.querySelector('[data-component="empty-state-handler"]');
+        if (proposalsContainer) {
+          loadAndRenderProposals(proposalsContainer, emptyContainer, state);
+        }
+        bindActionHandlers();
+      }
+
+      function bindActionHandlers() {
+        var actionElements = document.querySelectorAll('[data-action]');
+        for (var i = 0; i < actionElements.length; i++) {
+          var el = actionElements[i];
+          var action = el.getAttribute('data-action');
+
+          if (action === 'status-filter-change' && !el.__boundStatusChange) {
+            el.addEventListener('change', onStatusFilterChange);
+            el.__boundStatusChange = true;
+          } else if (action === 'deadline-filter-change' && !el.__boundDeadlineChange) {
+            el.addEventListener('change', onDeadlineFilterChange);
+            el.__boundDeadlineChange = true;
+          } else if (action === 'quorum-filter-change' && !el.__boundQuorumChange) {
+            el.addEventListener('input', onQuorumFilterChange);
+            el.addEventListener('change', onQuorumFilterChange);
+            el.__boundQuorumChange = true;
+          } else if (action === 'clear-quorum-filter' && !el.__boundClearQuorum) {
+            el.addEventListener('click', onClearQuorumFilter);
+            el.__boundClearQuorum = true;
+          } else if (action === 'filters-reset' && !el.__boundFiltersReset) {
+            el.addEventListener('click', onFiltersReset);
+            el.__boundFiltersReset = true;
+          } else if (action === 'sort-change' && !el.__boundSortChange) {
+            el.addEventListener('change', onSortChange);
+            el.__boundSortChange = true;
+          } else if (action === 'proposal-row-click' && !el.__boundProposalRowClick) {
+            el.addEventListener('click', onProposalRowClick);
+            el.__boundProposalRowClick = true;
+          } else if (action === 'proposal-title-click' && !el.__boundProposalTitleClick) {
+            el.addEventListener('click', onProposalTitleClick);
+            el.__boundProposalTitleClick = true;
+          } else if (action === 'retry-filters' && !el.__boundRetryFilters) {
+            el.addEventListener('click', onRetryFilters);
+            el.__boundRetryFilters = true;
+          } else if (action === 'retry-proposals' && !el.__boundRetryProposals) {
+            el.addEventListener('click', onRetryProposals);
+            el.__boundRetryProposals = true;
+          }
+        }
+      }
+
+      function initUserSummary() {
+        var container = document.querySelector('[data-populate="current-user-summary"]');
+        if (!container) {
+          return;
+        }
+        var summary = null;
+        try {
+          summary = WebsiteSDK.getCurrentUserSummary();
+        } catch (err) {
+          summary = null;
+        }
+        renderUserSummary(container, summary);
+      }
+
+      function initGovernanceData() {
+        if (governanceInitialized) {
+          return;
+        }
+        governanceInitialized = true;
+
+        try {
+          filterOptions = WebsiteSDK.getGovernanceFilterOptions();
+          filtersError = null;
+        } catch (err) {
+          filterOptions = null;
+          filtersError = err;
+        }
+
+        syncFromUrl();
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        var yearSpan = document.querySelector('[data-year]');
+        if (yearSpan) {
+          var now = new Date();
+          if (!isNaN(now.getTime())) {
+            yearSpan.textContent = String(now.getFullYear());
+          }
+        }
+
+        initUserSummary();
+
+        var populateElements = document.querySelectorAll('[data-populate]');
+        var needsGovernanceInit = false;
+
+        for (var i = 0; i < populateElements.length; i++) {
+          var el = populateElements[i];
+          var type = el.getAttribute('data-populate');
+          if (type === 'governance-filters' || type === 'governance-proposals' || type === 'governance-sort') {
+            needsGovernanceInit = true;
+          }
+        }
+
+        if (needsGovernanceInit) {
+          initGovernanceData();
+        }
+
+        window.addEventListener('popstate', function() {
+          if (!governanceInitialized) {
+            return;
+          }
+          syncFromUrl();
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

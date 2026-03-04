@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<link rel="stylesheet" href="collections.css">
+
+<section class="page-hero page-hero--collections">
+  <div class="page-hero-inner content-container">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <ol class="breadcrumb-list">
+        <li class="breadcrumb-item"><a href="index.html">Home</a></li>
+        <li class="breadcrumb-item">Collections Overview</li>
+      </ol>
+    </nav>
+    <div class="page-hero-text">
+      <h1 class="page-title">Collections Overview</h1>
+      <p class="page-subtitle">Manage user-defined collections of articles and videos in one place.</p>
+    </div>
+  </div>
+</section>
+
+<div class="collections-page" data-component="collections-page">
+  <div class="collections-main">
+    <div class="collections-main-inner content-container">
+
+      <!-- Toolbar: sorting, new collection, help link -->
+      <section class="collections-toolbar" data-component="collections-toolbar">
+        <div class="collections-toolbar-inner">
+          <div class="collections-toolbar-header">
+            <p class="collections-toolbar-label">Sort collections</p>
+          </div>
+          <div class="collections-toolbar-row">
+            <div class="collections-toolbar-left">
+              <label for="sortField" class="field-label">Sort by</label>
+              <select id="sortField" name="sort" class="field-select" data-action="changeSortField" aria-label="Sort collections by">
+                <option value="updated">Last updated</option>
+                <option value="name">Name</option>
+                <option value="items">Item count</option>
+                <option value="created">Created date</option>
+              </select>
+
+              <button type="button" class="btn btn-ghost sort-order-toggle" data-action="changeSortOrder" aria-label="Toggle sort order">
+                <span class="sort-order-label" data-component="sort-order-label">Newest first</span>
+              </button>
+            </div>
+
+            <div class="collections-toolbar-center">
+              <button type="button" class="btn btn-primary" data-action="openCreateCollectionForm">
+                <span class="label">New collection</span>
+              </button>
+            </div>
+
+            <div class="collections-toolbar-right">
+              <a href="javascript:void(0)" class="collections-help-link" data-component="collections-help-link" data-action="navigateToHelp">How to use collections</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Create collection form band -->
+      <section class="create-collection-section is-hidden" data-component="create-collection-form" aria-label="Create new collection">
+        <div class="create-collection-inner">
+          <div class="create-collection-header">
+            <h2 class="create-collection-title">Create new collection</h2>
+            <p class="create-collection-description">Name your collection and optionally add a short description.</p>
+          </div>
+          <form class="create-collection-form" data-action="submitCreateCollection" novalidate>
+            <div class="create-collection-fields">
+              <div class="form-field">
+                <label for="newCollectionName" class="field-label">Collection name<span aria-hidden="true">*</span></label>
+                <input id="newCollectionName" name="name" type="text" required maxlength="200" class="text-input" autocomplete="off" />
+              </div>
+              <div class="form-field">
+                <label for="newCollectionDescription" class="field-label">Description (optional)</label>
+                <textarea id="newCollectionDescription" name="description" rows="2" class="text-area"></textarea>
+              </div>
+            </div>
+            <div class="create-collection-actions">
+              <button type="submit" class="btn btn-primary">Create collection</button>
+              <button type="button" class="btn btn-secondary" data-action="closeCreateCollectionForm">Cancel</button>
+            </div>
+            <p class="form-message" data-component="create-collection-message" aria-live="polite"></p>
+          </form>
+        </div>
+      </section>
+
+      <!-- Error banner for load failures -->
+      <div class="collections-error" data-component="collections-error" aria-live="polite"></div>
+
+      <!-- Empty state (rendered when there are no collections) -->
+      <section class="collections-empty-state-section is-hidden" data-component="collections-empty-state" data-populate="collections-empty-state" aria-live="polite">
+        <div class="collections-empty-panel">
+          <div class="collections-empty-icon" aria-hidden="true"></div>
+          <h2 class="collections-empty-title">No collections yet</h2>
+          <p class="collections-empty-text">Create your first collection to group related articles and videos you want to revisit or share.</p>
+          <button type="button" class="btn btn-primary" data-action="openCreateCollectionForm">Create your first collection</button>
+        </div>
+      </section>
+
+      <!-- Collections list grid -->
+      <section class="collections-list-section" data-component="collections-list-section">
+        <ul class="collections-grid" data-component="collections-list" data-populate="collections-list" aria-live="polite">
+          <!-- Cards injected via JavaScript -->
+        </ul>
+      </section>
+
+      <!-- Pagination -->
+      <nav class="collections-pagination" aria-label="Collections pages" data-component="collections-pagination" data-populate="collections-pagination">
+        <!-- Pagination controls injected via JavaScript -->
+      </nav>
+    </div>
+  </div>
+
+  <!-- Content-level loading overlay -->
+  <div class="collections-loading-overlay is-hidden" data-component="collections-page-init" data-populate="collections-loader" aria-hidden="true">
+    <div class="collections-loading-scrim"></div>
+    <div class="collections-loading-indicator" role="status" aria-live="polite">
+      <span class="spinner"></span>
+      <span class="loading-text">Loading collections&hellip;</span>
+    </div>
+  </div>
+
+  <!-- Delete confirmation modal -->
+  <div class="modal-backdrop is-hidden" data-component="delete-collection-confirmation" aria-hidden="true">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="deleteCollectionTitle">
+      <h2 id="deleteCollectionTitle" class="modal-title">Delete collection?</h2>
+      <p id="deleteCollectionMessage" class="modal-body">Are you sure you want to delete this collection? The collection and its items will be removed from your Collections overview.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-destructive" data-action="confirmDeleteCollection">Delete</button>
+        <button type="button" class="btn btn-secondary" data-action="cancelDeleteCollection">Cancel</button>
+      </div>
+      <p class="modal-error" data-component="delete-collection-error" aria-live="polite"></p>
+    </div>
+  </div>
+</div>
+
+<script src="business_logic.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const state = {
+      allCollections: [],
+      sortField: 'updated',
+      sortOrder: 'desc',
+      page: 1,
+      pageSize: 9,
+      pendingDeleteId: null,
+      pendingDeleteName: ''
+    };
+
+    const SORT_FIELD_PARAM = 'sort';
+    const SORT_ORDER_PARAM = 'order';
+    const PAGE_PARAM = 'page';
+    const PAGE_SIZE_PARAM = 'pageSize';
+
+    const toolbarSortFieldSelect = document.getElementById('sortField');
+    const sortOrderLabel = document.querySelector('[data-component="sort-order-label"]');
+    const createSection = document.querySelector('[data-component="create-collection-form"]');
+    const createForm = createSection ? createSection.querySelector('form[data-action="submitCreateCollection"]') : null;
+    const createMessageEl = document.querySelector('[data-component="create-collection-message"]');
+    const errorBanner = document.querySelector('[data-component="collections-error"]');
+    const emptyStateSection = document.querySelector('[data-component="collections-empty-state"]');
+    const listSection = document.querySelector('[data-component="collections-list-section"]');
+    const loaderOverlay = document.querySelector('[data-component="collections-page-init"]');
+    const deleteModal = document.querySelector('[data-component="delete-collection-confirmation"]');
+    const deleteModalError = document.querySelector('[data-component="delete-collection-error"]');
+
+    const populateRenderers = {
+      'collections-list': renderCollectionsList,
+      'collections-pagination': renderPagination,
+      'collections-empty-state': renderEmptyState,
+      'collections-loader': renderLoader
+    };
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatDate(value) {
+      if (!value) return '-';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return '-';
+      return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function readUrlState() {
+      const params = new URLSearchParams(window.location.search);
+      const sort = params.get(SORT_FIELD_PARAM);
+      const order = params.get(SORT_ORDER_PARAM);
+      const page = parseInt(params.get(PAGE_PARAM) || '1', 10);
+      const pageSize = parseInt(params.get(PAGE_SIZE_PARAM) || '9', 10);
+
+      if (sort === 'name' || sort === 'items' || sort === 'created' || sort === 'updated') {
+        state.sortField = sort;
+      }
+      if (order === 'asc' || order === 'desc') {
+        state.sortOrder = order;
+      }
+      state.page = Number.isFinite(page) && page > 0 ? page : 1;
+      state.pageSize = Number.isFinite(pageSize) && pageSize > 0 ? pageSize : 9;
+
+      if (toolbarSortFieldSelect) {
+        toolbarSortFieldSelect.value = state.sortField;
+      }
+      updateSortOrderLabel();
+    }
+
+    function writeUrlState() {
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+      params.set(SORT_FIELD_PARAM, state.sortField);
+      params.set(SORT_ORDER_PARAM, state.sortOrder);
+      params.set(PAGE_PARAM, String(state.page));
+      params.set(PAGE_SIZE_PARAM, String(state.pageSize));
+      url.search = params.toString();
+      window.history.replaceState({}, '', url.toString());
+    }
+
+    function updateSortOrderLabel() {
+      if (!sortOrderLabel) return;
+      if (state.sortOrder === 'asc') {
+        sortOrderLabel.textContent = 'Oldest first';
+      } else {
+        sortOrderLabel.textContent = 'Newest first';
+      }
+    }
+
+    function computeView() {
+      const items = state.allCollections.slice();
+      const field = state.sortField;
+      const order = state.sortOrder === 'asc' ? 1 : -1;
+
+      items.sort((a, b) => {
+        let aVal;
+        let bVal;
+        if (field === 'name') {
+          aVal = (a.collection && a.collection.name) || '';
+          bVal = (b.collection && b.collection.name) || '';
+          return aVal.localeCompare(bVal) * order;
+        }
+        if (field === 'items') {
+          aVal = typeof a.itemCount === 'number' ? a.itemCount : 0;
+          bVal = typeof b.itemCount === 'number' ? b.itemCount : 0;
+          return (aVal - bVal) * order;
+        }
+        if (field === 'created') {
+          aVal = a.collection && a.collection.created_at ? new Date(a.collection.created_at).getTime() : 0;
+          bVal = b.collection && b.collection.created_at ? new Date(b.collection.created_at).getTime() : 0;
+          return (aVal - bVal) * order;
+        }
+        const aUpdated = a.lastUpdatedAt || (a.collection && (a.collection.updated_at || a.collection.created_at));
+        const bUpdated = b.lastUpdatedAt || (b.collection && (b.collection.updated_at || b.collection.created_at));
+        aVal = aUpdated ? new Date(aUpdated).getTime() : 0;
+        bVal = bUpdated ? new Date(bUpdated).getTime() : 0;
+        return (aVal - bVal) * order;
+      });
+
+      const totalItems = items.length;
+      const totalPages = totalItems === 0 ? 1 : Math.max(1, Math.ceil(totalItems / state.pageSize));
+      if (state.page > totalPages) {
+        state.page = totalPages;
+      }
+      const start = (state.page - 1) * state.pageSize;
+      const end = start + state.pageSize;
+      const pageItems = items.slice(start, end);
+
+      return {
+        totalItems,
+        totalPages,
+        pageItems,
+        currentPage: state.page
+      };
+    }
+
+    function updateView() {
+      const view = computeView();
+      const populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach((container) => {
+        const key = container.dataset.populate;
+        const renderer = populateRenderers[key];
+        if (typeof renderer === 'function') {
+          renderer(container, view);
+        }
+      });
+      writeUrlState();
+    }
+
+    function renderLoader(container, view) {
+      const isLoading = state.allCollections === null;
+      if (isLoading) {
+        container.classList.remove('is-hidden');
+        container.setAttribute('aria-hidden', 'false');
+      } else {
+        container.classList.add('is-hidden');
+        container.setAttribute('aria-hidden', 'true');
+      }
+    }
+
+    function renderEmptyState(container, view) {
+      if (view.totalItems === 0) {
+        container.classList.remove('is-hidden');
+      } else {
+        container.classList.add('is-hidden');
+      }
+    }
+
+    function renderCollectionsList(container, view) {
+      container.innerHTML = '';
+      if (listSection) {
+        if (view.totalItems === 0) {
+          listSection.classList.add('is-hidden');
+        } else {
+          listSection.classList.remove('is-hidden');
+        }
+      }
+
+      view.pageItems.forEach((entry) => {
+        const col = entry.collection || {};
+        const id = col.id || '';
+        const name = col.name || 'Untitled collection';
+        const description = col.description || '';
+        const createdAt = col.created_at || '';
+        const updatedAt = entry.lastUpdatedAt || col.updated_at || col.created_at || '';
+        const li = document.createElement('li');
+        li.className = 'collection-card';
+        li.dataset.collectionId = id;
+
+        li.innerHTML = `
+          <article class="collection-card-inner">
+            <div class="collection-card-thumbnail" aria-hidden="true"></div>
+            <div class="collection-card-body">
+              <div class="collection-card-title-row">
+                <button type="button" class="collection-card-title" data-action="openCollection" data-collection-id="${escapeHtml(id)}">
+                  ${escapeHtml(name)}
+                </button>
+              </div>
+              <p class="collection-card-description">${description ? escapeHtml(description) : 'No description added yet.'}</p>
+              <dl class="collection-card-meta">
+                <div class="meta-row">
+                  <dt>Items</dt>
+                  <dd>${typeof entry.itemCount === 'number' ? entry.itemCount : 0}</dd>
+                </div>
+                <div class="meta-row">
+                  <dt>Created</dt>
+                  <dd>${formatDate(createdAt)}</dd>
+                </div>
+                <div class="meta-row">
+                  <dt>Last updated</dt>
+                  <dd>${formatDate(updatedAt)}</dd>
+                </div>
+              </dl>
+              <div class="collection-card-actions">
+                <button type="button" class="link-button" data-action="startRenameCollection" data-collection-id="${escapeHtml(id)}">Rename</button>
+                <button type="button" class="link-button" data-action="deleteCollection" data-collection-id="${escapeHtml(id)}">Delete</button>
+                <button type="button" class="btn btn-secondary" data-action="openCollection" data-collection-id="${escapeHtml(id)}">Open</button>
+              </div>
+              <form class="inline-rename-form is-hidden" data-component="collection-row-inline-editor" data-action="submitRenameCollection" data-collection-id="${escapeHtml(id)}" novalidate>
+                <label class="sr-only" for="rename-${escapeHtml(id)}">New name for ${escapeHtml(name)}</label>
+                <div class="inline-rename-row">
+                  <input id="rename-${escapeHtml(id)}" name="newName" class="text-input" type="text" required maxlength="200" value="${escapeHtml(name)}" />
+                  <button type="submit" class="btn btn-primary">Save</button>
+                  <button type="button" class="btn btn-secondary" data-action="cancelRenameCollection">Cancel</button>
+                </div>
+                <p class="inline-rename-error" aria-live="polite"></p>
+              </form>
+            </div>
+          </article>
+        `;
+
+        container.appendChild(li);
+      });
+    }
+
+    function renderPagination(container, view) {
+      container.innerHTML = '';
+      if (view.totalItems === 0) {
+        container.classList.add('is-hidden');
+        return;
+      }
+      container.classList.remove('is-hidden');
+
+      const navInner = document.createElement('div');
+      navInner.className = 'pagination-inner';
+
+      const totalPages = view.totalPages;
+      const current = view.currentPage;
+
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.className = 'pagination-button pagination-prev';
+      prevBtn.textContent = 'Previous';
+      prevBtn.disabled = current <= 1;
+      prevBtn.dataset.action = 'goToPreviousPage';
+      navInner.appendChild(prevBtn);
+
+      for (let i = 1; i <= totalPages; i += 1) {
+        const pageBtn = document.createElement('button');
+        pageBtn.type = 'button';
+        pageBtn.className = 'pagination-button pagination-page';
+        pageBtn.textContent = String(i);
+        pageBtn.dataset.action = 'goToSpecificPage';
+        pageBtn.dataset.page = String(i);
+        if (i === current) {
+          pageBtn.classList.add('is-active');
+          pageBtn.setAttribute('aria-current', 'page');
+        }
+        navInner.appendChild(pageBtn);
+      }
+
+      const nextBtn = document.createElement('button');
+      nextBtn.type = 'button';
+      nextBtn.className = 'pagination-button pagination-next';
+      nextBtn.textContent = 'Next';
+      nextBtn.disabled = current >= totalPages;
+      nextBtn.dataset.action = 'goToNextPage';
+      navInner.appendChild(nextBtn);
+
+      container.appendChild(navInner);
+    }
+
+    function showLoader() {
+      state.allCollections = null;
+      renderLoader(loaderOverlay, {});
+    }
+
+    function hideLoader() {
+      if (state.allCollections === null) {
+        state.allCollections = state.allCollections || [];
+      }
+      if (loaderOverlay) {
+        loaderOverlay.classList.add('is-hidden');
+        loaderOverlay.setAttribute('aria-hidden', 'true');
+      }
+    }
+
+    function loadCollections() {
+      showLoader();
+      if (errorBanner) {
+        errorBanner.textContent = '';
+      }
+      try {
+        const overview = WebsiteSDK.getCollectionsOverview();
+        state.allCollections = Array.isArray(overview) ? overview.slice() : [];
+      } catch (err) {
+        state.allCollections = [];
+        if (errorBanner) {
+          errorBanner.textContent = 'We were unable to load your collections. Please try reloading the page.';
+        }
+      }
+      hideLoader();
+      updateView();
+    }
+
+    function openCreateForm() {
+      if (!createSection) return;
+      createSection.classList.remove('is-hidden');
+      if (createMessageEl) {
+        createMessageEl.textContent = '';
+      }
+      if (createForm) {
+        const nameInput = createForm.querySelector('#newCollectionName');
+        if (nameInput) {
+          nameInput.focus();
+        }
+      }
+    }
+
+    function closeCreateForm() {
+      if (!createSection) return;
+      createSection.classList.add('is-hidden');
+      if (createForm) {
+        createForm.reset();
+      }
+      if (createMessageEl) {
+        createMessageEl.textContent = '';
+      }
+    }
+
+    function handleCreateSubmit(form) {
+      if (!form) return;
+      if (createMessageEl) {
+        createMessageEl.textContent = '';
+      }
+      const nameInput = form.elements.namedItem('newName') || form.querySelector('#newCollectionName');
+      const descInput = form.elements.namedItem('description') || form.querySelector('#newCollectionDescription');
+      const name = nameInput && nameInput.value ? nameInput.value.trim() : '';
+      const description = descInput && descInput.value ? descInput.value.trim() : '';
+
+      if (!name) {
+        if (createMessageEl) {
+          createMessageEl.textContent = 'Please enter a name for your collection.';
+        }
+        if (nameInput) {
+          nameInput.focus();
+        }
+        return;
+      }
+
+      try {
+        const result = WebsiteSDK.createCollection(name, description);
+        const col = result && result.collection ? result.collection : null;
+        if (!col) {
+          if (createMessageEl) {
+            createMessageEl.textContent = 'We could not create this collection. Please try again.';
+          }
+          return;
+        }
+        const overviewEntry = {
+          collection: col,
+          itemCount: 0,
+          lastUpdatedAt: col.updated_at || col.created_at || ''
+        };
+        state.allCollections.push(overviewEntry);
+        if (createMessageEl) {
+          const escapedName = escapeHtml(col.name || name);
+          createMessageEl.innerHTML = `Collection \"${escapedName}\" created. <button type="button" class="link-button" data-action="openCollection" data-collection-id="${escapeHtml(col.id || '')}">Open collection</button>`;
+        }
+        if (createForm) {
+          createForm.reset();
+        }
+        updateView();
+      } catch (err) {
+        if (createMessageEl) {
+          createMessageEl.textContent = 'We could not create this collection. Please try again.';
+        }
+      }
+    }
+
+    function openDeleteModal(collectionId, collectionName) {
+      if (!deleteModal) return;
+      state.pendingDeleteId = collectionId;
+      state.pendingDeleteName = collectionName;
+      const messageEl = document.getElementById('deleteCollectionMessage');
+      if (messageEl) {
+        messageEl.textContent = `Are you sure you want to delete \"${collectionName}\"? The collection and its items will be removed from your Collections overview.`;
+      }
+      if (deleteModalError) {
+        deleteModalError.textContent = '';
+      }
+      deleteModal.classList.remove('is-hidden');
+      deleteModal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeDeleteModal() {
+      if (!deleteModal) return;
+      deleteModal.classList.add('is-hidden');
+      deleteModal.setAttribute('aria-hidden', 'true');
+      state.pendingDeleteId = null;
+      state.pendingDeleteName = '';
+      if (deleteModalError) {
+        deleteModalError.textContent = '';
+      }
+    }
+
+    function performDelete() {
+      if (!state.pendingDeleteId) return;
+      if (deleteModalError) {
+        deleteModalError.textContent = '';
+      }
+      try {
+        const result = WebsiteSDK.deleteCollection(state.pendingDeleteId);
+        if (!result || result.success !== true) {
+          if (deleteModalError) {
+            deleteModalError.textContent = 'We could not delete this collection. Please try again.';
+          }
+          return;
+        }
+        const beforeCount = state.allCollections.length;
+        state.allCollections = state.allCollections.filter((entry) => entry.collection && entry.collection.id !== state.pendingDeleteId);
+        const afterCount = state.allCollections.length;
+        if (afterCount < beforeCount) {
+          const view = computeView();
+          if (view.pageItems.length === 0 && state.page > 1) {
+            state.page = Math.max(1, state.page - 1);
+          }
+        }
+        closeDeleteModal();
+        updateView();
+      } catch (err) {
+        if (deleteModalError) {
+          deleteModalError.textContent = 'We could not delete this collection. Please try again.';
+        }
+      }
+    }
+
+    function enterRenameMode(target) {
+      const card = target.closest('.collection-card');
+      if (!card) return;
+      const form = card.querySelector('form.inline-rename-form');
+      const titleRow = card.querySelector('.collection-card-title-row');
+      const actionsRow = card.querySelector('.collection-card-actions');
+      if (form) {
+        form.classList.remove('is-hidden');
+        const input = form.querySelector('input[name="newName"]');
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      }
+      if (titleRow) {
+        titleRow.classList.add('is-hidden');
+      }
+      if (actionsRow) {
+        actionsRow.classList.add('is-hidden');
+      }
+    }
+
+    function cancelRename(target) {
+      const form = target.closest('form.inline-rename-form');
+      if (!form) return;
+      const card = form.closest('.collection-card');
+      const titleRow = card ? card.querySelector('.collection-card-title-row') : null;
+      const actionsRow = card ? card.querySelector('.collection-card-actions') : null;
+      form.classList.add('is-hidden');
+      const errorEl = form.querySelector('.inline-rename-error');
+      if (errorEl) {
+        errorEl.textContent = '';
+      }
+      if (titleRow) {
+        titleRow.classList.remove('is-hidden');
+      }
+      if (actionsRow) {
+        actionsRow.classList.remove('is-hidden');
+      }
+    }
+
+    function handleRenameSubmit(form) {
+      const collectionId = form.dataset.collectionId || '';
+      const input = form.querySelector('input[name="newName"]');
+      const errorEl = form.querySelector('.inline-rename-error');
+      if (errorEl) {
+        errorEl.textContent = '';
+      }
+      const newName = input && input.value ? input.value.trim() : '';
+      if (!newName) {
+        if (errorEl) {
+          errorEl.textContent = 'Please enter a name for this collection.';
+        }
+        if (input) {
+          input.focus();
+        }
+        return;
+      }
+      try {
+        const result = WebsiteSDK.renameCollection(collectionId, newName);
+        const updated = result && result.collection ? result.collection : null;
+        if (!updated) {
+          if (errorEl) {
+            errorEl.textContent = 'We could not rename this collection. Please try again.';
+          }
+          return;
+        }
+        const idx = state.allCollections.findIndex((entry) => entry.collection && entry.collection.id === collectionId);
+        if (idx !== -1) {
+          state.allCollections[idx].collection = updated;
+          state.allCollections[idx].lastUpdatedAt = updated.updated_at || state.allCollections[idx].lastUpdatedAt || updated.created_at || '';
+        }
+        updateView();
+      } catch (err) {
+        if (errorEl) {
+          errorEl.textContent = 'We could not rename this collection. Please try again.';
+        }
+      }
+    }
+
+    document.addEventListener('click', (event) => {
+      const actionEl = event.target.closest('[data-action]');
+      if (!actionEl) return;
+      const action = actionEl.dataset.action;
+
+      if (action === 'openCreateCollectionForm') {
+        event.preventDefault();
+        openCreateForm();
+      } else if (action === 'closeCreateCollectionForm') {
+        event.preventDefault();
+        closeCreateForm();
+      } else if (action === 'navigateToHelp') {
+        event.preventDefault();
+        window.location.href = 'help.html';
+      } else if (action === 'changeSortField') {
+        state.sortField = actionEl.value || state.sortField;
+        state.page = 1;
+        updateView();
+      } else if (action === 'changeSortOrder') {
+        state.sortOrder = state.sortOrder === 'asc' ? 'desc' : 'asc';
+        updateSortOrderLabel();
+        state.page = 1;
+        updateView();
+      } else if (action === 'openCollection') {
+        const id = actionEl.dataset.collectionId || '';
+        if (id) {
+          window.location.href = `collection_detail.html?collectionId=${encodeURIComponent(id)}`;
+        }
+      } else if (action === 'startRenameCollection') {
+        event.preventDefault();
+        enterRenameMode(actionEl);
+      } else if (action === 'cancelRenameCollection') {
+        event.preventDefault();
+        cancelRename(actionEl);
+      } else if (action === 'deleteCollection') {
+        event.preventDefault();
+        const id = actionEl.dataset.collectionId || '';
+        const entry = state.allCollections.find((e) => e.collection && e.collection.id === id);
+        const name = entry && entry.collection && entry.collection.name ? entry.collection.name : 'this collection';
+        openDeleteModal(id, name);
+      } else if (action === 'confirmDeleteCollection') {
+        event.preventDefault();
+        performDelete();
+      } else if (action === 'cancelDeleteCollection') {
+        event.preventDefault();
+        closeDeleteModal();
+      } else if (action === 'goToPreviousPage') {
+        event.preventDefault();
+        if (state.page > 1) {
+          state.page -= 1;
+          updateView();
+        }
+      } else if (action === 'goToNextPage') {
+        event.preventDefault();
+        const view = computeView();
+        if (state.page < view.totalPages) {
+          state.page += 1;
+          updateView();
+        }
+      } else if (action === 'goToSpecificPage') {
+        event.preventDefault();
+        const pageStr = actionEl.dataset.page || '1';
+        const page = parseInt(pageStr, 10);
+        if (Number.isFinite(page) && page > 0) {
+          state.page = page;
+          updateView();
+        }
+      }
+    });
+
+    document.addEventListener('change', (event) => {
+      const actionEl = event.target.closest('[data-action="changeSortField"]');
+      if (!actionEl) return;
+      state.sortField = actionEl.value || state.sortField;
+      state.page = 1;
+      updateView();
+    });
+
+    document.addEventListener('submit', (event) => {
+      const form = event.target;
+      const action = form.dataset.action;
+      if (!action) return;
+      event.preventDefault();
+      if (action === 'submitCreateCollection') {
+        handleCreateSubmit(form);
+      } else if (action === 'submitRenameCollection') {
+        handleRenameSubmit(form);
+      }
+    });
+
+    readUrlState();
+    loadCollections();
+  });
+</script>

@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>JRPG Content Blog Framework</title>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='framework.css'>
+  <link rel='stylesheet' href='features.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='header-bar container'>
+      <nav class='primary-nav' aria-label='Main site navigation'>
+        <ul class='nav-list'>
+          <li class='nav-item'><a href='index.html' title='Homepage with featured JRPG content and global navigation'>Home</a></li>
+          <li class='nav-item'><a href='recommendations.html' title='Browse filtered JRPG recommendations and reviews'>Game Recommendations</a></li>
+          <li class='nav-item'><a href='news.html' title='JRPG news and release-date updates'>News</a></li>
+          <li class='nav-item'><a href='features.html' title='Long-form JRPG features and narrative analysis'>Features</a></li>
+          <li class='nav-item'><a href='guides.html' title='Gameplay, beginner, and trophy guides for JRPGs'>Guides</a></li>
+          <li class='nav-item'><a href='top_lists.html' title='Ranked lists such as Top 10 classic JRPGs'>Top Lists</a></li>
+          <li class='nav-item'><a href='game_finder.html' title='Interactive JRPG recommendation tool'>Game Finder</a></li>
+          <li class='nav-item'><a href='library.html' title='View and manage your reading list, wishlist, bookmarks, collections, and followed releases'>My Library</a></li>
+        </ul>
+      </nav>
+      <div class='header-tools' aria-hidden='true'>
+        <span class='nav-search-icon' role='img'></span>
+      </div>
+    </div>
+  </header>
+
+  <main id='content' class='content-area'>
+    <section class='features-section'>
+      <div class='container features-container'>
+        <!-- Summary + sort row -->
+        <div class='features-header-row'>
+          <div class='features-results-summary' data-component='features-results-summary' aria-live='polite'>
+            <!-- Filled by JS -->
+          </div>
+          <div class='feature-sort-control' data-component='feature-sort-control'>
+            <label for='featureSortSelect' class='sort-label'>Sort by</label>
+            <select id='featureSortSelect' name='sortBy' class='sort-select' data-action='change-sort'>
+              <!-- Options populated from getFeatureFilterOptions.sortOptions -->
+            </select>
+          </div>
+        </div>
+
+        <!-- Two-column layout: filters + list -->
+        <div class='features-main-grid'>
+          <aside class='feature-filters-sidebar' data-component='feature-filters-form' data-populate='feature-filter-options'>
+            <form class='feature-filters-form' novalidate>
+              <!-- Filter controls populated from getFeatureFilterOptions -->
+            </form>
+          </aside>
+
+          <section class='features-list-column'>
+            <div class='features-loading-error-state' data-component='features-loading-error-state' aria-live='polite'>
+              <!-- Loading / error messages injected here -->
+            </div>
+            <div class='features-list' data-component='features-list' data-populate='feature-articles' aria-live='polite'>
+              <!-- Feature article cards injected here -->
+            </div>
+          </section>
+        </div>
+
+        <!-- Pagination row -->
+        <div class='features-pagination-row'>
+          <nav class='features-pagination' data-component='features-pagination' aria-label='Features pagination'>
+            <!-- Pagination controls injected here -->
+          </nav>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner container'>
+      <nav class='footer-nav' aria-label='Footer navigation'>
+        <ul class='footer-links'>
+          <li class='footer-item'><a href='about.html' title='Learn more about the site and its mission'>About</a></li>
+          <li class='footer-item'><a href='contact.html' title='Get in touch with the site maintainers'>Contact</a></li>
+          <li class='footer-item'><a href='newsletter.html' title='Sign up for the JRPG newsletter and set your preferences'>Newsletter</a></li>
+          <li class='footer-item'><a href='privacy.html' title='Read about how your data and preferences are handled'>Privacy Policy</a></li>
+          <li class='footer-item'><a href='terms.html' title='Review the terms and conditions for using the site'>Terms of Use</a></li>
+        </ul>
+      </nav>
+      <div class='footer-meta'>
+        <p class='footer-copy'>&copy; <span class='footer-year'>2026</span> JRPG Content Blog. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    (function() {
+      'use strict';
+
+      const DEFAULT_PAGE_SIZE = 20;
+
+      let filterOptions = null;
+      let currentState = null;
+      let defaultSortBy = null;
+
+      let articlesContainer = null;
+      let paginationContainer = null;
+      let summaryContainer = null;
+      let statusContainer = null;
+      let filtersFormElement = null;
+      let sortSelectElement = null;
+
+      document.addEventListener('DOMContentLoaded', function() {
+        cacheDomReferences();
+        attachGlobalEventHandlers();
+        loadFilterOptionsAndInitialState();
+        window.addEventListener('popstate', handlePopState);
+      });
+
+      function cacheDomReferences() {
+        summaryContainer = document.querySelector('[data-component="features-results-summary"]');
+        articlesContainer = document.querySelector('[data-component="features-list"]');
+        paginationContainer = document.querySelector('[data-component="features-pagination"]');
+        statusContainer = document.querySelector('[data-component="features-loading-error-state"]');
+        const filtersComponent = document.querySelector('[data-component="feature-filters-form"]');
+        if (filtersComponent) {
+          filtersFormElement = filtersComponent.querySelector('form');
+        }
+        sortSelectElement = document.getElementById('featureSortSelect');
+      }
+
+      function attachGlobalEventHandlers() {
+        document.addEventListener('click', function(event) {
+          const actionElement = event.target.closest('[data-action]');
+          if (!actionElement) {
+            return;
+          }
+          const action = actionElement.dataset.action;
+          if (!action) {
+            return;
+          }
+
+          switch (action) {
+            case 'open-article': {
+              const articleId = actionElement.dataset.articleId;
+              handleOpenArticle(articleId);
+              break;
+            }
+            case 'reset-filters': {
+              handleResetFilters();
+              break;
+            }
+            case 'change-page': {
+              const pageValue = parseInt(actionElement.dataset.page, 10);
+              if (Number.isFinite(pageValue)) {
+                handlePageChange(pageValue);
+              }
+              break;
+            }
+            case 'retry-load': {
+              const scope = actionElement.dataset.retryScope || 'articles';
+              handleRetry(scope);
+              break;
+            }
+            default:
+              break;
+          }
+        });
+
+        document.addEventListener('change', function(event) {
+          const target = event.target;
+          const action = target.dataset.action;
+          if (!action) {
+            return;
+          }
+
+          switch (action) {
+            case 'change-sort': {
+              const sortBy = target.value || null;
+              handleSortChange(sortBy);
+              break;
+            }
+            case 'change-tag': {
+              const tagValue = target.value || null;
+              handleTagChange(tagValue);
+              break;
+            }
+            case 'change-min-word-count': {
+              const raw = target.value;
+              const minWords = raw === '' ? null : parseInt(raw, 10);
+              handleMinWordCountChange(minWords);
+              break;
+            }
+            case 'change-min-rating': {
+              const raw = target.value;
+              const minRating = raw === '' ? null : parseFloat(raw);
+              handleMinRatingChange(minRating);
+              break;
+            }
+            default:
+              break;
+          }
+        });
+      }
+
+      function loadFilterOptionsAndInitialState() {
+        clearStatus();
+        try {
+          filterOptions = WebsiteSDK.getFeatureFilterOptions();
+        } catch (error) {
+          showError('filters', 'Unable to load feature filters and options. Please try again.');
+          return;
+        }
+
+        if (!filterOptions) {
+          showError('filters', 'No filter options are available at the moment.');
+          return;
+        }
+
+        if (filtersFormElement) {
+          buildFilterControls(filtersFormElement, filterOptions);
+        }
+        if (sortSelectElement) {
+          buildSortOptions(sortSelectElement, filterOptions);
+        }
+
+        const rawState = readUrlStateFromLocation();
+        currentState = normalizeState(rawState);
+        writeStateToUrl(currentState, { replace: true });
+        syncControlsFromState();
+        fetchAndRenderArticles();
+      }
+
+      function handlePopState() {
+        if (!filterOptions) {
+          loadFilterOptionsAndInitialState();
+          return;
+        }
+        const rawState = readUrlStateFromLocation();
+        currentState = normalizeState(rawState);
+        syncControlsFromState();
+        fetchAndRenderArticles();
+      }
+
+      function readUrlStateFromLocation() {
+        const params = new URLSearchParams(window.location.search);
+        return {
+          tag: params.get('tag'),
+          minWordCount: params.get('minWordCount'),
+          minRatingStars: params.get('minRatingStars'),
+          sortBy: params.get('sortBy'),
+          page: params.get('page')
+        };
+      }
+
+      function normalizeState(rawState) {
+        const normalized = {};
+
+        const tagList = Array.isArray(filterOptions.narrativeTags)
+          ? filterOptions.narrativeTags.map(function(t) { return t.tag; })
+          : [];
+        let tag = rawState.tag || null;
+        if (tag && tagList.indexOf(tag) === -1) {
+          tag = null;
+        }
+        normalized.tag = tag;
+
+        const minWordOptions = Array.isArray(filterOptions.minWordCountOptions)
+          ? filterOptions.minWordCountOptions.map(function(opt) { return opt.minWords; })
+          : [];
+        let minWordCount = rawState.minWordCount != null ? parseInt(rawState.minWordCount, 10) : null;
+        if (!Number.isFinite(minWordCount) || minWordOptions.indexOf(minWordCount) === -1) {
+          minWordCount = null;
+        }
+        normalized.minWordCount = minWordCount;
+
+        const ratingOptions = Array.isArray(filterOptions.ratingOptions)
+          ? filterOptions.ratingOptions.map(function(opt) { return opt.minStars; })
+          : [];
+        let minRatingStars = rawState.minRatingStars != null ? parseFloat(rawState.minRatingStars) : null;
+        if (!Number.isFinite(minRatingStars) || ratingOptions.indexOf(minRatingStars) === -1) {
+          minRatingStars = null;
+        }
+        normalized.minRatingStars = minRatingStars;
+
+        const sortOptions = Array.isArray(filterOptions.sortOptions) ? filterOptions.sortOptions : [];
+        if (!defaultSortBy && sortOptions.length > 0) {
+          defaultSortBy = sortOptions[0].value;
+        }
+        const sortValues = sortOptions.map(function(opt) { return opt.value; });
+        let sortBy = rawState.sortBy || defaultSortBy || null;
+        if (sortBy && sortValues.indexOf(sortBy) === -1) {
+          sortBy = defaultSortBy || null;
+        }
+        normalized.sortBy = sortBy;
+
+        let page = rawState.page != null ? parseInt(rawState.page, 10) : 1;
+        if (!Number.isFinite(page) || page < 1) {
+          page = 1;
+        }
+        normalized.page = page;
+        normalized.pageSize = DEFAULT_PAGE_SIZE;
+
+        return normalized;
+      }
+
+      function writeStateToUrl(state, options) {
+        const replace = options && options.replace === true;
+        const url = new URL(window.location.href);
+        const params = url.searchParams;
+
+        setOrDelete(params, 'tag', state.tag);
+        setOrDelete(params, 'minWordCount', state.minWordCount);
+        setOrDelete(params, 'minRatingStars', state.minRatingStars);
+        setOrDelete(params, 'sortBy', state.sortBy);
+        setOrDelete(params, 'page', state.page);
+
+        if (replace) {
+          window.history.replaceState(null, '', url.toString());
+        } else {
+          window.history.pushState(null, '', url.toString());
+        }
+      }
+
+      function setOrDelete(params, key, value) {
+        if (value === null || value === undefined || value === '') {
+          params.delete(key);
+        } else {
+          params.set(key, String(value));
+        }
+      }
+
+      function syncControlsFromState() {
+        if (filtersFormElement && currentState) {
+          const desiredTag = currentState.tag || '';
+          const tagInputs = filtersFormElement.querySelectorAll('input[name="tag"]');
+          tagInputs.forEach(function(input) {
+            input.checked = (input.value === desiredTag);
+          });
+
+          const minWordSelect = filtersFormElement.querySelector('select[name="minWordCount"]');
+          if (minWordSelect) {
+            minWordSelect.value = currentState.minWordCount != null ? String(currentState.minWordCount) : '';
+          }
+
+          const minRatingSelect = filtersFormElement.querySelector('select[name="minRatingStars"]');
+          if (minRatingSelect) {
+            minRatingSelect.value = currentState.minRatingStars != null ? String(currentState.minRatingStars) : '';
+          }
+        }
+
+        if (sortSelectElement && currentState) {
+          sortSelectElement.value = currentState.sortBy || '';
+        }
+      }
+
+      function buildFilterControls(formElement, options) {
+        if (!formElement) {
+          return;
+        }
+        formElement.innerHTML = '';
+
+        const tagsFieldset = document.createElement('fieldset');
+        tagsFieldset.className = 'filter-group filter-group-tags';
+        const tagsLegend = document.createElement('legend');
+        tagsLegend.textContent = 'Narrative tags';
+        tagsFieldset.appendChild(tagsLegend);
+
+        const anyTagId = 'filter-tag-any';
+        const anyInput = document.createElement('input');
+        anyInput.type = 'radio';
+        anyInput.name = 'tag';
+        anyInput.id = anyTagId;
+        anyInput.value = '';
+        anyInput.dataset.action = 'change-tag';
+        const anyLabel = document.createElement('label');
+        anyLabel.htmlFor = anyTagId;
+        anyLabel.textContent = 'Any narrative tag';
+        const anyWrapper = document.createElement('div');
+        anyWrapper.className = 'filter-option';
+        anyWrapper.appendChild(anyInput);
+        anyWrapper.appendChild(anyLabel);
+        tagsFieldset.appendChild(anyWrapper);
+
+        if (Array.isArray(options.narrativeTags)) {
+          options.narrativeTags.forEach(function(tagOption, index) {
+            const id = 'filter-tag-' + String(index);
+            const wrapper = document.createElement('div');
+            wrapper.className = 'filter-option';
+            const input = document.createElement('input');
+            input.type = 'radio';
+            input.name = 'tag';
+            input.id = id;
+            input.value = tagOption.tag;
+            input.dataset.action = 'change-tag';
+            const label = document.createElement('label');
+            label.htmlFor = id;
+            label.textContent = tagOption.label || tagOption.tag;
+            wrapper.appendChild(input);
+            wrapper.appendChild(label);
+            tagsFieldset.appendChild(wrapper);
+          });
+        }
+
+        const minWordFieldset = document.createElement('fieldset');
+        minWordFieldset.className = 'filter-group filter-group-min-word-count';
+        const minWordLegend = document.createElement('legend');
+        minWordLegend.textContent = 'Minimum word count';
+        minWordFieldset.appendChild(minWordLegend);
+        const minWordSelect = document.createElement('select');
+        minWordSelect.name = 'minWordCount';
+        minWordSelect.className = 'filter-select';
+        minWordSelect.dataset.action = 'change-min-word-count';
+        const mwAnyOption = document.createElement('option');
+        mwAnyOption.value = '';
+        mwAnyOption.textContent = 'Any length';
+        minWordSelect.appendChild(mwAnyOption);
+        if (Array.isArray(options.minWordCountOptions)) {
+          options.minWordCountOptions.forEach(function(opt) {
+            const optionEl = document.createElement('option');
+            optionEl.value = String(opt.minWords);
+            optionEl.textContent = opt.label || (String(opt.minWords) + '+ words');
+            minWordSelect.appendChild(optionEl);
+          });
+        }
+        minWordFieldset.appendChild(minWordSelect);
+
+        const ratingFieldset = document.createElement('fieldset');
+        ratingFieldset.className = 'filter-group filter-group-rating';
+        const ratingLegend = document.createElement('legend');
+        ratingLegend.textContent = 'Minimum rating';
+        ratingFieldset.appendChild(ratingLegend);
+        const ratingSelect = document.createElement('select');
+        ratingSelect.name = 'minRatingStars';
+        ratingSelect.className = 'filter-select';
+        ratingSelect.dataset.action = 'change-min-rating';
+        const ratingAnyOption = document.createElement('option');
+        ratingAnyOption.value = '';
+        ratingAnyOption.textContent = 'Any rating';
+        ratingSelect.appendChild(ratingAnyOption);
+        if (Array.isArray(options.ratingOptions)) {
+          options.ratingOptions.forEach(function(opt) {
+            const optionEl = document.createElement('option');
+            optionEl.value = String(opt.minStars);
+            optionEl.textContent = opt.label || (String(opt.minStars) + ' stars & up');
+            ratingSelect.appendChild(optionEl);
+          });
+        }
+        ratingFieldset.appendChild(ratingSelect);
+
+        const resetWrapper = document.createElement('div');
+        resetWrapper.className = 'filter-actions';
+        const resetButton = document.createElement('button');
+        resetButton.type = 'button';
+        resetButton.className = 'btn btn-secondary filters-reset-button';
+        resetButton.dataset.action = 'reset-filters';
+        resetButton.textContent = 'Reset filters';
+        resetWrapper.appendChild(resetButton);
+
+        formElement.appendChild(tagsFieldset);
+        formElement.appendChild(minWordFieldset);
+        formElement.appendChild(ratingFieldset);
+        formElement.appendChild(resetWrapper);
+      }
+
+      function buildSortOptions(selectElement, options) {
+        if (!selectElement) {
+          return;
+        }
+        selectElement.innerHTML = '';
+        if (!Array.isArray(options.sortOptions) || options.sortOptions.length === 0) {
+          const placeholder = document.createElement('option');
+          placeholder.value = '';
+          placeholder.textContent = 'Default order';
+          selectElement.appendChild(placeholder);
+          return;
+        }
+        options.sortOptions.forEach(function(opt) {
+          const optionEl = document.createElement('option');
+          optionEl.value = opt.value;
+          optionEl.textContent = opt.label || opt.value;
+          selectElement.appendChild(optionEl);
+        });
+      }
+
+      function fetchAndRenderArticles() {
+        if (!articlesContainer || !paginationContainer || !summaryContainer || !currentState) {
+          return;
+        }
+
+        clearStatus();
+        showLoading();
+
+        let result;
+        try {
+          result = WebsiteSDK.getFeatureArticles(
+            currentState.tag || undefined,
+            currentState.minWordCount != null ? currentState.minWordCount : undefined,
+            currentState.minRatingStars != null ? currentState.minRatingStars : undefined,
+            currentState.sortBy || undefined,
+            currentState.page || 1,
+            currentState.pageSize || DEFAULT_PAGE_SIZE
+          );
+        } catch (error) {
+          renderFeatureArticles(articlesContainer, []);
+          renderPagination(paginationContainer, 0, 1, currentState.pageSize || DEFAULT_PAGE_SIZE);
+          renderResultsSummary(summaryContainer, 0, 1, currentState.pageSize || DEFAULT_PAGE_SIZE);
+          showError('articles', 'Unable to load feature articles. Please try again.');
+          return;
+        }
+
+        const articles = Array.isArray(result.articles) ? result.articles : [];
+        const totalCount = typeof result.totalCount === 'number' ? result.totalCount : articles.length;
+        const page = typeof result.page === 'number' ? result.page : (currentState.page || 1);
+        const pageSize = typeof result.pageSize === 'number' ? result.pageSize : (currentState.pageSize || DEFAULT_PAGE_SIZE);
+
+        currentState.page = page;
+        currentState.pageSize = pageSize;
+
+        renderFeatureArticles(articlesContainer, articles);
+        renderPagination(paginationContainer, totalCount, page, pageSize);
+        renderResultsSummary(summaryContainer, totalCount, page, pageSize);
+        clearStatus();
+      }
+
+      function renderFeatureArticles(container, articles) {
+        container.innerHTML = '';
+
+        if (!articles || articles.length === 0) {
+          const empty = document.createElement('p');
+          empty.className = 'features-empty-state';
+          empty.textContent = 'No feature articles match the current filters. Try relaxing your filters or changing the sort order.';
+          container.appendChild(empty);
+          return;
+        }
+
+        const list = document.createElement('div');
+        list.className = 'features-card-list';
+
+        articles.forEach(function(article) {
+          const card = document.createElement('article');
+          card.className = 'feature-card';
+          card.dataset.articleId = article.id;
+
+          const header = document.createElement('header');
+          header.className = 'feature-card-header';
+          const titleHeading = document.createElement('h2');
+          titleHeading.className = 'feature-card-title';
+          const titleButton = document.createElement('button');
+          titleButton.type = 'button';
+          titleButton.className = 'feature-card-title-button';
+          titleButton.dataset.action = 'open-article';
+          titleButton.dataset.articleId = article.id;
+          titleButton.textContent = article.title || 'Untitled feature';
+          titleHeading.appendChild(titleButton);
+          header.appendChild(titleHeading);
+          card.appendChild(header);
+
+          const meta = document.createElement('div');
+          meta.className = 'feature-card-meta';
+
+          const metaPrimary = document.createElement('div');
+          metaPrimary.className = 'feature-card-meta-primary';
+
+          if (Array.isArray(article.tags) && article.tags.length > 0) {
+            const tagsContainer = document.createElement('div');
+            tagsContainer.className = 'feature-card-tags';
+            article.tags.slice(0, 4).forEach(function(tag) {
+              const tagBadge = document.createElement('span');
+              tagBadge.className = 'feature-card-tag-badge';
+              tagBadge.textContent = tag;
+              tagsContainer.appendChild(tagBadge);
+            });
+            metaPrimary.appendChild(tagsContainer);
+          }
+
+          const metaSecondary = document.createElement('div');
+          metaSecondary.className = 'feature-card-meta-secondary';
+
+          if (typeof article.wordCount === 'number') {
+            const words = document.createElement('span');
+            words.className = 'feature-card-word-count';
+            const wc = article.wordCount;
+            const readingMinutes = Math.max(1, Math.round(wc / 250));
+            words.textContent = wc.toLocaleString() + ' words - approx. ' + readingMinutes + ' min read';
+            metaSecondary.appendChild(words);
+          }
+
+          if (typeof article.ratingStars === 'number') {
+            const rating = document.createElement('span');
+            rating.className = 'feature-card-rating';
+            rating.textContent = article.ratingStars.toFixed(1) + ' stars';
+            metaSecondary.appendChild(rating);
+          }
+
+          if (typeof article.popularityScore === 'number') {
+            const popularity = document.createElement('span');
+            popularity.className = 'feature-card-popularity';
+            popularity.textContent = 'Popularity: ' + article.popularityScore.toFixed(0);
+            metaSecondary.appendChild(popularity);
+          }
+
+          if (article.publishedAt) {
+            const published = document.createElement('span');
+            published.className = 'feature-card-published';
+            var publishedDate;
+            try {
+              publishedDate = new Date(article.publishedAt);
+            } catch (e) {
+              publishedDate = null;
+            }
+            if (publishedDate && !isNaN(publishedDate.getTime())) {
+              published.textContent = publishedDate.toLocaleDateString();
+              metaSecondary.appendChild(published);
+            }
+          }
+
+          meta.appendChild(metaPrimary);
+          meta.appendChild(metaSecondary);
+          card.appendChild(meta);
+
+          const summary = document.createElement('p');
+          summary.className = 'feature-card-summary';
+          if (article.summary) {
+            summary.textContent = article.summary;
+          } else if (article.helpfulSnippet) {
+            summary.textContent = article.helpfulSnippet;
+          } else if (article.body) {
+            summary.textContent = String(article.body).slice(0, 200) + '...';
+          } else {
+            summary.textContent = '';
+          }
+          card.appendChild(summary);
+
+          const footer = document.createElement('div');
+          footer.className = 'feature-card-footer';
+          const readButton = document.createElement('button');
+          readButton.type = 'button';
+          readButton.className = 'btn btn-primary feature-card-read-button';
+          readButton.dataset.action = 'open-article';
+          readButton.dataset.articleId = article.id;
+          readButton.textContent = 'Read feature';
+          footer.appendChild(readButton);
+          card.appendChild(footer);
+
+          list.appendChild(card);
+        });
+
+        container.appendChild(list);
+      }
+
+      function renderPagination(container, totalCount, page, pageSize) {
+        container.innerHTML = '';
+
+        const totalPages = pageSize > 0 ? Math.max(1, Math.ceil(totalCount / pageSize)) : 1;
+        if (totalPages <= 1) {
+          return;
+        }
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'pagination-inner';
+
+        const prevButton = document.createElement('button');
+        prevButton.type = 'button';
+        prevButton.className = 'pagination-button pagination-prev';
+        prevButton.dataset.action = 'change-page';
+        prevButton.dataset.page = String(Math.max(1, page - 1));
+        prevButton.disabled = page <= 1;
+        prevButton.textContent = 'Prev';
+        wrapper.appendChild(prevButton);
+
+        const pagesContainer = document.createElement('div');
+        pagesContainer.className = 'pagination-pages';
+
+        var startPage = Math.max(1, page - 2);
+        var endPage = Math.min(totalPages, page + 2);
+        if (page <= 2) {
+          endPage = Math.min(totalPages, 5);
+        } else if (page >= totalPages - 1) {
+          startPage = Math.max(1, totalPages - 4);
+        }
+
+        for (var p = startPage; p <= endPage; p++) {
+          const pageButton = document.createElement('button');
+          pageButton.type = 'button';
+          pageButton.className = 'pagination-button pagination-page';
+          if (p === page) {
+            pageButton.classList.add('is-active');
+            pageButton.disabled = true;
+          }
+          pageButton.dataset.action = 'change-page';
+          pageButton.dataset.page = String(p);
+          pageButton.textContent = String(p);
+          pagesContainer.appendChild(pageButton);
+        }
+
+        wrapper.appendChild(pagesContainer);
+
+        const nextButton = document.createElement('button');
+        nextButton.type = 'button';
+        nextButton.className = 'pagination-button pagination-next';
+        nextButton.dataset.action = 'change-page';
+        nextButton.dataset.page = String(Math.min(totalPages, page + 1));
+        nextButton.disabled = page >= totalPages;
+        nextButton.textContent = 'Next';
+        wrapper.appendChild(nextButton);
+
+        container.appendChild(wrapper);
+      }
+
+      function renderResultsSummary(container, totalCount, page, pageSize) {
+        container.innerHTML = '';
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'results-summary-inner';
+
+        const main = document.createElement('div');
+        main.className = 'results-summary-main';
+        const heading = document.createElement('h1');
+        heading.className = 'features-heading';
+        heading.textContent = 'JRPG feature articles';
+        const description = document.createElement('p');
+        description.className = 'results-count-text';
+
+        let text;
+        if (totalCount === 0) {
+          text = 'No feature articles found.';
+        } else {
+          const start = (page - 1) * pageSize + 1;
+          const end = Math.min(totalCount, page * pageSize);
+          text = 'Showing ' + start + ' to ' + end + ' of ' + totalCount + ' feature articles';
+        }
+        description.textContent = text;
+        main.appendChild(heading);
+        main.appendChild(description);
+        wrapper.appendChild(main);
+
+        const filtersSummary = document.createElement('div');
+        filtersSummary.className = 'results-filters-summary';
+
+        const chips = [];
+        if (currentState && filterOptions) {
+          if (currentState.tag) {
+            const tagObj = Array.isArray(filterOptions.narrativeTags)
+              ? filterOptions.narrativeTags.find(function(t) { return t.tag === currentState.tag; })
+              : null;
+            const label = tagObj && tagObj.label ? tagObj.label : currentState.tag;
+            chips.push('Tag: ' + label);
+          }
+
+          if (currentState.minWordCount != null) {
+            const mwObj = Array.isArray(filterOptions.minWordCountOptions)
+              ? filterOptions.minWordCountOptions.find(function(o) { return o.minWords === currentState.minWordCount; })
+              : null;
+            const mwLabel = mwObj && mwObj.label ? mwObj.label : ('Min ' + currentState.minWordCount + ' words');
+            chips.push(mwLabel);
+          }
+
+          if (currentState.minRatingStars != null) {
+            const ratingObj = Array.isArray(filterOptions.ratingOptions)
+              ? filterOptions.ratingOptions.find(function(o) { return o.minStars === currentState.minRatingStars; })
+              : null;
+            const ratingLabel = ratingObj && ratingObj.label ? ratingObj.label : (currentState.minRatingStars + ' stars & up');
+            chips.push(ratingLabel);
+          }
+
+          if (currentState.sortBy) {
+            const sortObj = Array.isArray(filterOptions.sortOptions)
+              ? filterOptions.sortOptions.find(function(o) { return o.value === currentState.sortBy; })
+              : null;
+            const sortLabel = sortObj && sortObj.label ? sortObj.label : currentState.sortBy;
+            chips.push('Sort: ' + sortLabel);
+          }
+        }
+
+        if (chips.length === 0) {
+          const chip = document.createElement('span');
+          chip.className = 'filter-chip is-muted';
+          chip.textContent = 'No filters applied';
+          filtersSummary.appendChild(chip);
+        } else {
+          chips.forEach(function(label) {
+            const chip = document.createElement('span');
+            chip.className = 'filter-chip';
+            chip.textContent = label;
+            filtersSummary.appendChild(chip);
+          });
+        }
+
+        wrapper.appendChild(filtersSummary);
+        container.appendChild(wrapper);
+      }
+
+      function showLoading() {
+        if (!statusContainer) {
+          return;
+        }
+        statusContainer.innerHTML = '';
+        const message = document.createElement('div');
+        message.className = 'status-message is-loading';
+        message.textContent = 'Loading feature articles...';
+        statusContainer.appendChild(message);
+      }
+
+      function clearStatus() {
+        if (!statusContainer) {
+          return;
+        }
+        statusContainer.innerHTML = '';
+      }
+
+      function showError(scope, text) {
+        if (!statusContainer) {
+          return;
+        }
+        statusContainer.innerHTML = '';
+        const wrapper = document.createElement('div');
+        wrapper.className = 'status-message is-error';
+        const message = document.createElement('p');
+        message.textContent = text || 'Something went wrong.';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-secondary status-retry-button';
+        button.dataset.action = 'retry-load';
+        button.dataset.retryScope = scope;
+        button.textContent = 'Retry';
+        wrapper.appendChild(message);
+        wrapper.appendChild(button);
+        statusContainer.appendChild(wrapper);
+      }
+
+      function handleRetry(scope) {
+        if (scope === 'filters') {
+          loadFilterOptionsAndInitialState();
+        } else {
+          if (!filterOptions) {
+            loadFilterOptionsAndInitialState();
+          } else {
+            fetchAndRenderArticles();
+          }
+        }
+      }
+
+      function handleOpenArticle(articleId) {
+        if (!articleId) {
+          return;
+        }
+        const query = '?id=' + encodeURIComponent(articleId) + '&source=features';
+        window.location.href = 'article.html' + query;
+      }
+
+      function updateStateAndUrl(partial, resetPage) {
+        if (!filterOptions) {
+          return;
+        }
+        const nextState = Object.assign({}, currentState || {}, partial);
+        if (resetPage) {
+          nextState.page = 1;
+        }
+        const normalized = normalizeState(nextState);
+        currentState = normalized;
+        writeStateToUrl(normalized, { replace: false });
+        syncControlsFromState();
+        fetchAndRenderArticles();
+      }
+
+      function handleTagChange(tagValue) {
+        updateStateAndUrl({ tag: tagValue || null }, true);
+      }
+
+      function handleMinWordCountChange(minWords) {
+        updateStateAndUrl({ minWordCount: minWords != null && Number.isFinite(minWords) ? minWords : null }, true);
+      }
+
+      function handleMinRatingChange(minRating) {
+        updateStateAndUrl({ minRatingStars: minRating != null && Number.isFinite(minRating) ? minRating : null }, true);
+      }
+
+      function handleSortChange(sortBy) {
+        updateStateAndUrl({ sortBy: sortBy || null }, true);
+      }
+
+      function handleResetFilters() {
+        const baseState = {
+          tag: null,
+          minWordCount: null,
+          minRatingStars: null,
+          sortBy: defaultSortBy || null,
+          page: 1,
+          pageSize: DEFAULT_PAGE_SIZE
+        };
+        const normalized = normalizeState(baseState);
+        currentState = normalized;
+        writeStateToUrl(normalized, { replace: false });
+        syncControlsFromState();
+        fetchAndRenderArticles();
+      }
+
+      function handlePageChange(page) {
+        if (!currentState) {
+          return;
+        }
+        updateStateAndUrl({ page: page }, false);
+      }
+
+    })();
+  </script>
+</body>
+</html>

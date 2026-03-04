@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Coachkliniken - Mental Health Coaching Clinic</title>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=Source+Code+Pro:wght@400;500&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='client_portal_appointments.css'>
+</head>
+<body>
+  <div class='page'>
+    <header class='site-header'>
+      <div class='site-header-shell'>
+        <div class='site-header-inner'>
+          <a href='index.html' class='logo' aria-label='Coachkliniken home'>
+            <span class='logo-mark' aria-hidden='true'></span>
+            <span class='logo-text'>Coachkliniken</span>
+          </a>
+          <nav class='primary-navigation' aria-label='Primary'>
+            <ul class='nav-list'>
+              <li class='nav-item'>
+                <a href='index.html'>Home</a>
+              </li>
+              <li class='nav-item'>
+                <a href='coaches.html'>Find a Coach</a>
+              </li>
+              <li class='nav-item'>
+                <a href='workshops.html'>Workshops &amp; Groups</a>
+              </li>
+              <li class='nav-item'>
+                <a href='plans_pricing.html'>Plans &amp; Pricing</a>
+              </li>
+              <li class='nav-item'>
+                <a href='articles.html'>Resources</a>
+              </li>
+              <li class='nav-item'>
+                <a href='exercises.html'>Tools</a>
+              </li>
+              <li class='nav-item nav-item-cta'>
+                <a href='get_started.html' class='btn btn-primary'>Get Started</a>
+              </li>
+              <li class='nav-item'>
+                <a href='client_portal_appointments.html'>Client Portal</a>
+              </li>
+              <li class='nav-item'>
+                <a href='cart.html'>Cart</a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+      </div>
+    </header>
+
+    <main id='content' class='site-main' role='main'>
+      <div class='content-shell content-shell--narrow'>
+        <header class='page-header page-header--compact'>
+          <h1 class='page-title'>Appointments</h1>
+          <p class='page-subtitle'>View your upcoming coaching sessions and, when needed, move your next session to a new time.</p>
+        </header>
+
+        <section class='appointments-section' aria-labelledby='appointments-heading'>
+          <div class='appointments-section-header'>
+            <h2 id='appointments-heading' class='section-title'>Upcoming appointments</h2>
+            <p class='section-helper-text'>Your soonest appointment appears at the top and is marked as your next appointment.</p>
+          </div>
+
+          <div class='appointments-messages' aria-live='polite'>
+            <p class='info-message info-message--inline' data-state='deep-link-message' hidden></p>
+          </div>
+
+          <div class='appointments-list' data-component='appointments-list' data-populate='getUpcomingAppointments' aria-live='polite' aria-busy='true'>
+            <!-- Appointments will be rendered here via JavaScript -->
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class='site-footer'>
+      <div class='footer-shell'>
+        <div class='footer-inner'>
+          <div class='footer-brand'>
+            <a href='index.html' class='footer-logo'>
+              <span class='logo-mark' aria-hidden='true'></span>
+              <span class='logo-text'>Coachkliniken</span>
+            </a>
+            <p class='footer-tagline'>
+              Mental health coaching for clarity, resilience, and sustainable change.
+            </p>
+          </div>
+          <nav class='footer-navigation' aria-label='Footer'>
+            <ul class='footer-links'>
+              <li class='footer-link-item'>
+                <a href='about.html'>About the Clinic</a>
+              </li>
+              <li class='footer-link-item'>
+                <a href='intake.html'>New Client Intake</a>
+              </li>
+              <li class='footer-link-item'>
+                <a href='articles.html'>Articles &amp; Guides</a>
+              </li>
+              <li class='footer-link-item'>
+                <a href='exercises.html'>Self-guided Tools</a>
+              </li>
+              <li class='footer-link-item'>
+                <a href='saved.html'>Saved Items</a>
+              </li>
+              <li class='footer-link-item'>
+                <a href='about.html?section=policies_and_terms'>Privacy &amp; Terms</a>
+              </li>
+              <li class='footer-link-item'>
+                <a href='about.html?section=contact'>Contact</a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+        <div class='footer-bottom'>
+          <p class='footer-meta'>
+            &copy; 2024 Coachkliniken. All rights reserved.
+          </p>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var state = {
+        appointments: [],
+        selectedAppointmentId: null,
+        currentFocusedAppointmentId: null,
+        initialRequestedAppointmentId: null,
+        deepLinkErrorMessage: '',
+        reschedule: {
+          viewMode: 'hidden',
+          targetDate: null, // { date: Date, iso: 'YYYY-MM-DD', displayLong: string }
+          availability: null,
+          slots: [],
+          recommendedSlotId: null,
+          selectedSlotId: null,
+          selectedSlot: null,
+          reviewSummary: null, // { originalStart, originalEnd, newStart, newEnd, coachName, sessionOfferingName }
+          confirmationMessage: '',
+          errorMessage: ''
+        }
+      };
+
+      var urlParams = new URLSearchParams(window.location.search);
+      state.initialRequestedAppointmentId = urlParams.get('appointmentId');
+
+      var contentRoot = document.getElementById('content');
+      var appointmentsListContainer = document.querySelector('[data-component="appointments-list"]');
+      var deepLinkMessageEl = document.querySelector('[data-state="deep-link-message"]');
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) return '';
+        return String(value).replace(/[&<>"']/g, function (ch) {
+          switch (ch) {
+            case '&': return '&amp;';
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '"': return '&quot;';
+            case "'": return '&#39;';
+            default: return ch;
+          }
+        });
+      }
+
+      function formatDateShort(date) {
+        try {
+          return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+        } catch (e) {
+          return date.toDateString();
+        }
+      }
+
+      function formatDateLong(date) {
+        try {
+          return date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        } catch (e) {
+          return date.toDateString();
+        }
+      }
+
+      function formatTimeRange(start, end) {
+        try {
+          var opts = { hour: 'numeric', minute: '2-digit' };
+          var s = start.toLocaleTimeString([], opts);
+          var e = end.toLocaleTimeString([], opts);
+          return s + '  ' + e;
+        } catch (err) {
+          return start.toTimeString() + '  ' + end.toTimeString();
+        }
+      }
+
+      function formatDateISO(date) {
+        var y = date.getFullYear();
+        var m = String(date.getMonth() + 1).padStart(2, '0');
+        var d = String(date.getDate()).padStart(2, '0');
+        return y + '-' + m + '-' + d;
+      }
+
+      function capitalizeFirst(value) {
+        if (!value) return '';
+        var str = String(value);
+        return str.charAt(0).toUpperCase() + str.slice(1);
+      }
+
+      function setAppointments(appointments) {
+        if (Array.isArray(appointments)) {
+          state.appointments = appointments.slice();
+        } else {
+          state.appointments = [];
+        }
+        state.appointments.sort(function (a, b) {
+          var aDate = new Date(a.startDateTime);
+          var bDate = new Date(b.startDateTime);
+          return aDate - bDate;
+        });
+      }
+
+      function renderAppointmentsError(container, message) {
+        container.innerHTML = '<p class="inline-error">' + escapeHtml(message) + '</p>';
+        container.setAttribute('aria-busy', 'false');
+      }
+
+      function renderUpcomingAppointments(container) {
+        container.setAttribute('aria-busy', 'false');
+        var appointments = state.appointments;
+
+        if (!appointments || appointments.length === 0) {
+          container.innerHTML = '<p class="empty-state">You don\'t have any upcoming appointments right now. New sessions you book will appear here.</p>';
+          return;
+        }
+
+        var rowsHtml = appointments.map(function (appt, index) {
+          var start = new Date(appt.startDateTime);
+          var end = new Date(appt.endDateTime);
+          var isNext = index === 0;
+          var statusLabel = appt.status ? capitalizeFirst(appt.status) : 'Scheduled';
+          var dateLabel = formatDateShort(start);
+          var timeRange = formatTimeRange(start, end);
+          var locationLabelEsc = escapeHtml(appt.locationTypeLabel || '');
+          var coachNameEsc = escapeHtml(appt.coachName || '');
+          var sessionNameEsc = escapeHtml(appt.sessionOfferingName || '');
+          var nextBadgeHtml = isNext ? '<span class="appointment-next-badge">Next appointment</span>' : '';
+
+          return (
+            '<article class="appointment-row' + (isNext ? ' appointment-row--next' : '') + '" data-appointment-id="' + escapeHtml(appt.appointmentId) + '" data-status="' + escapeHtml(appt.status || '') + '">' +
+              '<div class="appointment-row-main" data-action="appointment-row-focus" role="button" tabindex="0" aria-pressed="false">' +
+                '<div class="appointment-row-main-left">' +
+                  '<div class="appointment-datetime">' +
+                    '<p class="appointment-date">' + escapeHtml(dateLabel) + '</p>' +
+                    '<p class="appointment-time">' + escapeHtml(timeRange) + '</p>' +
+                  '</div>' +
+                  '<div class="appointment-summary">' +
+                    '<p class="appointment-coach">With <span>' + coachNameEsc + '</span></p>' +
+                    '<p class="appointment-session">' + sessionNameEsc + '</p>' +
+                    (locationLabelEsc ? '<p class="appointment-location">' + locationLabelEsc + '</p>' : '') +
+                  '</div>' +
+                '</div>' +
+                '<div class="appointment-row-main-right">' +
+                  nextBadgeHtml +
+                  '<span class="appointment-status">' + escapeHtml(statusLabel) + '</span>' +
+                '</div>' +
+              '</div>' +
+              '<div class="appointment-row-actions">' +
+                '<button type="button" class="btn btn-secondary appointment-reschedule-trigger" data-action="open-reschedule">Reschedule</button>' +
+              '</div>' +
+              '<div class="appointment-reschedule-panel" data-component="reschedule-inline-panel" data-appointment-id="' + escapeHtml(appt.appointmentId) + '" hidden></div>' +
+            '</article>'
+          );
+        }).join('');
+
+        container.innerHTML = rowsHtml;
+      }
+
+      function computeTargetDateFromAppointment(appt) {
+        var start = new Date(appt.startDateTime);
+        var target = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 2);
+        return {
+          date: target,
+          iso: formatDateISO(target),
+          displayLong: formatDateLong(target)
+        };
+      }
+
+      function getReschedulePanelContainer(appointmentId) {
+        return document.querySelector('.appointment-reschedule-panel[data-appointment-id="' + appointmentId + '"]');
+      }
+
+      function renderReschedulePanel(container) {
+        var appt = state.appointments.find(function (a) { return a.appointmentId === state.selectedAppointmentId; });
+        if (!appt) {
+          container.hidden = true;
+          container.innerHTML = '';
+          return;
+        }
+
+        if (!state.reschedule.targetDate) {
+          state.reschedule.targetDate = computeTargetDateFromAppointment(appt);
+        }
+
+        var currentStart = new Date(appt.startDateTime);
+        var currentEnd = new Date(appt.endDateTime);
+        var originalDateLabel = formatDateShort(currentStart);
+        var originalTimeRange = formatTimeRange(currentStart, currentEnd);
+        var target = state.reschedule.targetDate;
+        var viewMode = state.reschedule.viewMode || 'loadingAvailability';
+
+        var slotsSectionInner = '';
+        if (viewMode === 'loadingAvailability') {
+          slotsSectionInner = '<p class="reschedule-state-text">Checking availability for ' + escapeHtml(target.displayLong) + '...</p>';
+        } else if (viewMode === 'noSlots') {
+          slotsSectionInner = '<p class="reschedule-state-text">There are no available times on ' + escapeHtml(target.displayLong) + '. You can close this panel and check back later or contact the clinic for help.</p>';
+        } else {
+          var slots = state.reschedule.slots || [];
+          if (!slots.length) {
+            slotsSectionInner = '<p class="reschedule-state-text">There are no available times on ' + escapeHtml(target.displayLong) + '.</p>';
+          } else {
+            var slotButtons = slots.map(function (slot) {
+              var slotStart = new Date(slot.startDateTime);
+              var slotEnd = new Date(slot.endDateTime);
+              var label = formatTimeRange(slotStart, slotEnd);
+              var isRecommended = !!(state.reschedule.recommendedSlotId && slot.slotId === state.reschedule.recommendedSlotId);
+              var isSelected = !!(state.reschedule.selectedSlotId && slot.slotId === state.reschedule.selectedSlotId);
+              var disabledAttr = (viewMode === 'review' || viewMode === 'confirming' || viewMode === 'confirmed') ? ' disabled' : '';
+
+              return (
+                '<li class="time-slot-item">' +
+                  '<button type="button" class="time-slot-button' + (isSelected ? ' is-selected' : '') + (isRecommended ? ' is-recommended' : '') + '" data-action="slot-select" data-slot-id="' + escapeHtml(slot.slotId) + '"' + disabledAttr + '>' +
+                    '<span class="time-slot-label">' + escapeHtml(label) + '</span>' +
+                    (isRecommended ? '<span class="time-slot-tag">Recommended b7 7:00 pm</span>' : '') +
+                  '</button>' +
+                '</li>'
+              );
+            }).join('');
+
+            slotsSectionInner = '<ul class="time-slot-list">' + slotButtons + '</ul>';
+
+            if (viewMode === 'selectSlot') {
+              var continueDisabledAttr = state.reschedule.selectedSlotId ? '' : ' disabled';
+              slotsSectionInner += (
+                '<div class="reschedule-continue">' +
+                  '<button type="button" class="btn btn-primary" data-action="continue-to-review"' + continueDisabledAttr + '>Review changes</button>' +
+                '</div>'
+              );
+            }
+          }
+        }
+
+        var reviewSectionHtml = '';
+        if (viewMode === 'review' || viewMode === 'confirming' || viewMode === 'confirmed' || viewMode === 'error') {
+          var rs = state.reschedule.reviewSummary;
+          if (rs) {
+            var originalStartDate = new Date(rs.originalStart);
+            var originalEndDate = new Date(rs.originalEnd);
+            var newStartDate = new Date(rs.newStart);
+            var newEndDate = new Date(rs.newEnd);
+            var originalDateLabel2 = formatDateShort(originalStartDate);
+            var originalTimeRange2 = formatTimeRange(originalStartDate, originalEndDate);
+            var newDateLabel2 = formatDateShort(newStartDate);
+            var newTimeRange2 = formatTimeRange(newStartDate, newEndDate);
+            var showConfirmControls = viewMode !== 'confirmed';
+            var confirmDisabledAttr = viewMode === 'confirming' ? ' disabled' : '';
+
+            reviewSectionHtml = (
+              '<section class="reschedule-review-summary" data-component="reschedule-review-summary">' +
+                '<h4 class="reschedule-section-title">Review changes</h4>' +
+                '<dl class="review-list">' +
+                  '<div class="review-item">' +
+                    '<dt>Current time</dt>' +
+                    '<dd>' + escapeHtml(originalDateLabel2) + ' b7 ' + escapeHtml(originalTimeRange2) + '</dd>' +
+                  '</div>' +
+                  '<div class="review-item">' +
+                    '<dt>New time</dt>' +
+                    '<dd>' + escapeHtml(newDateLabel2) + ' b7 ' + escapeHtml(newTimeRange2) + '</dd>' +
+                  '</div>' +
+                  '<div class="review-item">' +
+                    '<dt>Coach &amp; session</dt>' +
+                    '<dd>' + escapeHtml(rs.coachName) + ' b7 ' + escapeHtml(rs.sessionOfferingName) + '</dd>' +
+                  '</div>' +
+                '</dl>' +
+                (state.reschedule.errorMessage && viewMode === 'error' ? '<p class="inline-error">' + escapeHtml(state.reschedule.errorMessage) + '</p>' : '') +
+                (viewMode === 'confirmed' ? '<p class="success-message">' + escapeHtml(state.reschedule.confirmationMessage || 'Your appointment has been rescheduled.') + '</p>' : '') +
+                (showConfirmControls ? (
+                  '<div class="reschedule-review-actions">' +
+                    '<button type="button" class="link-button" data-action="change-time">Change time</button>' +
+                    '<button type="button" class="btn btn-primary" data-action="confirm-new-time"' + confirmDisabledAttr + '>' + (viewMode === 'confirming' ? 'Rescheduling...' : 'Confirm new time') + '</button>' +
+                  '</div>'
+                ) : '') +
+              '</section>'
+            );
+          }
+        }
+
+        var closeLabel = viewMode === 'confirmed' ? 'Back to appointments' : 'Cancel';
+
+        var panelHtml = (
+          '<div class="reschedule-panel">' +
+            '<div class="reschedule-panel-header">' +
+              '<div class="reschedule-panel-title-group">' +
+                '<h3 class="reschedule-panel-title">Reschedule this appointment</h3>' +
+                '<p class="reschedule-panel-subtitle">Move this session to a new time exactly two days later.</p>' +
+              '</div>' +
+              '<button type="button" class="link-button reschedule-panel-close" data-action="close-reschedule-panel">' + escapeHtml(closeLabel) + '</button>' +
+            '</div>' +
+            '<section class="reschedule-original">' +
+              '<h4 class="reschedule-section-title">Current time</h4>' +
+              '<p class="reschedule-original-text">' + escapeHtml(originalDateLabel) + ' b7 ' + escapeHtml(originalTimeRange) + ' b7 ' + escapeHtml(appt.coachName) + ' b7 ' + escapeHtml(appt.sessionOfferingName) + '</p>' +
+            '</section>' +
+            '<section class="reschedule-date-display" data-component="reschedule-date-display">' +
+              '<h4 class="reschedule-section-title">New date</h4>' +
+              '<p class="reschedule-date-main">' + escapeHtml(target.displayLong) + '</p>' +
+              '<p class="reschedule-date-hint">For this change, you can move the session only to this date.</p>' +
+            '</section>' +
+            '<section class="reschedule-slot-selector" data-component="time-slot-selector">' +
+              '<h4 class="reschedule-section-title">Available times</h4>' +
+              slotsSectionInner +
+            '</section>' +
+            reviewSectionHtml +
+          '</div>'
+        );
+
+        container.innerHTML = panelHtml;
+        container.hidden = false;
+      }
+
+      function closeReschedulePanel(options) {
+        var opts = options || {};
+        if (!state.selectedAppointmentId) return;
+        var currentId = state.selectedAppointmentId;
+        state.selectedAppointmentId = null;
+        state.reschedule.viewMode = 'hidden';
+        state.reschedule.targetDate = null;
+        state.reschedule.availability = null;
+        state.reschedule.slots = [];
+        state.reschedule.recommendedSlotId = null;
+        state.reschedule.selectedSlotId = null;
+        state.reschedule.selectedSlot = null;
+        state.reschedule.reviewSummary = null;
+        state.reschedule.confirmationMessage = '';
+        state.reschedule.errorMessage = '';
+
+        var panel = document.querySelector('.appointment-reschedule-panel[data-appointment-id="' + currentId + '"]');
+        if (panel) {
+          panel.hidden = true;
+          panel.innerHTML = '';
+        }
+
+        if (!opts.skipUrlSync) {
+          syncUrlWithSelectedAppointment({ replace: true });
+        }
+      }
+
+      function fetchAvailabilityForCurrentSelection() {
+        if (!state.selectedAppointmentId || !state.reschedule.targetDate) return;
+
+        try {
+          var response = WebsiteSDK.getAppointmentRescheduleAvailability(
+            state.selectedAppointmentId,
+            state.reschedule.targetDate.iso,
+            state.reschedule.targetDate.iso
+          );
+
+          var slots = Array.isArray(response.slots) ? response.slots.slice() : [];
+          slots.sort(function (a, b) {
+            return new Date(a.startDateTime) - new Date(b.startDateTime);
+          });
+
+          state.reschedule.availability = response;
+          state.reschedule.slots = slots;
+
+          if (!slots.length) {
+            state.reschedule.viewMode = 'noSlots';
+            state.reschedule.recommendedSlotId = null;
+            state.reschedule.selectedSlotId = null;
+            state.reschedule.selectedSlot = null;
+          } else {
+            var recommendedId = null;
+            for (var i = 0; i < slots.length; i++) {
+              var slotStart = new Date(slots[i].startDateTime);
+              if (slotStart.getHours() === 19 && slotStart.getMinutes() === 0) {
+                recommendedId = slots[i].slotId;
+                break;
+              }
+            }
+            state.reschedule.recommendedSlotId = recommendedId;
+            if (recommendedId) {
+              state.reschedule.selectedSlotId = recommendedId;
+              state.reschedule.selectedSlot = slots.find(function (s) { return s.slotId === recommendedId; }) || null;
+            } else {
+              state.reschedule.selectedSlotId = null;
+              state.reschedule.selectedSlot = null;
+            }
+            state.reschedule.viewMode = 'selectSlot';
+          }
+
+          var panelContainer = getReschedulePanelContainer(state.selectedAppointmentId);
+          if (panelContainer) {
+            renderReschedulePanel(panelContainer);
+          }
+        } catch (err) {
+          state.reschedule.viewMode = 'noSlots';
+          state.reschedule.errorMessage = 'We couldn\'t load available times right now. Please try again in a moment.';
+          var panelContainerErr = getReschedulePanelContainer(state.selectedAppointmentId);
+          if (panelContainerErr) {
+            renderReschedulePanel(panelContainerErr);
+          }
+        }
+      }
+
+      function syncUrlWithSelectedAppointment(options) {
+        var opts = options || {};
+        var url = new URL(window.location.href);
+
+        if (state.selectedAppointmentId) {
+          url.searchParams.set('appointmentId', state.selectedAppointmentId);
+        } else {
+          url.searchParams.delete('appointmentId');
+        }
+
+        var newUrl = url.toString();
+        var method = opts.replace ? 'replaceState' : 'pushState';
+
+        if (window.history && typeof window.history[method] === 'function') {
+          window.history[method](null, '', newUrl);
+        } else {
+          window.location.href = newUrl;
+        }
+      }
+
+      function openRescheduleForAppointment(appointmentId, options) {
+        var opts = options || {};
+        var appt = state.appointments.find(function (a) { return a.appointmentId === appointmentId; });
+        if (!appt) return;
+
+        if (state.selectedAppointmentId && state.selectedAppointmentId !== appointmentId) {
+          closeReschedulePanel({ skipUrlSync: true });
+        }
+
+        state.selectedAppointmentId = appointmentId;
+        state.reschedule.viewMode = 'loadingAvailability';
+        state.reschedule.targetDate = computeTargetDateFromAppointment(appt);
+        state.reschedule.availability = null;
+        state.reschedule.slots = [];
+        state.reschedule.recommendedSlotId = null;
+        state.reschedule.selectedSlotId = null;
+        state.reschedule.selectedSlot = null;
+        state.reschedule.reviewSummary = null;
+        state.reschedule.confirmationMessage = '';
+        state.reschedule.errorMessage = '';
+
+        var panelContainer = getReschedulePanelContainer(appointmentId);
+        if (panelContainer) {
+          panelContainer.hidden = false;
+          renderReschedulePanel(panelContainer);
+        }
+
+        if (!opts.skipUrlSync) {
+          var replace = !!opts.fromDeepLink;
+          syncUrlWithSelectedAppointment({ replace: replace });
+        }
+
+        fetchAvailabilityForCurrentSelection();
+      }
+
+      function handleInitialRequestedAppointment() {
+        if (!state.initialRequestedAppointmentId) return;
+        var target = state.appointments.find(function (a) { return a.appointmentId === state.initialRequestedAppointmentId; });
+
+        if (target) {
+          openRescheduleForAppointment(target.appointmentId, { fromDeepLink: true });
+          if (deepLinkMessageEl) {
+            deepLinkMessageEl.textContent = '';
+            deepLinkMessageEl.hidden = true;
+          }
+        } else {
+          if (deepLinkMessageEl) {
+            deepLinkMessageEl.textContent = 'The appointment you tried to open is not available for rescheduling here. You can reschedule only upcoming sessions.';
+            deepLinkMessageEl.hidden = false;
+          }
+        }
+      }
+
+      function getAppointmentIdFromElement(element) {
+        var row = element.closest('.appointment-row');
+        return row ? row.getAttribute('data-appointment-id') : null;
+      }
+
+      function handleAppointmentRowFocus(element) {
+        var appointmentId = getAppointmentIdFromElement(element);
+        if (!appointmentId) return;
+        state.currentFocusedAppointmentId = appointmentId;
+
+        var allRows = document.querySelectorAll('.appointment-row');
+        allRows.forEach(function (row) {
+          if (row.getAttribute('data-appointment-id') === appointmentId) {
+            row.classList.add('appointment-row--focused');
+          } else {
+            row.classList.remove('appointment-row--focused');
+          }
+        });
+      }
+
+      function handleSlotSelect(slotId) {
+        if (!state.selectedAppointmentId || !slotId) return;
+        if (state.reschedule.viewMode !== 'selectSlot') return;
+
+        var slot = state.reschedule.slots.find(function (s) { return s.slotId === slotId; });
+        if (!slot) return;
+
+        state.reschedule.selectedSlotId = slot.slotId;
+        state.reschedule.selectedSlot = slot;
+
+        var panelContainer = getReschedulePanelContainer(state.selectedAppointmentId);
+        if (panelContainer) {
+          renderReschedulePanel(panelContainer);
+        }
+      }
+
+      function handleContinueToReview() {
+        if (!state.selectedAppointmentId || !state.reschedule.selectedSlotId || !state.reschedule.selectedSlot) return;
+
+        var appt = state.appointments.find(function (a) { return a.appointmentId === state.selectedAppointmentId; });
+        if (!appt) return;
+
+        var selectedSlot = state.reschedule.selectedSlot;
+
+        state.reschedule.reviewSummary = {
+          originalStart: appt.startDateTime,
+          originalEnd: appt.endDateTime,
+          newStart: selectedSlot.startDateTime,
+          newEnd: selectedSlot.endDateTime,
+          coachName: appt.coachName,
+          sessionOfferingName: appt.sessionOfferingName
+        };
+
+        state.reschedule.viewMode = 'review';
+        state.reschedule.errorMessage = '';
+
+        var panelContainer = getReschedulePanelContainer(state.selectedAppointmentId);
+        if (panelContainer) {
+          renderReschedulePanel(panelContainer);
+        }
+      }
+
+      function handleChangeTime() {
+        if (!state.selectedAppointmentId) return;
+        state.reschedule.viewMode = 'selectSlot';
+
+        var panelContainer = getReschedulePanelContainer(state.selectedAppointmentId);
+        if (panelContainer) {
+          renderReschedulePanel(panelContainer);
+        }
+      }
+
+      function onRescheduleSuccess(response) {
+        state.reschedule.viewMode = 'confirmed';
+        state.reschedule.errorMessage = '';
+        state.reschedule.confirmationMessage = response && response.confirmationMessage ? String(response.confirmationMessage) : 'Your appointment has been rescheduled.';
+
+        var idx = state.appointments.findIndex(function (a) { return a.appointmentId === response.appointmentId; });
+        if (idx !== -1) {
+          var updated = Object.assign({}, state.appointments[idx], {
+            startDateTime: response.startDateTime,
+            endDateTime: response.endDateTime,
+            status: response.status
+          });
+          state.appointments[idx] = updated;
+        }
+
+        state.appointments.sort(function (a, b) {
+          return new Date(a.startDateTime) - new Date(b.startDateTime);
+        });
+
+        if (appointmentsListContainer) {
+          renderUpcomingAppointments(appointmentsListContainer);
+        }
+
+        if (state.reschedule.reviewSummary) {
+          state.reschedule.reviewSummary.newStart = response.startDateTime;
+          state.reschedule.reviewSummary.newEnd = response.endDateTime;
+        }
+
+        var panelContainer = getReschedulePanelContainer(state.selectedAppointmentId);
+        if (panelContainer) {
+          renderReschedulePanel(panelContainer);
+        }
+      }
+
+      function onRescheduleError() {
+        state.reschedule.viewMode = 'error';
+        state.reschedule.errorMessage = 'We could not reschedule this appointment right now. Please try again or choose a different time.';
+
+        var panelContainer = getReschedulePanelContainer(state.selectedAppointmentId);
+        if (panelContainer) {
+          renderReschedulePanel(panelContainer);
+        }
+      }
+
+      function handleConfirmNewTime() {
+        if (!state.selectedAppointmentId || !state.reschedule.selectedSlotId) return;
+
+        state.reschedule.viewMode = 'confirming';
+        var panelContainerLoading = getReschedulePanelContainer(state.selectedAppointmentId);
+        if (panelContainerLoading) {
+          renderReschedulePanel(panelContainerLoading);
+        }
+
+        try {
+          var response = WebsiteSDK.rescheduleAppointment(state.selectedAppointmentId, state.reschedule.selectedSlotId);
+          onRescheduleSuccess(response);
+        } catch (err) {
+          onRescheduleError(err);
+        }
+      }
+
+      function handleActionClick(event) {
+        var actionEl = event.target.closest('[data-action]');
+        if (!actionEl) return;
+        var action = actionEl.getAttribute('data-action');
+
+        if (action === 'appointment-row-focus') {
+          handleAppointmentRowFocus(actionEl);
+        } else if (action === 'open-reschedule') {
+          event.preventDefault();
+          var apptId = getAppointmentIdFromElement(actionEl);
+          if (apptId) {
+            openRescheduleForAppointment(apptId, { fromDeepLink: false });
+          }
+        } else if (action === 'close-reschedule-panel') {
+          event.preventDefault();
+          closeReschedulePanel();
+        } else if (action === 'slot-select') {
+          event.preventDefault();
+          var slotId = actionEl.getAttribute('data-slot-id');
+          handleSlotSelect(slotId);
+        } else if (action === 'continue-to-review') {
+          event.preventDefault();
+          handleContinueToReview();
+        } else if (action === 'change-time') {
+          event.preventDefault();
+          handleChangeTime();
+        } else if (action === 'confirm-new-time') {
+          event.preventDefault();
+          handleConfirmNewTime();
+        }
+      }
+
+      function handleKeydown(event) {
+        var key = event.key;
+        if (key !== 'Enter' && key !== ' ') return;
+        var focusEl = event.target.closest('[data-action="appointment-row-focus"]');
+        if (!focusEl) return;
+        event.preventDefault();
+        handleAppointmentRowFocus(focusEl);
+      }
+
+      function initDataPopulation() {
+        var populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function (element) {
+          var dataType = element.getAttribute('data-populate');
+          if (dataType === 'getUpcomingAppointments') {
+            try {
+              var result = WebsiteSDK.getUpcomingAppointments();
+              setAppointments(result || []);
+              renderUpcomingAppointments(element);
+              handleInitialRequestedAppointment();
+            } catch (err) {
+              renderAppointmentsError(element, 'We were not able to load your appointments. Please try again.');
+            }
+          }
+        });
+      }
+
+      window.addEventListener('popstate', function () {
+        if (!state.appointments || !state.appointments.length) return;
+        var params = new URLSearchParams(window.location.search);
+        var idFromUrl = params.get('appointmentId');
+
+        if (idFromUrl && state.appointments.some(function (a) { return a.appointmentId === idFromUrl; })) {
+          openRescheduleForAppointment(idFromUrl, { skipUrlSync: true });
+          if (deepLinkMessageEl) {
+            deepLinkMessageEl.textContent = '';
+            deepLinkMessageEl.hidden = true;
+          }
+        } else {
+          if (state.selectedAppointmentId) {
+            closeReschedulePanel({ skipUrlSync: true });
+          }
+        }
+      });
+
+      if (contentRoot) {
+        contentRoot.addEventListener('click', handleActionClick);
+        contentRoot.addEventListener('keydown', handleKeydown);
+      }
+
+      initDataPopulation();
+    });
+  </script>
+</body>
+</html>

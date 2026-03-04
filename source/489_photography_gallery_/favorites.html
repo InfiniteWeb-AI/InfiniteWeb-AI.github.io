@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Photography Gallery</title>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&amp;family=Work+Sans:wght@300;400;500;600&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='favorites.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='header-inner'>
+      <nav class='primary-nav' aria-label='Primary'>
+        <ul data-component='header-navigation' data-populate='nav-categories'>
+          <li><a href='index.html'>Home</a></li>
+          <li><a href='catalog.html?categoryId=all_prints'>Shop Prints</a></li>
+          <li><a href='collections.html'>Collections</a></li>
+          <li><a href='catalog.html?categoryId=limited_editions'>Limited Editions</a></li>
+          <li><a href='catalog.html?categoryId=cityscapes'>Cityscapes</a></li>
+          <li><a href='catalog.html?categoryId=black_and_white'>Black &amp; White</a></li>
+        </ul>
+      </nav>
+      <div class='branding'>
+        <a href='index.html' class='logo-mark' aria-label='Home'>
+          <span class='logo-text'>22</span>
+        </a>
+      </div>
+      <div class='header-utilities' aria-label='Site tools'>
+        <form class='global-search-form' role='search' data-component='global-search-form'>
+          <label class='visually-hidden' for='global-search-input'>Search prints</label>
+          <input id='global-search-input' name='q' type='search' placeholder='Search' autocomplete='off' data-action='search-input'>
+        </form>
+        <div class='search-suggestions-dropdown' data-component='search-suggestions-dropdown' data-populate='search-suggestions' hidden></div>
+        <a href='favorites.html' class='utility-link'>Favorites</a>
+        <a href='cart.html' class='utility-link cart-link' data-component='header-cart-summary' data-populate='cart-summary' data-action='open-cart'>
+          <span class='cart-label'>Cart</span>
+          <span class='cart-count-badge' aria-label='Items in cart'>0</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main id='content' class='site-main' role='main'>
+    <section class='favorites-layout'>
+      <div class='favorites-layout-inner'>
+        <section class='favorites-page-header content-column' data-component='favorites-page-controller'>
+          <h1 class='favorites-title'>Favorites</h1>
+        </section>
+
+        <section class='favorites-summary-bar content-column' data-component='favorites-summary-bar' data-populate='favorites-summary'></section>
+
+        <section class='favorites-main content-column'>
+          <div class='favorites-list-container' data-component='favorites-list' data-populate='favorites-list' aria-live='polite'></div>
+          <div class='favorites-empty-container' data-component='empty-favorites-state' data-populate='favorites-empty' aria-live='polite'></div>
+        </section>
+      </div>
+
+      <aside class='comparison-selector' data-component='comparison-selector' data-populate='comparison-selector' aria-live='polite'></aside>
+
+      <div class='favorites-toast' data-component='favorites-removal-handler' data-populate='favorites-removal-handler' aria-live='polite' aria-atomic='true'></div>
+    </section>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner'>
+      <nav class='footer-nav' aria-label='Footer'>
+        <ul>
+          <li><a href='about.html'>About</a></li>
+          <li><a href='contact.html'>Contact</a></li>
+          <li><a href='help.html'>Help / FAQ</a></li>
+          <li><a href='shipping_returns.html'>Shipping &amp; Returns</a></li>
+          <li><a href='privacy.html'>Privacy Policy</a></li>
+          <li><a href='terms.html'>Terms &amp; Conditions</a></li>
+        </ul>
+      </nav>
+      <p class='footer-meta'>&copy; <span class='footer-year'>2026</span> Studio 22. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    (function() {
+      'use strict';
+
+      const state = {
+        favorites: [],
+        favoritesCount: 0,
+        sort: 'added_at_desc',
+        layout: 'grid',
+        compareSet: new Set(),
+        showOnlyCompared: false,
+        isComparisonPanelOpen: false,
+        searchDebounceTimer: null,
+        lastSearchQuery: '',
+        lastSearchResults: null,
+        removalToastTimeoutId: null
+      };
+
+      function escapeHtml(value) {
+        if (value == null) return '';
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function escapeAttribute(value) {
+        return escapeHtml(value);
+      }
+
+      function formatPrice(amount, currency) {
+        if (typeof amount !== 'number' || isNaN(amount)) return '';
+        const fixed = amount.toFixed(2);
+        let symbol = '';
+        if (currency === 'USD' || currency === 'CAD' || currency === 'AUD') symbol = '$';
+        else if (currency === 'EUR') symbol = '€';
+        else if (currency === 'GBP') symbol = '£';
+        return symbol + fixed;
+      }
+
+      function readUrlStateFromLocation() {
+        const params = new URLSearchParams(window.location.search);
+        const sortParam = params.get('sort');
+        if (sortParam) {
+          state.sort = sortParam;
+        } else {
+          state.sort = 'added_at_desc';
+        }
+        const layoutParam = params.get('layout');
+        if (layoutParam === 'list' || layoutParam === 'grid') {
+          state.layout = layoutParam;
+        } else {
+          state.layout = 'grid';
+        }
+        const compareParam = params.get('compare');
+        state.compareSet = new Set();
+        if (compareParam) {
+          compareParam.split(',').map(function(part) { return part.trim(); }).filter(function(part) { return part; }).forEach(function(id) {
+            state.compareSet.add(id);
+          });
+        }
+        const viewParam = params.get('view');
+        state.showOnlyCompared = (viewParam === 'compared');
+      }
+
+      function updateUrlState(options) {
+        const opts = options || {};
+        const url = new URL(window.location.href);
+        if (state.sort && state.sort !== 'added_at_desc') {
+          url.searchParams.set('sort', state.sort);
+        } else {
+          url.searchParams.delete('sort');
+        }
+        if (state.layout && state.layout !== 'grid') {
+          url.searchParams.set('layout', state.layout);
+        } else {
+          url.searchParams.delete('layout');
+        }
+        if (state.compareSet && state.compareSet.size > 0) {
+          url.searchParams.set('compare', Array.from(state.compareSet).join(','));
+        } else {
+          url.searchParams.delete('compare');
+        }
+        if (state.showOnlyCompared) {
+          url.searchParams.set('view', 'compared');
+        } else {
+          url.searchParams.delete('view');
+        }
+        const method = opts.replace ? 'replaceState' : 'pushState';
+        if (window.history && window.history[method]) {
+          window.history[method](null, '', url.toString());
+        }
+      }
+
+      function sortFavoritesInState() {
+        const favorites = state.favorites;
+        if (!Array.isArray(favorites) || favorites.length < 2) return;
+        const sortMode = state.sort || 'added_at_desc';
+        favorites.sort(function(a, b) {
+          const fa = a.favorite_item || {};
+          const fb = b.favorite_item || {};
+          const pa = a.product || {};
+          const pb = b.product || {};
+          if (sortMode === 'price_asc' || sortMode === 'price_desc') {
+            const va = typeof a.min_display_price === 'number' ? a.min_display_price : 0;
+            const vb = typeof b.min_display_price === 'number' ? b.min_display_price : 0;
+            return sortMode === 'price_asc' ? (va - vb) : (vb - va);
+          }
+          if (sortMode === 'rating_desc') {
+            const ra = typeof a.rating === 'number' ? a.rating : (typeof pa.rating === 'number' ? pa.rating : 0);
+            const rb = typeof b.rating === 'number' ? b.rating : (typeof pb.rating === 'number' ? pb.rating : 0);
+            return rb - ra;
+          }
+          const da = fa.added_at ? new Date(fa.added_at).getTime() : 0;
+          const db = fb.added_at ? new Date(fb.added_at).getTime() : 0;
+          if (sortMode === 'added_at_asc') {
+            return da - db;
+          }
+          return db - da;
+        });
+      }
+
+      function renderFavoritesSummary(container) {
+        const count = state.favoritesCount || 0;
+        const label = count === 1 ? '1 favorite' : count + ' favorites';
+        const sort = state.sort || 'added_at_desc';
+        const layout = state.layout || 'grid';
+        const showOnly = !!state.showOnlyCompared;
+        container.innerHTML = `
+          <div class='favorites-summary-inner'>
+            <div class='favorites-summary-count'>
+              <span class='favorites-summary-label'>${escapeHtml(label)}</span>
+            </div>
+            <div class='favorites-summary-controls'>
+              <label class='favorites-sort-control'>
+                <span class='favorites-sort-label'>Sort</span>
+                <select data-action='change-sort' aria-label='Sort favorites'>
+                  <option value='added_at_desc'${sort === 'added_at_desc' ? ' selected' : ''}>Recently added</option>
+                  <option value='price_asc'${sort === 'price_asc' ? ' selected' : ''}>Price: Low to high</option>
+                  <option value='price_desc'${sort === 'price_desc' ? ' selected' : ''}>Price: High to low</option>
+                  <option value='rating_desc'${sort === 'rating_desc' ? ' selected' : ''}>Rating</option>
+                </select>
+              </label>
+              <div class='favorites-layout-toggle' role='radiogroup' aria-label='Layout'>
+                <button type='button' class='layout-toggle-btn${layout === 'grid' ? ' is-active' : ''}' data-action='set-layout' data-layout='grid' aria-pressed='${layout === 'grid' ? 'true' : 'false'}'>Grid</button>
+                <button type='button' class='layout-toggle-btn${layout === 'list' ? ' is-active' : ''}' data-action='set-layout' data-layout='list' aria-pressed='${layout === 'list' ? 'true' : 'false'}'>List</button>
+              </div>
+              <label class='favorites-show-compared'>
+                <input type='checkbox' data-action='toggle-show-compared'${showOnly ? ' checked' : ''}>
+                <span>Show selected only</span>
+              </label>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderFavoritesList(container) {
+        const favorites = Array.isArray(state.favorites) ? state.favorites : [];
+        const hasFavorites = favorites.length > 0;
+        if (!hasFavorites) {
+          container.innerHTML = '';
+          container.setAttribute('hidden', 'hidden');
+          container.setAttribute('aria-hidden', 'true');
+          return;
+        }
+        container.removeAttribute('hidden');
+        container.removeAttribute('aria-hidden');
+        const shouldFilter = state.showOnlyCompared && state.compareSet && state.compareSet.size > 0;
+        const items = shouldFilter
+          ? favorites.filter(function(item) { return item.product && state.compareSet.has(item.product.id); })
+          : favorites.slice();
+        if (items.length === 0) {
+          container.innerHTML = '';
+          container.setAttribute('hidden', 'hidden');
+          container.setAttribute('aria-hidden', 'true');
+          return;
+        }
+        const layoutClass = state.layout === 'list' ? 'favorites-grid--list' : 'favorites-grid--grid';
+        const cardsHtml = items.map(function(item) {
+          const product = item.product || {};
+          const productId = product.id || '';
+          const favoriteId = item.favorite_item && item.favorite_item.id ? item.favorite_item.id : '';
+          const thumb = item.thumbnail_image_url || product.thumbnail_image_url || product.main_image_url || '';
+          const title = product.title || 'Untitled';
+          const subtitle = product.city_name || product.subtitle || '';
+          const priceNumber = (typeof item.min_display_price === 'number') ? item.min_display_price : null;
+          const currency = item.currency || '';
+          const priceText = priceNumber != null ? formatPrice(priceNumber, currency) : '';
+          const ratingValue = (typeof item.rating === 'number') ? item.rating : (typeof product.rating === 'number' ? product.rating : null);
+          const ratingText = (typeof ratingValue === 'number') ? ratingValue.toFixed(1) : '';
+          const ratingCount = (typeof product.rating_count === 'number') ? product.rating_count : null;
+          const isCompared = state.compareSet.has(productId);
+          return `
+            <article class='favorite-card ${state.layout === 'list' ? 'favorite-card--list' : 'favorite-card--grid'}${isCompared ? ' favorite-card--compared' : ''}' data-component='favorite-product-card' data-product-id='${escapeAttribute(productId)}' data-favorite-id='${escapeAttribute(favoriteId)}'>
+              <a href='javascript:void(0)' class='favorite-card-link' data-action='open-product'>
+                <figure class='favorite-card-figure'>
+                  ${thumb ? `<div class='favorite-card-image-wrap'><img src='${escapeAttribute(thumb)}' alt='${escapeAttribute(title)}' loading='lazy'></div>` : ''}
+                  <figcaption class='favorite-card-caption'>
+                    <h2 class='favorite-card-title'>${escapeHtml(title)}</h2>
+                    ${subtitle ? `<p class='favorite-card-subtitle'>${escapeHtml(subtitle)}</p>` : ''}
+                    <div class='favorite-card-meta-row'>
+                      ${priceText ? `<span class='favorite-card-price'>${escapeHtml(priceText)}</span>` : ''}
+                      ${ratingText ? `<span class='favorite-card-rating' aria-label='${escapeAttribute(ratingText)} out of 5 stars'>
+                        <span class='favorite-card-rating-value'>${escapeHtml(ratingText)}</span>
+                        ${ratingCount != null ? `<span class='favorite-card-rating-count'>(${ratingCount})</span>` : ''}
+                      </span>` : ''}
+                    </div>
+                  </figcaption>
+                </figure>
+              </a>
+              <div class='favorite-card-footer'>
+                <label class='favorite-card-compare'>
+                  <input type='checkbox' data-action='toggle-compare-selection'${isCompared ? ' checked' : ''}>
+                  <span>Compare</span>
+                </label>
+                <button type='button' class='favorite-card-remove' data-action='remove-favorite' aria-label='Remove ${escapeAttribute(title)} from favorites'>Remove</button>
+              </div>
+            </article>
+          `;
+        }).join('');
+        container.innerHTML = `
+          <div class='favorites-grid ${layoutClass}'>
+            ${cardsHtml}
+          </div>
+        `;
+      }
+
+      function renderEmptyState(container) {
+        const hasFavorites = state.favoritesCount > 0;
+        if (hasFavorites) {
+          container.innerHTML = '';
+          container.setAttribute('hidden', 'hidden');
+          container.setAttribute('aria-hidden', 'true');
+          return;
+        }
+        container.removeAttribute('hidden');
+        container.removeAttribute('aria-hidden');
+        container.innerHTML = `
+          <div class='favorites-empty'>
+            <p class='favorites-empty-title'>No favorites yet</p>
+            <p class='favorites-empty-copy'>Mark photographs as favorites while browsing to shortlist them here.</p>
+            <button type='button' class='favorites-empty-browse' data-action='browse-from-empty'>Browse prints</button>
+          </div>
+        `;
+      }
+
+      function renderComparisonSelector(container) {
+        const selectedIds = state.compareSet ? Array.from(state.compareSet) : [];
+        const favorites = Array.isArray(state.favorites) ? state.favorites : [];
+        const selectedItems = favorites.filter(function(item) {
+          return item.product && state.compareSet.has(item.product.id);
+        });
+        const count = selectedItems.length;
+        const hasSelection = count > 0;
+        const listHtml = hasSelection
+          ? selectedItems.map(function(item) {
+              const product = item.product || {};
+              const pid = product.id || '';
+              const title = product.title || 'Untitled';
+              return `
+                <li class='comparison-item' data-product-id='${escapeAttribute(pid)}'>
+                  <button type='button' class='comparison-item-remove' data-action='remove-from-comparison' aria-label='Remove ${escapeAttribute(title)} from comparison'>&times;</button>
+                  <span class='comparison-item-title'>${escapeHtml(title)}</span>
+                </li>
+              `;
+            }).join('')
+          : `<li class='comparison-item comparison-item--empty'>No favorites selected for comparison.</li>`;
+        const showOnly = !!state.showOnlyCompared;
+        container.innerHTML = `
+          <div class='comparison-selector-inner${hasSelection ? ' comparison-selector-inner--active' : ''}'>
+            <button type='button' class='comparison-toggle' data-action='toggle-comparison-panel' aria-expanded='${state.isComparisonPanelOpen ? 'true' : 'false'}' aria-label='Show favorites selected for comparison'>
+              <span class='comparison-toggle-count'>${count}</span>
+            </button>
+            <div class='comparison-panel'${state.isComparisonPanelOpen ? '' : ' hidden'}>
+              <div class='comparison-panel-header'>
+                <span class='comparison-panel-title'>${count} selected</span>
+                ${hasSelection ? `<button type='button' class='comparison-clear' data-action='clear-comparison'>Clear</button>` : ''}
+              </div>
+              <ul class='comparison-panel-list'>
+                ${listHtml}
+              </ul>
+              <label class='comparison-panel-filter'>
+                <input type='checkbox' data-action='toggle-show-compared'${showOnly ? ' checked' : ''}>
+                <span>Show only selected in list</span>
+              </label>
+            </div>
+          </div>
+        `;
+      }
+
+      function showRemovalToast(message) {
+        const container = document.querySelector("[data-component='favorites-removal-handler']");
+        if (!container) return;
+        const text = message || 'Removed from Favorites.';
+        container.innerHTML = `
+          <div class='favorites-toast-inner'>
+            <span class='favorites-toast-message'>${escapeHtml(text)}</span>
+            <button type='button' class='favorites-toast-dismiss' data-action='dismiss-removal-toast'>Dismiss</button>
+          </div>
+        `;
+        if (state.removalToastTimeoutId) {
+          window.clearTimeout(state.removalToastTimeoutId);
+        }
+        state.removalToastTimeoutId = window.setTimeout(function() {
+          hideRemovalToast();
+        }, 4000);
+      }
+
+      function hideRemovalToast() {
+        const container = document.querySelector("[data-component='favorites-removal-handler']");
+        if (!container) return;
+        container.innerHTML = '';
+        if (state.removalToastTimeoutId) {
+          window.clearTimeout(state.removalToastTimeoutId);
+          state.removalToastTimeoutId = null;
+        }
+      }
+
+      function renderNavCategories(container, categories) {
+        if (!container || !Array.isArray(categories) || categories.length === 0) return;
+        const visible = categories.filter(function(cat) {
+          return cat.is_nav_visible !== false;
+        }).sort(function(a, b) {
+          const sa = typeof a.sort_order === 'number' ? a.sort_order : 0;
+          const sb = typeof b.sort_order === 'number' ? b.sort_order : 0;
+          return sa - sb;
+        });
+        if (visible.length === 0) return;
+        const itemsHtml = visible.map(function(cat) {
+          const id = cat.id || '';
+          const name = cat.display_name || id;
+          const href = 'catalog.html?categoryId=' + encodeURIComponent(id);
+          return `<li><a href='${href}'>${escapeHtml(name)}</a></li>`;
+        }).join('');
+        container.innerHTML = itemsHtml;
+      }
+
+      function renderCartSummary(container, summary) {
+        if (!container) return;
+        const count = summary && typeof summary.item_count === 'number' ? summary.item_count : 0;
+        const message = summary && summary.free_shipping_message ? summary.free_shipping_message : '';
+        container.innerHTML = `
+          <span class='cart-label'>Cart</span>
+          <span class='cart-count-badge' aria-label='Items in cart'>${count}</span>
+          ${message ? `<span class='cart-shipping-message'>${escapeHtml(message)}</span>` : ''}
+        `;
+      }
+
+      function renderSearchSuggestions(container, suggestions, query) {
+        if (!container) return;
+        const data = suggestions || {};
+        const suggestedQueries = Array.isArray(data.suggested_queries) ? data.suggested_queries : [];
+        const matchingTags = Array.isArray(data.matching_subject_tags) ? data.matching_subject_tags : [];
+        const products = Array.isArray(data.top_matching_products) ? data.top_matching_products : [];
+        if (suggestedQueries.length === 0 && matchingTags.length === 0 && products.length === 0) {
+          container.innerHTML = '';
+          container.hidden = true;
+          return;
+        }
+        const querySection = suggestedQueries.length > 0
+          ? `
+            <div class='search-suggestions-section'>
+              <div class='search-suggestions-heading'>Suggestions</div>
+              <ul>
+                ${suggestedQueries.map(function(q) {
+                  return `<li><button type='button' class='search-suggestion-item' data-action='search-suggestion' data-suggestion-type='query' data-suggestion-value='${escapeAttribute(q)}'>${escapeHtml(q)}</button></li>`;
+                }).join('')}
+              </ul>
+            </div>
+          `
+          : '';
+        const tagSection = matchingTags.length > 0
+          ? `
+            <div class='search-suggestions-section'>
+              <div class='search-suggestions-heading'>Subjects</div>
+              <ul>
+                ${matchingTags.map(function(tag) {
+                  return `<li><button type='button' class='search-suggestion-item' data-action='search-suggestion' data-suggestion-type='tag' data-suggestion-value='${escapeAttribute(tag)}'>${escapeHtml(tag)}</button></li>`;
+                }).join('')}
+              </ul>
+            </div>
+          `
+          : '';
+        const productsSection = products.length > 0
+          ? `
+            <div class='search-suggestions-section'>
+              <div class='search-suggestions-heading'>Prints</div>
+              <ul>
+                ${products.map(function(p) {
+                  const pid = p.product_id || '';
+                  const title = p.title || 'Untitled';
+                  const thumb = p.thumbnail_image_url || '';
+                  return `
+                    <li>
+                      <button type='button' class='search-suggestion-item search-suggestion-item--product' data-action='search-suggestion' data-suggestion-type='product' data-suggestion-value='${escapeAttribute(pid)}'>
+                        ${thumb ? `<span class='search-suggestion-thumb'><img src='${escapeAttribute(thumb)}' alt='${escapeAttribute(title)}' loading='lazy'></span>` : ''}
+                        <span class='search-suggestion-text'>${escapeHtml(title)}</span>
+                      </button>
+                    </li>
+                  `;
+                }).join('')}
+              </ul>
+            </div>
+          `
+          : '';
+        container.innerHTML = `
+          <div class='search-suggestions-inner'>
+            ${querySection}
+            ${tagSection}
+            ${productsSection}
+          </div>
+        `;
+        container.hidden = false;
+      }
+
+      function hideSearchSuggestions() {
+        const container = document.querySelector("[data-component='search-suggestions-dropdown']");
+        if (!container) return;
+        container.innerHTML = '';
+        container.hidden = true;
+      }
+
+      function onSearchQueryChange(query) {
+        state.lastSearchQuery = query;
+        if (!query) {
+          hideSearchSuggestions();
+          return;
+        }
+        if (state.searchDebounceTimer) {
+          window.clearTimeout(state.searchDebounceTimer);
+        }
+        state.searchDebounceTimer = window.setTimeout(function() {
+          try {
+            if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK.getSearchSuggestions) {
+              hideSearchSuggestions();
+              return;
+            }
+            const result = WebsiteSDK.getSearchSuggestions(query);
+            state.lastSearchResults = result;
+            const container = document.querySelector("[data-component='search-suggestions-dropdown']");
+            if (container) {
+              renderSearchSuggestions(container, result, query);
+            }
+          } catch (e) {
+            hideSearchSuggestions();
+          }
+        }, 200);
+      }
+
+      function renderAllFavoritesComponents() {
+        sortFavoritesInState();
+        const summaryContainer = document.querySelector("[data-component='favorites-summary-bar']");
+        if (summaryContainer) {
+          renderFavoritesSummary(summaryContainer);
+        }
+        const listContainer = document.querySelector("[data-component='favorites-list']");
+        if (listContainer) {
+          renderFavoritesList(listContainer);
+        }
+        const emptyContainer = document.querySelector("[data-component='empty-favorites-state']");
+        if (emptyContainer) {
+          renderEmptyState(emptyContainer);
+        }
+        const comparisonContainer = document.querySelector("[data-component='comparison-selector']");
+        if (comparisonContainer) {
+          renderComparisonSelector(comparisonContainer);
+        }
+      }
+
+      function initializeHeader() {
+        try {
+          if (typeof WebsiteSDK !== 'undefined' && WebsiteSDK.getNavCategories) {
+            const navResponse = WebsiteSDK.getNavCategories();
+            const navContainer = document.querySelector("[data-populate='nav-categories']");
+            if (navContainer && Array.isArray(navResponse) && navResponse.length > 0) {
+              renderNavCategories(navContainer, navResponse);
+            }
+          }
+        } catch (e) {}
+        try {
+          if (typeof WebsiteSDK !== 'undefined' && WebsiteSDK.getCartSummary) {
+            const summary = WebsiteSDK.getCartSummary();
+            const cartContainer = document.querySelector("[data-component='header-cart-summary']");
+            if (cartContainer) {
+              renderCartSummary(cartContainer, summary);
+            }
+          }
+        } catch (e) {}
+
+        const searchInput = document.getElementById('global-search-input');
+        if (searchInput) {
+          searchInput.addEventListener('focus', function() {
+            if (state.lastSearchResults && state.lastSearchQuery) {
+              const container = document.querySelector("[data-component='search-suggestions-dropdown']");
+              if (container) {
+                renderSearchSuggestions(container, state.lastSearchResults, state.lastSearchQuery);
+              }
+            }
+          });
+          searchInput.addEventListener('blur', function() {
+            window.setTimeout(function() {
+              hideSearchSuggestions();
+            }, 150);
+          });
+        }
+        const searchForm = document.querySelector("[data-component='global-search-form']");
+        if (searchForm) {
+          searchForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            const input = document.getElementById('global-search-input');
+            const query = input ? input.value.trim() : '';
+            if (!query) return;
+            onSearchQueryChange(query);
+          });
+        }
+      }
+
+      function initializeFavorites() {
+        try {
+          if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK.getFavoritesList) {
+            state.favorites = [];
+            state.favoritesCount = 0;
+          } else {
+            const response = WebsiteSDK.getFavoritesList();
+            state.favorites = Array.isArray(response && response.favorites) ? response.favorites.slice() : [];
+            if (typeof response && typeof response.favorites_count === 'number') {
+              state.favoritesCount = response.favorites_count;
+            } else {
+              state.favoritesCount = state.favorites.length;
+            }
+          }
+        } catch (e) {
+          state.favorites = [];
+          state.favoritesCount = 0;
+        }
+        const validIds = new Set(state.favorites.map(function(item) {
+          return item.product && item.product.id ? item.product.id : null;
+        }).filter(function(id) { return !!id; }));
+        if (state.compareSet && state.compareSet.size > 0) {
+          Array.from(state.compareSet).forEach(function(id) {
+            if (!validIds.has(id)) {
+              state.compareSet.delete(id);
+            }
+          });
+        }
+        renderAllFavoritesComponents();
+      }
+
+      function handleRemoveFavorite(productId) {
+        if (!productId) return;
+        try {
+          if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK.removeProductFromFavorites) {
+            return;
+          }
+          const resp = WebsiteSDK.removeProductFromFavorites(productId);
+          if (!resp || resp.success === false) {
+            showRemovalToast('Could not remove from favorites. Please try again.');
+            return;
+          }
+          state.favorites = state.favorites.filter(function(item) {
+            return !(item.product && item.product.id === productId);
+          });
+          if (typeof resp.favorites_count === 'number') {
+            state.favoritesCount = resp.favorites_count;
+          } else {
+            state.favoritesCount = state.favorites.length;
+          }
+          if (state.compareSet && state.compareSet.size > 0) {
+            state.compareSet.delete(productId);
+          }
+          if (state.favoritesCount === 0) {
+            if (state.compareSet) state.compareSet.clear();
+          }
+          updateUrlState({ replace: true });
+          renderAllFavoritesComponents();
+          showRemovalToast('Removed from Favorites.');
+        } catch (e) {
+          showRemovalToast('Could not remove from favorites. Please try again.');
+        }
+      }
+
+      function handleDocumentClick(event) {
+        const actionEl = event.target.closest('[data-action]');
+        if (!actionEl) return;
+        const action = actionEl.getAttribute('data-action');
+        if (!action) return;
+        if (action === 'open-cart') {
+          event.preventDefault();
+          window.location.href = 'cart.html';
+          return;
+        }
+        if (action === 'open-product') {
+          event.preventDefault();
+          const card = actionEl.closest('[data-product-id]');
+          if (!card) return;
+          const pid = card.getAttribute('data-product-id');
+          if (!pid) return;
+          const url = 'product.html?id=' + encodeURIComponent(pid) + '&returnUrl=favorites.html';
+          window.location.href = url;
+          return;
+        }
+        if (action === 'set-layout') {
+          event.preventDefault();
+          const layout = actionEl.getAttribute('data-layout');
+          if (!layout || (layout !== 'grid' && layout !== 'list')) return;
+          if (state.layout === layout) return;
+          state.layout = layout;
+          updateUrlState({ replace: true });
+          renderAllFavoritesComponents();
+          return;
+        }
+        if (action === 'remove-favorite') {
+          event.preventDefault();
+          const card = actionEl.closest('[data-product-id]');
+          if (!card) return;
+          const pid = card.getAttribute('data-product-id');
+          handleRemoveFavorite(pid);
+          return;
+        }
+        if (action === 'toggle-comparison-panel') {
+          event.preventDefault();
+          state.isComparisonPanelOpen = !state.isComparisonPanelOpen;
+          const comparisonContainer = document.querySelector("[data-component='comparison-selector']");
+          if (comparisonContainer) {
+            renderComparisonSelector(comparisonContainer);
+          }
+          return;
+        }
+        if (action === 'clear-comparison') {
+          event.preventDefault();
+          if (state.compareSet) state.compareSet.clear();
+          updateUrlState({ replace: true });
+          renderAllFavoritesComponents();
+          return;
+        }
+        if (action === 'remove-from-comparison') {
+          event.preventDefault();
+          const item = actionEl.closest('[data-product-id]');
+          if (!item) return;
+          const pid = item.getAttribute('data-product-id');
+          if (pid && state.compareSet) {
+            state.compareSet.delete(pid);
+            updateUrlState({ replace: true });
+            renderAllFavoritesComponents();
+          }
+          return;
+        }
+        if (action === 'dismiss-removal-toast') {
+          event.preventDefault();
+          hideRemovalToast();
+          return;
+        }
+        if (action === 'browse-from-empty') {
+          event.preventDefault();
+          const primaryNav = document.querySelector('.primary-nav');
+          if (primaryNav && primaryNav.scrollIntoView) {
+            primaryNav.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+          return;
+        }
+        if (action === 'search-suggestion') {
+          event.preventDefault();
+          const type = actionEl.getAttribute('data-suggestion-type');
+          const value = actionEl.getAttribute('data-suggestion-value') || '';
+          const searchInput = document.getElementById('global-search-input');
+          if (type === 'product') {
+            if (value) {
+              const url = 'product.html?id=' + encodeURIComponent(value) + '&returnUrl=favorites.html';
+              window.location.href = url;
+            }
+          } else {
+            if (searchInput) {
+              searchInput.value = value;
+              onSearchQueryChange(value);
+            }
+          }
+          hideSearchSuggestions();
+          return;
+        }
+      }
+
+      function handleDocumentChange(event) {
+        const actionEl = event.target.closest('[data-action]');
+        if (!actionEl) return;
+        const action = actionEl.getAttribute('data-action');
+        if (!action) return;
+        if (action === 'change-sort') {
+          const value = event.target.value || 'added_at_desc';
+          state.sort = value;
+          updateUrlState({ replace: true });
+          renderAllFavoritesComponents();
+          return;
+        }
+        if (action === 'toggle-compare-selection') {
+          const card = actionEl.closest('[data-product-id]');
+          if (!card) return;
+          const pid = card.getAttribute('data-product-id');
+          if (!pid) return;
+          if (event.target.checked) {
+            state.compareSet.add(pid);
+          } else {
+            state.compareSet.delete(pid);
+          }
+          updateUrlState({ replace: true });
+          renderAllFavoritesComponents();
+          return;
+        }
+        if (action === 'toggle-show-compared') {
+          const checked = !!event.target.checked;
+          state.showOnlyCompared = checked;
+          updateUrlState({ replace: true });
+          renderAllFavoritesComponents();
+          return;
+        }
+      }
+
+      function handleDocumentInput(event) {
+        const actionEl = event.target.closest('[data-action]');
+        if (!actionEl) return;
+        const action = actionEl.getAttribute('data-action');
+        if (action === 'search-input') {
+          const query = event.target.value ? event.target.value.trim() : '';
+          onSearchQueryChange(query);
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        readUrlStateFromLocation();
+        initializeHeader();
+        initializeFavorites();
+        updateUrlState({ replace: true });
+        document.addEventListener('click', handleDocumentClick);
+        document.addEventListener('change', handleDocumentChange);
+        document.addEventListener('input', handleDocumentInput);
+        window.addEventListener('popstate', function() {
+          readUrlStateFromLocation();
+          renderAllFavoritesComponents();
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

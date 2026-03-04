@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Artifacts Catalog</title>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='artifacts.css'>
+</head>
+<body>
+    <div class='page'>
+        <header class='site-header'>
+            <div class='site-identity'>
+                <span class='site-title'>The Initiative</span>
+            </div>
+            <nav class='site-nav' aria-label='Primary navigation'>
+                <ul>
+                    <li><a href='index.html' title='Homepage and primary entry into the ARG experience'>Home</a></li>
+                    <li><a href='transmission_logs.html' title='Browse transmissions and unlock the Phase I teaser via Prelude logs'>Transmission Logs</a></li>
+                    <li><a href='timeline.html' title='Chronological view of events with filters and severity controls'>Timeline</a></li>
+                    <li><a href='timeline.html?view=watchlist' title='List of events the user has flagged for monitoring'>Watchlist</a></li>
+                    <li><a href='characters.html' title='Directory of Initiative characters, including Project Orion profiles'>Characters</a></li>
+                    <li><a href='anomaly_map.html' title='Interactive map and list of anomalous locations and case files'>Anomaly Map</a></li>
+                    <li><a href='media_videos.html' title='Media gallery for teaser and briefing videos'>Videos</a></li>
+                    <li><a href='incident_logs.html' title='Searchable archive of incident logs and low-threat reports'>Incident Logs</a></li>
+                    <li><a href='signals.html' title='Live signal stream used as clues for theories'>Signals</a></li>
+                    <li><a href='ciphers.html' title='Tools and cipher list for decoding and theory building'>Ciphers</a></li>
+                    <li><a href='theory_board.html' title='Workspace for assembling clues into named theories'>Theory Board</a></li>
+                    <li><a href='artifacts.html' title='Catalog of recovered artifacts and their risk levels'>Artifacts</a></li>
+                    <li><a href='recruitment.html' title='Recruitment and assessment form for new operatives'>Join the Initiative</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id='content' class='site-main' tabindex='-1'>
+            <section class='artifacts-page-controller' data-component='artifacts-page-controller'>
+                <h1>Artifacts Catalog</h1>
+                <p>Recovered items cataloged by origin and corruption risk. This view respects URL parameters such as <code>?origin=unknown</code> and <code>?view_mode=list</code>.</p>
+
+                <section class='artifact-filter-bar' data-component='artifact-filter-bar' data-populate='artifact-filters'>
+                    <!-- Filter form populated via JavaScript -->
+                </section>
+
+                <div class='artifact-sort-and-view' data-component='artifact-sort-control artifact-view-toggle' data-populate='artifact-sort-and-view'>
+                    <!-- Sort and view controls populated via JavaScript -->
+                </div>
+
+                <section class='artifact-catalog-container' data-component='artifact-catalog-container'>
+                    <div class='artifact-bulk-actions-toolbar' data-component='artifact-bulk-actions-toolbar'>
+                        <!-- Bulk actions toolbar is rendered when selection is active -->
+                    </div>
+
+                    <div class='artifact-results' data-populate='artifact-results'>
+                        <!-- Grid or table view populated via JavaScript -->
+                    </div>
+
+                    <div class='artifact-pagination' data-component='artifact-pagination-controls' data-populate='artifact-pagination'>
+                        <!-- Pagination controls populated via JavaScript -->
+                    </div>
+                </section>
+
+                <div class='set-priority-dialog' data-component='set-priority-dialog' id='setPriorityDialog' role='dialog' aria-modal='false' aria-hidden='true'>
+                    <div class='set-priority-dialog-inner'>
+                        <h2>Set priority</h2>
+                        <p>Apply a new priority to <span data-populate='selected-count-dialog'>0</span> selected artifacts.</p>
+                        <form data-action='submit-set-priority'>
+                            <div>
+                                <label for='prioritySelect'>New priority</label>
+                                <select id='prioritySelect' name='priority'>
+                                    <option value=''>Select priority</option>
+                                    <option value='low'>low</option>
+                                    <option value='medium'>medium</option>
+                                    <option value='high'>high</option>
+                                </select>
+                            </div>
+                            <div>
+                                <button type='submit'>Apply</button>
+                                <button type='button' data-action='close-set-priority'>Cancel</button>
+                            </div>
+                            <div class='dialog-error' aria-live='polite'></div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class='site-footer'>
+            <hr class='footer-rule'>
+            <nav class='footer-nav' aria-label='Footer navigation'>
+                <ul>
+                    <li><a href='about.html' title='About the Initiative and the ARG universe'>About</a></li>
+                    <li><a href='transmission_logs.html' title='Access the transmission archive'>Transmission Logs</a></li>
+                    <li><a href='incident_logs.html' title='Access the incident log archives'>Incident Logs</a></li>
+                    <li><a href='artifacts.html' title='Browse artifacts by origin and corruption risk'>Artifacts Catalog</a></li>
+                    <li><a href='recruitment.html' title='Create your recruitment profile'>Join the Initiative</a></li>
+                </ul>
+            </nav>
+            <p class='footer-meta'>The Initiative</p>
+        </footer>
+    </div>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        'use strict';
+
+        // Shared state for the artifacts catalog
+        var artifactFilterConfig = null;
+        var artifactState = {
+            origin: null,
+            max_corruption_risk: null,
+            sort: null,
+            view_mode: 'grid',
+            page: 1,
+            pageSize: 10,
+            selection: new Set(),
+            lastSearch: null
+        };
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function formatDate(value) {
+            if (!value) {
+                return '';
+            }
+            try {
+                var d = new Date(value);
+                if (isNaN(d.getTime())) {
+                    return escapeHtml(value);
+                }
+                return d.toISOString().slice(0, 10);
+            } catch (e) {
+                return escapeHtml(value);
+            }
+        }
+
+        function syncStateFromUrl() {
+            var params = new URLSearchParams(window.location.search);
+
+            var originParam = params.get('origin');
+            var originValid = null;
+            if (artifactFilterConfig && artifactFilterConfig.origin_options && originParam) {
+                for (var i = 0; i < artifactFilterConfig.origin_options.length; i++) {
+                    if (artifactFilterConfig.origin_options[i].value === originParam) {
+                        originValid = originParam;
+                        break;
+                    }
+                }
+            }
+            artifactState.origin = originValid;
+
+            var viewModeParam = params.get('view_mode');
+            if (viewModeParam === 'grid' || viewModeParam === 'list') {
+                artifactState.view_mode = viewModeParam;
+            } else {
+                artifactState.view_mode = 'grid';
+            }
+
+            var sortParam = params.get('sort');
+            var sortValid = null;
+            if (artifactFilterConfig && artifactFilterConfig.sort_options && artifactFilterConfig.sort_options.length > 0) {
+                var defaultSortKey = artifactFilterConfig.sort_options[0].key;
+                sortValid = defaultSortKey;
+                if (sortParam) {
+                    for (var j = 0; j < artifactFilterConfig.sort_options.length; j++) {
+                        if (artifactFilterConfig.sort_options[j].key === sortParam) {
+                            sortValid = sortParam;
+                            break;
+                        }
+                    }
+                }
+            }
+            artifactState.sort = sortValid;
+
+            var maxRiskParam = params.get('max_corruption_risk');
+            var maxRisk = null;
+            if (artifactFilterConfig) {
+                var minR = artifactFilterConfig.min_corruption_risk;
+                var maxR = artifactFilterConfig.max_corruption_risk;
+                if (maxRiskParam !== null) {
+                    var parsed = parseFloat(maxRiskParam);
+                    if (!isNaN(parsed)) {
+                        if (parsed < minR) {
+                            parsed = minR;
+                        }
+                        if (parsed > maxR) {
+                            parsed = maxR;
+                        }
+                        maxRisk = parsed;
+                    }
+                }
+                if (maxRisk === null) {
+                    maxRisk = maxR;
+                }
+            }
+            artifactState.max_corruption_risk = maxRisk;
+
+            var pageParam = params.get('page');
+            var page = parseInt(pageParam, 10);
+            if (isNaN(page) || page < 1) {
+                page = 1;
+            }
+            artifactState.page = page;
+        }
+
+        function updateUrlFromState() {
+            var params = new URLSearchParams();
+
+            if (artifactState.origin) {
+                params.set('origin', artifactState.origin);
+            }
+            if (artifactState.view_mode) {
+                params.set('view_mode', artifactState.view_mode);
+            }
+            if (artifactState.sort) {
+                params.set('sort', artifactState.sort);
+            }
+            if (artifactState.max_corruption_risk !== null && artifactFilterConfig) {
+                // Always persist explicit risk bound
+                params.set('max_corruption_risk', String(artifactState.max_corruption_risk));
+            }
+            if (artifactState.page && artifactState.page > 1) {
+                params.set('page', String(artifactState.page));
+            }
+
+            var query = params.toString();
+            var newUrl = window.location.pathname + (query ? ('?' + query) : '');
+            window.history.pushState(null, '', newUrl);
+        }
+
+        function renderFilterBar(container) {
+            if (!artifactFilterConfig) {
+                container.innerHTML = '<p>Filter configuration is unavailable.</p>';
+                return;
+            }
+            var minR = artifactFilterConfig.min_corruption_risk;
+            var maxR = artifactFilterConfig.max_corruption_risk;
+            var currentMax = artifactState.max_corruption_risk !== null ? artifactState.max_corruption_risk : maxR;
+
+            var originOptionsHtml = '<option value="">Any origin</option>';
+            for (var i = 0; i < artifactFilterConfig.origin_options.length; i++) {
+                var opt = artifactFilterConfig.origin_options[i];
+                var selected = artifactState.origin === opt.value ? ' selected' : '';
+                originOptionsHtml += '<option value="' + escapeHtml(opt.value) + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
+            }
+
+            container.innerHTML = '' +
+                '<form aria-label="Artifact filters">' +
+                '  <div>' +
+                '    <label for="originFilter">Origin</label><br>' +
+                '    <select id="originFilter" name="origin" data-action="origin-filter">' +
+                originOptionsHtml +
+                '    </select>' +
+                '  </div>' +
+                '  <div style="margin-top:8px;">' +
+                '    <label for="riskSlider">Corruption risk  b1 upper bound ' +
+                '(&le; <span data-component="risk-value-display">' + escapeHtml(currentMax) + '</span>)</label><br>' +
+                '    <input type="range" id="riskSlider" name="max_corruption_risk" ' +
+                'min="' + escapeHtml(minR) + '" max="' + escapeHtml(maxR) + '" value="' + escapeHtml(currentMax) + '" ' +
+                'data-action="risk-slider">' +
+                '  </div>' +
+                '  <div style="margin-top:8px;">' +
+                '    <button type="button" data-action="reset-filters">Reset filters</button>' +
+                '  </div>' +
+                '</form>';
+        }
+
+        function renderSortAndView(container) {
+            if (!artifactFilterConfig) {
+                container.innerHTML = '';
+                return;
+            }
+            var sortOptionsHtml = '';
+            for (var i = 0; i < artifactFilterConfig.sort_options.length; i++) {
+                var opt = artifactFilterConfig.sort_options[i];
+                var selected = artifactState.sort === opt.key ? ' selected' : '';
+                sortOptionsHtml += '<option value="' + escapeHtml(opt.key) + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
+            }
+
+            var gridChecked = artifactState.view_mode === 'grid' ? ' checked' : '';
+            var listChecked = artifactState.view_mode === 'list' ? ' checked' : '';
+
+            container.innerHTML = '' +
+                '<div>' +
+                '  <label for="sortSelect">Sort by</label> ' +
+                '  <select id="sortSelect" data-action="sort-change">' +
+                sortOptionsHtml +
+                '  </select>' +
+                '  <span style="margin-left:8px;">View:</span> ' +
+                '  <label><input type="radio" name="view_mode" value="grid" data-action="view-toggle"' + gridChecked + '> grid</label> / ' +
+                '  <label><input type="radio" name="view_mode" value="list" data-action="view-toggle"' + listChecked + '> list</label>' +
+                '</div>';
+        }
+
+        function renderSelectedCount(container) {
+            container.textContent = String(artifactState.selection.size);
+        }
+
+        function renderResults(container, items) {
+            if (!items || items.length === 0) {
+                container.innerHTML = '<p>No artifacts found for the current filters.</p>';
+                return;
+            }
+
+            if (artifactState.view_mode === 'grid') {
+                var gridHtml = '<div class="artifact-grid-view" data-component="artifact-grid-view">';
+                for (var i = 0; i < items.length; i++) {
+                    var a = items[i];
+                    gridHtml += '' +
+                        '<div class="artifact-grid-item" data-artifact-id="' + escapeHtml(a.id) + '">' +
+                        '  <div><strong>' + escapeHtml(a.name) + '</strong></div>' +
+                        '  <div>Origin: ' + escapeHtml(a.origin) + '</div>' +
+                        '  <div>Corruption risk: ' + escapeHtml(a.corruption_risk) + '</div>' +
+                        '  <div>Priority: ' + escapeHtml(a.priority) + '</div>' +
+                        '  <div>Status: ' + escapeHtml(a.status) + '</div>' +
+                        '  <div>Discovered: ' + escapeHtml(formatDate(a.discovered_at)) + '</div>' +
+                        '</div>';
+                }
+                gridHtml += '</div>';
+                container.innerHTML = gridHtml;
+            } else {
+                var tableHtml = '' +
+                    '<table class="artifact-table-view" data-component="artifact-table-view" cellspacing="0" cellpadding="4" border="1">' +
+                    '  <thead>' +
+                    '    <tr>' +
+                    '      <th><input type="checkbox" data-action="select-all-on-page"></th>' +
+                    '      <th>Name</th>' +
+                    '      <th>Origin</th>' +
+                    '      <th>Corruption risk</th>' +
+                    '      <th>Priority</th>' +
+                    '      <th>Status</th>' +
+                    '      <th>Discovered</th>' +
+                    '    </tr>' +
+                    '  </thead>' +
+                    '  <tbody>';
+
+                for (var j = 0; j < items.length; j++) {
+                    var art = items[j];
+                    var checked = artifactState.selection.has(art.id) ? ' checked' : '';
+                    tableHtml += '' +
+                        '    <tr data-artifact-id="' + escapeHtml(art.id) + '">' +
+                        '      <td><input type="checkbox" data-action="select-artifact" value="' + escapeHtml(art.id) + '"' + checked + '></td>' +
+                        '      <td>' + escapeHtml(art.name) + '</td>' +
+                        '      <td>' + escapeHtml(art.origin) + '</td>' +
+                        '      <td>' + escapeHtml(art.corruption_risk) + '</td>' +
+                        '      <td>' + escapeHtml(art.priority) + '</td>' +
+                        '      <td>' + escapeHtml(art.status) + '</td>' +
+                        '      <td>' + escapeHtml(formatDate(art.discovered_at)) + '</td>' +
+                        '    </tr>';
+                }
+
+                tableHtml += '  </tbody></table>';
+                container.innerHTML = tableHtml;
+
+                // Update header checkbox state based on selection
+                updateHeaderCheckboxState();
+            }
+        }
+
+        function renderPagination(container, total, page, pageSize) {
+            var totalItems = total || 0;
+            var currentPage = page || 1;
+            var size = pageSize || artifactState.pageSize;
+            var totalPages = totalItems > 0 ? Math.ceil(totalItems / size) : 1;
+
+            if (totalPages <= 1) {
+                container.innerHTML = '<p>Page ' + escapeHtml(currentPage) + ' of ' + escapeHtml(totalPages) + '</p>';
+                return;
+            }
+
+            var html = '<div>'; 
+            html += 'Page ' + escapeHtml(currentPage) + ' of ' + escapeHtml(totalPages) + ' &ndash; ';
+
+            if (currentPage > 1) {
+                var prevPage = currentPage - 1;
+                html += '<a href="javascript:void(0)" data-action="page-select" data-page="' + escapeHtml(prevPage) + '">Previous</a> ';
+            } else {
+                html += 'Previous ';
+            }
+
+            for (var p = 1; p <= totalPages; p++) {
+                if (p === currentPage) {
+                    html += '<strong>' + escapeHtml(p) + '</strong> ';
+                } else {
+                    html += '<a href="javascript:void(0)" data-action="page-select" data-page="' + escapeHtml(p) + '">' + escapeHtml(p) + '</a> ';
+                }
+            }
+
+            if (currentPage < totalPages) {
+                var nextPage = currentPage + 1;
+                html += '<a href="javascript:void(0)" data-action="page-select" data-page="' + escapeHtml(nextPage) + '">Next</a>';
+            } else {
+                html += 'Next';
+            }
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function updateHeaderCheckboxState() {
+            if (!artifactState.lastSearch || artifactState.view_mode !== 'list') {
+                return;
+            }
+            var items = artifactState.lastSearch.items || [];
+            var headerCheckbox = document.querySelector('[data-component="artifact-table-view"] thead input[data-action="select-all-on-page"]');
+            if (!headerCheckbox) {
+                return;
+            }
+            if (items.length === 0) {
+                headerCheckbox.checked = false;
+                headerCheckbox.indeterminate = false;
+                return;
+            }
+            var selectedCount = 0;
+            for (var i = 0; i < items.length; i++) {
+                if (artifactState.selection.has(items[i].id)) {
+                    selectedCount++;
+                }
+            }
+            if (selectedCount === 0) {
+                headerCheckbox.checked = false;
+                headerCheckbox.indeterminate = false;
+            } else if (selectedCount === items.length) {
+                headerCheckbox.checked = true;
+                headerCheckbox.indeterminate = false;
+            } else {
+                headerCheckbox.checked = false;
+                headerCheckbox.indeterminate = true;
+            }
+        }
+
+        function updateBulkToolbar() {
+            var toolbar = document.querySelector('[data-component="artifact-bulk-actions-toolbar"]');
+            if (!toolbar) {
+                return;
+            }
+            if (artifactState.view_mode !== 'list' || artifactState.selection.size === 0) {
+                toolbar.style.display = 'none';
+                toolbar.innerHTML = '';
+                return;
+            }
+
+            toolbar.style.display = 'block';
+            toolbar.innerHTML = '' +
+                '<div>' +
+                '  <span>' + escapeHtml(artifactState.selection.size) + ' selected</span> ' +
+                '  <label style="margin-left:8px;">Bulk actions: ' +
+                '    <select data-action="bulk-action-select">' +
+                '      <option value="">Select...</option>' +
+                '      <option value="set_priority">Set Priority</option>' +
+                '    </select>' +
+                '  </label> ' +
+                '  <a href="javascript:void(0)" data-action="clear-selection" style="margin-left:8px;">Clear selection</a>' +
+                '</div>';
+        }
+
+        function openSetPriorityDialog() {
+            if (artifactState.selection.size === 0) {
+                return;
+            }
+            var dialog = document.querySelector('[data-component="set-priority-dialog"]');
+            if (!dialog) {
+                return;
+            }
+            dialog.style.display = 'block';
+            dialog.setAttribute('aria-hidden', 'false');
+
+            var countSpan = dialog.querySelector('[data-populate="selected-count-dialog"]');
+            if (countSpan) {
+                renderSelectedCount(countSpan);
+            }
+            var select = document.getElementById('prioritySelect');
+            if (select) {
+                select.value = '';
+            }
+            var errorDiv = dialog.querySelector('.dialog-error');
+            if (errorDiv) {
+                errorDiv.textContent = '';
+            }
+        }
+
+        function closeSetPriorityDialog() {
+            var dialog = document.querySelector('[data-component="set-priority-dialog"]');
+            if (!dialog) {
+                return;
+            }
+            dialog.style.display = 'none';
+            dialog.setAttribute('aria-hidden', 'true');
+        }
+
+        function performSearchAndRender() {
+            var resultsContainer = document.querySelector('[data-populate="artifact-results"]');
+            var paginationContainer = document.querySelector('[data-populate="artifact-pagination"]');
+            if (!resultsContainer || !paginationContainer) {
+                return;
+            }
+
+            var filters = {};
+            if (artifactState.origin) {
+                filters.origin = artifactState.origin;
+            }
+            if (artifactState.max_corruption_risk !== null) {
+                filters.max_corruption_risk = artifactState.max_corruption_risk;
+            }
+
+            var searchResult;
+            try {
+                searchResult = WebsiteSDK.searchArtifacts(filters, artifactState.sort, artifactState.view_mode, artifactState.page, artifactState.pageSize);
+            } catch (e) {
+                resultsContainer.innerHTML = '<p>Unable to load artifacts.</p>';
+                paginationContainer.innerHTML = '';
+                console.error(e);
+                return;
+            }
+
+            artifactState.lastSearch = searchResult;
+
+            renderResults(resultsContainer, searchResult.items || []);
+            renderPagination(paginationContainer, searchResult.total, searchResult.page, searchResult.pageSize);
+            updateBulkToolbar();
+        }
+
+        // Initial setup
+        try {
+            artifactFilterConfig = WebsiteSDK.getArtifactFilterOptions();
+        } catch (e) {
+            console.error(e);
+        }
+
+        syncStateFromUrl();
+
+        // Initial rendering for components driven by data-populate
+        var populateElements = document.querySelectorAll('[data-populate]');
+        for (var i = 0; i < populateElements.length; i++) {
+            var el = populateElements[i];
+            var dataType = el.getAttribute('data-populate');
+            if (dataType === 'artifact-filters') {
+                renderFilterBar(el);
+            } else if (dataType === 'artifact-sort-and-view') {
+                renderSortAndView(el);
+            } else if (dataType === 'selected-count-dialog') {
+                renderSelectedCount(el);
+            }
+        }
+
+        // Initial search and catalog render
+        performSearchAndRender();
+
+        // Respond to back/forward navigation
+        window.addEventListener('popstate', function() {
+            syncStateFromUrl();
+            var filterBar = document.querySelector('[data-populate="artifact-filters"]');
+            var sortView = document.querySelector('[data-populate="artifact-sort-and-view"]');
+            if (filterBar) {
+                renderFilterBar(filterBar);
+            }
+            if (sortView) {
+                renderSortAndView(sortView);
+            }
+            performSearchAndRender();
+        });
+
+        // Event delegation for changes
+        document.addEventListener('change', function(event) {
+            var target = event.target;
+            var action = target.getAttribute('data-action');
+            if (!action) {
+                return;
+            }
+
+            if (action === 'origin-filter') {
+                artifactState.origin = target.value || null;
+                artifactState.page = 1;
+                updateUrlFromState();
+                performSearchAndRender();
+            } else if (action === 'risk-slider') {
+                var val = parseFloat(target.value);
+                if (isNaN(val) || !artifactFilterConfig) {
+                    artifactState.max_corruption_risk = artifactFilterConfig ? artifactFilterConfig.max_corruption_risk : null;
+                } else {
+                    if (val < artifactFilterConfig.min_corruption_risk) {
+                        val = artifactFilterConfig.min_corruption_risk;
+                    }
+                    if (val > artifactFilterConfig.max_corruption_risk) {
+                        val = artifactFilterConfig.max_corruption_risk;
+                    }
+                    artifactState.max_corruption_risk = val;
+                }
+                artifactState.page = 1;
+                updateUrlFromState();
+                performSearchAndRender();
+            } else if (action === 'sort-change') {
+                artifactState.sort = target.value || artifactState.sort;
+                artifactState.page = 1;
+                updateUrlFromState();
+                performSearchAndRender();
+            } else if (action === 'view-toggle') {
+                if (target.checked) {
+                    artifactState.view_mode = target.value === 'list' ? 'list' : 'grid';
+                    updateUrlFromState();
+                    performSearchAndRender();
+                }
+            } else if (action === 'select-artifact') {
+                var id = target.value;
+                if (target.checked) {
+                    artifactState.selection.add(id);
+                } else {
+                    artifactState.selection.delete(id);
+                }
+                updateHeaderCheckboxState();
+                updateBulkToolbar();
+            } else if (action === 'select-all-on-page') {
+                if (!artifactState.lastSearch || artifactState.view_mode !== 'list') {
+                    return;
+                }
+                var items = artifactState.lastSearch.items || [];
+                if (target.checked) {
+                    for (var i2 = 0; i2 < items.length; i2++) {
+                        artifactState.selection.add(items[i2].id);
+                    }
+                    var checkboxes = document.querySelectorAll('[data-action="select-artifact"]');
+                    for (var j2 = 0; j2 < checkboxes.length; j2++) {
+                        checkboxes[j2].checked = true;
+                    }
+                } else {
+                    for (var k2 = 0; k2 < items.length; k2++) {
+                        artifactState.selection.delete(items[k2].id);
+                    }
+                    var checkboxes2 = document.querySelectorAll('[data-action="select-artifact"]');
+                    for (var m2 = 0; m2 < checkboxes2.length; m2++) {
+                        checkboxes2[m2].checked = false;
+                    }
+                }
+                updateHeaderCheckboxState();
+                updateBulkToolbar();
+            } else if (action === 'bulk-action-select') {
+                var valAction = target.value;
+                if (valAction === 'set_priority') {
+                    openSetPriorityDialog();
+                    target.value = '';
+                }
+            }
+        });
+
+        // Input events (for live slider display)
+        document.addEventListener('input', function(event) {
+            var target = event.target;
+            var action = target.getAttribute('data-action');
+            if (action === 'risk-slider') {
+                var display = document.querySelector('[data-component="risk-value-display"]');
+                if (display) {
+                    display.textContent = target.value;
+                }
+            }
+        });
+
+        // Click events
+        document.addEventListener('click', function(event) {
+            var target = event.target;
+            var action = target.getAttribute('data-action');
+            if (!action) {
+                return;
+            }
+
+            if (action === 'reset-filters') {
+                var originSelect = document.getElementById('originFilter');
+                var riskSlider = document.getElementById('riskSlider');
+                if (originSelect) {
+                    originSelect.value = '';
+                }
+                if (artifactFilterConfig && riskSlider) {
+                    riskSlider.value = artifactFilterConfig.max_corruption_risk;
+                    var display = document.querySelector('[data-component="risk-value-display"]');
+                    if (display) {
+                        display.textContent = artifactFilterConfig.max_corruption_risk;
+                    }
+                }
+                artifactState.origin = null;
+                if (artifactFilterConfig) {
+                    artifactState.max_corruption_risk = artifactFilterConfig.max_corruption_risk;
+                }
+                artifactState.page = 1;
+                updateUrlFromState();
+                performSearchAndRender();
+            } else if (action === 'page-select') {
+                var pageStr = target.getAttribute('data-page');
+                var newPage = parseInt(pageStr, 10);
+                if (!isNaN(newPage) && newPage >= 1) {
+                    artifactState.page = newPage;
+                    updateUrlFromState();
+                    performSearchAndRender();
+                }
+            } else if (action === 'clear-selection') {
+                artifactState.selection.clear();
+                var checkboxes = document.querySelectorAll('[data-action="select-artifact"]');
+                for (var i = 0; i < checkboxes.length; i++) {
+                    checkboxes[i].checked = false;
+                }
+                updateHeaderCheckboxState();
+                updateBulkToolbar();
+            } else if (action === 'close-set-priority') {
+                closeSetPriorityDialog();
+            }
+        });
+
+        // Form submission for set priority
+        document.addEventListener('submit', function(event) {
+            var form = event.target;
+            var action = form.getAttribute('data-action');
+            if (action === 'submit-set-priority') {
+                event.preventDefault();
+                var dialog = document.querySelector('[data-component="set-priority-dialog"]');
+                var errorDiv = dialog ? dialog.querySelector('.dialog-error') : null;
+                if (errorDiv) {
+                    errorDiv.textContent = '';
+                }
+
+                if (artifactState.selection.size === 0) {
+                    if (errorDiv) {
+                        errorDiv.textContent = 'No artifacts are currently selected.';
+                    }
+                    return;
+                }
+
+                var prioritySelect = document.getElementById('prioritySelect');
+                var priorityValue = prioritySelect ? prioritySelect.value : '';
+                if (!priorityValue) {
+                    if (errorDiv) {
+                        errorDiv.textContent = 'Choose a priority value to apply.';
+                    }
+                    return;
+                }
+
+                var ids = Array.from(artifactState.selection);
+                try {
+                    WebsiteSDK.bulkUpdateArtifactPriority(ids, priorityValue);
+                } catch (e) {
+                    console.error(e);
+                    if (errorDiv) {
+                        errorDiv.textContent = 'Priority update failed.';
+                    }
+                    return;
+                }
+
+                artifactState.selection.clear();
+                updateBulkToolbar();
+                closeSetPriorityDialog();
+                performSearchAndRender();
+            }
+        });
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Canonical Detail</title>
+    <meta name='description' content='Shows SEO details for a canonical URL and a sortable list of its duplicate URLs, including index status and organic traffic metrics.'>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='canonical_detail.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <div class='header-inner'>
+            <h1 class='site-title'>XML Sitemap</h1>
+            <nav class='site-nav' aria-label='Primary navigation'>
+                <a href='index.html' title='Homepage and overview of the SEO and sitemap tools'>Home</a>
+                |
+                <a href='seo_index.html' title='SEO Index with URL table, filters, and bulk SEO actions'>SEO</a>
+                |
+                <a href='sitemap_index.html' title='Index of XML sitemap files with URL counts'>Sitemap Index</a>
+                |
+                <a href='help.html' title='Help and documentation for using the site'>Help</a>
+            </nav>
+        </div>
+    </header>
+
+    <main id='content' class='site-content' role='main'>
+        <section data-component='canonical-detail-header-nav' class='canonical-detail-header-nav'>
+            <p>
+                <a href='javascript:void(0)' data-action='nav-home'>Home</a>
+                |
+                <a href='javascript:void(0)' data-action='nav-seo'>SEO Index</a>
+                |
+                <a href='javascript:void(0)' data-action='nav-help'>Help</a>
+            </p>
+        </section>
+
+        <section data-component='canonical-summary-panel' class='canonical-summary-panel' aria-live='polite'>
+            <h2>Canonical Detail</h2>
+            <div data-populate='canonical-summary'>
+                <p>Loading canonical information&hellip;</p>
+            </div>
+        </section>
+
+        <section data-component='canonical-detail-status-messages' class='canonical-detail-status-messages' aria-live='polite' style='display:none;'>
+            <div data-populate='status-messages'></div>
+        </section>
+
+        <section data-component='duplicates-sort-controls' class='duplicates-sort-controls'>
+            <label for='duplicateSortSelect'>Sort duplicates by:</label>
+            <select id='duplicateSortSelect' name='duplicateSort' data-action='change-duplicate-sort'>
+                <option value=''>Default (as loaded)</option>
+                <option value='organic_traffic_asc'>Organic traffic (low to high)</option>
+                <option value='organic_traffic_desc'>Organic traffic (high to low)</option>
+                <option value='url_asc'>URL (A&ndash;Z)</option>
+                <option value='url_desc'>URL (Z&ndash;A)</option>
+                <option value='index_status_asc'>Index status (A&ndash;Z)</option>
+                <option value='index_status_desc'>Index status (Z&ndash;A)</option>
+            </select>
+        </section>
+
+        <section data-component='duplicates-table' class='duplicates-table-section'>
+            <table>
+                <thead>
+                    <tr>
+                        <th>
+                            <a href='javascript:void(0)' data-action='sort-header' data-sort-field='url' data-label='URL'>URL</a>
+                        </th>
+                        <th>
+                            <a href='javascript:void(0)' data-action='sort-header' data-sort-field='index_status' data-label='Index status'>Index status</a>
+                        </th>
+                        <th>
+                            <a href='javascript:void(0)' data-action='sort-header' data-sort-field='organic_traffic' data-label='Organic traffic'>Organic traffic</a>
+                        </th>
+                        <th>Canonical relationship</th>
+                    </tr>
+                </thead>
+                <tbody data-populate='duplicates-rows'>
+                    <tr>
+                        <td colspan='4'>Loading duplicate URLs&hellip;</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p data-component='duplicates-empty-state' style='display:none;'>No duplicate URLs were found for this canonical.</p>
+        </section>
+
+        <p data-component='canonical-detail-back-link' class='canonical-detail-back-link'>
+            <a href='javascript:void(0)' data-action='back-to-seo-index'>Back to SEO Index</a>
+        </p>
+    </main>
+
+    <footer class='site-footer'>
+        <p class='footer-links' aria-label='Footer navigation'>
+            <a href='xml_sitemap.html' title='XML sitemap URL list with filters and copy-to-clipboard'>XML Sitemap</a>
+            |
+            <a href='seo_index.html' title='SEO index of URLs with advanced SEO filters and actions'>SEO Index</a>
+            |
+            <a href='sitemap_index.html' title='Overview of all sitemap files and their URL counts'>Sitemap Index</a>
+            |
+            <a href='seo_audit_list.html' title='List of URLs flagged for SEO auditing'>SEO Audit List</a>
+            |
+            <a href='title_fix_list.html' title='List of URLs flagged for title improvements'>Title Fix List</a>
+            |
+            <a href='help.html' title='Help and documentation'>Help</a>
+        </p>
+        <p class='footer-meta'>
+            Generated with an XML sitemap / SEO index framework. This layout is intentionally minimal and utilitarian so that search engines and technical users can easily consume the information.
+        </p>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var canonicalSummaryContainer = document.querySelector('[data-populate="canonical-summary"]');
+        var statusSection = document.querySelector('[data-component="canonical-detail-status-messages"]');
+        var statusContainer = document.querySelector('[data-populate="status-messages"]');
+        var duplicatesRowsContainer = document.querySelector('[data-populate="duplicates-rows"]');
+        var duplicatesEmptyStateEl = document.querySelector('[data-component="duplicates-empty-state"]');
+        var sortSelect = document.getElementById('duplicateSortSelect');
+
+        var urlParams = new URLSearchParams(window.location.search);
+        var canonicalSeoUrlId = urlParams.get('canonicalSeoUrlId');
+        var duplicateSortParam = urlParams.get('duplicateSort');
+
+        function parseDuplicateSortParam(param) {
+            if (!param) {
+                return null;
+            }
+            var trimmed = String(param).trim();
+            if (!trimmed) {
+                return null;
+            }
+            var parts = trimmed.split('_');
+            if (parts.length < 2) {
+                return null;
+            }
+            var direction = parts.pop();
+            var field = parts.join('_');
+            if (direction !== 'asc' && direction !== 'desc') {
+                return null;
+            }
+            return {
+                field: field,
+                direction: direction
+            };
+        }
+
+        function buildDuplicateSortParam(sortObj) {
+            if (!sortObj || !sortObj.field || !sortObj.direction) {
+                return '';
+            }
+            return sortObj.field + '_' + sortObj.direction;
+        }
+
+        var currentSort = parseDuplicateSortParam(duplicateSortParam);
+        if (!currentSort) {
+            currentSort = {
+                field: 'organic_traffic',
+                direction: 'asc'
+            };
+        }
+
+        if (sortSelect) {
+            if (duplicateSortParam && duplicateSortParam.trim() !== '') {
+                sortSelect.value = duplicateSortParam;
+            } else {
+                sortSelect.value = '';
+            }
+        }
+
+        function setStatus(mode, errorObj) {
+            if (!statusSection || !statusContainer) {
+                return;
+            }
+            if (!mode) {
+                statusSection.style.display = 'none';
+                statusContainer.innerHTML = '';
+                return;
+            }
+            statusSection.style.display = 'block';
+            statusContainer.innerHTML = '';
+            var p = document.createElement('p');
+            if (mode === 'loading') {
+                p.textContent = 'Loading canonical details and duplicate URLs&hellip;';
+            } else if (mode === 'noCanonicalId') {
+                p.textContent = 'No canonicalSeoUrlId parameter was provided. Append ?canonicalSeoUrlId={id} to the URL or return to the SEO Index to select a canonical.';
+            } else if (mode === 'error') {
+                var msg = 'Canonical details could not be loaded. Please verify the canonicalSeoUrlId and try again.';
+                if (errorObj && errorObj.message) {
+                    msg += ' Error: ' + errorObj.message;
+                }
+                p.textContent = msg;
+            }
+            statusContainer.appendChild(p);
+        }
+
+        function renderCanonicalSummary(container, canonical) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+            if (!canonical) {
+                var p = document.createElement('p');
+                p.textContent = 'Canonical information is not available.';
+                container.appendChild(p);
+                return;
+            }
+
+            var urlP = document.createElement('p');
+            var urlLabel = document.createElement('strong');
+            urlLabel.textContent = 'URL: ';
+            urlP.appendChild(urlLabel);
+            if (canonical.url) {
+                var urlLink = document.createElement('a');
+                urlLink.href = canonical.url;
+                urlLink.target = '_blank';
+                urlLink.rel = 'noopener noreferrer';
+                urlLink.textContent = canonical.url;
+                urlP.appendChild(urlLink);
+            } else {
+                var urlSpan = document.createElement('span');
+                urlSpan.textContent = '(no URL)';
+                urlP.appendChild(urlSpan);
+            }
+            container.appendChild(urlP);
+
+            var titleP = document.createElement('p');
+            var titleLabel = document.createElement('strong');
+            titleLabel.textContent = 'Title: ';
+            titleP.appendChild(titleLabel);
+            var titleText = document.createElement('span');
+            titleText.textContent = canonical.title || '(no title)';
+            titleP.appendChild(titleText);
+            container.appendChild(titleP);
+
+            var indexStatusP = document.createElement('p');
+            var indexLabel = document.createElement('strong');
+            indexLabel.textContent = 'Index status: ';
+            indexStatusP.appendChild(indexLabel);
+            var indexText = document.createElement('span');
+            indexText.textContent = canonical.indexStatus || 'unknown';
+            indexStatusP.appendChild(indexText);
+            container.appendChild(indexStatusP);
+
+            var contentTypeP = document.createElement('p');
+            var typeLabel = document.createElement('strong');
+            typeLabel.textContent = 'Content type: ';
+            contentTypeP.appendChild(typeLabel);
+            var typeText = document.createElement('span');
+            typeText.textContent = canonical.contentType || 'other';
+            contentTypeP.appendChild(typeText);
+            container.appendChild(contentTypeP);
+
+            var trafficP = document.createElement('p');
+            var trafficLabel = document.createElement('strong');
+            trafficLabel.textContent = 'Organic traffic (overall): ';
+            trafficP.appendChild(trafficLabel);
+            var trafficText = document.createElement('span');
+            if (typeof canonical.organicTraffic === 'number') {
+                trafficText.textContent = String(canonical.organicTraffic);
+            } else {
+                trafficText.textContent = 'n/a';
+            }
+            trafficP.appendChild(trafficText);
+            container.appendChild(trafficP);
+
+            var duplicateCountP = document.createElement('p');
+            var dupLabel = document.createElement('strong');
+            dupLabel.textContent = 'Duplicate URLs: ';
+            duplicateCountP.appendChild(dupLabel);
+            var dupText = document.createElement('span');
+            if (typeof canonical.duplicateCount === 'number') {
+                dupText.textContent = String(canonical.duplicateCount);
+            } else {
+                dupText.textContent = '0';
+            }
+            duplicateCountP.appendChild(dupText);
+            container.appendChild(duplicateCountP);
+
+            if (typeof canonical.urlDepth === 'number') {
+                var depthP = document.createElement('p');
+                var depthLabel = document.createElement('strong');
+                depthLabel.textContent = 'URL depth: ';
+                depthP.appendChild(depthLabel);
+                var depthText = document.createElement('span');
+                depthText.textContent = String(canonical.urlDepth);
+                depthP.appendChild(depthText);
+                container.appendChild(depthP);
+            }
+
+            if (canonical.metaRobots) {
+                var robotsP = document.createElement('p');
+                var robotsLabel = document.createElement('strong');
+                robotsLabel.textContent = 'Meta robots: ';
+                robotsP.appendChild(robotsLabel);
+                var robotsText = document.createElement('span');
+                robotsText.textContent = canonical.metaRobots;
+                robotsP.appendChild(robotsText);
+                container.appendChild(robotsP);
+            }
+        }
+
+        function renderDuplicates(container, duplicates, emptyStateEl) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+            if (!duplicates || duplicates.length === 0) {
+                if (emptyStateEl) {
+                    emptyStateEl.style.display = 'block';
+                }
+                var row = document.createElement('tr');
+                var cell = document.createElement('td');
+                cell.colSpan = 4;
+                cell.textContent = 'No duplicate URLs were found for this canonical.';
+                row.appendChild(cell);
+                container.appendChild(row);
+                return;
+            }
+            if (emptyStateEl) {
+                emptyStateEl.style.display = 'none';
+            }
+
+            for (var i = 0; i < duplicates.length; i++) {
+                var duplicate = duplicates[i];
+                var tr = document.createElement('tr');
+
+                var urlTd = document.createElement('td');
+                if (duplicate.url) {
+                    var link = document.createElement('a');
+                    link.href = duplicate.url;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.textContent = duplicate.url;
+                    urlTd.appendChild(link);
+                } else {
+                    urlTd.textContent = '(no URL)';
+                }
+                tr.appendChild(urlTd);
+
+                var indexTd = document.createElement('td');
+                indexTd.textContent = duplicate.indexStatus || 'unknown';
+                tr.appendChild(indexTd);
+
+                var trafficTd = document.createElement('td');
+                if (typeof duplicate.organicTraffic === 'number') {
+                    trafficTd.textContent = String(duplicate.organicTraffic);
+                } else {
+                    trafficTd.textContent = '0';
+                }
+                tr.appendChild(trafficTd);
+
+                var relTd = document.createElement('td');
+                relTd.textContent = 'Duplicate of this canonical';
+                tr.appendChild(relTd);
+
+                container.appendChild(tr);
+            }
+        }
+
+        function updateSortHeaderIndicators(currentSortObj) {
+            var headerLinks = document.querySelectorAll('[data-action="sort-header"]');
+            for (var i = 0; i < headerLinks.length; i++) {
+                var link = headerLinks[i];
+                var baseLabel = link.getAttribute('data-label') || link.textContent;
+                var suffix = '';
+                if (currentSortObj && link.getAttribute('data-sort-field') === currentSortObj.field) {
+                    if (currentSortObj.direction === 'asc') {
+                        suffix = ' (asc)';
+                    } else if (currentSortObj.direction === 'desc') {
+                        suffix = ' (desc)';
+                    }
+                }
+                link.textContent = baseLabel + suffix;
+            }
+        }
+
+        function buildCanonicalDetailUrl(canonicalId, sortParam) {
+            var base = 'canonical_detail.html';
+            if (!canonicalId) {
+                return base;
+            }
+            var url = base + '?canonicalSeoUrlId=' + encodeURIComponent(canonicalId);
+            if (sortParam && String(sortParam).trim() !== '') {
+                url += '&duplicateSort=' + encodeURIComponent(sortParam);
+            }
+            return url;
+        }
+
+        function computeNextSortParamForField(field, currentParam) {
+            var current = parseDuplicateSortParam(currentParam);
+            if (!current) {
+                current = {
+                    field: 'organic_traffic',
+                    direction: 'asc'
+                };
+            }
+            var direction = 'asc';
+            if (current.field === field && current.direction === 'asc') {
+                direction = 'desc';
+            }
+            return field + '_' + direction;
+        }
+
+        function setupActionHandlers() {
+            var actionElements = document.querySelectorAll('[data-action]');
+            for (var i = 0; i < actionElements.length; i++) {
+                (function() {
+                    var el = actionElements[i];
+                    var action = el.getAttribute('data-action');
+                    if (!action) {
+                        return;
+                    }
+
+                    if (action === 'nav-home') {
+                        el.addEventListener('click', function(event) {
+                            event.preventDefault();
+                            window.location.href = 'index.html';
+                        });
+                    } else if (action === 'nav-seo') {
+                        el.addEventListener('click', function(event) {
+                            event.preventDefault();
+                            window.location.href = 'seo_index.html';
+                        });
+                    } else if (action === 'nav-help') {
+                        el.addEventListener('click', function(event) {
+                            event.preventDefault();
+                            window.location.href = 'help.html';
+                        });
+                    } else if (action === 'back-to-seo-index') {
+                        el.addEventListener('click', function(event) {
+                            event.preventDefault();
+                            var target = 'seo_index.html';
+                            if (canonicalSeoUrlId && String(canonicalSeoUrlId).trim() !== '') {
+                                target += '?seoUrlId=' + encodeURIComponent(canonicalSeoUrlId);
+                            }
+                            window.location.href = target;
+                        });
+                    } else if (action === 'change-duplicate-sort') {
+                        el.addEventListener('change', function(event) {
+                            var value = event.target.value;
+                            var nextParam = value;
+                            var targetUrl = buildCanonicalDetailUrl(canonicalSeoUrlId, nextParam);
+                            window.location.href = targetUrl;
+                        });
+                    } else if (action === 'sort-header') {
+                        el.addEventListener('click', function(event) {
+                            event.preventDefault();
+                            var field = el.getAttribute('data-sort-field');
+                            var nextParam = computeNextSortParamForField(field, duplicateSortParam);
+                            var targetUrl = buildCanonicalDetailUrl(canonicalSeoUrlId, nextParam);
+                            window.location.href = targetUrl;
+                        });
+                    }
+                })();
+            }
+        }
+
+        if (!canonicalSeoUrlId || String(canonicalSeoUrlId).trim() === '') {
+            setStatus('noCanonicalId', null);
+            renderCanonicalSummary(canonicalSummaryContainer, null);
+            renderDuplicates(duplicatesRowsContainer, [], duplicatesEmptyStateEl);
+            updateSortHeaderIndicators(currentSort);
+            setupActionHandlers();
+            return;
+        }
+
+        try {
+            setStatus('loading', null);
+            var sortObjToSend = currentSort;
+            var response = WebsiteSDK.getCanonicalDetail(canonicalSeoUrlId, sortObjToSend);
+            setStatus(null, null);
+            var canonical = null;
+            var duplicates = [];
+            if (response && response.canonical) {
+                canonical = response.canonical;
+            }
+            if (response && response.duplicates) {
+                duplicates = response.duplicates;
+            }
+            renderCanonicalSummary(canonicalSummaryContainer, canonical);
+            renderDuplicates(duplicatesRowsContainer, duplicates, duplicatesEmptyStateEl);
+        } catch (e) {
+            setStatus('error', e);
+            renderCanonicalSummary(canonicalSummaryContainer, null);
+            renderDuplicates(duplicatesRowsContainer, [], duplicatesEmptyStateEl);
+        }
+
+        updateSortHeaderIndicators(currentSort);
+        setupActionHandlers();
+    });
+    </script>
+</body>
+</html>

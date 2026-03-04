@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advocacy Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=Source+Code+Pro:wght@400;600&amp;display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="community.css">
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to main content</a>
+
+  <header class="site-header" role="banner">
+    <div class="header-inner container">
+      <div class="site-branding">
+        <a href="index.html" class="site-logo">
+          <span class="logo-mark">Exit</span>
+          <span class="logo-tagline">Against Austerity</span>
+        </a>
+      </div>
+      <nav class="primary-nav" aria-label="Main navigation">
+        <ul class="menu">
+          <li class="menu-item"><a href="index.html">Home</a></li>
+          <li class="menu-item"><a href="campaigns.html">Campaigns</a></li>
+          <li class="menu-item"><a href="events.html">Events</a></li>
+          <li class="menu-item"><a href="contact_officials.html">Contact Officials</a></li>
+          <li class="menu-item"><a href="petitions.html">Petitions</a></li>
+          <li class="menu-item"><a href="action_planner.html">Action Planner</a></li>
+          <li class="menu-item"><a href="community.html">Community</a></li>
+          <li class="menu-item"><a href="resources.html">Learn</a></li>
+          <li class="menu-item"><a href="my_library.html">My Library</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <div class="site-main container">
+    <main id="content" class="content-area" role="main">
+      <section class="community-forum">
+        <!-- Category context header (left column, top) -->
+        <section class="forum-context card" data-component="category-context-header" aria-live="polite">
+          <!-- Populated via JS -->
+        </section>
+
+        <!-- Thread sort control + list (left column, main content) -->
+        <section class="forum-threads">
+          <section class="thread-controls card" data-component="thread-sort-control" data-populate="thread-sort-options">
+            <!-- Populated via JS -->
+          </section>
+
+          <section class="thread-list-panel card">
+            <div class="thread-list-container" data-component="thread-list" data-populate="thread-list" aria-live="polite">
+              <!-- Thread list, loading, and error states rendered here -->
+            </div>
+            <nav class="thread-pagination" data-component="thread-pagination" aria-label="Threads pagination">
+              <!-- Pagination controls rendered here -->
+            </nav>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <aside class="sidebar" aria-label="Sidebar">
+      <section class="widget widget-forum-categories card" data-component="forum-category-list">
+        <h2 class="widget-title">Forum categories</h2>
+        <ul class="category-list" data-populate="forum-category-list">
+          <!-- Categories rendered here -->
+        </ul>
+      </section>
+      <!-- Additional sidebar widgets for this site could go here -->
+    </aside>
+  </div>
+
+  <footer class="site-footer" role="contentinfo">
+    <div class="footer-inner container">
+      <nav class="footer-nav" aria-label="Footer navigation">
+        <ul class="footer-menu">
+          <li class="footer-menu-item"><a href="about.html">About</a></li>
+          <li class="footer-menu-item"><a href="help.html">Help &amp; FAQ</a></li>
+          <li class="footer-menu-item"><a href="campaigns.html">Campaigns</a></li>
+          <li class="footer-menu-item"><a href="events.html">Events</a></li>
+          <li class="footer-menu-item"><a href="petitions.html">Petitions</a></li>
+          <li class="footer-menu-item"><a href="contact_officials.html">Contact Officials</a></li>
+          <li class="footer-menu-item"><a href="community.html">Community Forum</a></li>
+          <li class="footer-menu-item"><a href="resources.html">Learn / Resources</a></li>
+          <li class="footer-menu-item"><a href="my_library.html">My Library</a></li>
+        </ul>
+      </nav>
+      <div class="site-info">
+        <p>&copy; 2024 Advocacy Platform. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      function escapeHTML(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function formatDateTime(isoString) {
+        if (!isoString) return '';
+        var d = new Date(isoString);
+        if (isNaN(d.getTime())) return '';
+        try {
+          return d.toLocaleString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+          });
+        } catch (e) {
+          return d.toLocaleString();
+        }
+      }
+
+      var urlParams = new URLSearchParams(window.location.search);
+      var initialCategoryId = urlParams.get('categoryId') || null;
+      var initialSortBy = urlParams.get('sort_by') || null;
+      var pageParamRaw = urlParams.get('page');
+      var parsedPage = parseInt(pageParamRaw, 10);
+      if (!pageParamRaw || isNaN(parsedPage) || parsedPage <= 0) {
+        parsedPage = 1;
+      }
+
+      var state = {
+        categoryId: initialCategoryId,
+        sortByParam: initialSortBy,
+        page: parsedPage,
+        categories: [],
+        sortOptions: [],
+        activeSort: null,
+        hasExplicitSort: false,
+        threadsResponse: null,
+        activeCategory: null,
+        invalidCategoryId: null
+      };
+
+      var categoryListContainer = null;
+      var sortControlContainer = null;
+      var threadListContainer = null;
+
+      var populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function(el) {
+        var type = el.getAttribute('data-populate');
+        if (type === 'forum-category-list') {
+          categoryListContainer = el;
+        } else if (type === 'thread-sort-options') {
+          sortControlContainer = el;
+        } else if (type === 'thread-list') {
+          threadListContainer = el;
+        }
+      });
+
+      var contextHeaderContainer = document.querySelector('[data-component=category-context-header]');
+      var paginationContainer = document.querySelector('[data-component=thread-pagination]');
+
+      function resolveSortState() {
+        var options = state.sortOptions || [];
+        var active = null;
+        var explicit = false;
+        if (state.sortByParam && options.length) {
+          for (var i = 0; i < options.length; i++) {
+            if (options[i].value === state.sortByParam) {
+              active = options[i].value;
+              explicit = true;
+              break;
+            }
+          }
+        }
+        if (!active && options.length) {
+          active = options[0].value;
+        }
+        state.activeSort = active;
+        state.hasExplicitSort = explicit;
+      }
+
+      function renderCategoryList(container, categories, currentState) {
+        if (!container) return;
+        if (!categories || !categories.length) {
+          container.innerHTML = '<li class="category-empty">No forum categories are available yet.</li>';
+          return;
+        }
+        var itemsHtml = categories.map(function(cat) {
+          var isActive = currentState.categoryId === cat.id;
+          return (
+            '<li class="category-item' + (isActive ? ' is-active' : '') + '">' +
+              '<button type="button" class="category-link" data-action="select-category" data-category-id="' + escapeHTML(cat.id) + '">' +
+                escapeHTML(cat.name || '') +
+              '</button>' +
+              (cat.description ? '<p class="category-description">' + escapeHTML(cat.description) + '</p>' : '') +
+            '</li>'
+          );
+        }).join('');
+        container.innerHTML = itemsHtml;
+      }
+
+      function renderCategoryContextHeader(container, currentState) {
+        if (!container) return;
+        var title = 'Community Forum';
+        var description = 'Choose an issue area from the right to see community discussions.';
+        var hasCategory = !!currentState.activeCategory;
+        if (hasCategory) {
+          title = currentState.activeCategory.name || title;
+          description = currentState.activeCategory.description || 'Browse conversations and organizing questions in this issue area.';
+        } else if (currentState.invalidCategoryId) {
+          description = 'The category you tried to open could not be found. Please choose a category from the list on the right.';
+        }
+        var startThreadDisabledAttr = hasCategory ? '' : ' disabled aria-disabled="true"';
+        container.innerHTML = (
+          '<div class="forum-context-header-row">' +
+            '<div class="forum-context-text">' +
+              '<h1 class="forum-title">' + escapeHTML(title) + '</h1>' +
+              '<p class="forum-description">' + escapeHTML(description) + '</p>' +
+            '</div>' +
+            '<div class="forum-context-actions">' +
+              '<button type="button" class="btn btn-secondary start-thread-button" data-action="start-thread"' + startThreadDisabledAttr + '>Start new thread</button>' +
+            '</div>' +
+          '</div>'
+        );
+      }
+
+      function renderSortControl(container, currentState, threadResponse) {
+        if (!container) return;
+        var sortOptions = currentState.sortOptions || [];
+        var hasCategory = !!currentState.activeCategory;
+        var total = threadResponse && typeof threadResponse.total_results === 'number' ? threadResponse.total_results : null;
+        var page = threadResponse && typeof threadResponse.page === 'number' ? threadResponse.page : currentState.page;
+        var pageSize = threadResponse && typeof threadResponse.page_size === 'number' ? threadResponse.page_size : null;
+        var from = null;
+        var to = null;
+        if (total !== null && pageSize) {
+          from = (page - 1) * pageSize + 1;
+          to = Math.min(page * pageSize, total);
+        }
+        var countLabel;
+        if (!hasCategory) {
+          countLabel = 'Select a category to view threads.';
+        } else if (total === 0) {
+          countLabel = 'No threads yet in this category.';
+        } else if (total && from && to) {
+          countLabel = 'Showing ' + from + '–' + to + ' of ' + total + ' threads';
+        } else if (total) {
+          countLabel = total + ' threads';
+        } else {
+          countLabel = 'Threads';
+        }
+
+        var optionsHtml;
+        if (!sortOptions.length) {
+          optionsHtml = '<option value="">Sorting unavailable</option>';
+        } else {
+          optionsHtml = sortOptions.map(function(opt) {
+            var selectedAttr = currentState.activeSort === opt.value ? ' selected' : '';
+            return '<option value="' + escapeHTML(opt.value) + '"' + selectedAttr + '>' + escapeHTML(opt.label) + '</option>';
+          }).join('');
+        }
+
+        var disabledAttr = (!hasCategory || !sortOptions.length) ? ' disabled aria-disabled="true"' : '';
+
+        container.innerHTML = (
+          '<div class="thread-controls-inner">' +
+            '<div class="thread-controls-left">' +
+              '<span class="thread-count">' + escapeHTML(countLabel) + '</span>' +
+            '</div>' +
+            '<div class="thread-controls-right">' +
+              '<label for="thread-sort-select">Sort by:</label>' +
+              '<select id="thread-sort-select" name="sort_by" data-action="change-sort"' + disabledAttr + '>' +
+                optionsHtml +
+              '</select>' +
+            '</div>' +
+          '</div>'
+        );
+      }
+
+      function renderThreadListEmptyState(container, currentState) {
+        if (!container) return;
+        container.innerHTML = (
+          '<div class="thread-list-state thread-list-empty">' +
+            '<p>Select a forum category from the right to view discussion threads.</p>' +
+          '</div>'
+        );
+      }
+
+      function showThreadLoading(container) {
+        if (!container) return;
+        container.innerHTML = (
+          '<div class="thread-list-state thread-list-loading">' +
+            '<div class="spinner" aria-hidden="true"></div>' +
+            '<p>Loading threads</p>' +
+          '</div>'
+        );
+      }
+
+      function showThreadError(container, message) {
+        if (!container) return;
+        container.innerHTML = (
+          '<div class="thread-list-state thread-list-error">' +
+            '<p>' + escapeHTML(message || 'We could not load threads for this category.') + '</p>' +
+            '<button type="button" class="btn btn-secondary" data-action="retry-threads">Retry</button>' +
+          '</div>'
+        );
+      }
+
+      function renderThreadList(container, currentState) {
+        if (!container) return;
+        var res = currentState.threadsResponse;
+        if (!res || !res.threads) {
+          container.innerHTML = '';
+          return;
+        }
+        if (res.total_results === 0) {
+          container.innerHTML = (
+            '<div class="thread-list-state thread-list-empty">' +
+              '<p>No threads have been posted in this category yet.</p>' +
+              '<p class="thread-list-empty-secondary">Be the first to start a conversation.' + (currentState.categoryId ? ' Use the "Start new thread" button above.' : '') + '</p>' +
+            '</div>'
+          );
+          return;
+        }
+        var itemsHtml = res.threads.map(function(thread) {
+          var lastActivityLabel = formatDateTime(thread.last_activity_at);
+          var replies = typeof thread.comment_count === 'number' ? thread.comment_count : 0;
+          var views = typeof thread.view_count === 'number' ? thread.view_count : 0;
+          var title = escapeHTML(thread.title || 'Untitled thread');
+          var preview = thread.body_preview ? escapeHTML(thread.body_preview) : '';
+          var idEscaped = escapeHTML(thread.id);
+          return (
+            '<article class="thread-row" data-thread-id="' + idEscaped + '">' +
+              '<div class="thread-row-meta">' +
+                '<div class="thread-stat">' +
+                  '<span class="thread-stat-label">Replies</span>' +
+                  '<span class="thread-stat-value">' + replies + '</span>' +
+                '</div>' +
+                '<div class="thread-stat">' +
+                  '<span class="thread-stat-label">Views</span>' +
+                  '<span class="thread-stat-value">' + views + '</span>' +
+                '</div>' +
+                (lastActivityLabel ? (
+                  '<div class="thread-stat">' +
+                    '<span class="thread-stat-label">Last activity</span>' +
+                    '<span class="thread-stat-value">' + escapeHTML(lastActivityLabel) + '</span>' +
+                  '</div>'
+                ) : '') +
+              '</div>' +
+              '<div class="thread-row-main">' +
+                '<h3 class="thread-title">' +
+                  '<a href="javascript:void(0)" data-action="open-thread" data-thread-id="' + idEscaped + '">' +
+                    title +
+                  '</a>' +
+                '</h3>' +
+                (preview ? '<p class="thread-preview">' + preview + '</p>' : '') +
+              '</div>' +
+            '</article>'
+          );
+        }).join('');
+        container.innerHTML = '<div class="thread-list">' + itemsHtml + '</div>';
+      }
+
+      function renderPagination(container, currentState) {
+        if (!container) return;
+        var res = currentState.threadsResponse;
+        if (!res || typeof res.total_results !== 'number' || typeof res.page_size !== 'number') {
+          container.innerHTML = '';
+          return;
+        }
+        var total = res.total_results;
+        var page = res.page || 1;
+        var pageSize = res.page_size || 1;
+        var totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 1;
+        if (totalPages <= 1) {
+          container.innerHTML = '';
+          return;
+        }
+        var maxPagesToShow = 7;
+        var startPage = Math.max(1, page - 3);
+        var endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+        if (endPage - startPage < maxPagesToShow - 1) {
+          startPage = Math.max(1, endPage - maxPagesToShow + 1);
+        }
+        var controlsHtml = '';
+        if (page > 1) {
+          controlsHtml += '<button type="button" class="page-link prev" data-action="change-page" data-page="' + (page - 1) + '">Previous</button>';
+        }
+        for (var p = startPage; p <= endPage; p++) {
+          var isCurrent = p === page;
+          controlsHtml += (
+            '<button type="button" class="page-link' + (isCurrent ? ' is-current' : '') + '" data-action="change-page" data-page="' + p + '"' + (isCurrent ? ' aria-current="page"' : '') + '>' + p + '</button>'
+          );
+        }
+        if (page < totalPages) {
+          controlsHtml += '<button type="button" class="page-link next" data-action="change-page" data-page="' + (page + 1) + '">Next</button>';
+        }
+        container.innerHTML = (
+          '<div class="pagination-inner">' +
+            '<div class="pagination-pages">' +
+              controlsHtml +
+            '</div>' +
+          '</div>'
+        );
+      }
+
+      function fetchThreadsAndRender(listContainer, pagContainer, sortContainer) {
+        if (!state.categoryId) return;
+        showThreadLoading(listContainer);
+        try {
+          var response = WebsiteSDK.getThreadsByCategory(state.categoryId, state.activeSort, state.page);
+          state.threadsResponse = response;
+          renderThreadList(listContainer, state);
+          renderPagination(pagContainer, state);
+          renderSortControl(sortContainer, state, response);
+        } catch (err) {
+          console.error('Error loading threads', err);
+          showThreadError(listContainer, 'We could not load threads for this category. Please try again.');
+          if (pagContainer) {
+            pagContainer.innerHTML = '';
+          }
+        }
+      }
+
+      try {
+        state.categories = WebsiteSDK.getForumCategories() || [];
+      } catch (e) {
+        console.error('Error loading forum categories', e);
+        state.categories = [];
+      }
+
+      if (state.categoryId) {
+        var found = null;
+        for (var i = 0; i < state.categories.length; i++) {
+          if (state.categories[i].id === state.categoryId) {
+            found = state.categories[i];
+            break;
+          }
+        }
+        if (found) {
+          state.activeCategory = found;
+        } else {
+          state.invalidCategoryId = state.categoryId;
+          state.categoryId = null;
+          state.activeCategory = null;
+        }
+      }
+
+      try {
+        state.sortOptions = WebsiteSDK.getThreadSortOptions() || [];
+      } catch (e2) {
+        console.error('Error loading thread sort options', e2);
+        state.sortOptions = [];
+      }
+
+      resolveSortState();
+
+      if (categoryListContainer) {
+        renderCategoryList(categoryListContainer, state.categories, state);
+      }
+      renderCategoryContextHeader(contextHeaderContainer, state);
+      renderSortControl(sortControlContainer, state, null);
+
+      if (state.categoryId && threadListContainer) {
+        fetchThreadsAndRender(threadListContainer, paginationContainer, sortControlContainer);
+      } else if (threadListContainer) {
+        renderThreadListEmptyState(threadListContainer, state);
+        if (paginationContainer) {
+          paginationContainer.innerHTML = '';
+        }
+      }
+
+      document.addEventListener('click', function(event) {
+        var actionEl = event.target.closest('[data-action]');
+        if (!actionEl) return;
+        var action = actionEl.getAttribute('data-action');
+        if (action === 'select-category') {
+          var categoryId = actionEl.getAttribute('data-category-id');
+          if (!categoryId) return;
+          var url = 'community.html?categoryId=' + encodeURIComponent(categoryId);
+          window.location.href = url;
+        } else if (action === 'change-page') {
+          var targetPageRaw = actionEl.getAttribute('data-page');
+          var targetPage = parseInt(targetPageRaw, 10);
+          if (!targetPage || targetPage <= 0) return;
+          if (!state.categoryId) return;
+          var queryParts = ['categoryId=' + encodeURIComponent(state.categoryId), 'page=' + encodeURIComponent(targetPage)];
+          if (state.hasExplicitSort && state.activeSort) {
+            queryParts.push('sort_by=' + encodeURIComponent(state.activeSort));
+          }
+          window.location.href = 'community.html?' + queryParts.join('&');
+        } else if (action === 'open-thread') {
+          var threadId = actionEl.getAttribute('data-thread-id');
+          if (!threadId) return;
+          window.location.href = 'thread_detail.html?id=' + encodeURIComponent(threadId);
+        } else if (action === 'retry-threads') {
+          if (!state.categoryId) return;
+          var listContainer = document.querySelector('[data-component=thread-list]');
+          var pagContainer = document.querySelector('[data-component=thread-pagination]');
+          var sortContainer = document.querySelector('[data-component=thread-sort-control]');
+          fetchThreadsAndRender(listContainer, pagContainer, sortContainer);
+        } else if (action === 'start-thread') {
+          if (!state.categoryId) {
+            window.alert('Choose a forum category first, then you can start a new thread in that area.');
+          } else {
+            window.alert('Starting new threads is not available in this demo.');
+          }
+        }
+      });
+
+      document.addEventListener('change', function(event) {
+        var actionEl = event.target.closest('[data-action]');
+        if (!actionEl) return;
+        var action = actionEl.getAttribute('data-action');
+        if (action === 'change-sort') {
+          if (!state.categoryId) return;
+          var selectedValue = actionEl.value;
+          if (!selectedValue) return;
+          var url = 'community.html?categoryId=' + encodeURIComponent(state.categoryId) + '&sort_by=' + encodeURIComponent(selectedValue) + '&page=1';
+          window.location.href = url;
+        }
+      });
+    });
+  </script>
+</body>
+</html>

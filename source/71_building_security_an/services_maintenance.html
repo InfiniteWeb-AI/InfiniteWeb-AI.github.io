@@ -1,0 +1,721 @@
+<!doctype html>
+<link rel='stylesheet' href='services_maintenance.css'>
+<section class='maintenance-plans-page' aria-labelledby='maintenance-plans-title'>
+  <section class='maintenance-page-controller-band panel' data-component='maintenance-plans-page-controller'>
+    <div class='page-controller-inner'>
+      <div class='page-controller-primary'>
+        <h1 id='maintenance-plans-title' class='page-title'>Maintenance Plans</h1>
+        <p class='page-subtitle'>Browse ongoing maintenance coverage for your building security and automation systems.</p>
+      </div>
+      <div class='page-controller-secondary'>
+        <p class='page-context'>Filter by building type, compare pricing, and start a configuration in a dedicated flow.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class='maintenance-plan-filter-bar panel' data-component='maintenance-plan-filter-bar' aria-label='Maintenance plan filters'>
+    <div class='filter-bar-inner'>
+      <div class='filter-group filter-group-primary'>
+        <div class='filter-control'>
+          <label for='buildingTypeFilter'>Building type</label>
+          <select id='buildingTypeFilter' name='buildingType' data-populate='building-type-options' data-action='change-building-type'>
+            <!-- Options populated via JavaScript -->
+          </select>
+        </div>
+        <div class='filter-control filter-control-inline'>
+          <label class='checkbox-label'>
+            <input type='checkbox' id='highlightBestValue' data-action='toggle-highlight'>
+            <span>Show highlighted commercial plans first</span>
+          </label>
+        </div>
+      </div>
+      <div class='filter-group filter-group-secondary' data-component='billing-frequency-toggle'>
+        <div class='filter-control billing-frequency-control'>
+          <span class='filter-label'>Billing frequency</span>
+          <div class='billing-toggle' role='radiogroup' aria-label='Billing frequency'>
+            <button type='button' class='billing-toggle-option is-active' data-action='set-billing-frequency' data-billing-frequency='monthly' aria-pressed='true'>Monthly</button>
+            <button type='button' class='billing-toggle-option' data-action='set-billing-frequency' data-billing-frequency='annual' aria-pressed='false'>Annual</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class='filter-bar-status'>
+      <div class='filters-loading' data-role='filters-loading' hidden>Loading filters...</div>
+      <div class='filters-error' data-role='filters-error' hidden>
+        <span>Unable to load filters.</span>
+        <button type='button' class='btn-link' data-action='retry-load-filters'>Retry</button>
+      </div>
+    </div>
+  </section>
+
+  <section class='maintenance-plans-main'>
+    <div class='maintenance-plans-columns'>
+      <div class='plans-column plans-column-list' aria-label='Maintenance plan results'>
+        <div class='plans-status plans-status-error' data-role='plans-error' hidden>
+          <p>We could not load maintenance plans for this view.</p>
+          <button type='button' class='btn-link' data-action='retry-load-plans'>Retry</button>
+        </div>
+        <div class='plans-list-wrapper'>
+          <div class='plans-loading-overlay' data-role='plans-loading-overlay' hidden>
+            <div class='plans-loading-inner'>
+              <div class='spinner'></div>
+              <p>Loading maintenance plans...</p>
+            </div>
+          </div>
+          <div class='maintenance-plan-list' data-component='maintenance-plan-list' data-populate='maintenance-plans'>
+            <!-- Plan cards rendered here -->
+          </div>
+        </div>
+      </div>
+      <aside class='plans-column plans-column-sidebar' aria-label='Plan selection summary'>
+        <div class='selection-sidebar panel' data-component='plan-selection-handler'>
+          <h2 class='sidebar-title'>Selected plan</h2>
+          <div class='selection-summary' data-role='selection-summary'>
+            <p class='selection-empty'>No plan selected yet. Use 'Select Plan' to start configuration.</p>
+          </div>
+          <div class='selection-status selection-status-error' data-role='selection-error' hidden>
+            <p>We could not start the plan configuration. Please try again.</p>
+          </div>
+          <div class='selection-status selection-status-progress' data-role='selection-progress' hidden>
+            <p>Starting configuration for your selected plan...</p>
+          </div>
+          <p class='selection-help'>Configuration opens in a separate step-by-step page where you can confirm building size, locations, and billing before checkout.</p>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <section class='visually-hidden' aria-live='polite' data-role='sr-status'></section>
+</section>
+
+<script src='business_logic.js'></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const COMMERCIAL_BEST_VALUE_THRESHOLD = 600;
+
+  const pageState = {
+    buildingType: null,
+    billingFrequency: 'monthly',
+    highlightMode: 'none',
+    buildingTypeOptions: [],
+    plans: [],
+    isLoadingFilters: false,
+    isLoadingPlans: false,
+    selectedPlanId: null
+  };
+
+  const buildingTypeSelect = document.querySelector('[data-populate="building-type-options"]');
+  const highlightCheckbox = document.querySelector('[data-action="toggle-highlight"]');
+  const billingToggleButtons = document.querySelectorAll('[data-action="set-billing-frequency"]');
+  const planListContainer = document.querySelector('[data-populate="maintenance-plans"]');
+  const plansLoadingOverlay = document.querySelector('[data-role="plans-loading-overlay"]');
+  const plansErrorContainer = document.querySelector('[data-role="plans-error"]');
+  const filtersLoadingEl = document.querySelector('[data-role="filters-loading"]');
+  const filtersErrorEl = document.querySelector('[data-role="filters-error"]');
+  const retryFiltersButton = document.querySelector('[data-action="retry-load-filters"]');
+  const retryPlansButton = document.querySelector('[data-action="retry-load-plans"]');
+  const selectionSidebar = document.querySelector('[data-component="plan-selection-handler"]');
+  const selectionSummary = selectionSidebar ? selectionSidebar.querySelector('[data-role="selection-summary"]') : null;
+  const selectionError = selectionSidebar ? selectionSidebar.querySelector('[data-role="selection-error"]') : null;
+  const selectionProgress = selectionSidebar ? selectionSidebar.querySelector('[data-role="selection-progress"]') : null;
+  const srStatus = document.querySelector('[data-role="sr-status"]');
+
+  function readUrlParams() {
+    const params = new URLSearchParams(window.location.search);
+    const buildingType = params.get('buildingType');
+    const billingFrequency = params.get('billingFrequency');
+    const highlight = params.get('highlight');
+
+    const validBilling = billingFrequency === 'annual' ? 'annual' : 'monthly';
+    const highlightMode = highlight === 'best_value' ? 'best_value' : 'none';
+
+    pageState.buildingType = buildingType || null;
+    pageState.billingFrequency = validBilling;
+    pageState.highlightMode = highlightMode;
+  }
+
+  function syncControlsFromState() {
+    if (buildingTypeSelect) {
+      buildingTypeSelect.value = pageState.buildingType || '';
+    }
+    if (highlightCheckbox) {
+      highlightCheckbox.checked = pageState.highlightMode === 'best_value';
+    }
+    billingToggleButtons.forEach(function(btn) {
+      const freq = btn.getAttribute('data-billing-frequency');
+      const isActive = freq === pageState.billingFrequency;
+      btn.classList.toggle('is-active', isActive);
+      btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+  }
+
+  function updateUrlFromState(push) {
+    const url = new URL(window.location.href);
+
+    if (pageState.buildingType) {
+      url.searchParams.set('buildingType', pageState.buildingType);
+    } else {
+      url.searchParams.delete('buildingType');
+    }
+
+    if (pageState.billingFrequency) {
+      url.searchParams.set('billingFrequency', pageState.billingFrequency);
+    } else {
+      url.searchParams.delete('billingFrequency');
+    }
+
+    if (pageState.highlightMode === 'best_value') {
+      url.searchParams.set('highlight', 'best_value');
+    } else {
+      url.searchParams.delete('highlight');
+    }
+
+    if (push) {
+      window.history.pushState({}, '', url.toString());
+    } else {
+      window.history.replaceState({}, '', url.toString());
+    }
+  }
+
+  function setFiltersLoading(isLoading) {
+    pageState.isLoadingFilters = isLoading;
+    if (filtersLoadingEl) {
+      filtersLoadingEl.hidden = !isLoading;
+    }
+  }
+
+  function setFiltersError(hasError) {
+    if (filtersErrorEl) {
+      filtersErrorEl.hidden = !hasError;
+    }
+  }
+
+  function setPlansLoading(isLoading) {
+    pageState.isLoadingPlans = isLoading;
+    if (plansLoadingOverlay) {
+      plansLoadingOverlay.hidden = !isLoading;
+    }
+  }
+
+  function setPlansError(hasError) {
+    if (plansErrorContainer) {
+      plansErrorContainer.hidden = !hasError;
+    }
+  }
+
+  function announceStatus(message) {
+    if (srStatus) {
+      srStatus.textContent = message;
+    }
+  }
+
+  function renderBuildingTypeOptions(container, options) {
+    container.innerHTML = '';
+
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'All building types';
+    container.appendChild(defaultOption);
+
+    options.forEach(function(opt) {
+      const option = document.createElement('option');
+      option.value = opt.value;
+      option.textContent = opt.label || opt.value;
+      container.appendChild(option);
+    });
+
+    container.value = pageState.buildingType || '';
+  }
+
+  function getBuildingTypeLabel(value) {
+    if (!value) return '';
+
+    if (pageState.buildingTypeOptions && pageState.buildingTypeOptions.length) {
+      const match = pageState.buildingTypeOptions.find(function(opt) {
+        return opt.value === value;
+      });
+      if (match && match.label) return match.label;
+    }
+
+    const map = {
+      residential: 'Residential',
+      commercial: 'Commercial',
+      industrial: 'Industrial',
+      mixed_use: 'Mixed use'
+    };
+    return map[value] || value;
+  }
+
+  function isHighlightedPlan(plan) {
+    return Boolean(
+      plan &&
+      plan.isActive &&
+      plan.buildingType === 'commercial' &&
+      plan.supportsAnnual &&
+      typeof plan.annualPrice === 'number' &&
+      plan.annualPrice > 0 &&
+      plan.annualPrice < COMMERCIAL_BEST_VALUE_THRESHOLD
+    );
+  }
+
+  function formatCurrency(amount, currency) {
+    if (typeof amount !== 'number') return '';
+    const code = currency && currency.toUpperCase ? currency.toUpperCase() : 'USD';
+    try {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: code }).format(amount);
+    } catch (e) {
+      return '$' + amount.toFixed(2);
+    }
+  }
+
+  function renderSelectionSidebar(container, selectedPlan) {
+    if (!container || !selectionSummary) return;
+
+    selectionSummary.innerHTML = '';
+
+    if (!selectedPlan) {
+      const p = document.createElement('p');
+      p.className = 'selection-empty';
+      p.textContent = 'No plan selected yet. Use Select Plan to start configuration.';
+      selectionSummary.appendChild(p);
+      return;
+    }
+
+    const nameEl = document.createElement('p');
+    nameEl.className = 'selection-plan-name';
+    nameEl.textContent = selectedPlan.name;
+
+    const meta = document.createElement('p');
+    meta.className = 'selection-plan-meta';
+    const btLabel = getBuildingTypeLabel(selectedPlan.buildingType);
+    const freqLabel = pageState.billingFrequency === 'annual' ? 'Annual' : 'Monthly';
+    meta.textContent = btLabel ? btLabel + ' \u2022 ' + freqLabel + ' billing' : freqLabel + ' billing';
+
+    const price = document.createElement('p');
+    price.className = 'selection-plan-price';
+
+    let primaryAmount = null;
+    if (pageState.billingFrequency === 'annual' && selectedPlan.supportsAnnual && typeof selectedPlan.annualPrice === 'number') {
+      primaryAmount = formatCurrency(selectedPlan.annualPrice, selectedPlan.currency);
+      price.textContent = primaryAmount + ' / year (plan base price)';
+    } else if (pageState.billingFrequency === 'monthly' && selectedPlan.supportsMonthly && typeof selectedPlan.monthlyPrice === 'number') {
+      primaryAmount = formatCurrency(selectedPlan.monthlyPrice, selectedPlan.currency);
+      price.textContent = primaryAmount + ' / month (plan base price)';
+    } else if (selectedPlan.supportsMonthly && typeof selectedPlan.monthlyPrice === 'number') {
+      primaryAmount = formatCurrency(selectedPlan.monthlyPrice, selectedPlan.currency);
+      price.textContent = primaryAmount + ' / month (plan base price)';
+    } else if (selectedPlan.supportsAnnual && typeof selectedPlan.annualPrice === 'number') {
+      primaryAmount = formatCurrency(selectedPlan.annualPrice, selectedPlan.currency);
+      price.textContent = primaryAmount + ' / year (plan base price)';
+    } else {
+      price.textContent = 'Pricing details will be confirmed during configuration.';
+    }
+
+    const sizeHint = document.createElement('p');
+    sizeHint.className = 'selection-plan-size';
+    if (typeof selectedPlan.minRecommendedSqFt === 'number' || typeof selectedPlan.maxRecommendedSqFt === 'number') {
+      const min = selectedPlan.minRecommendedSqFt;
+      const max = selectedPlan.maxRecommendedSqFt;
+      if (min && max) {
+        sizeHint.textContent = 'Recommended for ' + min.toLocaleString('en-US') + '\u2013' + max.toLocaleString('en-US') + ' sq ft.';
+      } else if (max) {
+        sizeHint.textContent = 'Recommended for up to ' + max.toLocaleString('en-US') + ' sq ft.';
+      } else if (min) {
+        sizeHint.textContent = 'Recommended for ' + min.toLocaleString('en-US') + '+ sq ft.';
+      }
+    }
+
+    selectionSummary.appendChild(nameEl);
+    selectionSummary.appendChild(meta);
+    selectionSummary.appendChild(price);
+    if (sizeHint.textContent) {
+      selectionSummary.appendChild(sizeHint);
+    }
+  }
+
+  function renderPlanList(container, plans, state) {
+    container.innerHTML = '';
+
+    const activePlans = plans.filter(function(plan) {
+      return plan && plan.isActive;
+    });
+
+    if (!activePlans.length) {
+      const p = document.createElement('p');
+      p.className = 'plans-empty';
+      p.textContent = 'No maintenance plans found for the selected filters.';
+      container.appendChild(p);
+      return;
+    }
+
+    const plansWithHighlight = activePlans.map(function(plan) {
+      return {
+        plan: plan,
+        highlighted: isHighlightedPlan(plan)
+      };
+    });
+
+    let ordered = plansWithHighlight.slice();
+    if (state.highlightMode === 'best_value') {
+      ordered.sort(function(a, b) {
+        if (a.highlighted === b.highlighted) {
+          return 0;
+        }
+        return a.highlighted ? -1 : 1;
+      });
+    }
+
+    ordered.forEach(function(item) {
+      const plan = item.plan;
+      const highlighted = item.highlighted;
+
+      const card = document.createElement('article');
+      card.className = 'maintenance-plan-card';
+      card.setAttribute('data-component', 'maintenance-plan-card');
+      card.setAttribute('data-plan-id', plan.id);
+      if (highlighted) {
+        card.classList.add('is-highlighted');
+      }
+
+      const cardInner = document.createElement('div');
+      cardInner.className = 'plan-card-inner';
+
+      const left = document.createElement('div');
+      left.className = 'plan-card-main';
+
+      const titleRow = document.createElement('div');
+      titleRow.className = 'plan-card-header';
+
+      const nameEl = document.createElement('h3');
+      nameEl.className = 'plan-card-name';
+      nameEl.textContent = plan.name;
+
+      const tagGroup = document.createElement('div');
+      tagGroup.className = 'plan-card-tags';
+
+      const btTag = document.createElement('span');
+      btTag.className = 'plan-tag plan-tag-building-type';
+      btTag.textContent = getBuildingTypeLabel(plan.buildingType);
+      tagGroup.appendChild(btTag);
+
+      if (highlighted) {
+        const hiTag = document.createElement('span');
+        hiTag.className = 'plan-tag plan-tag-highlight';
+        hiTag.textContent = 'Best-value commercial annual';
+        tagGroup.appendChild(hiTag);
+      }
+
+      titleRow.appendChild(nameEl);
+      titleRow.appendChild(tagGroup);
+
+      const desc = document.createElement('p');
+      desc.className = 'plan-card-description';
+      desc.textContent = plan.description || 'Ongoing maintenance and support for your building systems.';
+
+      const footprint = document.createElement('p');
+      footprint.className = 'plan-card-footprint';
+      if (typeof plan.minRecommendedSqFt === 'number' || typeof plan.maxRecommendedSqFt === 'number') {
+        const min = plan.minRecommendedSqFt;
+        const max = plan.maxRecommendedSqFt;
+        if (min && max) {
+          footprint.textContent = 'Recommended footprint: ' + min.toLocaleString('en-US') + '\u2013' + max.toLocaleString('en-US') + ' sq ft.';
+        } else if (max) {
+          footprint.textContent = 'Recommended footprint: up to ' + max.toLocaleString('en-US') + ' sq ft.';
+        } else if (min) {
+          footprint.textContent = 'Recommended footprint: ' + min.toLocaleString('en-US') + '+ sq ft.';
+        }
+      }
+
+      left.appendChild(titleRow);
+      left.appendChild(desc);
+      if (footprint.textContent) {
+        left.appendChild(footprint);
+      }
+
+      const right = document.createElement('div');
+      right.className = 'plan-card-meta';
+
+      const priceBlock = document.createElement('div');
+      priceBlock.className = 'plan-card-pricing';
+
+      const primaryPrice = document.createElement('div');
+      primaryPrice.className = 'plan-price-primary';
+
+      const secondaryPrice = document.createElement('div');
+      secondaryPrice.className = 'plan-price-secondary';
+
+      const billingInfo = document.createElement('div');
+      billingInfo.className = 'plan-billing-info';
+
+      const supportsMonthly = plan.supportsMonthly && typeof plan.monthlyPrice === 'number';
+      const supportsAnnual = plan.supportsAnnual && typeof plan.annualPrice === 'number';
+
+      if (state.billingFrequency === 'annual') {
+        if (supportsAnnual) {
+          primaryPrice.textContent = formatCurrency(plan.annualPrice, plan.currency) + ' / year';
+        } else if (supportsMonthly) {
+          primaryPrice.textContent = formatCurrency(plan.monthlyPrice, plan.currency) + ' / month';
+          billingInfo.textContent = 'Annual billing not available for this plan.';
+        } else {
+          primaryPrice.textContent = 'Pricing on request';
+          billingInfo.textContent = 'Contact us to confirm annual pricing.';
+        }
+
+        if (supportsMonthly) {
+          secondaryPrice.textContent = formatCurrency(plan.monthlyPrice, plan.currency) + ' / month';
+        }
+      } else {
+        if (supportsMonthly) {
+          primaryPrice.textContent = formatCurrency(plan.monthlyPrice, plan.currency) + ' / month';
+        } else if (supportsAnnual) {
+          primaryPrice.textContent = formatCurrency(plan.annualPrice, plan.currency) + ' / year';
+          billingInfo.textContent = 'Monthly billing not available for this plan.';
+        } else {
+          primaryPrice.textContent = 'Pricing on request';
+          billingInfo.textContent = 'Contact us to confirm monthly pricing.';
+        }
+
+        if (supportsAnnual) {
+          secondaryPrice.textContent = formatCurrency(plan.annualPrice, plan.currency) + ' / year';
+        }
+      }
+
+      priceBlock.appendChild(primaryPrice);
+      if (secondaryPrice.textContent) {
+        priceBlock.appendChild(secondaryPrice);
+      }
+      if (billingInfo.textContent) {
+        priceBlock.appendChild(billingInfo);
+      }
+
+      const actions = document.createElement('div');
+      actions.className = 'plan-card-actions';
+
+      const selectBtn = document.createElement('button');
+      selectBtn.type = 'button';
+      selectBtn.className = 'btn btn-primary plan-select-button';
+      selectBtn.setAttribute('data-action', 'select-plan');
+      selectBtn.setAttribute('data-plan-id', plan.id);
+      selectBtn.textContent = 'Select Plan';
+
+      const errorMsg = document.createElement('div');
+      errorMsg.className = 'plan-select-error';
+      errorMsg.setAttribute('data-role', 'plan-select-error');
+      errorMsg.hidden = true;
+      errorMsg.textContent = 'Unable to start configuration. Please try again.';
+
+      actions.appendChild(selectBtn);
+      actions.appendChild(errorMsg);
+
+      right.appendChild(priceBlock);
+      right.appendChild(actions);
+
+      cardInner.appendChild(left);
+      cardInner.appendChild(right);
+      card.appendChild(cardInner);
+
+      container.appendChild(card);
+    });
+  }
+
+  function loadFilterOptions(initial) {
+    if (!buildingTypeSelect) {
+      return;
+    }
+    setFiltersError(false);
+    setFiltersLoading(true);
+    try {
+      const result = WebsiteSDK.getMaintenancePlanFilterOptions();
+      const options = result && Array.isArray(result.buildingTypeOptions) ? result.buildingTypeOptions : [];
+      pageState.buildingTypeOptions = options;
+      renderBuildingTypeOptions(buildingTypeSelect, options);
+      setFiltersLoading(false);
+      if (initial) {
+        syncControlsFromState();
+      }
+    } catch (e) {
+      console.error('Error loading maintenance plan filter options', e);
+      setFiltersLoading(false);
+      setFiltersError(true);
+      announceStatus('Unable to load maintenance plan filters.');
+    }
+  }
+
+  function loadPlans() {
+    if (!planListContainer) return;
+    setPlansError(false);
+    setPlansLoading(true);
+    try {
+      const buildingTypeArg = pageState.buildingType ? pageState.buildingType : undefined;
+      const plans = WebsiteSDK.getMaintenancePlans(buildingTypeArg) || [];
+      pageState.plans = plans;
+      renderPlanList(planListContainer, plans, pageState);
+      setPlansLoading(false);
+      const btLabel = pageState.buildingType ? getBuildingTypeLabel(pageState.buildingType) : 'all building types';
+      announceStatus('Loaded maintenance plans for ' + btLabel + '.');
+    } catch (e) {
+      console.error('Error loading maintenance plans', e);
+      setPlansLoading(false);
+      setPlansError(true);
+      announceStatus('Unable to load maintenance plans.');
+    }
+  }
+
+  function handleBuildingTypeChange(value, updateUrlFlag) {
+    const newValue = value || null;
+    pageState.buildingType = newValue;
+    if (updateUrlFlag) {
+      updateUrlFromState(true);
+    }
+    loadPlans();
+  }
+
+  function handleHighlightToggle(enabled) {
+    pageState.highlightMode = enabled ? 'best_value' : 'none';
+    updateUrlFromState(true);
+    if (planListContainer) {
+      renderPlanList(planListContainer, pageState.plans || [], pageState);
+    }
+  }
+
+  function handleBillingFrequencyChange(freq) {
+    if (freq !== 'monthly' && freq !== 'annual') return;
+    if (pageState.billingFrequency === freq) return;
+    pageState.billingFrequency = freq;
+    updateUrlFromState(true);
+    syncControlsFromState();
+    if (planListContainer) {
+      renderPlanList(planListContainer, pageState.plans || [], pageState);
+    }
+    if (pageState.selectedPlanId && pageState.plans && pageState.plans.length) {
+      const selectedPlan = pageState.plans.find(function(p) { return p.id === pageState.selectedPlanId; });
+      if (selectedPlan) {
+        renderSelectionSidebar(selectionSidebar, selectedPlan);
+      }
+    }
+  }
+
+  function findPlanById(planId) {
+    if (!pageState.plans) return null;
+    return pageState.plans.find(function(plan) { return plan.id === planId; }) || null;
+  }
+
+  function setSelectionError(visible) {
+    if (selectionError) {
+      selectionError.hidden = !visible;
+    }
+  }
+
+  function setSelectionProgress(visible) {
+    if (selectionProgress) {
+      selectionProgress.hidden = !visible;
+    }
+  }
+
+  function handleSelectPlanClick(button) {
+    if (!button) return;
+    const planId = button.getAttribute('data-plan-id');
+    if (!planId) return;
+
+    const plan = findPlanById(planId);
+    pageState.selectedPlanId = planId;
+    if (plan) {
+      renderSelectionSidebar(selectionSidebar, plan);
+    }
+
+    setSelectionError(false);
+    setSelectionProgress(true);
+    button.disabled = true;
+    button.classList.add('is-loading');
+    button.textContent = 'Starting...';
+
+    announceStatus('Starting configuration for selected maintenance plan.');
+
+    try {
+      const response = WebsiteSDK.startMaintenancePlanConfiguration(planId);
+      setSelectionProgress(false);
+
+      if (!response || !response.configuration || !response.configuration.id) {
+        throw new Error('Invalid startMaintenancePlanConfiguration response');
+      }
+
+      const configId = response.configuration.id;
+      const targetUrl = 'maintenance_plan_config.html?configurationId=' + encodeURIComponent(configId);
+      window.location.href = targetUrl;
+    } catch (e) {
+      console.error('Error starting maintenance plan configuration', e);
+      setSelectionProgress(false);
+      setSelectionError(true);
+
+      const card = button.closest('.maintenance-plan-card');
+      if (card) {
+        const errorEl = card.querySelector('[data-role="plan-select-error"]');
+        if (errorEl) {
+          errorEl.hidden = false;
+        }
+      }
+
+      button.disabled = false;
+      button.classList.remove('is-loading');
+      button.textContent = 'Select Plan';
+
+      announceStatus('Unable to start maintenance plan configuration. Please try again.');
+    }
+  }
+
+  if (buildingTypeSelect) {
+    buildingTypeSelect.addEventListener('change', function(event) {
+      const value = event.target.value;
+      handleBuildingTypeChange(value, true);
+    });
+  }
+
+  if (highlightCheckbox) {
+    highlightCheckbox.addEventListener('change', function(event) {
+      handleHighlightToggle(event.target.checked);
+    });
+  }
+
+  billingToggleButtons.forEach(function(btn) {
+    btn.addEventListener('click', function(event) {
+      const frequency = event.currentTarget.getAttribute('data-billing-frequency');
+      handleBillingFrequencyChange(frequency);
+    });
+  });
+
+  if (retryFiltersButton) {
+    retryFiltersButton.addEventListener('click', function() {
+      loadFilterOptions(false);
+    });
+  }
+
+  if (retryPlansButton) {
+    retryPlansButton.addEventListener('click', function() {
+      loadPlans();
+    });
+  }
+
+  document.addEventListener('click', function(event) {
+    const actionEl = event.target.closest('[data-action]');
+    if (!actionEl) {
+      return;
+    }
+    const action = actionEl.getAttribute('data-action');
+    if (action === 'select-plan') {
+      event.preventDefault();
+      handleSelectPlanClick(actionEl);
+    }
+  });
+
+  window.addEventListener('popstate', function() {
+    readUrlParams();
+    syncControlsFromState();
+    loadPlans();
+  });
+
+  readUrlParams();
+  syncControlsFromState();
+  loadFilterOptions(true);
+  loadPlans();
+});
+</script>

@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='audit_entry.css' />
+
+<div class='audit-entry-layout' data-component='audit-entry-page-controller'>
+  <div class='audit-entry-card'>
+    <nav class='audit-entry-breadcrumbs' aria-label='Breadcrumb' data-component='audit-entry-breadcrumbs'>
+      <button type='button' class='link-button back-link' data-action='back-to-audit-log'>
+        ← Back to audit log
+      </button>
+      <span class='breadcrumb-current' data-populate='audit-id-label'></span>
+    </nav>
+
+    <section class='audit-entry-loading' data-component='audit-entry-loading-indicator' aria-live='polite'>
+      <div class='loading-inner'>
+        <div class='spinner'></div>
+        <p class='loading-text'>Loading audit entry…</p>
+      </div>
+    </section>
+
+    <section class='audit-entry-error' data-component='audit-entry-error-state' hidden aria-live='assertive'>
+      <div class='error-icon' aria-hidden='true'>!</div>
+      <h1 class='error-title'>Unable to load audit entry</h1>
+      <p class='error-message' data-populate='error-message'>
+        The audit entry could not be loaded. You can retry or go back to the audit log.
+      </p>
+      <div class='error-actions'>
+        <button type='button' class='btn btn-primary' data-action='retry-load'>Retry</button>
+        <button type='button' class='btn btn-secondary' data-action='back-to-audit-log'>Back to audit log</button>
+      </div>
+    </section>
+
+    <section class='audit-entry-content' data-component='audit-entry-data-loader' hidden>
+      <header class='audit-entry-header' data-component='audit-entry-header'>
+        <p class='eyebrow' data-populate='audit-actionType'></p>
+        <h1 class='audit-title' data-populate='audit-summary-heading'></h1>
+        <div class='audit-header-meta'>
+          <span class='meta-item'>
+            <span class='meta-label'>Actor</span>
+            <span class='meta-value' data-populate='audit-actorIdentifier'></span>
+          </span>
+          <span class='meta-item'>
+            <span class='meta-label'>Occurred at</span>
+            <time class='meta-value' data-populate='audit-occurredAt'></time>
+          </span>
+          <span class='meta-item' data-populate='audit-projectId-wrapper'>
+            <span class='meta-label'>Project ID</span>
+            <span class='meta-value' data-populate='audit-projectId'></span>
+          </span>
+        </div>
+      </header>
+
+      <section class='audit-entry-summary' data-component='audit-entry-summary-block'>
+        <p class='summary-text' data-populate='audit-summary'></p>
+      </section>
+
+      <section class='audit-entry-resource' data-component='audit-entry-resource-link'>
+        <button type='button' class='btn btn-primary resource-button' data-action='navigate-resource' disabled data-populate='audit-resource-button'>
+          View affected resource
+        </button>
+        <p class='resource-subtext' data-populate='audit-resource-description'></p>
+      </section>
+
+      <section class='audit-entry-metadata' data-component='audit-entry-metadata-panel' aria-label='Audit event metadata'>
+        <h2 class='section-title'>Event metadata</h2>
+        <dl class='metadata-list'>
+          <div class='metadata-row'>
+            <dt>Audit event ID</dt>
+            <dd data-populate='audit-id'></dd>
+          </div>
+          <div class='metadata-row'>
+            <dt>Actor</dt>
+            <dd data-populate='audit-actorIdentifier'></dd>
+          </div>
+          <div class='metadata-row'>
+            <dt>Occurred at</dt>
+            <dd data-populate='audit-occurredAt-full'></dd>
+          </div>
+          <div class='metadata-row'>
+            <dt>Project ID</dt>
+            <dd data-populate='audit-projectId'></dd>
+          </div>
+          <div class='metadata-row'>
+            <dt>Resource type</dt>
+            <dd data-populate='audit-resourceType'></dd>
+          </div>
+          <div class='metadata-row'>
+            <dt>Resource ID</dt>
+            <dd data-populate='audit-resourceId'></dd>
+          </div>
+          <div class='metadata-row'>
+            <dt>Action</dt>
+            <dd data-populate='audit-actionType'></dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class='audit-entry-change-details' data-component='audit-entry-change-details'>
+        <button type='button' class='change-toggle' data-action='toggle-change-details' aria-expanded='false'>
+          <span class='toggle-label' data-populate='change-toggle-label'>Show full change</span>
+          <span class='toggle-icon' aria-hidden='true'>▾</span>
+        </button>
+        <div class='change-body' data-populate='audit-change-body' hidden>
+          <div class='change-section'>
+            <h3>Previous value</h3>
+            <pre class='code-block' data-populate='audit-previousValue'></pre>
+          </div>
+          <div class='change-section'>
+            <h3>New value</h3>
+            <pre class='code-block' data-populate='audit-newValue'></pre>
+          </div>
+          <div class='change-section'>
+            <h3>Details</h3>
+            <pre class='code-block' data-populate='audit-details'></pre>
+          </div>
+        </div>
+      </section>
+    </section>
+  </div>
+</div>
+
+<script src='business_logic.js'></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const auditEventId = urlParams.get('auditEventId');
+
+  const loadingSection = document.querySelector('[data-component=audit-entry-loading-indicator]');
+  const errorSection = document.querySelector('[data-component=audit-entry-error-state]');
+  const contentSection = document.querySelector('[data-component=audit-entry-data-loader]');
+  const errorMessageEl = errorSection ? errorSection.querySelector('[data-populate=error-message]') : null;
+
+  let currentAuditEventId = auditEventId;
+  let currentAuditEvent = null;
+
+  function setViewState(state) {
+    if (loadingSection) loadingSection.hidden = state !== 'loading';
+    if (errorSection) errorSection.hidden = state !== 'error';
+    if (contentSection) contentSection.hidden = state !== 'content';
+  }
+
+  function formatDateTime(value) {
+    if (!value) return '';
+    try {
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return String(value);
+      return d.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    } catch (e) {
+      return String(value);
+    }
+  }
+
+  function prettyPrintMaybeJson(raw) {
+    if (raw === null || raw === undefined || raw === '') return '';
+    const text = String(raw);
+    const trimmed = text.trim();
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+        (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return JSON.stringify(parsed, null, 2);
+      } catch (e) {
+        return text;
+      }
+    }
+    return text;
+  }
+
+  function renderAuditEvent(container, auditEvent) {
+    if (!container || !auditEvent) return;
+
+    const populateEls = container.querySelectorAll('[data-populate]');
+    populateEls.forEach(function(el) {
+      const key = el.dataset.populate;
+      let value = '';
+      switch (key) {
+        case 'audit-id':
+          value = auditEvent.id || '';
+          el.textContent = value;
+          break;
+        case 'audit-id-label':
+          value = auditEvent.id ? 'Event ' + auditEvent.id : '';
+          el.textContent = value;
+          break;
+        case 'audit-summary-heading':
+        case 'audit-summary':
+          value = auditEvent.summary || '';
+          el.textContent = value;
+          break;
+        case 'audit-actorIdentifier':
+          value = auditEvent.actorIdentifier || '';
+          el.textContent = value || 'Unknown actor';
+          break;
+        case 'audit-occurredAt':
+          value = formatDateTime(auditEvent.occurredAt);
+          el.textContent = value;
+          break;
+        case 'audit-occurredAt-full':
+          value = formatDateTime(auditEvent.occurredAt);
+          el.textContent = value;
+          break;
+        case 'audit-projectId':
+          value = auditEvent.projectId || '';
+          el.textContent = value || '—';
+          break;
+        case 'audit-projectId-wrapper':
+          if (!auditEvent.projectId) {
+            el.style.display = 'none';
+          } else {
+            el.style.display = '';
+          }
+          break;
+        case 'audit-resourceType':
+          value = auditEvent.resourceType || '';
+          el.textContent = value || '—';
+          break;
+        case 'audit-resourceId':
+          value = auditEvent.resourceId || '';
+          el.textContent = value || '—';
+          break;
+        case 'audit-actionType':
+          value = auditEvent.actionType || '';
+          el.textContent = value;
+          break;
+        case 'audit-resource-button': {
+          const btn = el.closest('button');
+          const isFeatureFlag = auditEvent.resourceType === 'feature_flag' && !!auditEvent.resourceId;
+          if (btn) {
+            btn.disabled = !isFeatureFlag;
+            btn.classList.toggle('btn-disabled', !isFeatureFlag);
+          }
+          if (isFeatureFlag) {
+            el.textContent = 'View feature flag';
+          } else {
+            el.textContent = 'View affected resource';
+          }
+          break;
+        }
+        case 'audit-resource-description': {
+          const type = auditEvent.resourceType || 'resource';
+          const id = auditEvent.resourceId || '';
+          if (auditEvent.resourceType === 'feature_flag' && id) {
+            el.textContent = 'This event relates to feature flag ID ' + id + '.';
+          } else if (type && id) {
+            el.textContent = 'This event relates to ' + type + ' with ID ' + id + '.';
+          } else {
+            el.textContent = 'This event is not associated with a specific resource ID.';
+          }
+          break;
+        }
+        case 'audit-previousValue': {
+          const text = prettyPrintMaybeJson(auditEvent.previousValue);
+          el.textContent = text || 'No previous value recorded.';
+          break;
+        }
+        case 'audit-newValue': {
+          const text = prettyPrintMaybeJson(auditEvent.newValue);
+          el.textContent = text || 'No new value recorded.';
+          break;
+        }
+        case 'audit-details': {
+          const text = prettyPrintMaybeJson(auditEvent.details);
+          el.textContent = text || 'No additional details recorded for this change.';
+          break;
+        }
+        case 'change-toggle-label': {
+          const hasDetails = !!(auditEvent.previousValue || auditEvent.newValue || auditEvent.details);
+          el.textContent = hasDetails ? 'Show full change' : 'No additional change details';
+          break;
+        }
+        default:
+          break;
+      }
+    });
+
+    const eyebrowEl = container.querySelector('.eyebrow[data-populate=audit-actionType]');
+    if (eyebrowEl && auditEvent.actionType) {
+      const label = auditEvent.actionType.replace(/_/g, ' ');
+      eyebrowEl.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+    }
+  }
+
+  function handleBackToAuditLog() {
+    window.location.href = 'audit_log.html';
+  }
+
+  function handleRetry() {
+    if (!currentAuditEventId) {
+      setViewState('error');
+      if (errorMessageEl) {
+        errorMessageEl.textContent = 'Missing auditEventId. Use the audit log to select an entry.';
+      }
+      return;
+    }
+    loadAuditEvent(currentAuditEventId);
+  }
+
+  function setupActions(root) {
+    if (!root) return;
+    const actionElements = root.querySelectorAll('[data-action]');
+    actionElements.forEach(function(el) {
+      const action = el.dataset.action;
+      if (action === 'back-to-audit-log') {
+        el.addEventListener('click', function() {
+          handleBackToAuditLog();
+        });
+      } else if (action === 'retry-load') {
+        el.addEventListener('click', function() {
+          handleRetry();
+        });
+      } else if (action === 'navigate-resource') {
+        el.addEventListener('click', function() {
+          if (!currentAuditEvent) return;
+          if (currentAuditEvent.resourceType === 'feature_flag' && currentAuditEvent.resourceId) {
+            const flagId = encodeURIComponent(currentAuditEvent.resourceId);
+            window.location.href = 'flag_detail.html?flagId=' + flagId;
+          }
+        });
+      } else if (action === 'toggle-change-details') {
+        el.addEventListener('click', function() {
+          const body = root.querySelector('.change-body[data-populate=audit-change-body]');
+          const labelEl = el.querySelector('.toggle-label[data-populate=change-toggle-label]');
+          const isExpanded = el.getAttribute('aria-expanded') === 'true';
+          const nextExpanded = !isExpanded;
+          el.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+          if (body) {
+            body.hidden = !nextExpanded;
+          }
+          if (labelEl) {
+            if (!currentAuditEvent || !(currentAuditEvent.previousValue || currentAuditEvent.newValue || currentAuditEvent.details)) {
+              labelEl.textContent = 'No additional change details';
+            } else {
+              labelEl.textContent = nextExpanded ? 'Hide full change' : 'Show full change';
+            }
+          }
+        });
+      }
+    });
+  }
+
+  function loadAuditEvent(id) {
+    if (!id) {
+      setViewState('error');
+      if (errorMessageEl) {
+        errorMessageEl.textContent = 'No audit event was specified. Use the audit log to select an entry.';
+      }
+      return;
+    }
+    setViewState('loading');
+    if (errorMessageEl) {
+      errorMessageEl.textContent = 'The audit entry could not be loaded. You can retry or go back to the audit log.';
+    }
+    try {
+      const auditEvent = WebsiteSDK.getAuditEventDetails(id);
+      currentAuditEvent = auditEvent;
+      if (contentSection) {
+        renderAuditEvent(contentSection, auditEvent);
+      }
+      setViewState('content');
+    } catch (err) {
+      console.error('Failed to load audit event', err);
+      setViewState('error');
+      if (errorMessageEl) {
+        errorMessageEl.textContent = 'We hit a problem loading this audit entry. Check your connection and try again.';
+      }
+    }
+  }
+
+  const root = document.querySelector('[data-component=audit-entry-page-controller]');
+  setupActions(root);
+
+  if (!currentAuditEventId || String(currentAuditEventId).trim() === '') {
+    setViewState('error');
+    if (errorMessageEl) {
+      errorMessageEl.textContent = 'No audit event was specified. Use the audit log to select an entry.';
+    }
+  } else {
+    loadAuditEvent(currentAuditEventId);
+  }
+});
+</script>

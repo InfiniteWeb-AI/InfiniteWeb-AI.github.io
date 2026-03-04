@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Playlists - Artist Discography</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='playlists.css'>
+</head>
+<body>
+  <div class='page-background'>
+    <div class='page-container'>
+      <header class='site-header'>
+        <h1 class='site-title'>Artist Discography</h1>
+        <nav class='site-nav' aria-label='Primary'>
+          <ul>
+            <li><a href='index.html'>Home</a></li>
+            <li><a href='genres.html'>Browse Genres</a></li>
+            <li><a href='library.html'>Library</a></li>
+            <li><a href='playlists.html'>Playlists</a></li>
+            <li><a href='favorites.html'>Favorites</a></li>
+            <li><a href='queue.html'>Queue</a></li>
+          </ul>
+        </nav>
+      </header>
+
+      <main id='content' class='site-main' role='main'>
+        <article class='playlists-page'>
+          <section class='playlists-panel'>
+            <h2 class='page-heading'>Playlists</h2>
+
+            <!-- URL state manager (non-visual) -->
+            <div data-component='playlists-url-state-manager' hidden aria-hidden='true'></div>
+
+            <!-- Data loader message -->
+            <div data-component='playlists-data-loader' class='playlists-loader' aria-live='polite' data-populate='playlists-overview'></div>
+
+            <!-- Filters -->
+            <section data-component='playlist-filters' class='playlist-filters' aria-label='Playlist filters'>
+              <form class='playlist-filters-form' onsubmit='return false;'>
+                <div class='filter-row'>
+                  <label class='filter-field'>
+                    Search:
+                    <input type='search' name='q' data-action='search-input' autocomplete='off'>
+                  </label>
+
+                  <label class='filter-field'>
+                    Sort by:
+                    <select name='sort' data-action='sort-change'>
+                      <option value='name_asc'>Name (A to Z)</option>
+                      <option value='name_desc'>Name (Z to A)</option>
+                      <option value='created_desc'>Newest first</option>
+                      <option value='created_asc'>Oldest first</option>
+                      <option value='updated_desc'>Recently updated</option>
+                      <option value='updated_asc'>Least recently updated</option>
+                      <option value='track_count_desc'>Most tracks</option>
+                      <option value='track_count_asc'>Fewest tracks</option>
+                    </select>
+                  </label>
+
+                  <span class='filter-field filter-view'>
+                    View:
+                    <label>
+                      <input type='radio' name='viewMode' value='list' data-action='view-mode-change'> List
+                    </label>
+                    <label>
+                      <input type='radio' name='viewMode' value='table' data-action='view-mode-change'> Table
+                    </label>
+                  </span>
+                </div>
+
+                <div class='filter-row secondary-actions'>
+                  <button type='button' data-action='refresh-playlists'>Refresh</button>
+                  <button type='button' data-action='open-create-from-top'>New playlist</button>
+                </div>
+              </form>
+            </section>
+
+            <!-- List / empty state container -->
+            <section class='playlist-list-section'>
+              <div data-component='playlists-empty-state' class='playlists-empty-state' hidden aria-live='polite'>
+                <!-- Filled by JS depending on list state -->
+              </div>
+
+              <div data-component='playlist-list' class='playlist-list' aria-live='polite'>
+                <!-- Playlist rows rendered here -->
+              </div>
+            </section>
+
+            <!-- Create playlist form -->
+            <section data-component='playlist-create-form' class='playlist-create-section' aria-label='Create playlist' hidden>
+              <strong class='create-heading'>Create new playlist</strong>
+              <form data-action='create-form'>
+                <p>
+                  <label>
+                    Name:
+                    <input type='text' name='name' required>
+                  </label>
+                </p>
+                <p>
+                  <label>
+                    Description (optional):
+                    <textarea name='description' rows='3'></textarea>
+                  </label>
+                </p>
+                <p>
+                  <button type='submit'>Create</button>
+                  <button type='button' data-action='close-create-form'>Cancel</button>
+                </p>
+                <p class='form-error' aria-live='polite'></p>
+              </form>
+            </section>
+
+            <!-- Local footer/return control inside panel -->
+            <hr class='playlists-panel-divider'>
+            <p class='playlists-panel-footer-link'>
+              <a href='javascript:void(0)' data-action='scroll-top'>Back to top</a>
+            </p>
+          </section>
+
+          <!-- Delete confirmation dialog overlay -->
+          <div data-component='playlist-delete-dialog' class='playlist-delete-overlay' hidden aria-modal='true' role='dialog'>
+            <div class='playlist-delete-dialog'>
+              <p class='playlist-delete-message'></p>
+              <p class='playlist-delete-warning'>This will delete the playlist and all of its playlist track entries.</p>
+              <p class='playlist-delete-actions'>
+                <button type='button' data-action='confirm-delete-playlist'>Delete</button>
+                <button type='button' data-action='cancel-delete-playlist'>Cancel</button>
+              </p>
+              <p class='playlist-delete-error' aria-live='polite'></p>
+            </div>
+          </div>
+        </article>
+      </main>
+
+      <footer class='site-footer'>
+        <hr class='footer-divider'>
+        <nav class='footer-nav' aria-label='Footer'>
+          <ul>
+            <li><a href='about.html'>About</a></li>
+            <li><a href='help.html'>Help / FAQ</a></li>
+            <li><a href='contact.html'>Contact</a></li>
+            <li><a href='bookmarks.html'>Bookmarks</a></li>
+            <li><a href='lists.html'>Lists</a></li>
+          </ul>
+        </nav>
+        <p class='footer-meta'>&copy; Artist Discography</p>
+      </footer>
+    </div>
+  </div>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // URL/state management
+      var url = new URL(window.location.href);
+      var searchParams = url.searchParams;
+
+      var state = {
+        q: searchParams.get('q') || '',
+        sort: searchParams.get('sort') || 'name_asc',
+        view: searchParams.get('view') || 'list',
+        selected: searchParams.get('selected') || null
+      };
+
+      var allPlaylists = [];
+      var isLoading = false;
+      var currentlyEditingId = null;
+      var deleteTargetId = null;
+
+      // DOM references
+      var loaderContainer = document.querySelector('[data-component="playlists-data-loader"]');
+      var filtersComponent = document.querySelector('[data-component="playlist-filters"]');
+      var listContainer = document.querySelector('[data-component="playlist-list"]');
+      var emptyStateContainer = document.querySelector('[data-component="playlists-empty-state"]');
+      var createFormSection = document.querySelector('[data-component="playlist-create-form"]');
+      var createForm = createFormSection ? createFormSection.querySelector('form[data-action="create-form"]') : null;
+      var deleteOverlay = document.querySelector('[data-component="playlist-delete-dialog"]');
+      var deleteMessageEl = deleteOverlay ? deleteOverlay.querySelector('.playlist-delete-message') : null;
+      var deleteErrorEl = deleteOverlay ? deleteOverlay.querySelector('.playlist-delete-error') : null;
+      var mainElement = document.getElementById('content');
+
+      // Helpers
+      function updateUrlParam(key, value) {
+        var currentUrl = new URL(window.location.href);
+        if (value === null || value === undefined || value === '') {
+          currentUrl.searchParams.delete(key);
+        } else {
+          currentUrl.searchParams.set(key, value);
+        }
+        window.history.replaceState(null, '', currentUrl.toString());
+      }
+
+      function formatDateTime(isoString) {
+        if (!isoString) {
+          return '';
+        }
+        var d = new Date(isoString);
+        if (isNaN(d.getTime())) {
+          return isoString;
+        }
+        return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+      }
+
+      function clonePlaylistObject(p) {
+        // Shallow clone for safety when mutating
+        var copy = {};
+        for (var k in p) {
+          if (Object.prototype.hasOwnProperty.call(p, k)) {
+            copy[k] = p[k];
+          }
+        }
+        return copy;
+      }
+
+      function filterPlaylists(list, query) {
+        if (!query) {
+          return list.slice();
+        }
+        var q = query.toLowerCase();
+        return list.filter(function(p) {
+          var name = (p.name || '').toLowerCase();
+          var desc = (p.description || '').toLowerCase();
+          return name.indexOf(q) !== -1 || desc.indexOf(q) !== -1;
+        });
+      }
+
+      function sortPlaylists(list, sortKey) {
+        var sorted = list.slice();
+        sorted.sort(function(a, b) {
+          var nameA = (a.name || '').toLowerCase();
+          var nameB = (b.name || '').toLowerCase();
+          var createdA = a.created_at ? new Date(a.created_at).getTime() : 0;
+          var createdB = b.created_at ? new Date(b.created_at).getTime() : 0;
+          var updatedA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+          var updatedB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+          var tracksA = typeof a.track_count === 'number' ? a.track_count : 0;
+          var tracksB = typeof b.track_count === 'number' ? b.track_count : 0;
+
+          switch (sortKey) {
+            case 'name_desc':
+              if (nameA < nameB) return 1;
+              if (nameA > nameB) return -1;
+              return 0;
+            case 'created_desc':
+              return createdB - createdA;
+            case 'created_asc':
+              return createdA - createdB;
+            case 'updated_desc':
+              return updatedB - updatedA;
+            case 'updated_asc':
+              return updatedA - updatedB;
+            case 'track_count_desc':
+              return tracksB - tracksA;
+            case 'track_count_asc':
+              return tracksA - tracksB;
+            case 'name_asc':
+            default:
+              if (nameA < nameB) return -1;
+              if (nameA > nameB) return 1;
+              return 0;
+          }
+        });
+        return sorted;
+      }
+
+      function applyFiltersAndRender() {
+        if (!listContainer) {
+          return;
+        }
+        var filtered = filterPlaylists(allPlaylists, state.q);
+        var sorted = sortPlaylists(filtered, state.sort);
+        renderPlaylistsList(listContainer, sorted, state);
+        updateEmptyState(emptyStateContainer, sorted);
+      }
+
+      function renderPlaylistsList(container, playlists, currentState) {
+        container.innerHTML = '';
+
+        var wrapper = document.createElement('div');
+        wrapper.className = currentState.view === 'table' ? 'playlist-list-inner playlist-list-view-table' : 'playlist-list-inner playlist-list-view-list';
+
+        if (!playlists.length) {
+          container.appendChild(wrapper);
+          return;
+        }
+
+        for (var i = 0; i < playlists.length; i++) {
+          var p = playlists[i];
+          var row = document.createElement('div');
+          row.className = 'playlist-row';
+          row.setAttribute('data-playlist-id', p.playlist_id);
+
+          if (currentState.selected && String(currentState.selected) === String(p.playlist_id)) {
+            row.className += ' playlist-row-selected';
+          }
+
+          if (currentlyEditingId && String(currentlyEditingId) === String(p.playlist_id)) {
+            // Inline rename mode
+            var editInput = document.createElement('input');
+            editInput.type = 'text';
+            editInput.name = 'rename';
+            editInput.value = p.name || '';
+            editInput.setAttribute('data-action', 'rename-name-input');
+            editInput.setAttribute('data-playlist-id', p.playlist_id);
+
+            var saveButton = document.createElement('button');
+            saveButton.type = 'button';
+            saveButton.textContent = 'Save';
+            saveButton.setAttribute('data-action', 'rename-submit');
+            saveButton.setAttribute('data-playlist-id', p.playlist_id);
+
+            var cancelButton = document.createElement('button');
+            cancelButton.type = 'button';
+            cancelButton.textContent = 'Cancel';
+            cancelButton.setAttribute('data-action', 'rename-cancel');
+            cancelButton.setAttribute('data-playlist-id', p.playlist_id);
+
+            row.appendChild(editInput);
+            row.appendChild(document.createTextNode(' '));
+            row.appendChild(saveButton);
+            row.appendChild(document.createTextNode(' '));
+            row.appendChild(cancelButton);
+          } else {
+            // Normal display mode
+            var titleLink = document.createElement('a');
+            titleLink.href = 'javascript:void(0)';
+            titleLink.textContent = p.name || '(untitled playlist)';
+            titleLink.setAttribute('data-action', 'playlist-item-click');
+            titleLink.setAttribute('data-playlist-id', p.playlist_id);
+
+            var metaParts = [];
+            if (typeof p.track_count === 'number') {
+              var trackLabel = p.track_count === 1 ? 'track' : 'tracks';
+              metaParts.push(p.track_count + ' ' + trackLabel);
+            }
+            if (p.created_at) {
+              metaParts.push('created ' + formatDateTime(p.created_at));
+            }
+            if (p.updated_at) {
+              metaParts.push('updated ' + formatDateTime(p.updated_at));
+            }
+
+            var metaText = metaParts.length ? '  b7 ' + metaParts.join('  b7 ') : '';
+            var metaSpan = document.createElement('span');
+            metaSpan.className = 'playlist-meta';
+            metaSpan.textContent = metaText;
+
+            var actionsSpan = document.createElement('span');
+            actionsSpan.className = 'playlist-row-actions';
+
+            var renameButton = document.createElement('button');
+            renameButton.type = 'button';
+            renameButton.textContent = 'Rename';
+            renameButton.setAttribute('data-action', 'rename-playlist');
+            renameButton.setAttribute('data-playlist-id', p.playlist_id);
+
+            var deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.textContent = 'Delete';
+            deleteButton.setAttribute('data-action', 'delete-playlist-open');
+            deleteButton.setAttribute('data-playlist-id', p.playlist_id);
+
+            actionsSpan.appendChild(renameButton);
+            actionsSpan.appendChild(document.createTextNode(' '));
+            actionsSpan.appendChild(deleteButton);
+
+            row.appendChild(titleLink);
+            row.appendChild(metaSpan);
+            row.appendChild(actionsSpan);
+          }
+
+          wrapper.appendChild(row);
+        }
+
+        container.appendChild(wrapper);
+      }
+
+      function updateEmptyState(container, visiblePlaylists) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+
+        var total = allPlaylists.length;
+        var visible = visiblePlaylists.length;
+
+        if (!total) {
+          var msg = document.createElement('p');
+          msg.textContent = "You don't have any playlists yet.";
+          var actionP = document.createElement('p');
+          var link = document.createElement('a');
+          link.href = 'javascript:void(0)';
+          link.textContent = 'Create your first playlist';
+          link.setAttribute('data-action', 'open-create-from-empty');
+          actionP.appendChild(link);
+          container.appendChild(msg);
+          container.appendChild(actionP);
+          container.hidden = false;
+          // In an entirely empty state, show create form by default
+          if (createFormSection) {
+            createFormSection.hidden = false;
+          }
+        } else if (total && !visible) {
+          var noneMsg = document.createElement('p');
+          noneMsg.textContent = 'No playlists match your current search.';
+          container.appendChild(noneMsg);
+          container.hidden = false;
+        } else {
+          container.hidden = true;
+        }
+      }
+
+      function setLoading(isNowLoading) {
+        isLoading = isNowLoading;
+        if (loaderContainer) {
+          loaderContainer.textContent = isNowLoading ? 'Loading playlists 85' : '';
+        }
+        if (filtersComponent) {
+          filtersComponent.hidden = isNowLoading;
+        }
+        if (listContainer) {
+          listContainer.hidden = isNowLoading;
+        }
+        if (emptyStateContainer) {
+          emptyStateContainer.hidden = isNowLoading;
+        }
+        if (createFormSection && !isNowLoading) {
+          // do not auto-show here; leave as is
+        }
+      }
+
+      function loadPlaylists(showLoader) {
+        if (showLoader === undefined) {
+          showLoader = true;
+        }
+        if (showLoader) {
+          setLoading(true);
+        }
+        var result;
+        try {
+          result = WebsiteSDK.getPlaylistsOverview();
+        } catch (e) {
+          if (loaderContainer) {
+            loaderContainer.textContent = 'Error loading playlists.';
+          }
+          if (filtersComponent) {
+            filtersComponent.hidden = true;
+          }
+          if (listContainer) {
+            listContainer.hidden = true;
+          }
+          if (emptyStateContainer) {
+            emptyStateContainer.hidden = true;
+          }
+          return;
+        }
+        if (!Array.isArray(result)) {
+          allPlaylists = [];
+        } else {
+          allPlaylists = result.slice();
+        }
+        setLoading(false);
+        applyFiltersAndRender();
+      }
+
+      function initFiltersFromState() {
+        if (!filtersComponent) {
+          return;
+        }
+        var searchInput = filtersComponent.querySelector('input[data-action="search-input"]');
+        var sortSelect = filtersComponent.querySelector('select[data-action="sort-change"]');
+        var viewInputs = filtersComponent.querySelectorAll('input[data-action="view-mode-change"]');
+
+        if (searchInput) {
+          searchInput.value = state.q;
+        }
+        if (sortSelect) {
+          sortSelect.value = state.sort;
+        }
+        if (viewInputs && viewInputs.length) {
+          var viewValue = state.view === 'table' ? 'table' : 'list';
+          state.view = viewValue;
+          for (var i = 0; i < viewInputs.length; i++) {
+            var input = viewInputs[i];
+            input.checked = input.value === viewValue;
+          }
+        }
+      }
+
+      function openCreateForm() {
+        if (!createFormSection) {
+          return;
+        }
+        createFormSection.hidden = false;
+        var nameInput = createFormSection.querySelector('input[name="name"]');
+        if (nameInput) {
+          nameInput.focus();
+        }
+      }
+
+      function closeCreateForm() {
+        if (!createFormSection) {
+          return;
+        }
+        createFormSection.hidden = true;
+        if (createForm) {
+          var errorEl = createForm.querySelector('.form-error');
+          if (errorEl) {
+            errorEl.textContent = '';
+          }
+          createForm.reset();
+        }
+      }
+
+      function handleCreateSubmit(event) {
+        event.preventDefault();
+        if (!createForm) {
+          return;
+        }
+        var nameInput = createForm.querySelector('input[name="name"]');
+        var descInput = createForm.querySelector('textarea[name="description"]');
+        var errorEl = createForm.querySelector('.form-error');
+        if (!nameInput) {
+          return;
+        }
+        var rawName = nameInput.value || '';
+        var name = rawName.trim();
+        var description = descInput ? (descInput.value || '').trim() : '';
+
+        if (!name) {
+          if (errorEl) {
+            errorEl.textContent = 'Please enter a name for the playlist.';
+          }
+          nameInput.focus();
+          return;
+        }
+
+        if (errorEl) {
+          errorEl.textContent = '';
+        }
+
+        var submitButton = createForm.querySelector('button[type="submit"]');
+        if (submitButton) {
+          submitButton.disabled = true;
+          submitButton.textContent = 'Creating 85';
+        }
+
+        var created;
+        try {
+          created = WebsiteSDK.createPlaylist(name, description);
+        } catch (e) {
+          if (errorEl) {
+            errorEl.textContent = 'Error creating playlist. Please try again.';
+          }
+          if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = 'Create';
+          }
+          return;
+        }
+
+        if (submitButton) {
+          submitButton.disabled = false;
+          submitButton.textContent = 'Create';
+        }
+
+        if (created && created.playlist_id) {
+          var newPlaylist = clonePlaylistObject(created);
+          // Provide approximate timestamps if missing
+          var nowIso = new Date().toISOString();
+          if (!newPlaylist.created_at) {
+            newPlaylist.created_at = nowIso;
+          }
+          if (!newPlaylist.updated_at) {
+            newPlaylist.updated_at = nowIso;
+          }
+          allPlaylists.push(newPlaylist);
+          state.selected = String(newPlaylist.playlist_id);
+          updateUrlParam('selected', state.selected);
+          applyFiltersAndRender();
+          createForm.reset();
+          // Keep form open after creation per simple flow
+        }
+      }
+
+      function openDeleteDialog(playlistId) {
+        if (!deleteOverlay || !playlistId) {
+          return;
+        }
+        deleteTargetId = playlistId;
+        if (deleteErrorEl) {
+          deleteErrorEl.textContent = '';
+        }
+        var playlist = allPlaylists.find(function(p) { return String(p.playlist_id) === String(playlistId); });
+        var nameText = playlist && playlist.name ? playlist.name : 'this playlist';
+        if (deleteMessageEl) {
+          deleteMessageEl.textContent = 'Delete playlist "' + nameText + '"?';
+        }
+        deleteOverlay.hidden = false;
+      }
+
+      function closeDeleteDialog() {
+        if (!deleteOverlay) {
+          return;
+        }
+        deleteTargetId = null;
+        if (deleteErrorEl) {
+          deleteErrorEl.textContent = '';
+        }
+        deleteOverlay.hidden = true;
+      }
+
+      function handleConfirmDelete() {
+        if (!deleteTargetId) {
+          closeDeleteDialog();
+          return;
+        }
+        var result;
+        try {
+          result = WebsiteSDK.deletePlaylist(deleteTargetId);
+        } catch (e) {
+          if (deleteErrorEl) {
+            deleteErrorEl.textContent = 'Error deleting playlist. Please try again.';
+          }
+          return;
+        }
+        if (result && result.deleted) {
+          allPlaylists = allPlaylists.filter(function(p) {
+            return String(p.playlist_id) !== String(deleteTargetId);
+          });
+          if (state.selected && String(state.selected) === String(deleteTargetId)) {
+            state.selected = null;
+            updateUrlParam('selected', '');
+          }
+          closeDeleteDialog();
+          applyFiltersAndRender();
+        } else {
+          if (deleteErrorEl) {
+            var msg = result && result.message ? result.message : 'Unable to delete playlist.';
+            deleteErrorEl.textContent = msg;
+          }
+        }
+      }
+
+      function handleRenameSubmit(playlistId, newName) {
+        if (!playlistId) {
+          return;
+        }
+        var trimmed = (newName || '').trim();
+        if (!trimmed) {
+          window.alert('Please enter a new name.');
+          return;
+        }
+        var result;
+        try {
+          result = WebsiteSDK.renamePlaylist(playlistId, trimmed);
+        } catch (e) {
+          window.alert('Error renaming playlist. Please try again.');
+          return;
+        }
+        if (result && result.playlist_id) {
+          var idStr = String(result.playlist_id);
+          for (var i = 0; i < allPlaylists.length; i++) {
+            if (String(allPlaylists[i].playlist_id) === idStr) {
+              allPlaylists[i] = clonePlaylistObject(allPlaylists[i]);
+              allPlaylists[i].name = result.name || trimmed;
+              // Do not alter timestamps here; they will be refreshed on manual refresh
+              break;
+            }
+          }
+          currentlyEditingId = null;
+          applyFiltersAndRender();
+        }
+      }
+
+      // Event listeners for filters
+      if (filtersComponent) {
+        var searchInputEl = filtersComponent.querySelector('input[data-action="search-input"]');
+        var sortSelectEl = filtersComponent.querySelector('select[data-action="sort-change"]');
+        var viewModeInputs = filtersComponent.querySelectorAll('input[data-action="view-mode-change"]');
+        var refreshButton = filtersComponent.querySelector('button[data-action="refresh-playlists"]');
+        var newFromTopButton = filtersComponent.querySelector('button[data-action="open-create-from-top"]');
+
+        var searchDebounceTimer = null;
+        if (searchInputEl) {
+          searchInputEl.addEventListener('input', function(event) {
+            var value = event.target.value || '';
+            state.q = value;
+            if (searchDebounceTimer) {
+              window.clearTimeout(searchDebounceTimer);
+            }
+            searchDebounceTimer = window.setTimeout(function() {
+              updateUrlParam('q', state.q);
+              applyFiltersAndRender();
+            }, 250);
+          });
+        }
+
+        if (sortSelectEl) {
+          sortSelectEl.addEventListener('change', function(event) {
+            var value = event.target.value || 'name_asc';
+            state.sort = value;
+            updateUrlParam('sort', state.sort);
+            applyFiltersAndRender();
+          });
+        }
+
+        if (viewModeInputs && viewModeInputs.length) {
+          for (var i = 0; i < viewModeInputs.length; i++) {
+            viewModeInputs[i].addEventListener('change', function(event) {
+              if (!event.target.checked) {
+                return;
+              }
+              var value = event.target.value === 'table' ? 'table' : 'list';
+              state.view = value;
+              updateUrlParam('view', state.view);
+              applyFiltersAndRender();
+            });
+          }
+        }
+
+        if (refreshButton) {
+          refreshButton.addEventListener('click', function() {
+            loadPlaylists(true);
+          });
+        }
+
+        if (newFromTopButton) {
+          newFromTopButton.addEventListener('click', function() {
+            openCreateForm();
+          });
+        }
+      }
+
+      // Create form events
+      if (createFormSection && createForm) {
+        createForm.addEventListener('submit', handleCreateSubmit);
+        var closeButton = createForm.querySelector('button[data-action="close-create-form"]');
+        if (closeButton) {
+          closeButton.addEventListener('click', function() {
+            closeCreateForm();
+          });
+        }
+      }
+
+      // Global click handler for data-action elements (delegation)
+      if (mainElement) {
+        mainElement.addEventListener('click', function(event) {
+          var target = event.target;
+          if (!target) {
+            return;
+          }
+          var el = target.closest('[data-action]');
+          if (!el) {
+            return;
+          }
+          var action = el.getAttribute('data-action');
+
+          if (action === 'playlist-item-click') {
+            var playlistId = el.getAttribute('data-playlist-id');
+            if (playlistId) {
+              window.location.href = 'playlist_detail.html?playlistId=' + encodeURIComponent(playlistId);
+            }
+          } else if (action === 'rename-playlist') {
+            var renameId = el.getAttribute('data-playlist-id');
+            if (renameId) {
+              currentlyEditingId = renameId;
+              applyFiltersAndRender();
+            }
+          } else if (action === 'rename-cancel') {
+            currentlyEditingId = null;
+            applyFiltersAndRender();
+          } else if (action === 'rename-submit') {
+            var submitId = el.getAttribute('data-playlist-id');
+            if (submitId) {
+              var row = el.closest('.playlist-row');
+              var inputEl = row ? row.querySelector('input[name="rename"]') : null;
+              var newName = inputEl ? inputEl.value : '';
+              handleRenameSubmit(submitId, newName);
+            }
+          } else if (action === 'delete-playlist-open') {
+            var delId = el.getAttribute('data-playlist-id');
+            if (delId) {
+              openDeleteDialog(delId);
+            }
+          } else if (action === 'open-create-from-empty') {
+            openCreateForm();
+          } else if (action === 'scroll-top') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        });
+      }
+
+      // Delete dialog buttons
+      if (deleteOverlay) {
+        deleteOverlay.addEventListener('click', function(event) {
+          var target = event.target;
+          if (!target) {
+            return;
+          }
+          var el = target.closest('[data-action]');
+          if (!el) {
+            return;
+          }
+          var action = el.getAttribute('data-action');
+          if (action === 'confirm-delete-playlist') {
+            handleConfirmDelete();
+          } else if (action === 'cancel-delete-playlist') {
+            closeDeleteDialog();
+          }
+        });
+      }
+
+      // Initialize filters UI from URL state
+      initFiltersFromState();
+
+      // Initialize data-populate elements (generic pattern)
+      var populateElements = document.querySelectorAll('[data-populate]');
+      for (var i = 0; i < populateElements.length; i++) {
+        var el = populateElements[i];
+        var type = el.getAttribute('data-populate');
+        if (type === 'playlists-overview') {
+          loadPlaylists(true);
+        }
+      }
+    });
+  </script>
+</body>
+</html>

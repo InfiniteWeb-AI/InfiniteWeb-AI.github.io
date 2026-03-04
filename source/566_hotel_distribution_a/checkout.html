@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hotel Distribution &amp; Reservation Services</title>
+
+    <!-- Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+
+    <!-- Framework stylesheet -->
+    
+    <!-- Checkout page stylesheet -->
+    <link rel="stylesheet" href="checkout.css">
+</head>
+<body class="page">
+    <header class="site-header" role="banner">
+        <div class="top-bar">
+            <div class="container top-bar-inner">
+                <a href="index.html" class="brand" aria-label="Go to homepage">
+                    <div class="brand-primary-line" aria-hidden="true">
+                        <span class="brand-word brand-word-main">SUPRANATI</span><span class="brand-word brand-word-accent">O</span><span class="brand-word brand-word-main">NAL</span>
+                    </div>
+                    <div class="brand-secondary-line">
+                        <span class="brand-rule brand-rule-left" aria-hidden="true"></span>
+                        <span class="brand-subtitle">HOTELS</span>
+                        <span class="brand-rule brand-rule-right" aria-hidden="true"></span>
+                    </div>
+                </a>
+                <div class="top-bar-contact">
+                    <span class="top-bar-phone-label">Call us:</span>
+                    <a href="tel:+41279663490" class="top-bar-phone">+41-(0)27-9663490</a>
+                </div>
+            </div>
+        </div>
+
+        <nav class="primary-nav" aria-label="Primary navigation">
+            <div class="container">
+                <ul class="primary-nav-list">
+                    <li class="primary-nav-item"><a href="index.html">Home</a></li>
+                    <li class="primary-nav-item"><a href="bookings.html">My bookings</a></li>
+                    <li class="primary-nav-item"><a href="account.html">Account</a></li>
+                    <li class="primary-nav-item"><a href="partner_dashboard.html">For properties</a></li>
+                    <li class="primary-nav-item"><a href="help.html">Help</a></li>
+                </ul>
+            </div>
+        </nav>
+    </header>
+
+    <div class="page-frame">
+        <main id="content" class="content-shell" role="main">
+            <div class="checkout-page">
+                <div class="container">
+                    <section class="checkout-card" aria-label="Checkout">
+                        <!-- Non-visual controller -->
+                        <div data-component="checkout-init-controller" aria-hidden="true"></div>
+
+                        <!-- Error notification -->
+                        <div class="checkout-error" data-component="error-notification" hidden></div>
+
+                        <!-- Hero: stay summary & price -->
+                        <div class="checkout-hero">
+                            <div class="checkout-hero-left" data-component="stay-summary-header"></div>
+                            <aside class="checkout-hero-right" data-component="price-breakdown-panel"></aside>
+                        </div>
+
+                        <!-- Booking change banner -->
+                        <section class="booking-change-banner" data-component="booking-change-banner" hidden></section>
+
+                        <!-- Main two-column body -->
+                        <div class="checkout-body">
+                            <div class="checkout-body-left">
+                                <section class="card-section" data-component="room-list"></section>
+                                <section class="card-section room-selection-editor" data-component="room-selection-editor" hidden></section>
+                                <section class="card-section" data-component="guest-details-form"></section>
+                            </div>
+                            <aside class="checkout-body-right">
+                                <section class="card-section" data-component="policies-panel"></section>
+                            </aside>
+                        </div>
+
+                        <!-- Booking actions bar -->
+                        <section class="booking-actions-bar" data-component="booking-actions-bar"></section>
+                    </section>
+                </div>
+            </div>
+
+            <script src="business_logic.js"></script>
+            <script>
+            (function() {
+                'use strict';
+
+                function escapeHtml(value) {
+                    if (value === undefined || value === null) return '';
+                    return String(value)
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/\"/g, '&quot;')
+                        .replace(/'/g, '&#39;');
+                }
+
+                function formatCurrency(amount, currency) {
+                    var num = Number(amount || 0);
+                    var code = (currency || 'usd').toUpperCase();
+                    try {
+                        return new Intl.NumberFormat('en-US', { style: 'currency', currency: code }).format(num);
+                    } catch (e) {
+                        return code + ' ' + num.toFixed(2);
+                    }
+                }
+
+                var state = {
+                    checkoutSummary: null,
+                    checkoutContext: 'new_booking',
+                    urlContext: null,
+                    bookingIdFromUrl: null,
+                    changeQuoteId: null,
+                    errorMessage: '',
+                    hasPoliciesAcknowledged: false,
+                    isEditingRoomSelection: false,
+                    primaryMode: 'unknown' // new_with_payment, new_no_payment, change_with_payment, change_no_payment
+                };
+
+                function showError(message) {
+                    state.errorMessage = message || 'An unexpected error occurred. Please try again.';
+                    var container = document.querySelector('[data-component="error-notification"]');
+                    renderErrorNotification(container, state);
+                    if (container) {
+                        container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                }
+
+                function clearError() {
+                    state.errorMessage = '';
+                    var container = document.querySelector('[data-component="error-notification"]');
+                    renderErrorNotification(container, state);
+                }
+
+                function hasRequiredGuestDetails(summary) {
+                    if (!summary || !summary.guestDetails) return false;
+                    var gd = summary.guestDetails;
+                    return !!(gd.primaryGuestName && gd.primaryGuestName.trim() && gd.contactEmail && gd.contactEmail.trim());
+                }
+
+                function renderErrorNotification(container, stateObj) {
+                    if (!container) return;
+                    if (!stateObj.errorMessage) {
+                        container.hidden = true;
+                        container.innerHTML = '';
+                        return;
+                    }
+                    container.hidden = false;
+                    container.innerHTML = `
+                        <div class="checkout-error-inner" role="alert">
+                            <div class="checkout-error-icon" aria-hidden="true">!</div>
+                            <div class="checkout-error-content">
+                                <p class="checkout-error-message">${escapeHtml(stateObj.errorMessage)}</p>
+                                <button type="button" class="link-button checkout-error-dismiss" data-action="dismiss-error">Dismiss</button>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                function renderStaySummary(container, summary, stateObj) {
+                    if (!container) return;
+                    if (!summary || summary.hasSelection === false) {
+                        container.innerHTML = `
+                            <section class="stay-summary">
+                                <h1 class="stay-heading">No stay selected</h1>
+                                <p class="stay-subtext">Your checkout session does not have any rooms selected. Please return to the hotel details page to choose your stay.</p>
+                            </section>
+                        `;
+                        return;
+                    }
+
+                    var ctx = stateObj.checkoutContext === 'booking_change' ? 'Change to existing booking' : 'New booking';
+
+                    container.innerHTML = `
+                        <section class="stay-summary">
+                            <h1 class="stay-hotel-name">${escapeHtml(summary.hotelName || 'Your stay')}</h1>
+                            <p class="stay-destination">${escapeHtml(summary.destinationName || '')}</p>
+                            <div class="stay-meta-row">
+                                <div class="stay-meta-block">
+                                    <span class="stay-meta-label">Check-in</span>
+                                    <span class="stay-meta-value">${escapeHtml(summary.checkInDate || '')}</span>
+                                </div>
+                                <div class="stay-meta-block">
+                                    <span class="stay-meta-label">Check-out</span>
+                                    <span class="stay-meta-value">${escapeHtml(summary.checkOutDate || '')}</span>
+                                </div>
+                            </div>
+                            <div class="stay-meta-row">
+                                <div class="stay-meta-block">
+                                    <span class="stay-meta-label">Nights</span>
+                                    <span class="stay-meta-value">${escapeHtml(summary.nights != null ? summary.nights : '')}</span>
+                                </div>
+                                <div class="stay-meta-block">
+                                    <span class="stay-meta-label">Rooms / guests</span>
+                                    <span class="stay-meta-value">${escapeHtml(summary.numRooms != null ? summary.numRooms : '')} room(s), ${escapeHtml(summary.numGuests != null ? summary.numGuests : '')} guest(s)</span>
+                                </div>
+                            </div>
+                            <p class="stay-context-label">${escapeHtml(ctx)}</p>
+                        </section>
+                    `;
+                }
+
+                function renderPriceBreakdown(container, summary) {
+                    if (!container) return;
+                    if (!summary || summary.hasSelection === false) {
+                        container.innerHTML = '';
+                        return;
+                    }
+                    var pb = summary.priceBreakdown || {};
+                    var currency = pb.currency || 'usd';
+                    var roomSubtotal = formatCurrency(pb.roomSubtotal || 0, currency);
+                    var taxesAndFees = formatCurrency(pb.taxesAndFees || 0, currency);
+                    var changeFees = formatCurrency(pb.changeFees || 0, currency);
+                    var totalPrice = formatCurrency(pb.totalPrice || 0, currency);
+                    var amountDueNow = formatCurrency(pb.amountDueNow || 0, currency);
+                    var amountDueAtProperty = formatCurrency(pb.amountDueAtProperty || 0, currency);
+
+                    var hasChangeFees = !!(pb.changeFees && pb.changeFees > 0);
+
+                    container.innerHTML = `
+                        <section class="price-card" aria-label="Price summary">
+                            <h2 class="price-card-title">Price summary</h2>
+                            <div class="price-row">
+                                <span class="price-label">Room subtotal</span>
+                                <span class="price-value">${roomSubtotal}</span>
+                            </div>
+                            <div class="price-row">
+                                <span class="price-label">Taxes &amp; fees</span>
+                                <span class="price-value">${taxesAndFees}</span>
+                            </div>
+                            ${hasChangeFees ? `
+                                <div class="price-row">
+                                    <span class="price-label">Change fees</span>
+                                    <span class="price-value">${changeFees}</span>
+                                </div>
+                            ` : ''}
+                            <div class="price-divider" aria-hidden="true"></div>
+                            <div class="price-row price-row-total">
+                                <span class="price-label">Total price</span>
+                                <span class="price-value price-total">${totalPrice}</span>
+                            </div>
+                            <div class="price-row">
+                                <span class="price-label">Due now</span>
+                                <span class="price-value">${amountDueNow}</span>
+                            </div>
+                            <div class="price-row">
+                                <span class="price-label">Due at property</span>
+                                <span class="price-value">${amountDueAtProperty}</span>
+                            </div>
+                        </section>
+                    `;
+                }
+
+                function renderBookingChangeBanner(container, summary, stateObj) {
+                    if (!container) return;
+                    var isChange = stateObj.checkoutContext === 'booking_change';
+                    if (!isChange || !summary || summary.hasSelection === false) {
+                        container.hidden = true;
+                        container.innerHTML = '';
+                        return;
+                    }
+                    var pb = summary.priceBreakdown || {};
+                    var hasChangeFees = !!(pb.changeFees && pb.changeFees > 0);
+                    var changeFeesStr = hasChangeFees ? formatCurrency(pb.changeFees, pb.currency || 'usd') : null;
+
+                    container.hidden = false;
+                    container.innerHTML = `
+                        <div class="banner-inner">
+                            <div class="banner-icon" aria-hidden="true">&#8635;</div>
+                            <div class="banner-text">
+                                <p class="banner-title">You are reviewing a change to an existing booking.</p>
+                                <p class="banner-body">
+                                    ${hasChangeFees
+                                        ? `This change includes change fees of <strong>${changeFeesStr}</strong>.` 
+                                        : 'Review the updated stay details and confirm to apply these changes to your booking.'}
+                                </p>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                function renderRoomList(container, summary, stateObj) {
+                    if (!container) return;
+                    if (!summary || summary.hasSelection === false) {
+                        container.innerHTML = `
+                            <header class="section-header">
+                                <h2 class="section-title">Your rooms</h2>
+                            </header>
+                            <p class="section-empty">No rooms selected. Please return to the hotel details page to start a booking.</p>
+                        `;
+                        return;
+                    }
+                    var rooms = summary.rooms || [];
+                    if (!rooms.length) {
+                        container.innerHTML = `
+                            <header class="section-header">
+                                <h2 class="section-title">Your rooms</h2>
+                            </header>
+                            <p class="section-empty">No rooms in your selection. Please go back and choose a room to continue.</p>
+                        `;
+                        return;
+                    }
+
+                    var canEdit = stateObj.checkoutContext === 'new_booking';
+                    var currency = (summary.priceBreakdown && summary.priceBreakdown.currency) || 'usd';
+
+                    var roomItemsHtml = rooms.map(function(room, index) {
+                        var occupancyParts = [];
+                        if (room.occupancyAdults != null) occupancyParts.push(escapeHtml(room.occupancyAdults) + ' adult(s)');
+                        if (room.occupancyChildren != null && room.occupancyChildren > 0) occupancyParts.push(escapeHtml(room.occupancyChildren) + ' child(ren)');
+                        var occupancy = occupancyParts.join(', ');
+                        var nightlyPrice = formatCurrency(room.nightlyPrice || 0, currency);
+                        var totalPrice = formatCurrency(room.totalPrice || 0, currency);
+                        var refundability = room.isRefundable ? 'Refundable' : 'Non-refundable';
+                        var paymentTypeLabel = '';
+                        if (room.paymentType === 'pay_now') paymentTypeLabel = 'Pay now';
+                        else if (room.paymentType === 'pay_at_property') paymentTypeLabel = 'Pay at property';
+                        else if (room.paymentType === 'pay_later') paymentTypeLabel = 'Pay later';
+
+                        return `
+                            <article class="room-line" data-room-index="${index}" data-room-type-id="${escapeHtml(room.roomTypeId || '')}" data-room-rate-option-id="${escapeHtml(room.roomRateOptionId || '')}">
+                                <header class="room-line-header">
+                                    <h3 class="room-line-title">${escapeHtml(room.roomTypeName || 'Room')}</h3>
+                                    <div class="room-line-rate">${escapeHtml(room.ratePlanName || '')}</div>
+                                </header>
+                                <div class="room-line-body">
+                                    <div class="room-line-col room-line-col-main">
+                                        <div class="room-line-meta">${escapeHtml(room.boardType || '')}</div>
+                                        <div class="room-line-meta">${escapeHtml(room.cancellationPolicyType || '')} &middot; ${escapeHtml(refundability)}</div>
+                                        <div class="room-line-meta">${escapeHtml(paymentTypeLabel)}</div>
+                                        <div class="room-line-meta">Quantity: ${escapeHtml(room.quantity != null ? room.quantity : '')}</div>
+                                        <div class="room-line-meta">Occupancy: ${escapeHtml(occupancy)}</div>
+                                    </div>
+                                    <div class="room-line-col room-line-col-price">
+                                        <div class="room-line-price-night">${nightlyPrice} <span class="room-line-price-unit">/ night</span></div>
+                                        <div class="room-line-price-total">${totalPrice} total</div>
+                                    </div>
+                                </div>
+                            </article>
+                        `;
+                    }).join('');
+
+                    container.innerHTML = `
+                        <header class="section-header">
+                            <h2 class="section-title">Your rooms</h2>
+                            ${canEdit ? `<button type="button" class="link-button" data-action="open-room-selection-editor">Edit selection</button>` : ''}
+                        </header>
+                        <div class="room-list-items">
+                            ${roomItemsHtml}
+                        </div>
+                    `;
+                }
+
+                function renderRoomSelectionEditor(container, summary, stateObj) {
+                    if (!container) return;
+
+                    if (stateObj.checkoutContext !== 'new_booking') {
+                        container.hidden = true;
+                        container.innerHTML = '';
+                        return;
+                    }
+
+                    if (!stateObj.isEditingRoomSelection) {
+                        container.hidden = true;
+                        container.innerHTML = '';
+                        return;
+                    }
+
+                    if (!summary || summary.hasSelection === false) {
+                        container.hidden = true;
+                        container.innerHTML = '';
+                        return;
+                    }
+
+                    var rooms = summary.rooms || [];
+                    var numRooms = summary.numRooms != null ? summary.numRooms : rooms.length || 1;
+                    var numGuests = summary.numGuests != null ? summary.numGuests : '';
+
+                    var roomRowsHtml = rooms.map(function(room, index) {
+                        return `
+                            <div class="room-selection-row" data-room-index="${index}">
+                                <div class="room-selection-row-header">
+                                    <div class="room-selection-room-name">${escapeHtml(room.roomTypeName || 'Room')}</div>
+                                    <div class="room-selection-rate-name">${escapeHtml(room.ratePlanName || '')}</div>
+                                </div>
+                                <div class="room-selection-row-body">
+                                    <input type="hidden" name="roomTypeId_${index}" value="${escapeHtml(room.roomTypeId || '')}">
+                                    <input type="hidden" name="roomRateOptionId_${index}" value="${escapeHtml(room.roomRateOptionId || '')}">
+                                    <div class="form-group-inline">
+                                        <label>
+                                            Quantity
+                                            <input type="number" min="1" name="quantity_${index}" value="${escapeHtml(room.quantity != null ? room.quantity : 1)}" required>
+                                        </label>
+                                        <label>
+                                            Adults per room
+                                            <input type="number" min="1" name="occupancyAdults_${index}" value="${escapeHtml(room.occupancyAdults != null ? room.occupancyAdults : 1)}" required>
+                                        </label>
+                                        <label>
+                                            Children per room
+                                            <input type="number" min="0" name="occupancyChildren_${index}" value="${escapeHtml(room.occupancyChildren != null ? room.occupancyChildren : 0)}" required>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+
+                    container.hidden = false;
+                    container.innerHTML = `
+                        <header class="section-header">
+                            <h2 class="section-title">Edit your stay</h2>
+                        </header>
+                        <form class="room-selection-form" data-action="submit-room-selection">
+                            <div class="form-row form-row-inline">
+                                <div class="form-group">
+                                    <label for="checkInDateInput">Check-in</label>
+                                    <input type="date" id="checkInDateInput" name="checkInDate" value="${escapeHtml(summary.checkInDate || '')}" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="checkOutDateInput">Check-out</label>
+                                    <input type="date" id="checkOutDateInput" name="checkOutDate" value="${escapeHtml(summary.checkOutDate || '')}" required>
+                                </div>
+                            </div>
+                            <div class="form-row form-row-inline">
+                                <div class="form-group">
+                                    <label for="numRoomsInput">Rooms</label>
+                                    <input type="number" id="numRoomsInput" name="numRooms" min="1" value="${escapeHtml(numRooms)}" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="numAdultsInput">Adults</label>
+                                    <input type="number" id="numAdultsInput" name="numAdults" min="1" value="${escapeHtml(numGuests || '')}" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="numChildrenInput">Children</label>
+                                    <input type="number" id="numChildrenInput" name="numChildren" min="0" value="0" required>
+                                </div>
+                            </div>
+                            <div class="room-selection-rooms-block">
+                                <h3 class="subsection-title">Per-room details</h3>
+                                ${roomRowsHtml}
+                            </div>
+                            <div class="form-actions-inline">
+                                <button type="button" class="btn btn-secondary" data-action="cancel-room-selection-edit">Cancel</button>
+                                <button type="submit" class="btn btn-primary">Update selection</button>
+                            </div>
+                        </form>
+                    `;
+                }
+
+                function renderGuestDetailsForm(container, summary, stateObj) {
+                    if (!container) return;
+
+                    var gd = (summary && summary.guestDetails) || {};
+                    var primaryGuestName = gd.primaryGuestName || '';
+                    var contactEmail = gd.contactEmail || '';
+                    var contactPhone = gd.contactPhone || '';
+                    var specialRequests = gd.specialRequests || '';
+                    var guestNamesArray = gd.guestNames || [];
+                    var guestNamesText = guestNamesArray.join('\n');
+
+                    container.innerHTML = `
+                        <header class="section-header">
+                            <h2 class="section-title">Guest details</h2>
+                        </header>
+                        <form class="guest-details-form" data-action="submit-guest-details" novalidate>
+                            <div class="form-section">
+                                <h3 class="subsection-title">Primary guest</h3>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="primaryGuestNameInput">Full name <span class="field-required">*</span></label>
+                                        <input type="text" id="primaryGuestNameInput" name="primaryGuestName" required value="${escapeHtml(primaryGuestName)}">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-section">
+                                <h3 class="subsection-title">Other guests</h3>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="guestNamesInput">Guest names (optional)</label>
+                                        <textarea id="guestNamesInput" name="guestNames" rows="3" placeholder="One name per line">${escapeHtml(guestNamesText)}</textarea>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-section">
+                                <h3 class="subsection-title">Contact information</h3>
+                                <div class="form-row form-row-inline">
+                                    <div class="form-group">
+                                        <label for="contactEmailInput">Email <span class="field-required">*</span></label>
+                                        <input type="email" id="contactEmailInput" name="contactEmail" required value="${escapeHtml(contactEmail)}">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="contactPhoneInput">Phone (optional)</label>
+                                        <input type="tel" id="contactPhoneInput" name="contactPhone" value="${escapeHtml(contactPhone)}">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-section">
+                                <h3 class="subsection-title">Special requests</h3>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="specialRequestsInput">Requests to the property (optional)</label>
+                                        <textarea id="specialRequestsInput" name="specialRequests" rows="3" placeholder="e.g., late arrival, accessibility needs">${escapeHtml(specialRequests)}</textarea>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-actions-inline">
+                                <button type="submit" class="btn btn-secondary">Save guest details</button>
+                            </div>
+                        </form>
+                    `;
+                }
+
+                function renderPoliciesPanel(container, summary, stateObj) {
+                    if (!container) return;
+
+                    var policies = (summary && summary.policies) || {};
+                    var cancellation = policies.cancellationSummary || 'Cancellation policy details will be shown here once available.';
+                    var payment = policies.paymentSummary || 'Payment terms will be shown here once available.';
+                    var houseRules = policies.houseRules || 'House rules will be shown here once available.';
+
+                    container.innerHTML = `
+                        <header class="section-header">
+                            <h2 class="section-title">Policies</h2>
+                        </header>
+                        <div class="policies-accordion">
+                            <div class="policy-item">
+                                <button type="button" class="policy-toggle" data-action="toggle-policy" data-policy="cancellation" aria-expanded="false">
+                                    <span>Cancellation policy</span>
+                                    <span class="policy-toggle-icon" aria-hidden="true">&#9662;</span>
+                                </button>
+                                <div class="policy-content" data-policy-content="cancellation" hidden>
+                                    <p>${escapeHtml(cancellation)}</p>
+                                </div>
+                            </div>
+                            <div class="policy-item">
+                                <button type="button" class="policy-toggle" data-action="toggle-policy" data-policy="payment" aria-expanded="false">
+                                    <span>Payment terms</span>
+                                    <span class="policy-toggle-icon" aria-hidden="true">&#9662;</span>
+                                </button>
+                                <div class="policy-content" data-policy-content="payment" hidden>
+                                    <p>${escapeHtml(payment)}</p>
+                                </div>
+                            </div>
+                            <div class="policy-item">
+                                <button type="button" class="policy-toggle" data-action="toggle-policy" data-policy="houseRules" aria-expanded="false">
+                                    <span>House rules</span>
+                                    <span class="policy-toggle-icon" aria-hidden="true">&#9662;</span>
+                                </button>
+                                <div class="policy-content" data-policy-content="houseRules" hidden>
+                                    <p>${escapeHtml(houseRules)}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="policies-confirm">
+                            <label class="checkbox-inline">
+                                <input type="checkbox" data-action="toggle-policies-ack" ${stateObj.hasPoliciesAcknowledged ? 'checked' : ''}>
+                                <span>I have reviewed and agree to the above policies.</span>
+                            </label>
+                        </div>
+                    `;
+                }
+
+                function renderBookingActionsBar(container, summary, stateObj) {
+                    if (!container) return;
+
+                    if (!summary || summary.hasSelection === false) {
+                        container.innerHTML = '';
+                        return;
+                    }
+
+                    var pb = summary.priceBreakdown || {};
+                    var amountDueNow = typeof pb.amountDueNow === 'number' ? pb.amountDueNow : 0;
+                    var currency = pb.currency || 'usd';
+                    var totalPrice = formatCurrency(pb.totalPrice || 0, currency);
+
+                    var ctx = stateObj.checkoutContext;
+                    var primaryLabel = 'Continue';
+                    var primaryMode = 'unknown';
+
+                    if (ctx === 'booking_change') {
+                        if (amountDueNow > 0) {
+                            primaryLabel = 'Confirm changes and proceed to payment';
+                            primaryMode = 'change_with_payment';
+                        } else {
+                            primaryLabel = 'Confirm changes';
+                            primaryMode = 'change_no_payment';
+                        }
+                    } else {
+                        if (amountDueNow > 0) {
+                            primaryLabel = 'Continue to payment';
+                            primaryMode = 'new_with_payment';
+                        } else {
+                            primaryLabel = 'Confirm booking';
+                            primaryMode = 'new_no_payment';
+                        }
+                    }
+
+                    stateObj.primaryMode = primaryMode;
+
+                    var canProceed = hasRequiredGuestDetails(summary) && stateObj.hasPoliciesAcknowledged;
+
+                    var contextLabel = ctx === 'booking_change' ? 'Change total' : 'Booking total';
+
+                    container.innerHTML = `
+                        <div class="booking-actions-inner">
+                            <div class="booking-actions-summary">
+                                <span class="booking-actions-label">${escapeHtml(contextLabel)}:</span>
+                                <span class="booking-actions-amount">${totalPrice}</span>
+                                <span class="booking-actions-due-now">&middot; Due now: ${formatCurrency(amountDueNow, currency)}</span>
+                            </div>
+                            <div class="booking-actions-buttons">
+                                <button type="button" class="btn btn-primary" data-action="primary-action" ${canProceed ? '' : 'disabled'}>${escapeHtml(primaryLabel)}</button>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                function togglePolicySection(policyKey) {
+                    var content = document.querySelector('[data-policy-content="' + policyKey + '"]');
+                    var toggleBtn = document.querySelector('[data-action="toggle-policy"][data-policy="' + policyKey + '"]');
+                    if (!content || !toggleBtn) return;
+                    var isHidden = content.hasAttribute('hidden');
+                    if (isHidden) {
+                        content.removeAttribute('hidden');
+                        toggleBtn.setAttribute('aria-expanded', 'true');
+                    } else {
+                        content.setAttribute('hidden', '');
+                        toggleBtn.setAttribute('aria-expanded', 'false');
+                    }
+                }
+
+                function applyGuestDetailsFromForm(form) {
+                    var formData = new FormData(form);
+                    var primaryGuestName = (formData.get('primaryGuestName') || '').trim();
+                    var contactEmail = (formData.get('contactEmail') || '').trim();
+                    var contactPhone = (formData.get('contactPhone') || '').trim();
+                    var specialRequests = (formData.get('specialRequests') || '').trim();
+                    var guestNamesRaw = (formData.get('guestNames') || '');
+
+                    var errors = [];
+                    if (!primaryGuestName) errors.push('Primary guest name is required.');
+                    if (!contactEmail) errors.push('Contact email is required.');
+
+                    if (errors.length) {
+                        showError(errors.join(' '));
+                        return null;
+                    }
+
+                    var guestNames = guestNamesRaw
+                        .split(/\r?\n/)
+                        .map(function(line) { return line.trim(); })
+                        .filter(function(line) { return line.length > 0; });
+
+                    var result;
+                    try {
+                        result = WebsiteSDK.updateCheckoutGuestDetails(primaryGuestName, guestNames, contactEmail, contactPhone, specialRequests);
+                    } catch (e) {
+                        showError('Unable to save guest details. Please try again.');
+                        return null;
+                    }
+
+                    if (!result || result.success === false) {
+                        var msg = result && result.message ? result.message : 'Unable to save guest details. Please check your information and try again.';
+                        showError(msg);
+                        return null;
+                    }
+
+                    if (result.checkoutSummary && result.checkoutSummary.guestDetails) {
+                        if (!state.checkoutSummary) state.checkoutSummary = {};
+                        state.checkoutSummary.guestDetails = result.checkoutSummary.guestDetails;
+                    }
+
+                    clearError();
+                    return result;
+                }
+
+                function ensureGuestDetailsSavedAndValid(nextStep) {
+                    var form = document.querySelector('[data-component="guest-details-form"] form');
+                    if (!form) {
+                        showError('Guest details form is not available. Please reload the page.');
+                        return;
+                    }
+                    var result = applyGuestDetailsFromForm(form);
+                    if (!result) return;
+                    var guestContainer = document.querySelector('[data-component="guest-details-form"]');
+                    renderGuestDetailsForm(guestContainer, state.checkoutSummary, state);
+                    var actionsContainer = document.querySelector('[data-component="booking-actions-bar"]');
+                    renderBookingActionsBar(actionsContainer, state.checkoutSummary, state);
+                    if (typeof nextStep === 'function') {
+                        nextStep();
+                    }
+                }
+
+                function handlePrimaryAction() {
+                    if (!state.checkoutSummary || state.checkoutSummary.hasSelection === false) {
+                        showError('There is no active selection to confirm. Please start your booking again.');
+                        return;
+                    }
+
+                    if (!state.hasPoliciesAcknowledged) {
+                        showError('Please review and agree to the policies before continuing.');
+                        return;
+                    }
+
+                    ensureGuestDetailsSavedAndValid(function() {
+                        var summary = state.checkoutSummary;
+                        var pb = summary.priceBreakdown || {};
+                        var context = state.checkoutContext;
+                        var amountDueNow = typeof pb.amountDueNow === 'number' ? pb.amountDueNow : 0;
+
+                        if (context === 'new_booking') {
+                            if (amountDueNow > 0) {
+                                var bookingId = (summary && summary.bookingId) || state.bookingIdFromUrl || '';
+                                var url = 'payment.html?bookingId=' + encodeURIComponent(bookingId) + '&context=new_booking';
+                                window.location.href = url;
+                            } else {
+                                var createResult;
+                                try {
+                                    createResult = WebsiteSDK.createBookingFromCheckout();
+                                } catch (e) {
+                                    showError('Unable to confirm booking. Please try again.');
+                                    return;
+                                }
+                                if (!createResult || createResult.success === false) {
+                                    var msg = createResult && createResult.message ? createResult.message : 'Unable to confirm booking. Please try again.';
+                                    showError(msg);
+                                    return;
+                                }
+                                var confirmationUrl = 'confirmation.html?bookingId=' + encodeURIComponent(createResult.bookingId || '');
+                                window.location.href = confirmationUrl;
+                            }
+                        } else if (context === 'booking_change') {
+                            if (!state.changeQuoteId) {
+                                showError('Missing change quote information. Please return to booking management and try again.');
+                                return;
+                            }
+                            var confirmResult;
+                            try {
+                                confirmResult = WebsiteSDK.confirmBookingChange(state.changeQuoteId, true);
+                            } catch (e) {
+                                showError('Unable to confirm booking change. Please try again.');
+                                return;
+                            }
+                            if (!confirmResult || confirmResult.success === false) {
+                                var msgChange = confirmResult && confirmResult.message ? confirmResult.message : 'Unable to confirm booking change. Please try again.';
+                                showError(msgChange);
+                                return;
+                            }
+                            var bookingIdChange = confirmResult.bookingId || '';
+                            if (confirmResult.requiresAdditionalPayment) {
+                                var payUrl = 'payment.html?bookingId=' + encodeURIComponent(bookingIdChange) + '&context=booking_change';
+                                window.location.href = payUrl;
+                            } else {
+                                var confUrl = 'confirmation.html?bookingId=' + encodeURIComponent(bookingIdChange);
+                                window.location.href = confUrl;
+                            }
+                        }
+                    });
+                }
+
+                function handleGuestFormSubmit(event) {
+                    event.preventDefault();
+                    var form = event.target;
+                    applyGuestDetailsFromForm(form);
+                    var actionsContainer = document.querySelector('[data-component="booking-actions-bar"]');
+                    renderBookingActionsBar(actionsContainer, state.checkoutSummary, state);
+                }
+
+                function handleRoomSelectionSubmit(event) {
+                    event.preventDefault();
+                    var form = event.target;
+                    var formData = new FormData(form);
+
+                    var checkInDate = (formData.get('checkInDate') || '').trim();
+                    var checkOutDate = (formData.get('checkOutDate') || '').trim();
+                    var numRooms = parseInt(formData.get('numRooms') || '0', 10) || 0;
+                    var numAdults = parseInt(formData.get('numAdults') || '0', 10) || 0;
+                    var numChildren = parseInt(formData.get('numChildren') || '0', 10) || 0;
+
+                    if (!checkInDate || !checkOutDate || numRooms <= 0 || numAdults <= 0 || numChildren < 0) {
+                        showError('Please provide valid dates, room count, and guest counts.');
+                        return;
+                    }
+
+                    var rows = form.querySelectorAll('.room-selection-row');
+                    var selectedRooms = [];
+                    rows.forEach(function(row) {
+                        var idx = row.getAttribute('data-room-index');
+                        var roomTypeIdInput = row.querySelector('input[name="roomTypeId_' + idx + '"]');
+                        var roomRateOptionIdInput = row.querySelector('input[name="roomRateOptionId_' + idx + '"]');
+                        var quantityInput = row.querySelector('input[name="quantity_' + idx + '"]');
+                        var occAdultsInput = row.querySelector('input[name="occupancyAdults_' + idx + '"]');
+                        var occChildrenInput = row.querySelector('input[name="occupancyChildren_' + idx + '"]');
+
+                        var quantity = parseInt(quantityInput && quantityInput.value ? quantityInput.value : '0', 10) || 0;
+                        var occAdults = parseInt(occAdultsInput && occAdultsInput.value ? occAdultsInput.value : '0', 10) || 0;
+                        var occChildren = parseInt(occChildrenInput && occChildrenInput.value ? occChildrenInput.value : '0', 10) || 0;
+
+                        if (quantity > 0) {
+                            selectedRooms.push({
+                                roomTypeId: roomTypeIdInput ? roomTypeIdInput.value : '',
+                                roomRateOptionId: roomRateOptionIdInput ? roomRateOptionIdInput.value : '',
+                                quantity: quantity,
+                                occupancyAdults: occAdults,
+                                occupancyChildren: occChildren
+                            });
+                        }
+                    });
+
+                    if (!selectedRooms.length) {
+                        showError('Please keep at least one room in your selection.');
+                        return;
+                    }
+
+                    var hotelId = state.checkoutSummary && state.checkoutSummary.hotelId;
+                    if (!hotelId) {
+                        showError('Unable to update rooms because the hotel information is missing.');
+                        return;
+                    }
+
+                    var childrenAges = [];
+                    var response;
+                    try {
+                        response = WebsiteSDK.setRoomSelectionForBooking(hotelId, checkInDate, checkOutDate, numAdults, numChildren, childrenAges, numRooms, selectedRooms);
+                    } catch (e) {
+                        showError('Unable to update room selection. Please try again.');
+                        return;
+                    }
+
+                    if (!response || response.success === false) {
+                        var msg = response && response.message ? response.message : 'Unable to update room selection. Please try again.';
+                        showError(msg);
+                        return;
+                    }
+
+                    if (response.checkoutSummary) {
+                        state.checkoutSummary = response.checkoutSummary;
+                    }
+
+                    state.isEditingRoomSelection = false;
+                    clearError();
+
+                    var stayContainer = document.querySelector('[data-component="stay-summary-header"]');
+                    renderStaySummary(stayContainer, state.checkoutSummary, state);
+                    var priceContainer = document.querySelector('[data-component="price-breakdown-panel"]');
+                    renderPriceBreakdown(priceContainer, state.checkoutSummary);
+                    var bannerContainer = document.querySelector('[data-component="booking-change-banner"]');
+                    renderBookingChangeBanner(bannerContainer, state.checkoutSummary, state);
+                    var roomListContainer = document.querySelector('[data-component="room-list"]');
+                    renderRoomList(roomListContainer, state.checkoutSummary, state);
+                    var roomEditorContainer = document.querySelector('[data-component="room-selection-editor"]');
+                    renderRoomSelectionEditor(roomEditorContainer, state.checkoutSummary, state);
+                    var policiesContainer = document.querySelector('[data-component="policies-panel"]');
+                    renderPoliciesPanel(policiesContainer, state.checkoutSummary, state);
+                    var actionsContainer = document.querySelector('[data-component="booking-actions-bar"]');
+                    renderBookingActionsBar(actionsContainer, state.checkoutSummary, state);
+                }
+
+                function attachFormListeners() {
+                    var guestForm = document.querySelector('[data-component="guest-details-form"] form');
+                    if (guestForm && !guestForm.__listenerBound) {
+                        guestForm.addEventListener('submit', handleGuestFormSubmit);
+                        guestForm.__listenerBound = true;
+                    }
+                    var roomForm = document.querySelector('[data-component="room-selection-editor"] form');
+                    if (roomForm && !roomForm.__listenerBound) {
+                        roomForm.addEventListener('submit', handleRoomSelectionSubmit);
+                        roomForm.__listenerBound = true;
+                    }
+                }
+
+                function initEventDelegation() {
+                    document.addEventListener('click', function(event) {
+                        var actionEl = event.target.closest('[data-action]');
+                        if (!actionEl) return;
+                        var action = actionEl.getAttribute('data-action');
+                        if (!action) return;
+
+                        if (action === 'dismiss-error') {
+                            clearError();
+                        } else if (action === 'open-room-selection-editor') {
+                            state.isEditingRoomSelection = true;
+                            var container = document.querySelector('[data-component="room-selection-editor"]');
+                            renderRoomSelectionEditor(container, state.checkoutSummary, state);
+                            attachFormListeners();
+                            var editorSection = document.querySelector('[data-component="room-selection-editor"]');
+                            if (editorSection) {
+                                editorSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                        } else if (action === 'cancel-room-selection-edit') {
+                            state.isEditingRoomSelection = false;
+                            var containerCancel = document.querySelector('[data-component="room-selection-editor"]');
+                            renderRoomSelectionEditor(containerCancel, state.checkoutSummary, state);
+                        } else if (action === 'primary-action') {
+                            handlePrimaryAction();
+                        } else if (action === 'toggle-policy') {
+                            var key = actionEl.getAttribute('data-policy');
+                            if (key) togglePolicySection(key);
+                        }
+                    });
+
+                    document.addEventListener('change', function(event) {
+                        var target = event.target;
+                        if (target && target.getAttribute('data-action') === 'toggle-policies-ack') {
+                            state.hasPoliciesAcknowledged = !!target.checked;
+                            var actionsContainer = document.querySelector('[data-component="booking-actions-bar"]');
+                            renderBookingActionsBar(actionsContainer, state.checkoutSummary, state);
+                        }
+                    });
+                }
+
+                function initCheckout() {
+                    var params = new URLSearchParams(window.location.search || '');
+                    state.urlContext = params.get('context');
+                    state.bookingIdFromUrl = params.get('bookingId');
+                    state.changeQuoteId = params.get('changeQuoteId');
+
+                    var summary;
+                    try {
+                        summary = WebsiteSDK.getCheckoutSummary();
+                    } catch (e) {
+                        state.checkoutSummary = null;
+                        state.checkoutContext = state.urlContext === 'booking_change' ? 'booking_change' : 'new_booking';
+                        showError('Unable to load your checkout. Please refresh the page or start again from the hotel details page.');
+                        return;
+                    }
+
+                    state.checkoutSummary = summary || null;
+
+                    if (state.urlContext === 'new_booking' || state.urlContext === 'booking_change') {
+                        state.checkoutContext = state.urlContext;
+                    } else if (summary && summary.contextType) {
+                        state.checkoutContext = summary.contextType;
+                    } else {
+                        state.checkoutContext = 'new_booking';
+                    }
+
+                    var stayContainer = document.querySelector('[data-component="stay-summary-header"]');
+                    renderStaySummary(stayContainer, state.checkoutSummary, state);
+
+                    var priceContainer = document.querySelector('[data-component="price-breakdown-panel"]');
+                    renderPriceBreakdown(priceContainer, state.checkoutSummary);
+
+                    var bannerContainer = document.querySelector('[data-component="booking-change-banner"]');
+                    renderBookingChangeBanner(bannerContainer, state.checkoutSummary, state);
+
+                    var roomListContainer = document.querySelector('[data-component="room-list"]');
+                    renderRoomList(roomListContainer, state.checkoutSummary, state);
+
+                    var roomEditorContainer = document.querySelector('[data-component="room-selection-editor"]');
+                    renderRoomSelectionEditor(roomEditorContainer, state.checkoutSummary, state);
+
+                    var guestContainer = document.querySelector('[data-component="guest-details-form"]');
+                    renderGuestDetailsForm(guestContainer, state.checkoutSummary, state);
+
+                    var policiesContainer = document.querySelector('[data-component="policies-panel"]');
+                    renderPoliciesPanel(policiesContainer, state.checkoutSummary, state);
+
+                    var actionsContainer = document.querySelector('[data-component="booking-actions-bar"]');
+                    renderBookingActionsBar(actionsContainer, state.checkoutSummary, state);
+
+                    attachFormListeners();
+
+                    var errorContainer = document.querySelector('[data-component="error-notification"]');
+                    renderErrorNotification(errorContainer, state);
+                }
+
+                document.addEventListener('DOMContentLoaded', function() {
+                    initEventDelegation();
+                    initCheckout();
+                });
+            })();
+            </script>
+        </main>
+    </div>
+
+    <footer class="site-footer" role="contentinfo">
+        <div class="footer-background">
+            <div class="container footer-inner">
+                <div class="footer-brand-block">
+                    <div class="footer-brand" aria-hidden="true">
+                        <div class="brand-primary-line">
+                            <span class="brand-word brand-word-main">SUPRANATI</span><span class="brand-word brand-word-accent">O</span><span class="brand-word brand-word-main">NAL</span>
+                        </div>
+                        <div class="brand-secondary-line">
+                            <span class="brand-rule brand-rule-left"></span>
+                            <span class="brand-subtitle">HOTELS</span>
+                            <span class="brand-rule brand-rule-right"></span>
+                        </div>
+                    </div>
+                    <p class="footer-tagline">Global hotel distribution and reservation services.</p>
+                </div>
+
+                <nav class="footer-nav" aria-label="Footer navigation">
+                    <ul class="footer-nav-list">
+                        <li class="footer-nav-item"><a href="about.html">About</a></li>
+                        <li class="footer-nav-item"><a href="contact.html">Contact</a></li>
+                        <li class="footer-nav-item"><a href="help.html">Help</a></li>
+                        <li class="footer-nav-item"><a href="bookings.html">My bookings</a></li>
+                        <li class="footer-nav-item"><a href="partner_dashboard.html">For properties</a></li>
+                        <li class="footer-nav-item"><a href="terms.html">Terms &amp; Conditions</a></li>
+                        <li class="footer-nav-item"><a href="privacy.html">Privacy Policy</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+        <div class="footer-lower">
+            <div class="container footer-lower-inner">
+                <p class="footer-copy">&copy; <span data-year="current">2024</span> Supranational Hotels. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

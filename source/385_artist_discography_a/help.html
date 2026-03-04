@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Artist Discography Framework</title>
+  
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="page-background">
+    <div class="page-container">
+      <header class="site-header">
+        <h1 class="site-title">Artist Discography</h1>
+        <nav class="site-nav" aria-label="Primary">
+          <ul>
+            <li><a href="index.html">Home</a></li>
+            <li><a href="genres.html">Browse Genres</a></li>
+            <li><a href="library.html">Library</a></li>
+            <li><a href="playlists.html">Playlists</a></li>
+            <li><a href="favorites.html">Favorites</a></li>
+            <li><a href="queue.html">Queue</a></li>
+          </ul>
+        </nav>
+      </header>
+
+      <main id="content" class="site-main" role="main">
+        <section class="help-panel" data-component="help-page-controller" data-populate="help-topics" aria-labelledby="helpPageTitle">
+          <noscript>
+            <p>Help topics require JavaScript to load. Please enable JavaScript and reload this page.</p>
+          </noscript>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <hr class="footer-divider">
+        <nav class="footer-nav" aria-label="Footer">
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="help.html">Help / FAQ</a></li>
+            <li><a href="contact.html">Contact</a></li>
+            <li><a href="bookmarks.html">Bookmarks</a></li>
+            <li><a href="lists.html">Lists</a></li>
+          </ul>
+        </nav>
+        <p class="footer-meta">&copy; Artist Discography</p>
+      </footer>
+    </div>
+  </div>
+
+  <script src="business_logic.js"></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const url = new URL(window.location.href);
+    const urlParams = url.searchParams;
+    const requestedCategory = urlParams.get('category');
+
+    let fullTopics = [];
+    let availableCategories = [];
+    let activeCategory = 'all';
+    let searchTerm = '';
+    let expandedTopicIds = new Set();
+    let searchDebounceId = null;
+
+    const populateElements = document.querySelectorAll('[data-populate]');
+
+    populateElements.forEach(function(element) {
+      const dataType = element.dataset.populate;
+      if (dataType === 'help-topics') {
+        initializeHelpTopics(element);
+      }
+    });
+
+    function initializeHelpTopics(container) {
+      try {
+        const topics = WebsiteSDK.getHelpTopics();
+        if (!Array.isArray(topics)) {
+          throw new Error('getHelpTopics did not return an array');
+        }
+
+        fullTopics = topics;
+        availableCategories = deriveCategories(fullTopics);
+
+        const initialCategoryResult = resolveInitialCategory(availableCategories, fullTopics, requestedCategory);
+        activeCategory = initialCategoryResult.initialCategory;
+
+        if (initialCategoryResult.invalidCategory && requestedCategory) {
+          urlParams.delete('category');
+          const newQuery = urlParams.toString();
+          const newUrl = url.pathname + (newQuery ? '?' + newQuery : '') + window.location.hash;
+          window.history.replaceState({}, '', newUrl);
+        }
+
+        const hash = window.location.hash;
+        if (hash && hash.indexOf('#topic-') === 0) {
+          const topicIdFromHash = decodeURIComponent(hash.substring('#topic-'.length));
+          if (topicIdFromHash) {
+            expandedTopicIds.add(topicIdFromHash);
+          }
+        }
+
+        renderHelpPage(container, {
+          topics: fullTopics,
+          categories: availableCategories,
+          activeCategory: activeCategory,
+          searchTerm: searchTerm,
+          requestedCategory: requestedCategory,
+          invalidCategory: initialCategoryResult.invalidCategory
+        });
+
+        const topicListContainer = document.querySelector('[data-component="help-topic-list"]');
+        if (topicListContainer) {
+          renderTopicList(topicListContainer);
+
+          const hashAfterRender = window.location.hash;
+          if (hashAfterRender && hashAfterRender.indexOf('#topic-') === 0) {
+            const topicIdFromHash2 = decodeURIComponent(hashAfterRender.substring('#topic-'.length));
+            if (topicIdFromHash2) {
+              const anchorId = 'topic-' + topicIdFromHash2;
+              const targetElement = document.getElementById(anchorId);
+              if (targetElement) {
+                targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }
+          }
+        }
+
+        setupEventHandlers();
+      } catch (error) {
+        console.error('Error initializing help topics:', error);
+        showError(container, 'Unable to load help topics at the moment. Please try again later.');
+      }
+    }
+
+    function deriveCategories(topics) {
+      const set = new Set();
+      topics.forEach(function(topic) {
+        if (topic && typeof topic.category === 'string' && topic.category.trim() !== '') {
+          set.add(topic.category.trim());
+        }
+      });
+      return Array.from(set).sort();
+    }
+
+    function resolveInitialCategory(categories, topics, requested) {
+      if (!requested) {
+        return { initialCategory: 'all', invalidCategory: false };
+      }
+      const trimmed = String(requested).trim();
+      if (!trimmed) {
+        return { initialCategory: 'all', invalidCategory: false };
+      }
+      const hasMatchingTopic = topics.some(function(topic) {
+        return topic && topic.category === trimmed;
+      });
+      if (hasMatchingTopic) {
+        return { initialCategory: trimmed, invalidCategory: false };
+      }
+      return { initialCategory: 'all', invalidCategory: true };
+    }
+
+    function escapeHtml(value) {
+      if (value === null || value === undefined) {
+        return '';
+      }
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function showError(container, message) {
+      container.innerHTML = '<p class="help-error">' + escapeHtml(message) + '</p>';
+    }
+
+    function renderHelpPage(container, state) {
+      const categories = state.categories || [];
+      const active = state.activeCategory || 'all';
+      const invalidCategory = !!state.invalidCategory;
+      const requestedCat = state.requestedCategory || '';
+
+      var categoryButtonsHtml = '';
+      categoryButtonsHtml += '<button type="button" data-action="change-category" data-category="all" aria-pressed="' + (active === 'all' ? 'true' : 'false') + '">All topics</button>';
+
+      categories.forEach(function(cat) {
+        var label = cat;
+        if (label && label.length > 0) {
+          label = label.charAt(0).toUpperCase() + label.slice(1);
+        }
+        categoryButtonsHtml += ' ';
+        categoryButtonsHtml += '<button type="button" data-action="change-category" data-category="' + escapeHtml(cat) + '" aria-pressed="' + (active === cat ? 'true' : 'false') + '">' + escapeHtml(label) + '</button>';
+      });
+
+      var invalidCategoryMessageHtml = '';
+      if (invalidCategory && requestedCat) {
+        invalidCategoryMessageHtml = '<p class="help-category-message">No topics found for category "' + escapeHtml(requestedCat) + '". Showing all topics instead.</p>';
+      }
+
+      var searchValue = state.searchTerm || '';
+
+      container.innerHTML = (
+        '<header class="help-header">' +
+          '<h2 id="helpPageTitle">Help / FAQ</h2>' +
+          '<p class="help-intro">Search within the Help / FAQ to learn how to use search, filters, Favorites, Library, Playlists, Lists, Bookmarks, and more.</p>' +
+        '</header>' +
+        '<section class="help-controls">' +
+          '<div class="help-category-filter" data-component="help-category-filter" aria-label="Help categories">' +
+            '<span class="help-category-label">Categories:</span> ' +
+            categoryButtonsHtml +
+          '</div>' +
+          invalidCategoryMessageHtml +
+          '<form class="help-search-form" data-component="help-topic-search-form" role="search">' +
+            '<label for="helpSearchInput">Search within help topics</label><br>' +
+            '<input id="helpSearchInput" name="q" type="search" value="' + escapeHtml(searchValue) + '" ' +
+              'data-action="search-input" autocomplete="off"> ' +
+            '<button type="submit" data-action="search-submit">Search</button> ' +
+            '<button type="button" data-action="clear-search">Clear</button>' +
+          '</form>' +
+        '</section>' +
+        '<section class="help-topics-section">' +
+          '<h3 class="help-topics-heading">Help topics</h3>' +
+          '<div class="help-topic-list" data-component="help-topic-list" aria-live="polite"></div>' +
+        '</section>' +
+        '<hr class="help-bottom-rule">' +
+        '<p class="help-return-link"><a href="javascript:void(0)">Return to main discography</a></p>'
+      );
+    }
+
+    function getVisibleTopics() {
+      const normalizedSearch = searchTerm.trim().toLowerCase();
+      return fullTopics.filter(function(topic) {
+        if (!topic) {
+          return false;
+        }
+        if (activeCategory !== 'all' && topic.category !== activeCategory) {
+          return false;
+        }
+        if (!normalizedSearch) {
+          return true;
+        }
+        const haystack = ((topic.question || '') + ' ' + (topic.answer || '')).toLowerCase();
+        return haystack.indexOf(normalizedSearch) !== -1;
+      });
+    }
+
+    function renderTopicList(container) {
+      const visibleTopics = getVisibleTopics();
+
+      if (!visibleTopics.length) {
+        container.innerHTML = '<p class="help-empty">No help topics match your current filters. Try a different category or search term.</p>';
+        return;
+      }
+
+      let html = '';
+      visibleTopics.forEach(function(topic) {
+        const topicId = topic.topic_id != null ? String(topic.topic_id) : '';
+        const anchorId = 'topic-' + topicId;
+        const isExpanded = expandedTopicIds.has(topicId);
+        const question = escapeHtml(topic.question || '');
+        const answerRaw = topic.answer || '';
+        const answerHtml = escapeHtml(answerRaw).replace(/\r?\n/g, '<br>');
+
+        html += '' +
+          '<article class="help-topic-item" data-component="help-topic-item" id="' + anchorId + '" data-topic-id="' + escapeHtml(topicId) + '">' +
+            '<h4 class="help-topic-question">' +
+              '<button type="button" class="help-topic-toggle" data-action="toggle-topic" data-topic-id="' + escapeHtml(topicId) + '" aria-expanded="' + (isExpanded ? 'true' : 'false') + '">' +
+                question +
+              '</button>' +
+            '</h4>' +
+            '<div class="help-topic-answer" data-topic-answer="' + escapeHtml(topicId) + '"' + (isExpanded ? '' : ' hidden') + '>' +
+              '<p>' + answerHtml + '</p>' +
+              '<p class="help-topic-anchor-link">' +
+                '<a href="#' + anchorId + '">Link to this answer</a>' +
+              '</p>' +
+            '</div>' +
+          '</article>';
+      });
+
+      container.innerHTML = html;
+    }
+
+    function setupEventHandlers() {
+      const categoryFilter = document.querySelector('[data-component="help-category-filter"]');
+      if (categoryFilter) {
+        categoryFilter.addEventListener('click', function(event) {
+          const target = event.target;
+          if (!target) {
+            return;
+          }
+          const button = target.closest('[data-action="change-category"]');
+          if (button && categoryFilter.contains(button)) {
+            event.preventDefault();
+            const category = button.dataset.category || 'all';
+            handleCategoryChange(category);
+          }
+        });
+      }
+
+      const searchForm = document.querySelector('[data-component="help-topic-search-form"]');
+      if (searchForm) {
+        const searchInput = searchForm.querySelector('[data-action="search-input"]');
+        const clearButton = searchForm.querySelector('[data-action="clear-search"]');
+
+        searchForm.addEventListener('submit', function(event) {
+          event.preventDefault();
+          const value = searchInput ? searchInput.value || '' : '';
+          handleSearchChange(value, false);
+        });
+
+        if (searchInput) {
+          searchInput.addEventListener('input', function(event) {
+            const value = event.target.value || '';
+            handleSearchChange(value, true);
+          });
+        }
+
+        if (clearButton) {
+          clearButton.addEventListener('click', function(event) {
+            event.preventDefault();
+            if (searchInput) {
+              searchInput.value = '';
+            }
+            handleSearchChange('', false);
+          });
+        }
+      }
+
+      const topicListContainer = document.querySelector('[data-component="help-topic-list"]');
+      if (topicListContainer) {
+        topicListContainer.addEventListener('click', function(event) {
+          const target = event.target;
+          if (!target) {
+            return;
+          }
+          const toggleButton = target.closest('[data-action="toggle-topic"]');
+          if (toggleButton && topicListContainer.contains(toggleButton)) {
+            const topicId = toggleButton.dataset.topicId || '';
+            if (topicId) {
+              event.preventDefault();
+              toggleTopicExpansion(topicId);
+            }
+          }
+        });
+      }
+    }
+
+    function handleCategoryChange(category) {
+      activeCategory = category || 'all';
+      updateCategoryInUrl(activeCategory);
+      updateCategoryFilterUI();
+      const topicListContainer = document.querySelector('[data-component="help-topic-list"]');
+      if (topicListContainer) {
+        renderTopicList(topicListContainer);
+      }
+    }
+
+    function updateCategoryInUrl(category) {
+      const params = new URLSearchParams(window.location.search);
+      if (category && category !== 'all') {
+        params.set('category', category);
+      } else {
+        params.delete('category');
+      }
+      const queryString = params.toString();
+      const newUrl = window.location.pathname + (queryString ? '?' + queryString : '') + window.location.hash;
+      window.history.replaceState({}, '', newUrl);
+    }
+
+    function updateCategoryFilterUI() {
+      const buttons = document.querySelectorAll('[data-action="change-category"]');
+      buttons.forEach(function(button) {
+        const cat = button.dataset.category || 'all';
+        button.setAttribute('aria-pressed', cat === activeCategory ? 'true' : 'false');
+      });
+    }
+
+    function handleSearchChange(value, isDebounced) {
+      searchTerm = value || '';
+      const applySearch = function() {
+        const topicListContainer = document.querySelector('[data-component="help-topic-list"]');
+        if (topicListContainer) {
+          renderTopicList(topicListContainer);
+        }
+      };
+
+      if (isDebounced) {
+        if (searchDebounceId) {
+          clearTimeout(searchDebounceId);
+        }
+        searchDebounceId = window.setTimeout(function() {
+          applySearch();
+        }, 250);
+      } else {
+        if (searchDebounceId) {
+          clearTimeout(searchDebounceId);
+          searchDebounceId = null;
+        }
+        applySearch();
+      }
+    }
+
+    function toggleTopicExpansion(topicId) {
+      if (expandedTopicIds.has(topicId)) {
+        expandedTopicIds.delete(topicId);
+      } else {
+        expandedTopicIds.add(topicId);
+      }
+      const topicListContainer = document.querySelector('[data-component="help-topic-list"]');
+      if (topicListContainer) {
+        renderTopicList(topicListContainer);
+        const anchorId = 'topic-' + topicId;
+        const topicElement = document.getElementById(anchorId);
+        if (topicElement) {
+          topicElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    }
+  });
+  </script>
+</body>
+</html>

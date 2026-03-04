@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Search Results - Artist Discography</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='search.css'>
+</head>
+<body>
+  <div class='page-background'>
+    <div class='page-container'>
+      <header class='site-header'>
+        <h1 class='site-title'>Artist Discography</h1>
+        <nav class='site-nav' aria-label='Primary'>
+          <ul>
+            <li><a href='index.html'>Home</a></li>
+            <li><a href='genres.html'>Browse Genres</a></li>
+            <li><a href='library.html'>Library</a></li>
+            <li><a href='playlists.html'>Playlists</a></li>
+            <li><a href='favorites.html'>Favorites</a></li>
+            <li><a href='queue.html'>Queue</a></li>
+          </ul>
+        </nav>
+      </header>
+
+      <main id='content' class='site-main' role='main'>
+        <!-- Global header search form (within main, top of page content) -->
+        <section class='header-search-section' data-component='header-search-form'>
+          <form action='search.html' method='get' data-action='header-search-submit'>
+            <label for='headerSearchInput'>Search catalog:</label>
+            <input type='text' id='headerSearchInput' name='q' data-role='search-input'>
+            <button type='submit'>Search</button>
+          </form>
+        </section>
+
+        <!-- Central search results panel -->
+        <section class='search-results-panel'>
+          <!-- Search summary bar -->
+          <header class='search-summary-bar' data-component='search-summary-bar'>
+            <!-- Summary text populated by JavaScript -->
+          </header>
+
+          <!-- Inline results-page search form -->
+          <section class='results-page-search-form-section' data-component='results-page-search-form'>
+            <form action='search.html' method='get' data-action='inline-search-submit'>
+              <label for='inlineSearchInput'>Refine search:</label>
+              <input type='text' id='inlineSearchInput' name='q' data-role='search-input'>
+              <button type='submit'>Search</button>
+              <input type='hidden' name='type' id='inlineTypeInput'>
+              <input type='hidden' name='offset' value='0'>
+            </form>
+          </section>
+
+          <!-- Type filter tabs -->
+          <nav class='search-type-tabs' data-component='search-type-tabs' aria-label='Filter search results by type'>
+            <ul>
+              <li>
+                <a href='javascript:void(0)' data-action='change-type' data-type='all'>
+                  All (<span data-role='count-all'>0</span>)
+                </a>
+              </li>
+              <li>
+                <a href='javascript:void(0)' data-action='change-type' data-type='artists'>
+                  Artists (<span data-role='count-artists'>0</span>)
+                </a>
+              </li>
+              <li>
+                <a href='javascript:void(0)' data-action='change-type' data-type='albums'>
+                  Albums (<span data-role='count-albums'>0</span>)
+                </a>
+              </li>
+              <li>
+                <a href='javascript:void(0)' data-action='change-type' data-type='tracks'>
+                  Tracks (<span data-role='count-tracks'>0</span>)
+                </a>
+              </li>
+            </ul>
+          </nav>
+
+          <!-- Main results region -->
+          <section class='search-results-region' data-populate='search-catalog'>
+            <!-- Loading state -->
+            <div id='search-loading-indicator' data-component='search-loading-indicator' hidden>Loading results...</div>
+
+            <!-- Empty state -->
+            <div id='search-empty-state' data-component='search-empty-state' hidden>
+              <!-- Empty message populated by JavaScript -->
+            </div>
+
+            <!-- Artist, album, and track results lists; visibility controlled via JS -->
+            <div id='artist-results-container' data-component='artist-results-list' hidden>
+              <!-- Artist results rendered here -->
+            </div>
+
+            <div id='album-results-container' data-component='album-results-list' hidden>
+              <!-- Album results rendered here -->
+            </div>
+
+            <div id='track-results-container' data-component='track-results-list' hidden>
+              <!-- Track results rendered here -->
+            </div>
+          </section>
+
+          <!-- Pagination controls -->
+          <nav id='search-pagination' class='search-pagination' data-component='search-pagination' aria-label='Search result pages'>
+            <!-- Pagination links rendered by JavaScript -->
+          </nav>
+
+          <hr>
+
+          <!-- Simple bottom inline navigation link -->
+          <p>
+            <a href='javascript:void(0)' data-action='scroll-top'>Back to top</a>
+          </p>
+        </section>
+
+        <!-- Autocomplete suggestions dropdown (global, positioned under active search input) -->
+        <div id='suggestions-dropdown' data-component='suggestions-dropdown' hidden>
+          <!-- Suggestion groups rendered by JavaScript -->
+        </div>
+      </main>
+
+      <footer class='site-footer'>
+        <hr class='footer-divider'>
+        <nav class='footer-nav' aria-label='Footer'>
+          <ul>
+            <li><a href='about.html'>About</a></li>
+            <li><a href='help.html'>Help / FAQ</a></li>
+            <li><a href='contact.html'>Contact</a></li>
+            <li><a href='bookmarks.html'>Bookmarks</a></li>
+            <li><a href='lists.html'>Lists</a></li>
+          </ul>
+        </nav>
+        <p class='footer-meta'>&copy; Artist Discography</p>
+      </footer>
+    </div>
+  </div>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      'use strict';
+
+      var PAGE_LIMIT = 20;
+
+      var urlParams = new URLSearchParams(window.location.search);
+      var q = (urlParams.get('q') || '').trim();
+      var type = (urlParams.get('type') || 'all').toLowerCase();
+      var offsetParam = urlParams.get('offset');
+      var offset = 0;
+      if (offsetParam != null && offsetParam !== '') {
+        var parsedOffset = parseInt(offsetParam, 10);
+        if (!isNaN(parsedOffset) && parsedOffset >= 0) {
+          offset = parsedOffset;
+        }
+      }
+
+      if (['all', 'artists', 'albums', 'tracks'].indexOf(type) === -1) {
+        type = 'all';
+      }
+
+      var dom = {
+        headerSearchForm: document.querySelector('[data-component="header-search-form"]'),
+        headerSearchInput: document.getElementById('headerSearchInput'),
+        inlineSearchForm: document.querySelector('[data-component="results-page-search-form"] form'),
+        inlineSearchInput: document.getElementById('inlineSearchInput'),
+        inlineTypeInput: document.getElementById('inlineTypeInput'),
+        summaryBar: document.querySelector('[data-component="search-summary-bar"]'),
+        typeTabs: document.querySelector('[data-component="search-type-tabs"]'),
+        artistResults: document.getElementById('artist-results-container'),
+        albumResults: document.getElementById('album-results-container'),
+        trackResults: document.getElementById('track-results-container'),
+        loadingIndicator: document.getElementById('search-loading-indicator'),
+        emptyState: document.getElementById('search-empty-state'),
+        pagination: document.getElementById('search-pagination'),
+        suggestionsDropdown: document.getElementById('suggestions-dropdown'),
+        countAll: document.querySelector('[data-role="count-all"]'),
+        countArtists: document.querySelector('[data-role="count-artists"]'),
+        countAlbums: document.querySelector('[data-role="count-albums"]'),
+        countTracks: document.querySelector('[data-role="count-tracks"]')
+      };
+
+      if (dom.headerSearchInput) {
+        dom.headerSearchInput.value = q;
+      }
+      if (dom.inlineSearchInput) {
+        dom.inlineSearchInput.value = q;
+      }
+      if (dom.inlineTypeInput) {
+        dom.inlineTypeInput.value = type;
+      }
+
+      var lastResults = null;
+      var isSearching = false;
+      var suggestionTimeoutId = null;
+      var activeSuggestionInput = null;
+      var isMouseOverSuggestions = false;
+
+      function applyActiveTab() {
+        if (!dom.typeTabs) {
+          return;
+        }
+        var links = dom.typeTabs.querySelectorAll('[data-action="change-type"]');
+        links.forEach(function(link) {
+          var tabType = (link.getAttribute('data-type') || '').toLowerCase();
+          if (tabType === type) {
+            link.classList.add('active-tab');
+            link.setAttribute('aria-current', 'page');
+          } else {
+            link.classList.remove('active-tab');
+            link.removeAttribute('aria-current');
+          }
+        });
+      }
+
+      function setSummaryBar(totalCounts) {
+        if (!dom.summaryBar) {
+          return;
+        }
+        dom.summaryBar.textContent = '';
+        var summaryText;
+        if (!q) {
+          summaryText = 'Search the catalog by artist, album, or track.';
+        } else if (!totalCounts) {
+          summaryText = 'Search results for ' + q + '.';
+        } else {
+          var artistsCount = totalCounts.artists || 0;
+          var albumsCount = totalCounts.albums || 0;
+          var tracksCount = totalCounts.tracks || 0;
+          var total = artistsCount + albumsCount + tracksCount;
+          var parts = [];
+          parts.push('Search results for ' + q);
+          parts.push('Artists: ' + artistsCount);
+          parts.push('Albums: ' + albumsCount);
+          parts.push('Tracks: ' + tracksCount);
+          parts.push('Total: ' + total);
+          summaryText = parts.join('  b7 ');
+        }
+        dom.summaryBar.textContent = summaryText;
+      }
+
+      function clearResultsVisibility() {
+        if (dom.artistResults) {
+          dom.artistResults.hidden = true;
+          dom.artistResults.textContent = '';
+        }
+        if (dom.albumResults) {
+          dom.albumResults.hidden = true;
+          dom.albumResults.textContent = '';
+        }
+        if (dom.trackResults) {
+          dom.trackResults.hidden = true;
+          dom.trackResults.textContent = '';
+        }
+        if (dom.emptyState) {
+          dom.emptyState.hidden = true;
+          dom.emptyState.textContent = '';
+        }
+        if (dom.pagination) {
+          dom.pagination.innerHTML = '';
+          dom.pagination.style.display = '';
+        }
+      }
+
+      function renderArtistResults(container, artists, showHeading) {
+        container.textContent = '';
+        if (!artists || artists.length === 0) {
+          container.hidden = true;
+          return;
+        }
+        var fragment = document.createDocumentFragment();
+        if (showHeading) {
+          var heading = document.createElement('h2');
+          heading.textContent = 'Artists';
+          fragment.appendChild(heading);
+        }
+        var list = document.createElement('ul');
+        artists.forEach(function(artist) {
+          var item = document.createElement('li');
+          var link = document.createElement('a');
+          link.href = 'javascript:void(0)';
+          link.setAttribute('data-action', 'open-artist');
+          link.setAttribute('data-artist-id', artist.artist_id || '');
+          link.textContent = artist.name || '(Untitled artist)';
+          item.appendChild(link);
+
+          var metaParts = [];
+          if (artist.primary_genre_name) {
+            metaParts.push(artist.primary_genre_name);
+          }
+          if (artist.origin) {
+            metaParts.push(artist.origin);
+          }
+          if (artist.years_active) {
+            metaParts.push(artist.years_active);
+          }
+          if (metaParts.length > 0) {
+            var meta = document.createElement('div');
+            meta.textContent = metaParts.join('  b7 ');
+            item.appendChild(meta);
+          }
+
+          list.appendChild(item);
+        });
+        fragment.appendChild(list);
+        container.appendChild(fragment);
+        container.hidden = false;
+      }
+
+      function renderAlbumResults(container, albums, showHeading) {
+        container.textContent = '';
+        if (!albums || albums.length === 0) {
+          container.hidden = true;
+          return;
+        }
+        var fragment = document.createDocumentFragment();
+        if (showHeading) {
+          var heading = document.createElement('h2');
+          heading.textContent = 'Albums';
+          fragment.appendChild(heading);
+        }
+        var list = document.createElement('ul');
+        albums.forEach(function(album) {
+          var item = document.createElement('li');
+          var link = document.createElement('a');
+          link.href = 'javascript:void(0)';
+          link.setAttribute('data-action', 'open-album');
+          link.setAttribute('data-album-id', album.album_id || '');
+          link.textContent = album.title || '(Untitled album)';
+          item.appendChild(link);
+
+          var metaParts = [];
+          if (album.primary_artist_name) {
+            metaParts.push(album.primary_artist_name);
+          }
+          if (album.release_year) {
+            metaParts.push(String(album.release_year));
+          }
+          if (album.album_type) {
+            metaParts.push(album.album_type);
+          }
+          if (album.genre_name) {
+            metaParts.push(album.genre_name);
+          }
+          if (album.formatted_duration) {
+            metaParts.push(album.formatted_duration);
+          }
+          if (metaParts.length > 0) {
+            var meta = document.createElement('div');
+            meta.textContent = metaParts.join('  b7 ');
+            item.appendChild(meta);
+          }
+
+          list.appendChild(item);
+        });
+        fragment.appendChild(list);
+        container.appendChild(fragment);
+        container.hidden = false;
+      }
+
+      function renderTrackResults(container, tracks, showHeading) {
+        container.textContent = '';
+        if (!tracks || tracks.length === 0) {
+          container.hidden = true;
+          return;
+        }
+        var fragment = document.createDocumentFragment();
+        if (showHeading) {
+          var heading = document.createElement('h2');
+          heading.textContent = 'Tracks';
+          fragment.appendChild(heading);
+        }
+        var list = document.createElement('ul');
+        tracks.forEach(function(track) {
+          var item = document.createElement('li');
+          var link = document.createElement('a');
+          link.href = 'javascript:void(0)';
+          link.setAttribute('data-action', 'open-track');
+          link.setAttribute('data-track-id', track.track_id || '');
+          link.textContent = track.title || '(Untitled track)';
+          item.appendChild(link);
+
+          var metaParts = [];
+          if (track.primary_artist_name) {
+            metaParts.push(track.primary_artist_name);
+          }
+          if (track.album_title) {
+            metaParts.push(track.album_title);
+          }
+          if (track.formatted_duration) {
+            metaParts.push(track.formatted_duration);
+          }
+          if (metaParts.length > 0) {
+            var meta = document.createElement('div');
+            meta.textContent = metaParts.join('  b7 ');
+            item.appendChild(meta);
+          }
+
+          list.appendChild(item);
+        });
+        fragment.appendChild(list);
+        container.appendChild(fragment);
+        container.hidden = false;
+      }
+
+      function renderPagination(container, totalForActiveType) {
+        container.innerHTML = '';
+        var total = totalForActiveType || 0;
+        var pageCount = Math.ceil(total / PAGE_LIMIT);
+        if (pageCount <= 1) {
+          container.style.display = 'none';
+          return;
+        }
+        container.style.display = '';
+        var currentPage = Math.floor(offset / PAGE_LIMIT) + 1;
+        if (currentPage < 1) {
+          currentPage = 1;
+        }
+        if (currentPage > pageCount) {
+          currentPage = pageCount;
+        }
+
+        var wrapper = document.createElement('p');
+
+        if (currentPage > 1) {
+          var prevLink = document.createElement('a');
+          prevLink.href = 'javascript:void(0)';
+          prevLink.setAttribute('data-action', 'paginate-prev');
+          prevLink.setAttribute('data-page', String(currentPage - 1));
+          prevLink.textContent = 'Previous';
+          wrapper.appendChild(prevLink);
+          wrapper.appendChild(document.createTextNode(' '));
+        }
+
+        for (var p = 1; p <= pageCount; p++) {
+          if (p === currentPage) {
+            var current = document.createElement('span');
+            current.textContent = String(p);
+            wrapper.appendChild(current);
+          } else {
+            var pageLink = document.createElement('a');
+            pageLink.href = 'javascript:void(0)';
+            pageLink.setAttribute('data-action', 'paginate-page');
+            pageLink.setAttribute('data-page', String(p));
+            pageLink.textContent = String(p);
+            wrapper.appendChild(pageLink);
+          }
+          if (p < pageCount) {
+            wrapper.appendChild(document.createTextNode(' '));
+          }
+        }
+
+        if (currentPage < pageCount) {
+          wrapper.appendChild(document.createTextNode(' '));
+          var nextLink = document.createElement('a');
+          nextLink.href = 'javascript:void(0)';
+          nextLink.setAttribute('data-action', 'paginate-next');
+          nextLink.setAttribute('data-page', String(currentPage + 1));
+          nextLink.textContent = 'Next';
+          wrapper.appendChild(nextLink);
+        }
+
+        container.appendChild(wrapper);
+      }
+
+      function renderEmptyStateForCurrentType(totalCounts) {
+        if (!dom.emptyState) {
+          return;
+        }
+        dom.emptyState.textContent = '';
+        var message;
+        if (!q) {
+          message = 'No search query provided. Use the search box above to begin.';
+        } else if (type === 'all') {
+          message = 'No results found for this search. Try a different name, title, or spelling.';
+        } else if (type === 'artists') {
+          message = 'No artist results found for this search.';
+        } else if (type === 'albums') {
+          message = 'No album results found for this search.';
+        } else if (type === 'tracks') {
+          message = 'No track results found for this search.';
+        } else {
+          message = 'No results found.';
+        }
+        dom.emptyState.textContent = message;
+        dom.emptyState.hidden = false;
+      }
+
+      function runSearch() {
+        var mainResultsContainer = document.querySelector('[data-populate="search-catalog"]');
+        if (!mainResultsContainer) {
+          return;
+        }
+
+        applyActiveTab();
+
+        if (!q) {
+          clearResultsVisibility();
+          setSummaryBar(null);
+          renderEmptyStateForCurrentType(null);
+          return;
+        }
+
+        isSearching = true;
+        clearResultsVisibility();
+        if (dom.loadingIndicator) {
+          dom.loadingIndicator.hidden = false;
+        }
+
+        try {
+          var typesParam;
+          if (type === 'artists') {
+            typesParam = ['artist'];
+          } else if (type === 'albums') {
+            typesParam = ['album'];
+          } else if (type === 'tracks') {
+            typesParam = ['track'];
+          } else {
+            typesParam = undefined;
+          }
+
+          var searchResult = WebsiteSDK.searchCatalog(q, typesParam, PAGE_LIMIT, offset);
+          lastResults = searchResult || {};
+
+          var artists = lastResults.artists || [];
+          var albums = lastResults.albums || [];
+          var tracks = lastResults.tracks || [];
+          var totalCounts = lastResults.total_counts || { artists: 0, albums: 0, tracks: 0 };
+
+          var artistsCount = totalCounts.artists || 0;
+          var albumsCount = totalCounts.albums || 0;
+          var tracksCount = totalCounts.tracks || 0;
+          var allCount = artistsCount + albumsCount + tracksCount;
+
+          if (dom.countArtists) {
+            dom.countArtists.textContent = String(artistsCount);
+          }
+          if (dom.countAlbums) {
+            dom.countAlbums.textContent = String(albumsCount);
+          }
+          if (dom.countTracks) {
+            dom.countTracks.textContent = String(tracksCount);
+          }
+          if (dom.countAll) {
+            dom.countAll.textContent = String(allCount);
+          }
+
+          setSummaryBar(totalCounts);
+
+          var hasAnyResults = false;
+          if (type === 'artists') {
+            hasAnyResults = artists.length > 0;
+          } else if (type === 'albums') {
+            hasAnyResults = albums.length > 0;
+          } else if (type === 'tracks') {
+            hasAnyResults = tracks.length > 0;
+          } else if (type === 'all') {
+            hasAnyResults = artists.length > 0 || albums.length > 0 || tracks.length > 0;
+          }
+
+          if (!hasAnyResults) {
+            renderEmptyStateForCurrentType(totalCounts);
+            if (dom.pagination) {
+              dom.pagination.innerHTML = '';
+            }
+          } else {
+            if (type === 'all') {
+              if (dom.artistResults) {
+                renderArtistResults(dom.artistResults, artists, true);
+              }
+              if (dom.albumResults) {
+                renderAlbumResults(dom.albumResults, albums, true);
+              }
+              if (dom.trackResults) {
+                renderTrackResults(dom.trackResults, tracks, true);
+              }
+              if (dom.pagination) {
+                dom.pagination.innerHTML = '';
+                dom.pagination.style.display = 'none';
+              }
+            } else if (type === 'artists') {
+              if (dom.artistResults) {
+                renderArtistResults(dom.artistResults, artists, false);
+              }
+              if (dom.pagination) {
+                renderPagination(dom.pagination, artistsCount);
+              }
+            } else if (type === 'albums') {
+              if (dom.albumResults) {
+                renderAlbumResults(dom.albumResults, albums, false);
+              }
+              if (dom.pagination) {
+                renderPagination(dom.pagination, albumsCount);
+              }
+            } else if (type === 'tracks') {
+              if (dom.trackResults) {
+                renderTrackResults(dom.trackResults, tracks, false);
+              }
+              if (dom.pagination) {
+                renderPagination(dom.pagination, tracksCount);
+              }
+            }
+          }
+        } catch (error) {
+          clearResultsVisibility();
+          if (dom.emptyState) {
+            dom.emptyState.hidden = false;
+            dom.emptyState.textContent = 'There was a problem loading search results. Please try again.';
+          }
+        } finally {
+          isSearching = false;
+          if (dom.loadingIndicator) {
+            dom.loadingIndicator.hidden = true;
+          }
+        }
+      }
+
+      function buildSearchUrl(newQuery, newType, newOffset) {
+        var params = new URLSearchParams();
+        if (newQuery) {
+          params.set('q', newQuery);
+        }
+        if (newType) {
+          params.set('type', newType);
+        }
+        params.set('offset', String(newOffset || 0));
+        return 'search.html?' + params.toString();
+      }
+
+      function handleSearchFormSubmit(event, source) {
+        event.preventDefault();
+        var form = event.target;
+        var input = form.querySelector('input[name="q"]');
+        var entered = '';
+        if (input) {
+          entered = (input.value || '').trim();
+        }
+        var nextType;
+        if (source === 'header') {
+          nextType = 'all';
+        } else {
+          nextType = type || 'all';
+        }
+        var nextUrl = buildSearchUrl(entered, nextType, 0);
+        window.location.href = nextUrl;
+      }
+
+      function handleTypeChange(targetType) {
+        var nextType = targetType || 'all';
+        var currentQuery = q;
+        var nextUrl = buildSearchUrl(currentQuery, nextType, 0);
+        window.location.href = nextUrl;
+      }
+
+      function handlePaginationClick(actionElement) {
+        var pageAttr = actionElement.getAttribute('data-page');
+        var page = parseInt(pageAttr, 10);
+        if (isNaN(page) || page < 1) {
+          return;
+        }
+        var newOffset = (page - 1) * PAGE_LIMIT;
+        var nextUrl = buildSearchUrl(q, type, newOffset);
+        window.location.href = nextUrl;
+      }
+
+      function hideSuggestions() {
+        if (!dom.suggestionsDropdown) {
+          return;
+        }
+        dom.suggestionsDropdown.hidden = true;
+        dom.suggestionsDropdown.innerHTML = '';
+        activeSuggestionInput = null;
+      }
+
+      function renderSuggestions(container, suggestions, queryText, anchorInput) {
+        container.innerHTML = '';
+        var artists = suggestions && suggestions.artists ? suggestions.artists : [];
+        var albums = suggestions && suggestions.albums ? suggestions.albums : [];
+        var tracks = suggestions && suggestions.tracks ? suggestions.tracks : [];
+        var hasAny = artists.length > 0 || albums.length > 0 || tracks.length > 0;
+        if (!hasAny) {
+          hideSuggestions();
+          return;
+        }
+
+        var wrapper = document.createElement('div');
+
+        if (artists.length > 0) {
+          var artistHeader = document.createElement('div');
+          artistHeader.textContent = 'Artists';
+          wrapper.appendChild(artistHeader);
+          artists.forEach(function(a) {
+            var item = document.createElement('div');
+            var link = document.createElement('a');
+            link.href = 'javascript:void(0)';
+            link.setAttribute('data-action', 'suggestion-artist');
+            link.setAttribute('data-artist-id', a.artist_id || '');
+            link.textContent = a.name || '(Unnamed artist)';
+            item.appendChild(link);
+            wrapper.appendChild(item);
+          });
+        }
+
+        if (albums.length > 0) {
+          var albumHeader = document.createElement('div');
+          albumHeader.textContent = 'Albums';
+          wrapper.appendChild(albumHeader);
+          albums.forEach(function(a) {
+            var item = document.createElement('div');
+            var link = document.createElement('a');
+            link.href = 'javascript:void(0)';
+            link.setAttribute('data-action', 'suggestion-album');
+            link.setAttribute('data-album-id', a.album_id || '');
+            var title = a.title || '(Untitled album)';
+            if (a.primary_artist_name) {
+              link.textContent = title + '  b7 ' + a.primary_artist_name;
+            } else {
+              link.textContent = title;
+            }
+            item.appendChild(link);
+            wrapper.appendChild(item);
+          });
+        }
+
+        if (tracks.length > 0) {
+          var trackHeader = document.createElement('div');
+          trackHeader.textContent = 'Tracks';
+          wrapper.appendChild(trackHeader);
+          tracks.forEach(function(t) {
+            var item = document.createElement('div');
+            var link = document.createElement('a');
+            link.href = 'javascript:void(0)';
+            link.setAttribute('data-action', 'suggestion-track');
+            link.setAttribute('data-track-id', t.track_id || '');
+            var title = t.title || '(Untitled track)';
+            if (t.primary_artist_name) {
+              link.textContent = title + '  b7 ' + t.primary_artist_name;
+            } else {
+              link.textContent = title;
+            }
+            item.appendChild(link);
+            wrapper.appendChild(item);
+          });
+        }
+
+        var query = (queryText || '').trim();
+        if (query) {
+          var searchItem = document.createElement('div');
+          var searchLink = document.createElement('a');
+          searchLink.href = 'javascript:void(0)';
+          searchLink.setAttribute('data-action', 'suggestion-query');
+          searchLink.setAttribute('data-query', query);
+          searchLink.textContent = 'Search for: ' + query;
+          searchItem.appendChild(searchLink);
+          wrapper.appendChild(searchItem);
+        }
+
+        container.appendChild(wrapper);
+
+        if (anchorInput && anchorInput.getBoundingClientRect) {
+          var rect = anchorInput.getBoundingClientRect();
+          container.style.position = 'absolute';
+          container.style.left = String(rect.left + window.scrollX) + 'px';
+          container.style.top = String(rect.bottom + window.scrollY) + 'px';
+          container.style.width = String(rect.width) + 'px';
+        }
+
+        container.hidden = false;
+      }
+
+      function scheduleSuggestions(input) {
+        activeSuggestionInput = input;
+        if (suggestionTimeoutId != null) {
+          clearTimeout(suggestionTimeoutId);
+        }
+        var value = (input.value || '').trim();
+        if (!value) {
+          hideSuggestions();
+          return;
+        }
+        suggestionTimeoutId = window.setTimeout(function() {
+          try {
+            var suggestions = WebsiteSDK.getSearchSuggestions(value, 5);
+            renderSuggestions(dom.suggestionsDropdown, suggestions, value, input);
+          } catch (error) {
+            hideSuggestions();
+          }
+        }, 200);
+      }
+
+      var searchInputs = document.querySelectorAll('[data-role="search-input"]');
+      searchInputs.forEach(function(input) {
+        input.addEventListener('input', function() {
+          scheduleSuggestions(input);
+        });
+        input.addEventListener('focus', function() {
+          if (input.value && input.value.trim()) {
+            scheduleSuggestions(input);
+          }
+        });
+        input.addEventListener('blur', function() {
+          window.setTimeout(function() {
+            if (!isMouseOverSuggestions) {
+              hideSuggestions();
+            }
+          }, 150);
+        });
+      });
+
+      if (dom.suggestionsDropdown) {
+        dom.suggestionsDropdown.addEventListener('mouseenter', function() {
+          isMouseOverSuggestions = true;
+        });
+        dom.suggestionsDropdown.addEventListener('mouseleave', function() {
+          isMouseOverSuggestions = false;
+        });
+      }
+
+      if (dom.headerSearchForm) {
+        dom.headerSearchForm.addEventListener('submit', function(event) {
+          handleSearchFormSubmit(event, 'header');
+        });
+      }
+      if (dom.inlineSearchForm) {
+        dom.inlineSearchForm.addEventListener('submit', function(event) {
+          handleSearchFormSubmit(event, 'inline');
+        });
+      }
+
+      document.addEventListener('click', function(event) {
+        var actionElement = event.target.closest('[data-action]');
+        if (!actionElement) {
+          return;
+        }
+        var action = actionElement.getAttribute('data-action');
+        if (!action) {
+          return;
+        }
+
+        if (action === 'change-type') {
+          event.preventDefault();
+          var targetType = actionElement.getAttribute('data-type') || 'all';
+          handleTypeChange(targetType);
+        } else if (action === 'paginate-page' || action === 'paginate-prev' || action === 'paginate-next') {
+          event.preventDefault();
+          handlePaginationClick(actionElement);
+        } else if (action === 'open-artist') {
+          event.preventDefault();
+          var artistId = actionElement.getAttribute('data-artist-id');
+          if (artistId) {
+            var url = 'artist.html?artistId=' + encodeURIComponent(artistId) + '&tab=overview';
+            window.location.href = url;
+          }
+        } else if (action === 'open-album') {
+          event.preventDefault();
+          var albumId = actionElement.getAttribute('data-album-id');
+          if (albumId) {
+            var albumUrl = 'album.html?albumId=' + encodeURIComponent(albumId);
+            window.location.href = albumUrl;
+          }
+        } else if (action === 'open-track') {
+          event.preventDefault();
+          var trackId = actionElement.getAttribute('data-track-id');
+          if (trackId) {
+            var trackUrl = 'track.html?trackId=' + encodeURIComponent(trackId);
+            window.location.href = trackUrl;
+          }
+        } else if (action === 'suggestion-artist') {
+          event.preventDefault();
+          var sArtistId = actionElement.getAttribute('data-artist-id');
+          if (sArtistId) {
+            var sArtistUrl = 'artist.html?artistId=' + encodeURIComponent(sArtistId) + '&tab=overview';
+            window.location.href = sArtistUrl;
+          }
+        } else if (action === 'suggestion-album') {
+          event.preventDefault();
+          var sAlbumId = actionElement.getAttribute('data-album-id');
+          if (sAlbumId) {
+            var sAlbumUrl = 'album.html?albumId=' + encodeURIComponent(sAlbumId);
+            window.location.href = sAlbumUrl;
+          }
+        } else if (action === 'suggestion-track') {
+          event.preventDefault();
+          var sTrackId = actionElement.getAttribute('data-track-id');
+          if (sTrackId) {
+            var sTrackUrl = 'track.html?trackId=' + encodeURIComponent(sTrackId);
+            window.location.href = sTrackUrl;
+          }
+        } else if (action === 'suggestion-query') {
+          event.preventDefault();
+          var queryText = actionElement.getAttribute('data-query') || '';
+          var nextUrl = buildSearchUrl(queryText, 'all', 0);
+          window.location.href = nextUrl;
+        } else if (action === 'scroll-top') {
+          event.preventDefault();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      });
+
+      var populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function(element) {
+        var dataType = element.getAttribute('data-populate');
+        if (dataType === 'search-catalog') {
+          runSearch();
+        }
+      });
+    });
+  </script>
+</body>
+</html>

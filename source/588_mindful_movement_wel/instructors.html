@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Celf – Mindful Movement</title>
+    <link rel='preconnect' href='https://fonts.googleapis.com'>
+    <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+    <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=Source+Code+Pro:wght@400;500&amp;display=swap' rel='stylesheet'>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='instructors.css'>
+</head>
+<body>
+    <div class='app-shell'>
+        <aside class='sidebar' role='banner'>
+            <header class='site-header'>
+                <div class='logo' aria-label='Celf logo'>celf</div>
+                <nav class='site-nav' aria-label='Primary navigation'>
+                    <a href='index.html' class='nav-btn nav-btn-primary is-active'>Home</a>
+                    <a href='sessions.html' class='nav-btn nav-btn-secondary'>Sessions</a>
+                    <a href='routine_builder.html' class='nav-btn nav-btn-secondary'>Build Routine</a>
+                    <a href='instructors.html' class='nav-btn nav-btn-secondary'>Instructors</a>
+                    <a href='resources.html' class='nav-btn nav-btn-secondary'>Resources</a>
+                    <a href='pricing.html' class='nav-btn nav-btn-secondary'>Pricing</a>
+                    <a href='workplace_wellness.html' class='nav-btn nav-btn-secondary'>For Teams</a>
+                </nav>
+            </header>
+
+            <footer class='site-footer'>
+                <div class='footer-meta'>
+                    <p class='footer-brand'>Mindful movement, made simple.</p>
+                    <p class='footer-copy'>&copy; <span class='footer-year'>2024</span> Celf. All rights reserved.</p>
+                </div>
+                <nav class='footer-nav' aria-label='Footer navigation'>
+                    <a href='about.html'>About</a>
+                    <a href='resources.html'>Resources</a>
+                    <a href='reading_list.html'>Reading List</a>
+                    <a href='reminders_demo.html'>Reminders Demo</a>
+                    <a href='workplace_wellness.html'>Workplace Wellness</a>
+                    <a href='corporate_inquiry.html'>Corporate Inquiry</a>
+                    <a href='pricing.html'>Pricing</a>
+                    <a href='terms.html'>Terms of Use</a>
+                    <a href='privacy.html'>Privacy Policy</a>
+                </nav>
+            </footer>
+        </aside>
+
+        <div class='hero-shell'>
+            <section class='hero' aria-label='Page hero'>
+                <div class='hero-accent-line'></div>
+                <div class='hero-floating-card'></div>
+                <main id='content' class='hero-content' role='main'>
+                    <div class='instructors-page' data-component='instructors-page-controller'>
+                        <div data-component='url-query-sync' aria-hidden='true'></div>
+                        <section class='instructors-layout' aria-label='Instructor directory layout'>
+                            <aside class='instructors-filter-sidebar' aria-label='Instructor filters'>
+                                <div class='instructors-filter-inner' data-component='filter-bar' data-populate='instructor-filters'>
+                                    <!-- Filter bar rendered via JavaScript -->
+                                </div>
+                                <div class='instructors-sidebar-feedback' data-component='loading-and-error-feedback' data-context='sidebar' aria-live='polite'>
+                                    <!-- Sidebar loading/error feedback -->
+                                </div>
+                            </aside>
+
+                            <section class='instructors-results-overlay' aria-label='Instructor results'>
+                                <header class='instructors-results-header'>
+                                    <h1 class='instructors-heading'>Browse instructors</h1>
+                                    <p class='instructors-results-summary' data-populate='instructors-summary' aria-live='polite'></p>
+                                </header>
+
+                                <div class='instructors-results-feedback' data-component='loading-and-error-feedback' data-context='results' aria-live='polite'>
+                                    <!-- Results loading/error feedback -->
+                                </div>
+
+                                <div class='instructors-results-grid' data-component='instructor-results-list' data-populate='instructor-results'>
+                                    <!-- Instructor cards rendered via JavaScript -->
+                                </div>
+
+                                <nav class='instructors-pagination' data-component='instructors-pagination' aria-label='Instructors pages'>
+                                    <!-- Pagination rendered via JavaScript -->
+                                </nav>
+                            </section>
+                        </section>
+                    </div>
+                </main>
+            </section>
+        </div>
+    </div>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var PAGE_SIZE = 8;
+
+        var pageRoot = document.querySelector("[data-component='instructors-page-controller']");
+        if (!pageRoot || typeof WebsiteSDK === 'undefined') {
+            return;
+        }
+
+        var filterBarContainer = pageRoot.querySelector("[data-component='filter-bar'][data-populate='instructor-filters']");
+        var resultsContainer = pageRoot.querySelector("[data-component='instructor-results-list'][data-populate='instructor-results']");
+        var paginationContainer = pageRoot.querySelector("[data-component='instructors-pagination']");
+        var sidebarFeedbackContainer = pageRoot.querySelector("[data-component='loading-and-error-feedback'][data-context='sidebar']");
+        var resultsFeedbackContainer = pageRoot.querySelector("[data-component='loading-and-error-feedback'][data-context='results']");
+        var resultsSummaryEl = pageRoot.querySelector("[data-populate='instructors-summary']");
+
+        var filterOptions = null;
+        var isLoadingFilters = false;
+        var filtersError = null;
+        var isLoadingResults = false;
+        var resultsError = null;
+
+        var state = {
+            styles: [],
+            minRating: null,
+            sortBy: null,
+            page: 1,
+            total: 0,
+            pageSize: PAGE_SIZE,
+            hasMore: false,
+            instructors: []
+        };
+
+        function escapeHtml(value) {
+            var str = String(value == null ? '' : value);
+            return str.replace(/[&<>"']/g, function(ch) {
+                if (ch === '&') return '&amp;';
+                if (ch === '<') return '&lt;';
+                if (ch === '>') return '&gt;';
+                if (ch === '"') return '&quot;';
+                if (ch === "'") return '&#39;';
+                return ch;
+            });
+        }
+
+        function formatEnumLabel(value) {
+            if (!value) return '';
+            var parts = String(value).split('_');
+            for (var i = 0; i < parts.length; i++) {
+                if (!parts[i]) continue;
+                parts[i] = parts[i].charAt(0).toUpperCase() + parts[i].slice(1);
+            }
+            return parts.join(' ');
+        }
+
+        function parseUrlParamsWithOptions(options) {
+            var params = new URLSearchParams(window.location.search);
+
+            var stylesParam = params.get('style');
+            var styles = [];
+            var availableStyles = [];
+            if (options && options.styles_or_specialties) {
+                for (var i = 0; i < options.styles_or_specialties.length; i++) {
+                    availableStyles.push(options.styles_or_specialties[i].value);
+                }
+            }
+            var stylesSet = new Set(availableStyles);
+            if (stylesParam) {
+                var rawValues = stylesParam.split(',');
+                for (var j = 0; j < rawValues.length; j++) {
+                    var v = rawValues[j].trim();
+                    if (v && stylesSet.has(v)) {
+                        styles.push(v);
+                    }
+                }
+            }
+
+            var minRatingParam = params.get('minRating');
+            var minRating = null;
+            var availableRatings = [];
+            if (options && options.rating_thresholds) {
+                for (var k = 0; k < options.rating_thresholds.length; k++) {
+                    availableRatings.push(options.rating_thresholds[k].min_value);
+                }
+            }
+            var ratingSet = new Set(availableRatings);
+            if (minRatingParam) {
+                var parsed = Number(minRatingParam);
+                if (!isNaN(parsed) && ratingSet.has(parsed)) {
+                    minRating = parsed;
+                }
+            }
+
+            var sortByParam = params.get('sortBy');
+            var sortBy = null;
+            var availableSorts = [];
+            if (options && options.sort_options) {
+                for (var m = 0; m < options.sort_options.length; m++) {
+                    availableSorts.push(options.sort_options[m].value);
+                }
+            }
+            var sortSet = new Set(availableSorts);
+            if (sortByParam && sortSet.has(sortByParam)) {
+                sortBy = sortByParam;
+            } else {
+                sortBy = availableSorts.length > 0 ? availableSorts[0] : null;
+            }
+
+            var pageParam = params.get('page');
+            var page = parseInt(pageParam, 10);
+            if (!page || page < 1) {
+                page = 1;
+            }
+
+            return {
+                styles: styles,
+                minRating: minRating,
+                sortBy: sortBy,
+                page: page
+            };
+        }
+
+        function syncUrlToState(replace) {
+            var url = new URL(window.location.href);
+            var params = url.searchParams;
+
+            if (state.styles && state.styles.length) {
+                params.set('style', state.styles.join(','));
+            } else {
+                params.delete('style');
+            }
+
+            if (state.minRating != null) {
+                params.set('minRating', String(state.minRating));
+            } else {
+                params.delete('minRating');
+            }
+
+            if (state.sortBy) {
+                params.set('sortBy', state.sortBy);
+            } else {
+                params.delete('sortBy');
+            }
+
+            if (state.page && state.page > 1) {
+                params.set('page', String(state.page));
+            } else {
+                params.delete('page');
+            }
+
+            if (replace) {
+                window.history.replaceState(null, '', url.toString());
+            } else {
+                window.history.pushState(null, '', url.toString());
+            }
+        }
+
+        function setSidebarFeedback(message, showRetryForFilters, isLoading) {
+            if (!sidebarFeedbackContainer) {
+                return;
+            }
+            if (!message && !isLoading) {
+                sidebarFeedbackContainer.innerHTML = '';
+                return;
+            }
+
+            if (isLoading) {
+                sidebarFeedbackContainer.innerHTML = "\n                    <div class='feedback feedback-loading'>\n                        <div class='spinner' aria-hidden='true'></div>\n                        <p>Loading filters...</p>\n                    </div>\n                ";
+                return;
+            }
+
+            var retryHtml = showRetryForFilters ? "<button type='button' class='btn btn-secondary' data-action='retry-filters'>Retry</button>" : '';
+            sidebarFeedbackContainer.innerHTML = "\n                <div class='feedback feedback-error'>\n                    <p>" + escapeHtml(message) + "</p>\n                    " + retryHtml + "\n                </div>\n            ";
+        }
+
+        function setResultsFeedback(message, showRetryForResults, isLoading) {
+            if (!resultsFeedbackContainer) {
+                return;
+            }
+            if (!message && !isLoading) {
+                resultsFeedbackContainer.innerHTML = '';
+                return;
+            }
+
+            if (isLoading) {
+                resultsFeedbackContainer.innerHTML = "\n                    <div class='feedback feedback-loading'>\n                        <div class='spinner' aria-hidden='true'></div>\n                        <p>Loading instructors...</p>\n                    </div>\n                ";
+                return;
+            }
+
+            var retryHtml = showRetryForResults ? "<button type='button' class='btn btn-secondary' data-action='retry-results'>Retry</button>" : '';
+            resultsFeedbackContainer.innerHTML = "\n                <div class='feedback feedback-error'>\n                    <p>" + escapeHtml(message) + "</p>\n                    " + retryHtml + "\n                </div>\n            ";
+        }
+
+        function updateResultsSummary() {
+            if (!resultsSummaryEl) {
+                return;
+            }
+
+            if (isLoadingResults) {
+                resultsSummaryEl.textContent = 'Loading instructors...';
+                return;
+            }
+
+            if (resultsError) {
+                resultsSummaryEl.textContent = '';
+                return;
+            }
+
+            if (!state.total) {
+                resultsSummaryEl.textContent = 'No instructors found';
+                return;
+            }
+
+            var startIndex = (state.page - 1) * state.pageSize + 1;
+            var endIndex = state.page * state.pageSize;
+            if (endIndex > state.total) {
+                endIndex = state.total;
+            }
+            resultsSummaryEl.textContent = startIndex + '-' + endIndex + ' of ' + state.total + ' instructors';
+        }
+
+        function renderFilterBar(container, currentState, options) {
+            if (!container) {
+                return;
+            }
+            if (!options) {
+                container.innerHTML = "\n                    <div class='filter-bar-loading'>\n                        <p>Loading filters...</p>\n                    </div>\n                ";
+                return;
+            }
+
+            var stylesHtml = '';
+            if (options.styles_or_specialties && options.styles_or_specialties.length) {
+                for (var i = 0; i < options.styles_or_specialties.length; i++) {
+                    var styleOpt = options.styles_or_specialties[i];
+                    var selected = currentState.styles.indexOf(styleOpt.value) !== -1;
+                    stylesHtml += "\n                        <button type='button' class='filter-chip" + (selected ? " is-selected" : "") + "' data-action='toggle-style' data-style-value='" + escapeHtml(styleOpt.value) + "'>" + escapeHtml(styleOpt.label) + "</button>\n                    ";
+                }
+            } else {
+                stylesHtml = "<p class='filter-empty'>No style filters available.</p>";
+            }
+
+            var ratingOptionsHtml = "<option value=''>No minimum</option>";
+            if (options.rating_thresholds && options.rating_thresholds.length) {
+                for (var j = 0; j < options.rating_thresholds.length; j++) {
+                    var threshold = options.rating_thresholds[j];
+                    var isSelected = currentState.minRating != null && currentState.minRating === threshold.min_value;
+                    ratingOptionsHtml += "\n                        <option value='" + String(threshold.min_value) + "'" + (isSelected ? " selected" : "") + ">" + escapeHtml(threshold.label) + "</option>\n                    ";
+                }
+            }
+
+            var sortOptionsHtml = '';
+            if (options.sort_options && options.sort_options.length) {
+                for (var k = 0; k < options.sort_options.length; k++) {
+                    var sortOpt = options.sort_options[k];
+                    var sortSelected = currentState.sortBy === sortOpt.value;
+                    sortOptionsHtml += "\n                        <option value='" + escapeHtml(sortOpt.value) + "'" + (sortSelected ? " selected" : "") + ">" + escapeHtml(sortOpt.label) + "</option>\n                    ";
+                }
+            }
+
+            container.innerHTML = "\n                <header class='filter-bar-header'>\n                    <h2 class='filter-bar-title'>Refine instructors</h2>\n                </header>\n                <div class='filter-group filter-group-styles'>\n                    <span class='filter-label'>Styles &amp; specialties</span>\n                    <div class='filter-chip-group'>\n                        " + stylesHtml + "\n                    </div>\n                </div>\n                <div class='filter-group filter-group-inline'>\n                    <label class='filter-label' for='minRatingSelect'>Minimum rating</label>\n                    <select id='minRatingSelect' class='filter-select' data-action='change-min-rating'>\n                        " + ratingOptionsHtml + "\n                    </select>\n                </div>\n                <div class='filter-group filter-group-inline'>\n                    <label class='filter-label' for='sortBySelect'>Sort by</label>\n                    <select id='sortBySelect' class='filter-select' data-action='change-sort'>\n                        " + sortOptionsHtml + "\n                    </select>\n                </div>\n                <div class='filter-bar-footer'>\n                    <button type='button' class='btn btn-secondary clear-filters-btn' data-action='clear-filters'>Clear filters</button>\n                </div>\n            ";
+        }
+
+        function renderResultsList(container, instructors) {
+            if (!container) {
+                return;
+            }
+
+            if (!instructors || !instructors.length) {
+                container.innerHTML = "\n                    <p class='results-empty'>No instructors match these filters yet. Try adjusting your filters.</p>\n                ";
+                return;
+            }
+
+            var html = '';
+            for (var i = 0; i < instructors.length; i++) {
+                var inst = instructors[i];
+                var name = escapeHtml(inst.name || '');
+                var primaryStyle = formatEnumLabel(inst.primary_style || '');
+                var rating = inst.rating != null ? inst.rating.toFixed(1) : '–';
+                var ratingCount = inst.rating_count != null ? inst.rating_count : 0;
+                var yearsExperience = inst.years_experience != null ? inst.years_experience + ' yrs experience' : '';
+
+                var specialtiesHtml = '';
+                if (inst.specialties && inst.specialties.length) {
+                    for (var j = 0; j < inst.specialties.length; j++) {
+                        specialtiesHtml += "<span class='tag tag-specialty'>" + escapeHtml(inst.specialties[j]) + "</span>";
+                    }
+                }
+
+                var avatarHtml = '';
+                if (inst.avatar_image_url) {
+                    avatarHtml = "<img src='" + escapeHtml(inst.avatar_image_url) + "' alt='" + name + "' class='instructor-avatar' loading='lazy'>";
+                } else {
+                    var initials = '';
+                    if (inst.name) {
+                        var parts = String(inst.name).trim().split(/\s+/);
+                        if (parts[0]) {
+                            initials += parts[0].charAt(0).toUpperCase();
+                        }
+                        if (parts.length > 1 && parts[parts.length - 1]) {
+                            initials += parts[parts.length - 1].charAt(0).toUpperCase();
+                        }
+                    }
+                    avatarHtml = "<div class='instructor-avatar placeholder-avatar' aria-hidden='true'>" + escapeHtml(initials) + "</div>";
+                }
+
+                html += "\n                    <article class='instructor-card' data-component='instructor-card' data-primary-style='" + escapeHtml(inst.primary_style || '') + "'>\n                        <button type='button' class='instructor-card-inner' data-action='open-instructor' data-instructor-id='" + escapeHtml(inst.instructor_id || '') + "'>\n                            <div class='instructor-card-header'>\n                                <div class='instructor-card-avatar'>" + avatarHtml + "</div>\n                                <div class='instructor-card-heading'>\n                                    <h2 class='instructor-name'>" + name + "</h2>\n                                    <p class='instructor-primary-style'>" + escapeHtml(primaryStyle) + "</p>\n                                </div>\n                            </div>\n                            <div class='instructor-card-meta'>\n                                <div class='instructor-rating'>\n                                    <span class='rating-value'>" + escapeHtml(rating) + "</span>\n                                    <span class='rating-count' aria-label='Rating count'>(" + escapeHtml(ratingCount) + ")</span>\n                                </div>\n                                " + (yearsExperience ? "<div class='instructor-experience'>" + escapeHtml(yearsExperience) + "</div>" : '') + "\n                            </div>\n                            <div class='instructor-card-specialties'>" + specialtiesHtml + "</div>\n                        </button>\n                    </article>\n                ";
+            }
+
+            container.innerHTML = html;
+        }
+
+        function renderPagination(container, currentState) {
+            if (!container) {
+                return;
+            }
+
+            if (!currentState || !currentState.total) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var totalPages = Math.ceil(currentState.total / currentState.pageSize);
+            if (totalPages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var currentPage = currentState.page;
+
+            var html = "<button type='button' class='pagination-btn pagination-prev" + (currentPage <= 1 ? " is-disabled" : "") + "' data-action='prev-page'" + (currentPage <= 1 ? " disabled" : "") + ">Prev</button>";
+
+            var maxPagesToShow = 5;
+            var startPage = Math.max(1, currentPage - 2);
+            var endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+            if (endPage - startPage < maxPagesToShow - 1) {
+                startPage = Math.max(1, endPage - maxPagesToShow + 1);
+            }
+
+            for (var p = startPage; p <= endPage; p++) {
+                html += "\n                    <button type='button' class='pagination-btn pagination-page" + (p === currentPage ? " is-active" : "") + "' data-action='change-page' data-page='" + p + "'>" + p + "</button>\n                ";
+            }
+
+            html += "<button type='button' class='pagination-btn pagination-next" + (currentPage >= totalPages ? " is-disabled" : "") + "' data-action='next-page'" + (currentPage >= totalPages ? " disabled" : "") + ">Next</button>";
+
+            container.innerHTML = html;
+        }
+
+        function runSearch() {
+            if (!resultsContainer) {
+                return;
+            }
+
+            isLoadingResults = true;
+            resultsError = null;
+            resultsContainer.innerHTML = '';
+            setResultsFeedback('', false, false);
+            setResultsFeedback('Loading instructors...', false, true);
+            updateResultsSummary();
+
+            try {
+                var filters = {};
+                if (state.styles && state.styles.length) {
+                    filters.stylesOrSpecialties = state.styles.slice();
+                }
+                if (state.minRating != null) {
+                    filters.minRating = state.minRating;
+                }
+
+                var result = WebsiteSDK.searchInstructors(filters, state.sortBy, state.page, state.pageSize);
+                var instructors = result && result.instructors ? result.instructors : [];
+
+                state.instructors = instructors;
+                state.total = result && typeof result.total === 'number' ? result.total : instructors.length;
+                if (result && typeof result.page === 'number') {
+                    state.page = result.page;
+                }
+                if (result && typeof result.page_size === 'number') {
+                    state.pageSize = result.page_size;
+                }
+                state.hasMore = !!(result && result.has_more);
+
+                isLoadingResults = false;
+                resultsError = null;
+                setResultsFeedback('', false, false);
+                renderResultsList(resultsContainer, state.instructors);
+                renderPagination(paginationContainer, state);
+                updateResultsSummary();
+            } catch (e) {
+                isLoadingResults = false;
+                resultsError = 'Unable to load instructors.';
+                resultsContainer.innerHTML = '';
+                renderPagination(paginationContainer, { total: 0, page: 1, pageSize: state.pageSize });
+                setResultsFeedback('We could not load instructors right now. Please try again.', true, false);
+                updateResultsSummary();
+            }
+        }
+
+        function loadFilterOptions() {
+            isLoadingFilters = true;
+            filtersError = null;
+            setSidebarFeedback('Loading filters...', false, true);
+
+            try {
+                var options = WebsiteSDK.getInstructorsFilterOptions();
+                filterOptions = options || { styles_or_specialties: [], rating_thresholds: [], sort_options: [] };
+
+                var urlState = parseUrlParamsWithOptions(filterOptions);
+                state.styles = urlState.styles;
+                state.minRating = urlState.minRating;
+                state.sortBy = urlState.sortBy;
+                state.page = urlState.page;
+
+                isLoadingFilters = false;
+                filtersError = null;
+                setSidebarFeedback('', false, false);
+
+                syncUrlToState(true);
+                renderFilterBar(filterBarContainer, state, filterOptions);
+                runSearch();
+            } catch (e) {
+                isLoadingFilters = false;
+                filtersError = 'Unable to load filter options.';
+                renderFilterBar(filterBarContainer, state, null);
+                setSidebarFeedback('We could not load filters right now. Please try again.', true, false);
+            }
+        }
+
+        pageRoot.addEventListener('click', function(event) {
+            var target = event.target;
+            if (!target) return;
+            var actionEl = target.closest('[data-action]');
+            if (!actionEl) return;
+
+            var action = actionEl.getAttribute('data-action');
+            if (!action) return;
+
+            if (action === 'toggle-style') {
+                if (!filterOptions) return;
+                var styleValue = actionEl.getAttribute('data-style-value');
+                if (!styleValue) return;
+                var idx = state.styles.indexOf(styleValue);
+                if (idx >= 0) {
+                    state.styles.splice(idx, 1);
+                } else {
+                    state.styles.push(styleValue);
+                }
+                state.page = 1;
+                syncUrlToState(false);
+                renderFilterBar(filterBarContainer, state, filterOptions);
+                runSearch();
+            } else if (action === 'clear-filters') {
+                if (!filterOptions) return;
+                state.styles = [];
+                state.minRating = null;
+                if (filterOptions.sort_options && filterOptions.sort_options.length) {
+                    state.sortBy = filterOptions.sort_options[0].value;
+                }
+                state.page = 1;
+                syncUrlToState(false);
+                renderFilterBar(filterBarContainer, state, filterOptions);
+                runSearch();
+            } else if (action === 'change-page') {
+                var pageStr = actionEl.getAttribute('data-page');
+                var newPage = parseInt(pageStr, 10);
+                if (!isNaN(newPage) && newPage > 0 && newPage !== state.page) {
+                    state.page = newPage;
+                    syncUrlToState(false);
+                    runSearch();
+                }
+            } else if (action === 'prev-page') {
+                if (state.page > 1) {
+                    state.page = state.page - 1;
+                    syncUrlToState(false);
+                    runSearch();
+                }
+            } else if (action === 'next-page') {
+                var maxPage = state.total ? Math.ceil(state.total / state.pageSize) : 1;
+                if (state.page < maxPage) {
+                    state.page = state.page + 1;
+                    syncUrlToState(false);
+                    runSearch();
+                }
+            } else if (action === 'open-instructor') {
+                var instructorId = actionEl.getAttribute('data-instructor-id');
+                if (instructorId) {
+                    window.location.href = 'instructor_profile.html?instructorId=' + encodeURIComponent(instructorId);
+                }
+            } else if (action === 'retry-filters') {
+                loadFilterOptions();
+            } else if (action === 'retry-results') {
+                runSearch();
+            }
+        });
+
+        pageRoot.addEventListener('change', function(event) {
+            var target = event.target;
+            if (!target) return;
+            var action = target.getAttribute('data-action');
+            if (!action) return;
+
+            if (action === 'change-min-rating') {
+                var value = target.value;
+                if (value === '') {
+                    state.minRating = null;
+                } else {
+                    var num = Number(value);
+                    if (!isNaN(num)) {
+                        state.minRating = num;
+                    }
+                }
+                state.page = 1;
+                syncUrlToState(false);
+                if (filterOptions) {
+                    renderFilterBar(filterBarContainer, state, filterOptions);
+                }
+                runSearch();
+            } else if (action === 'change-sort') {
+                var sortValue = target.value;
+                if (sortValue && sortValue !== state.sortBy) {
+                    state.sortBy = sortValue;
+                    state.page = 1;
+                    syncUrlToState(false);
+                    if (filterOptions) {
+                        renderFilterBar(filterBarContainer, state, filterOptions);
+                    }
+                    runSearch();
+                }
+            }
+        });
+
+        window.addEventListener('popstate', function() {
+            if (!filterOptions) return;
+            var urlState = parseUrlParamsWithOptions(filterOptions);
+            state.styles = urlState.styles;
+            state.minRating = urlState.minRating;
+            state.sortBy = urlState.sortBy;
+            state.page = urlState.page;
+            renderFilterBar(filterBarContainer, state, filterOptions);
+            runSearch();
+        });
+
+        loadFilterOptions();
+    });
+    </script>
+</body>
+</html>

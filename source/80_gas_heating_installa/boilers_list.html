@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<link rel="stylesheet" href="boilers_list.css" />
+
+<div class="boilers-page" data-component="boilers-page-controller">
+  <div class="boilers-layout">
+    <aside class="boiler-filter-panel" data-component="boiler-filter-panel" aria-label="Filter boilers">
+      <div class="filter-panel-inner">
+        <header class="filter-panel-header">
+          <h1 class="filter-panel-title">Boilers</h1>
+          <button type="button" class="filter-panel-close" data-action="close-filter-panel" aria-label="Close filters">
+            &times;
+          </button>
+        </header>
+        <form class="filter-form" data-populate="boiler-filter-panel" aria-label="Boiler filters">
+          <!-- Populated by JavaScript using getBoilerFilterOptions and URL params -->
+        </form>
+      </div>
+    </aside>
+
+    <section class="boiler-results-column" aria-label="Boiler results">
+      <div class="boiler-results-header">
+        <button type="button" class="filter-toggle-button" data-action="open-filter-panel">
+          Filters
+        </button>
+        <div class="results-header-main">
+          <div class="results-summary" data-component="boiler-result-summary" data-populate="boiler-result-summary">
+            <!-- Summary populated by JavaScript -->
+          </div>
+          <div class="sort-control" data-component="boiler-sort-control" data-populate="boiler-sort-control">
+            <!-- Sort control populated by JavaScript -->
+          </div>
+        </div>
+      </div>
+
+      <div class="active-filter-chips" data-component="active-filter-chips">
+        <div class="chips-container" data-populate="active-filter-chips">
+          <!-- Active filter chips populated by JavaScript -->
+        </div>
+      </div>
+
+      <section class="boiler-card-grid-section" aria-label="Boiler listing">
+        <div class="boiler-card-grid" data-component="boiler-card-grid" data-populate="boiler-list">
+          <!-- Boiler cards populated by JavaScript -->
+        </div>
+      </section>
+
+      <section class="boiler-no-results" data-component="boiler-no-results-state" data-populate="boiler-no-results" hidden>
+        <!-- No-results state populated by JavaScript -->
+      </section>
+
+      <nav class="boiler-pagination" data-component="boiler-pagination-control" aria-label="Boiler pages">
+        <ul class="pagination-list" data-populate="boiler-pagination">
+          <!-- Pagination populated by JavaScript -->
+        </ul>
+      </nav>
+    </section>
+  </div>
+</div>
+
+<a href="https://wa.me/" class="whatsapp-floating-button" aria-label="Chat with us on WhatsApp">
+  <span class="whatsapp-icon" aria-hidden="true"></span>
+</a>
+
+<script src="business_logic.js"></script>
+<script>
+(function() {
+  "use strict";
+
+  var filterOptionsCache = null;
+  var lastListResult = null;
+
+  function escapeHtml(value) {
+    if (value === null || value === undefined) {
+      return "";
+    }
+    var str = String(value);
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function getQueryStateFromUrl() {
+    var params = new URLSearchParams(window.location.search);
+    var state = {
+      boilerType: null,
+      maxPrice: null,
+      minWarrantyYears: null,
+      bathrooms: null,
+      efficiencyBand: null,
+      sortBy: null,
+      page: 1
+    };
+
+    var boilerType = params.get("boilerType");
+    if (boilerType) {
+      state.boilerType = boilerType;
+    }
+
+    var maxPriceStr = params.get("maxPrice");
+    if (maxPriceStr !== null && maxPriceStr !== "") {
+      var maxPriceNum = Number(maxPriceStr);
+      if (!isNaN(maxPriceNum) && maxPriceNum >= 0) {
+        state.maxPrice = maxPriceNum;
+      }
+    }
+
+    var minWarrantyStr = params.get("minWarrantyYears");
+    if (minWarrantyStr !== null && minWarrantyStr !== "") {
+      var minWarrantyNum = Number(minWarrantyStr);
+      if (!isNaN(minWarrantyNum) && minWarrantyNum >= 0) {
+        state.minWarrantyYears = minWarrantyNum;
+      }
+    }
+
+    var bathroomsStr = params.get("bathrooms");
+    if (bathroomsStr !== null && bathroomsStr !== "") {
+      var bathroomsNum = Number(bathroomsStr);
+      if (!isNaN(bathroomsNum) && bathroomsNum >= 0) {
+        state.bathrooms = bathroomsNum;
+      }
+    }
+
+    var efficiencyBand = params.get("efficiencyBand");
+    if (efficiencyBand) {
+      state.efficiencyBand = efficiencyBand;
+    }
+
+    var sortBy = params.get("sortBy");
+    if (sortBy) {
+      state.sortBy = sortBy;
+    }
+
+    var pageStr = params.get("page");
+    if (pageStr !== null && pageStr !== "") {
+      var pageNum = parseInt(pageStr, 10);
+      if (!isNaN(pageNum) && pageNum > 0) {
+        state.page = pageNum;
+      }
+    }
+
+    return state;
+  }
+
+  function applyStateToUrl(changes, resetPage) {
+    var params = new URLSearchParams(window.location.search);
+
+    if (resetPage) {
+      params.delete("page");
+    }
+
+    for (var key in changes) {
+      if (!Object.prototype.hasOwnProperty.call(changes, key)) {
+        continue;
+      }
+      var value = changes[key];
+      if (value === null || value === undefined || value === "") {
+        params.delete(key);
+      } else {
+        params.set(key, String(value));
+      }
+    }
+
+    var newQuery = params.toString();
+    var newUrl = window.location.pathname + (newQuery ? ("?" + newQuery) : "");
+    window.history.pushState(null, "", newUrl);
+  }
+
+  function renderFilterPanel(container, state) {
+    if (!filterOptionsCache) {
+      container.innerHTML = "";
+      return;
+    }
+
+    var boilerTypes = filterOptionsCache.boiler_types || [];
+    var warrantyOptions = filterOptionsCache.warranty_length_options || [];
+    var bathroomOptions = filterOptionsCache.bathroom_options || [];
+    var efficiencyOptions = filterOptionsCache.efficiency_band_options || [];
+    var maxPriceDefault = filterOptionsCache.max_price_default;
+
+    var boilerTypeOptionsHtml = "";
+    boilerTypeOptionsHtml += "<option value=\"\">All types</option>";
+    for (var i = 0; i < boilerTypes.length; i++) {
+      var typeOpt = boilerTypes[i];
+      var selected = state.boilerType && state.boilerType === typeOpt.value ? " selected" : "";
+      boilerTypeOptionsHtml += "<option value=\"" + escapeHtml(typeOpt.value) + "\"" + selected + ">" + escapeHtml(typeOpt.label) + "</option>";
+    }
+
+    var warrantyOptionsHtml = "";
+    warrantyOptionsHtml += "<option value=\"\">Any</option>";
+    for (var j = 0; j < warrantyOptions.length; j++) {
+      var warrOpt = warrantyOptions[j];
+      var warrValueStr = warrOpt.value;
+      var stateWarrantyStr = state.minWarrantyYears !== null && state.minWarrantyYears !== undefined ? String(state.minWarrantyYears) : "";
+      var selectedWarr = stateWarrantyStr && stateWarrantyStr === warrValueStr ? " selected" : "";
+      warrantyOptionsHtml += "<option value=\"" + escapeHtml(warrValueStr) + "\"" + selectedWarr + ">" + escapeHtml(warrOpt.label) + "</option>";
+    }
+
+    var bathroomOptionsHtml = "";
+    bathroomOptionsHtml += "<option value=\"\">Any</option>";
+    for (var k = 0; k < bathroomOptions.length; k++) {
+      var bathOpt = bathroomOptions[k];
+      var bathValueStr = String(bathOpt.value);
+      var stateBathStr = state.bathrooms !== null && state.bathrooms !== undefined ? String(state.bathrooms) : "";
+      var selectedBath = stateBathStr && stateBathStr === bathValueStr ? " selected" : "";
+      bathroomOptionsHtml += "<option value=\"" + escapeHtml(bathValueStr) + "\"" + selectedBath + ">" + escapeHtml(bathOpt.label) + "</option>";
+    }
+
+    var efficiencyOptionsHtml = "";
+    efficiencyOptionsHtml += "<option value=\"\">Any</option>";
+    for (var m = 0; m < efficiencyOptions.length; m++) {
+      var effOpt = efficiencyOptions[m];
+      var selectedEff = state.efficiencyBand && state.efficiencyBand === effOpt.value ? " selected" : "";
+      efficiencyOptionsHtml += "<option value=\"" + escapeHtml(effOpt.value) + "\"" + selectedEff + ">" + escapeHtml(effOpt.label) + "</option>";
+    }
+
+    var maxPriceValue = state.maxPrice !== null && state.maxPrice !== undefined ? String(state.maxPrice) : "";
+    var maxPricePlaceholder = "";
+    if (maxPriceDefault !== null && maxPriceDefault !== undefined) {
+      maxPricePlaceholder = "Up to \u00a3" + escapeHtml(maxPriceDefault);
+    } else {
+      maxPricePlaceholder = "Enter maximum";
+    }
+
+    var html = "" +
+      "<div class=\"filter-group\">" +
+      "  <label for=\"filter-boiler-type\">Boiler type</label>" +
+      "  <select id=\"filter-boiler-type\" name=\"boilerType\" data-action=\"boiler-type-change\">" +
+      boilerTypeOptionsHtml +
+      "  </select>" +
+      "</div>" +
+      "<div class=\"filter-group\">" +
+      "  <label for=\"filter-max-price\">Maximum price</label>" +
+      "  <input id=\"filter-max-price\" name=\"maxPrice\" type=\"number\" min=\"0\" step=\"50\" placeholder=\"" + escapeHtml(maxPricePlaceholder) + "\" value=\"" + escapeHtml(maxPriceValue) + "\" data-action=\"max-price-change\" />" +
+      "</div>" +
+      "<div class=\"filter-group\">" +
+      "  <label for=\"filter-min-warranty\">Minimum warranty</label>" +
+      "  <select id=\"filter-min-warranty\" name=\"minWarrantyYears\" data-action=\"min-warranty-change\">" +
+      warrantyOptionsHtml +
+      "  </select>" +
+      "</div>" +
+      "<div class=\"filter-group\">" +
+      "  <label for=\"filter-bathrooms\">Bathrooms</label>" +
+      "  <select id=\"filter-bathrooms\" name=\"bathrooms\" data-action=\"bathrooms-change\">" +
+      bathroomOptionsHtml +
+      "  </select>" +
+      "</div>" +
+      "<div class=\"filter-group\">" +
+      "  <label for=\"filter-efficiency-band\">Efficiency band</label>" +
+      "  <select id=\"filter-efficiency-band\" name=\"efficiencyBand\" data-action=\"efficiency-band-change\">" +
+      efficiencyOptionsHtml +
+      "  </select>" +
+      "</div>" +
+      "<div class=\"filter-actions\">" +
+      "  <button type=\"button\" class=\"clear-filters-button\" data-action=\"clear-all-filters\">Clear all filters</button>" +
+      "</div>";
+
+    container.innerHTML = html;
+  }
+
+  function renderSortControl(container, state) {
+    if (!filterOptionsCache) {
+      container.innerHTML = "";
+      return;
+    }
+
+    var sortOptions = filterOptionsCache.sort_options || [];
+    var defaultSortValue = "";
+    if (sortOptions.length > 0 && sortOptions[0] && sortOptions[0].value) {
+      defaultSortValue = sortOptions[0].value;
+    }
+
+    var activeSortValue = state.sortBy ? state.sortBy : defaultSortValue;
+
+    var optionsHtml = "";
+    for (var i = 0; i < sortOptions.length; i++) {
+      var sortOpt = sortOptions[i];
+      var selected = activeSortValue && activeSortValue === sortOpt.value ? " selected" : "";
+      optionsHtml += "<option value=\"" + escapeHtml(sortOpt.value) + "\"" + selected + ">" + escapeHtml(sortOpt.label) + "</option>";
+    }
+
+    var html = "" +
+      "<label for=\"sort-by-select\">Sort by</label>" +
+      "<select id=\"sort-by-select\" name=\"sortBy\" data-action=\"sort-change\">" +
+      optionsHtml +
+      "</select>";
+
+    container.innerHTML = html;
+  }
+
+  function buildFiltersSummaryText(state) {
+    var parts = [];
+
+    if (state.boilerType && filterOptionsCache && filterOptionsCache.boiler_types) {
+      var boilerTypes = filterOptionsCache.boiler_types;
+      for (var i = 0; i < boilerTypes.length; i++) {
+        if (boilerTypes[i].value === state.boilerType) {
+          parts.push(boilerTypes[i].label);
+          break;
+        }
+      }
+    }
+
+    if (state.maxPrice !== null && state.maxPrice !== undefined) {
+      parts.push("Up to \u00a3" + state.maxPrice);
+    }
+
+    if (state.minWarrantyYears !== null && state.minWarrantyYears !== undefined) {
+      parts.push("" + state.minWarrantyYears + "+ year warranty");
+    }
+
+    if (state.bathrooms !== null && state.bathrooms !== undefined && filterOptionsCache && filterOptionsCache.bathroom_options) {
+      var bathroomOptions = filterOptionsCache.bathroom_options;
+      var stateBathStr = String(state.bathrooms);
+      var matchedBathroom = null;
+      for (var j = 0; j < bathroomOptions.length; j++) {
+        if (String(bathroomOptions[j].value) === stateBathStr) {
+          matchedBathroom = bathroomOptions[j].label;
+          break;
+        }
+      }
+      if (matchedBathroom) {
+        parts.push(matchedBathroom);
+      }
+    }
+
+    if (state.efficiencyBand && filterOptionsCache && filterOptionsCache.efficiency_band_options) {
+      var efficiencyOptions = filterOptionsCache.efficiency_band_options;
+      for (var k = 0; k < efficiencyOptions.length; k++) {
+        if (efficiencyOptions[k].value === state.efficiencyBand) {
+          parts.push(efficiencyOptions[k].label);
+          break;
+        }
+      }
+    }
+
+    if (parts.length === 0) {
+      return "No filters applied";
+    }
+
+    return "Filters: " + parts.join(", ");
+  }
+
+  function renderResultSummary(container, state, listResult) {
+    if (!listResult) {
+      container.innerHTML = "<p>Loading boilers...</p>";
+      return;
+    }
+
+    var total = listResult.total_count !== undefined && listResult.total_count !== null ? listResult.total_count : 0;
+    var pageSize = listResult.page_size !== undefined && listResult.page_size !== null ? listResult.page_size : 0;
+    var currentPage = listResult.page !== undefined && listResult.page !== null ? listResult.page : state.page;
+
+    var from = 0;
+    var to = 0;
+    if (total > 0 && pageSize > 0) {
+      from = (currentPage - 1) * pageSize + 1;
+      to = currentPage * pageSize;
+      if (to > total) {
+        to = total;
+      }
+    }
+
+    var summaryText = "";
+    if (total === 0) {
+      summaryText = "No boilers found";
+    } else if (from === 0 && to === 0) {
+      summaryText = total + " boilers found";
+    } else {
+      summaryText = "Showing " + from + "–" + to + " of " + total + " boilers";
+    }
+
+    var filtersText = buildFiltersSummaryText(state);
+
+    var html = "" +
+      "<p class=\"results-summary-main\">" + escapeHtml(summaryText) + "</p>" +
+      "<p class=\"results-summary-filters\">" + escapeHtml(filtersText) + "</p>";
+
+    container.innerHTML = html;
+  }
+
+  function renderActiveFilterChips(container, state) {
+    var anyFilter = false;
+    var chipsHtml = "";
+
+    if (state.boilerType && filterOptionsCache && filterOptionsCache.boiler_types) {
+      var boilerTypes = filterOptionsCache.boiler_types;
+      var typeLabel = null;
+      for (var i = 0; i < boilerTypes.length; i++) {
+        if (boilerTypes[i].value === state.boilerType) {
+          typeLabel = boilerTypes[i].label;
+          break;
+        }
+      }
+      var displayLabel = typeLabel ? typeLabel : ("Type: " + state.boilerType);
+      chipsHtml += "<button type=\"button\" class=\"filter-chip\" data-action=\"remove-filter-chip\" data-filter-key=\"boilerType\" aria-label=\"Remove filter: " + escapeHtml(displayLabel) + "\">" +
+        "<span class=\"chip-label\">" + escapeHtml(displayLabel) + "</span>" +
+        "<span class=\"chip-close\" aria-hidden=\"true\">&times;</span>" +
+        "</button>";
+      anyFilter = true;
+    }
+
+    if (state.maxPrice !== null && state.maxPrice !== undefined) {
+      var priceLabel = "Up to \u00a3" + state.maxPrice;
+      chipsHtml += "<button type=\"button\" class=\"filter-chip\" data-action=\"remove-filter-chip\" data-filter-key=\"maxPrice\" aria-label=\"Remove filter: " + escapeHtml(priceLabel) + "\">" +
+        "<span class=\"chip-label\">" + escapeHtml(priceLabel) + "</span>" +
+        "<span class=\"chip-close\" aria-hidden=\"true\">&times;</span>" +
+        "</button>";
+      anyFilter = true;
+    }
+
+    if (state.minWarrantyYears !== null && state.minWarrantyYears !== undefined) {
+      var warrantyLabel = "";
+      if (filterOptionsCache && filterOptionsCache.warranty_length_options) {
+        var warrantyOptions = filterOptionsCache.warranty_length_options;
+        var stateWarrStr = String(state.minWarrantyYears);
+        for (var j = 0; j < warrantyOptions.length; j++) {
+          if (warrantyOptions[j].value === stateWarrStr) {
+            warrantyLabel = warrantyOptions[j].label;
+            break;
+          }
+        }
+      }
+      if (!warrantyLabel) {
+        warrantyLabel = state.minWarrantyYears + "+ year warranty";
+      }
+      chipsHtml += "<button type=\"button\" class=\"filter-chip\" data-action=\"remove-filter-chip\" data-filter-key=\"minWarrantyYears\" aria-label=\"Remove filter: " + escapeHtml(warrantyLabel) + "\">" +
+        "<span class=\"chip-label\">" + escapeHtml(warrantyLabel) + "</span>" +
+        "<span class=\"chip-close\" aria-hidden=\"true\">&times;</span>" +
+        "</button>";
+      anyFilter = true;
+    }
+
+    if (state.bathrooms !== null && state.bathrooms !== undefined) {
+      var bathLabel = "";
+      if (filterOptionsCache && filterOptionsCache.bathroom_options) {
+        var bathroomOptions = filterOptionsCache.bathroom_options;
+        var stateBathStr = String(state.bathrooms);
+        for (var k = 0; k < bathroomOptions.length; k++) {
+          if (String(bathroomOptions[k].value) === stateBathStr) {
+            bathLabel = bathroomOptions[k].label;
+            break;
+          }
+        }
+      }
+      if (!bathLabel) {
+        bathLabel = state.bathrooms + " bathrooms";
+      }
+      chipsHtml += "<button type=\"button\" class=\"filter-chip\" data-action=\"remove-filter-chip\" data-filter-key=\"bathrooms\" aria-label=\"Remove filter: " + escapeHtml(bathLabel) + "\">" +
+        "<span class=\"chip-label\">" + escapeHtml(bathLabel) + "</span>" +
+        "<span class=\"chip-close\" aria-hidden=\"true\">&times;</span>" +
+        "</button>";
+      anyFilter = true;
+    }
+
+    if (state.efficiencyBand && filterOptionsCache && filterOptionsCache.efficiency_band_options) {
+      var efficiencyOptions = filterOptionsCache.efficiency_band_options;
+      var effLabel = null;
+      for (var m = 0; m < efficiencyOptions.length; m++) {
+        if (efficiencyOptions[m].value === state.efficiencyBand) {
+          effLabel = efficiencyOptions[m].label;
+          break;
+        }
+      }
+      var effDisplayLabel = effLabel ? effLabel : ("Efficiency: " + state.efficiencyBand);
+      chipsHtml += "<button type=\"button\" class=\"filter-chip\" data-action=\"remove-filter-chip\" data-filter-key=\"efficiencyBand\" aria-label=\"Remove filter: " + escapeHtml(effDisplayLabel) + "\">" +
+        "<span class=\"chip-label\">" + escapeHtml(effDisplayLabel) + "</span>" +
+        "<span class=\"chip-close\" aria-hidden=\"true\">&times;</span>" +
+        "</button>";
+      anyFilter = true;
+    }
+
+    if (anyFilter) {
+      chipsHtml += "<button type=\"button\" class=\"filter-chip filter-chip-clear-all\" data-action=\"clear-all-filters\">" +
+        "<span class=\"chip-label\">Clear all</span>" +
+        "</button>";
+    }
+
+    if (!anyFilter) {
+      container.innerHTML = "";
+      return;
+    }
+
+    container.innerHTML = chipsHtml;
+  }
+
+  function renderBoilerList(container, listResult) {
+    if (!listResult || !listResult.items || listResult.items.length === 0) {
+      container.innerHTML = "";
+      return;
+    }
+
+    var items = listResult.items;
+    var html = "";
+
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var boiler = item.boiler;
+      if (!boiler) {
+        continue;
+      }
+
+      var title = boiler.name ? boiler.name : "Boiler";
+      if (boiler.manufacturer) {
+        title = boiler.manufacturer + " " + title;
+      }
+
+      var modelLine = boiler.model_number ? boiler.model_number : "";
+      var efficiencyLabel = item.efficiency_label ? item.efficiency_label : "";
+      var warrantyLabel = item.warranty_label ? item.warranty_label : "";
+      var displayPrice = item.display_price ? item.display_price : "";
+      var headlineSpecs = item.headline_specs ? item.headline_specs : "";
+
+      var typeLabel = boiler.boiler_type ? boiler.boiler_type : "";
+      var effBandLabel = boiler.efficiency_band ? boiler.efficiency_band : "";
+
+      html += "<article class=\"boiler-card\" data-component=\"boiler-card\" data-action=\"boiler-card-click\" data-boiler-id=\"" + escapeHtml(boiler.id) + "\">" +
+        "<header class=\"boiler-card-header\">" +
+        "  <h3 class=\"boiler-card-title\">" + escapeHtml(title) + "</h3>";
+      if (modelLine) {
+        html += "  <p class=\"boiler-card-model\">" + escapeHtml(modelLine) + "</p>";
+      }
+      html += "</header>" +
+        "<div class=\"boiler-card-body\">";
+
+      if (headlineSpecs) {
+        html += "<p class=\"boiler-card-headline-specs\">" + escapeHtml(headlineSpecs) + "</p>";
+      }
+
+      html += "<dl class=\"boiler-card-spec-list\">";
+      if (typeLabel) {
+        html += "  <div class=\"spec-row\"><dt>Type</dt><dd>" + escapeHtml(typeLabel) + "</dd></div>";
+      }
+      if (effBandLabel) {
+        html += "  <div class=\"spec-row\"><dt>Efficiency band</dt><dd>" + escapeHtml(effBandLabel) + "</dd></div>";
+      }
+      if (efficiencyLabel) {
+        html += "  <div class=\"spec-row\"><dt>Efficiency</dt><dd>" + escapeHtml(efficiencyLabel) + "</dd></div>";
+      }
+      if (warrantyLabel) {
+        html += "  <div class=\"spec-row\"><dt>Warranty</dt><dd>" + escapeHtml(warrantyLabel) + "</dd></div>";
+      }
+      html += "</dl>";
+
+      html += "</div>" +
+        "<footer class=\"boiler-card-footer\">";
+      if (displayPrice) {
+        html += "  <div class=\"boiler-card-price\">" + escapeHtml(displayPrice) + "</div>";
+      }
+      html += "  <div class=\"boiler-card-cta\">" +
+        "    <button type=\"button\" class=\"boiler-card-button\">View details</button>" +
+        "  </div>" +
+        "</footer>" +
+        "</article>";
+    }
+
+    container.innerHTML = html;
+  }
+
+  function renderPagination(container, state, listResult) {
+    if (!listResult) {
+      container.innerHTML = "";
+      return;
+    }
+
+    var total = listResult.total_count !== undefined && listResult.total_count !== null ? listResult.total_count : 0;
+    var pageSize = listResult.page_size !== undefined && listResult.page_size !== null ? listResult.page_size : 0;
+
+    if (total === 0 || pageSize === 0) {
+      container.innerHTML = "";
+      return;
+    }
+
+    var totalPages = Math.ceil(total / pageSize);
+    if (totalPages <= 1) {
+      container.innerHTML = "";
+      return;
+    }
+
+    var currentPage = listResult.page !== undefined && listResult.page !== null ? listResult.page : state.page;
+    if (currentPage < 1) {
+      currentPage = 1;
+    }
+    if (currentPage > totalPages) {
+      currentPage = totalPages;
+    }
+
+    var html = "";
+
+    var prevDisabled = currentPage === 1;
+    html += "<li class=\"pagination-item\">";
+    if (prevDisabled) {
+      html += "<span class=\"pagination-link pagination-link-disabled\">Previous</span>";
+    } else {
+      var prevPage = currentPage - 1;
+      html += "<button type=\"button\" class=\"pagination-link\" data-action=\"page-change\" data-page=\"" + prevPage + "\">Previous</button>";
+    }
+    html += "</li>";
+
+    for (var p = 1; p <= totalPages; p++) {
+      var isActive = p === currentPage;
+      html += "<li class=\"pagination-item\">";
+      if (isActive) {
+        html += "<span class=\"pagination-link pagination-link-active\">" + p + "</span>";
+      } else {
+        html += "<button type=\"button\" class=\"pagination-link\" data-action=\"page-change\" data-page=\"" + p + "\">" + p + "</button>";
+      }
+      html += "</li>";
+    }
+
+    var nextDisabled = currentPage === totalPages;
+    html += "<li class=\"pagination-item\">";
+    if (nextDisabled) {
+      html += "<span class=\"pagination-link pagination-link-disabled\">Next</span>";
+    } else {
+      var nextPage = currentPage + 1;
+      html += "<button type=\"button\" class=\"pagination-link\" data-action=\"page-change\" data-page=\"" + nextPage + "\">Next</button>";
+    }
+    html += "</li>";
+
+    container.innerHTML = html;
+  }
+
+  function renderNoResults(container, listResult) {
+    if (!listResult || (listResult.items && listResult.items.length > 0)) {
+      container.innerHTML = "";
+      container.setAttribute("hidden", "hidden");
+      return;
+    }
+
+    var total = listResult.total_count !== undefined && listResult.total_count !== null ? listResult.total_count : 0;
+    if (total > 0) {
+      container.innerHTML = "";
+      container.setAttribute("hidden", "hidden");
+      return;
+    }
+
+    var html = "" +
+      "<div class=\"no-results-panel\">" +
+      "  <div class=\"no-results-icon\" aria-hidden=\"true\"></div>" +
+      "  <h2 class=\"no-results-title\">No boilers match your filters</h2>" +
+      "  <p class=\"no-results-copy\">Try adjusting or clearing your filters to see more options.</p>" +
+      "  <div class=\"no-results-actions\">" +
+      "    <button type=\"button\" class=\"clear-filters-button\" data-action=\"clear-all-filters\">Clear all filters</button>" +
+      "  </div>" +
+      "</div>";
+
+    container.innerHTML = html;
+    container.removeAttribute("hidden");
+  }
+
+  function renderAll(state) {
+    var filterForm = document.querySelector('[data-populate="boiler-filter-panel"]');
+    if (filterForm) {
+      renderFilterPanel(filterForm, state);
+    }
+
+    var sortContainer = document.querySelector('[data-populate="boiler-sort-control"]');
+    if (sortContainer) {
+      renderSortControl(sortContainer, state);
+    }
+
+    var summaryContainer = document.querySelector('[data-populate="boiler-result-summary"]');
+    if (summaryContainer) {
+      renderResultSummary(summaryContainer, state, lastListResult);
+    }
+
+    var chipsContainer = document.querySelector('[data-populate="active-filter-chips"]');
+    if (chipsContainer) {
+      renderActiveFilterChips(chipsContainer, state);
+    }
+
+    var listContainer = document.querySelector('[data-populate="boiler-list"]');
+    if (listContainer) {
+      renderBoilerList(listContainer, lastListResult);
+    }
+
+    var paginationContainer = document.querySelector('[data-populate="boiler-pagination"]');
+    if (paginationContainer) {
+      renderPagination(paginationContainer, state, lastListResult);
+    }
+
+    var noResultsContainer = document.querySelector('[data-populate="boiler-no-results"]');
+    if (noResultsContainer) {
+      renderNoResults(noResultsContainer, lastListResult);
+    }
+  }
+
+  function syncFromUrlAndRender() {
+    var state = getQueryStateFromUrl();
+
+    if (!filterOptionsCache) {
+      try {
+        filterOptionsCache = WebsiteSDK.getBoilerFilterOptions();
+      } catch (e) {
+        console.error("Error loading boiler filter options", e);
+      }
+    }
+
+    var sortOptions = filterOptionsCache && filterOptionsCache.sort_options ? filterOptionsCache.sort_options : [];
+    var defaultSortValue = "";
+    if (sortOptions.length > 0 && sortOptions[0] && sortOptions[0].value) {
+      defaultSortValue = sortOptions[0].value;
+    }
+
+    var effectiveSort = state.sortBy ? state.sortBy : defaultSortValue;
+
+    try {
+      lastListResult = WebsiteSDK.listBoilers(
+        state.boilerType ? state.boilerType : null,
+        state.maxPrice !== null && state.maxPrice !== undefined ? state.maxPrice : null,
+        state.minWarrantyYears !== null && state.minWarrantyYears !== undefined ? state.minWarrantyYears : null,
+        state.bathrooms !== null && state.bathrooms !== undefined ? state.bathrooms : null,
+        null,
+        state.efficiencyBand ? state.efficiencyBand : null,
+        effectiveSort ? effectiveSort : null,
+        null,
+        state.page !== null && state.page !== undefined ? state.page : 1,
+        "listing_page"
+      );
+    } catch (e) {
+      console.error("Error loading boiler list", e);
+      lastListResult = {
+        items: [],
+        total_count: 0,
+        page: state.page,
+        page_size: 0
+      };
+    }
+
+    renderAll(state);
+  }
+
+  function handleFilterParamChange(paramName, rawValue) {
+    var value = rawValue;
+    if (value !== null && value !== undefined) {
+      value = String(value).trim();
+      if (value === "") {
+        value = null;
+      }
+    }
+
+    var changes = {};
+    changes[paramName] = value;
+    applyStateToUrl(changes, true);
+    syncFromUrlAndRender();
+  }
+
+  function handleClearAllFilters() {
+    var params = new URLSearchParams(window.location.search);
+    params.delete("boilerType");
+    params.delete("maxPrice");
+    params.delete("minWarrantyYears");
+    params.delete("bathrooms");
+    params.delete("efficiencyBand");
+    params.delete("page");
+    var newQuery = params.toString();
+    var newUrl = window.location.pathname + (newQuery ? ("?" + newQuery) : "");
+    window.history.pushState(null, "", newUrl);
+    syncFromUrlAndRender();
+  }
+
+  function handleSortChange(rawValue) {
+    var value = rawValue;
+    if (value !== null && value !== undefined) {
+      value = String(value).trim();
+      if (value === "") {
+        value = null;
+      }
+    }
+    var changes = { sortBy: value };
+    applyStateToUrl(changes, true);
+    syncFromUrlAndRender();
+  }
+
+  function handlePageChange(targetPageStr) {
+    if (!targetPageStr) {
+      return;
+    }
+    var pageNum = parseInt(targetPageStr, 10);
+    if (isNaN(pageNum) || pageNum < 1) {
+      return;
+    }
+    var changes = { page: pageNum };
+    applyStateToUrl(changes, false);
+    syncFromUrlAndRender();
+  }
+
+  function handleRemoveFilterChip(filterKey) {
+    if (!filterKey) {
+      return;
+    }
+    var params = new URLSearchParams(window.location.search);
+    params.delete(filterKey);
+    params.delete("page");
+    var newQuery = params.toString();
+    var newUrl = window.location.pathname + (newQuery ? ("?" + newQuery) : "");
+    window.history.pushState(null, "", newUrl);
+    syncFromUrlAndRender();
+  }
+
+  function handleBoilerCardClick(boilerId) {
+    if (!boilerId) {
+      return;
+    }
+    var url = "boiler_detail.html?id=" + encodeURIComponent(boilerId);
+    window.location.href = url;
+  }
+
+  function openFilterPanel() {
+    var panel = document.querySelector('[data-component="boiler-filter-panel"]');
+    if (panel) {
+      panel.classList.add("filter-panel-open");
+    }
+  }
+
+  function closeFilterPanel() {
+    var panel = document.querySelector('[data-component="boiler-filter-panel"]');
+    if (panel) {
+      panel.classList.remove("filter-panel-open");
+    }
+  }
+
+  function setupEventDelegation() {
+    document.addEventListener("change", function(event) {
+      var target = event.target;
+      if (!target) {
+        return;
+      }
+
+      var current = target;
+      var action = null;
+      while (current && current !== document.body) {
+        action = current.getAttribute("data-action");
+        if (action) {
+          break;
+        }
+        current = current.parentElement;
+      }
+
+      if (!action) {
+        return;
+      }
+
+      if (action === "boiler-type-change") {
+        handleFilterParamChange("boilerType", target.value);
+      } else if (action === "max-price-change") {
+        handleFilterParamChange("maxPrice", target.value);
+      } else if (action === "min-warranty-change") {
+        handleFilterParamChange("minWarrantyYears", target.value);
+      } else if (action === "bathrooms-change") {
+        handleFilterParamChange("bathrooms", target.value);
+      } else if (action === "efficiency-band-change") {
+        handleFilterParamChange("efficiencyBand", target.value);
+      } else if (action === "sort-change") {
+        handleSortChange(target.value);
+      }
+    });
+
+    document.addEventListener("click", function(event) {
+      var target = event.target;
+      if (!target) {
+        return;
+      }
+
+      var current = target;
+      var action = null;
+      while (current && current !== document.body) {
+        action = current.getAttribute("data-action");
+        if (action) {
+          break;
+        }
+        current = current.parentElement;
+      }
+
+      if (!action) {
+        return;
+      }
+
+      if (action === "clear-all-filters") {
+        event.preventDefault();
+        handleClearAllFilters();
+      } else if (action === "page-change") {
+        event.preventDefault();
+        var pageValue = current.getAttribute("data-page");
+        handlePageChange(pageValue);
+      } else if (action === "remove-filter-chip") {
+        event.preventDefault();
+        var filterKey = current.getAttribute("data-filter-key");
+        handleRemoveFilterChip(filterKey);
+      } else if (action === "boiler-card-click") {
+        event.preventDefault();
+        var boilerId = current.getAttribute("data-boiler-id");
+        handleBoilerCardClick(boilerId);
+      } else if (action === "open-filter-panel") {
+        event.preventDefault();
+        openFilterPanel();
+      } else if (action === "close-filter-panel") {
+        event.preventDefault();
+        closeFilterPanel();
+      }
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", function() {
+    setupEventDelegation();
+    syncFromUrlAndRender();
+
+    window.addEventListener("popstate", function() {
+      syncFromUrlAndRender();
+    });
+  });
+})();
+</script>

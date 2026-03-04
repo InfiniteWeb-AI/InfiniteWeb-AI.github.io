@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<link rel="stylesheet" href="package_detail.css" />
+
+<div class="page-container package-detail-page">
+  <div class="package-detail-column">
+    <!-- Loader overlay -->
+    <div class="package-detail-loader-overlay is-hidden" data-component="package-detail-loader" aria-hidden="true">
+      <div class="loader-content">
+        <div class="loader-spinner" aria-hidden="true"></div>
+        <p class="loader-text">Loading package details...</p>
+      </div>
+    </div>
+
+    <!-- Not found / error state -->
+    <section class="package-not-found-state is-hidden" data-component="package-not-found-state" aria-live="polite">
+      <div class="not-found-inner">
+        <h2 class="not-found-title">Service package not available</h2>
+        <p class="not-found-message">
+          The requested service package could not be displayed. It may be unavailable or the link may be invalid.
+        </p>
+        <div class="not-found-actions">
+          <button type="button" class="btn btn-secondary" data-action="go-back">Go back</button>
+          <a href="services.html" class="link-button">Browse all services</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main package detail content -->
+    <article class="package-detail-article is-hidden" data-component="package-detail" aria-live="polite">
+      <!-- Package header -->
+      <header class="package-header" data-component="package-header"></header>
+
+      <!-- Pricing and add-to-cart panel -->
+      <section class="package-pricing-panel" data-component="package-pricing-panel" aria-label="Pricing and purchase options"></section>
+
+      <!-- Cart feedback banner -->
+      <div class="cart-feedback-wrapper">
+        <div class="cart-feedback-banner is-hidden" data-component="cart-feedback-banner" role="status" aria-live="polite"></div>
+      </div>
+
+      <!-- Primary CTAs: proceed to checkout / view cart -->
+      <div class="package-primary-actions">
+        <button type="button" class="btn btn-primary" data-component="proceed-to-checkout-button" data-action="proceed-to-checkout">
+          Proceed to checkout
+        </button>
+        <button type="button" class="link-button view-cart-link" data-component="view-cart-link" data-action="view-cart">
+          View cart
+        </button>
+      </div>
+
+      <!-- Description / overview -->
+      <section class="package-description-section" data-component="package-description-section"></section>
+
+      <!-- Inclusions list -->
+      <section class="package-inclusions-section" data-component="package-inclusions-list"></section>
+
+      <!-- Eligibility notes -->
+      <section class="package-eligibility-notes" data-component="package-eligibility-notes"></section>
+    </article>
+  </div>
+</div>
+
+<script src="business_logic.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    var packageLoadState = 'idle'; // idle | loading | success | error
+    var loadedServicePackage = null;
+    var quantity = 1;
+    var addToCartState = 'idle'; // idle | submitting | success | error
+    var lastCartResponse = null;
+    var lastCartPackageId = null;
+    var lastCartQuantity = null;
+
+    var loaderOverlay = document.querySelector('[data-component="package-detail-loader"]');
+    var notFoundSection = document.querySelector('[data-component="package-not-found-state"]');
+    var packageArticle = document.querySelector('[data-component="package-detail"]');
+    var headerSection = document.querySelector('[data-component="package-header"]');
+    var pricingPanel = document.querySelector('[data-component="package-pricing-panel"]');
+    var descriptionSection = document.querySelector('[data-component="package-description-section"]');
+    var inclusionsSection = document.querySelector('[data-component="package-inclusions-list"]');
+    var eligibilitySection = document.querySelector('[data-component="package-eligibility-notes"]');
+    var cartFeedbackBanner = document.querySelector('[data-component="cart-feedback-banner"]');
+    var proceedButton = document.querySelector('[data-component="proceed-to-checkout-button"]');
+    var viewCartButton = document.querySelector('[data-component="view-cart-link"]');
+
+    function getUrlPackageId() {
+      var params = new URLSearchParams(window.location.search);
+      return params.get('id');
+    }
+
+    function setLoading(isLoading) {
+      if (loaderOverlay) {
+        if (isLoading) {
+          loaderOverlay.classList.remove('is-hidden');
+          loaderOverlay.setAttribute('aria-hidden', 'false');
+        } else {
+          loaderOverlay.classList.add('is-hidden');
+          loaderOverlay.setAttribute('aria-hidden', 'true');
+        }
+      }
+
+      if (proceedButton) {
+        proceedButton.disabled = isLoading || packageLoadState !== 'success';
+      }
+      if (viewCartButton) {
+        viewCartButton.disabled = isLoading || !lastCartResponse;
+      }
+    }
+
+    function escapeHtml(value) {
+      if (value === null || value === undefined) {
+        return '';
+      }
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatCurrency(amount, currencyCode) {
+      if (typeof amount !== 'number') {
+        return '';
+      }
+      var upperCode = (currencyCode || '').toUpperCase();
+      var locale = 'en-US';
+      switch (upperCode) {
+        case 'CAD':
+          locale = 'en-CA';
+          break;
+        case 'AUD':
+          locale = 'en-AU';
+          break;
+        case 'GBP':
+          locale = 'en-GB';
+          break;
+        case 'EUR':
+          locale = 'de-DE';
+          break;
+        case 'NZD':
+          locale = 'en-NZ';
+          break;
+        case 'USD':
+        default:
+          locale = 'en-US';
+          break;
+      }
+      try {
+        return new Intl.NumberFormat(locale, {
+          style: 'currency',
+          currency: upperCode || 'USD',
+          minimumFractionDigits: 2
+        }).format(amount);
+      } catch (e) {
+        var fixed = amount.toFixed ? amount.toFixed(2) : String(amount);
+        return (upperCode || 'USD') + ' ' + fixed;
+      }
+    }
+
+    function resetCartFeedback() {
+      if (!cartFeedbackBanner) {
+        return;
+      }
+      cartFeedbackBanner.textContent = '';
+      cartFeedbackBanner.classList.add('is-hidden');
+      cartFeedbackBanner.classList.remove('is-error');
+      cartFeedbackBanner.classList.remove('is-success');
+    }
+
+    function resetPageState() {
+      packageLoadState = 'idle';
+      loadedServicePackage = null;
+      quantity = 1;
+      addToCartState = 'idle';
+      lastCartResponse = null;
+      lastCartPackageId = null;
+      lastCartQuantity = null;
+
+      resetCartFeedback();
+
+      if (headerSection) {
+        headerSection.innerHTML = '';
+      }
+      if (pricingPanel) {
+        pricingPanel.innerHTML = '';
+      }
+      if (descriptionSection) {
+        descriptionSection.innerHTML = '';
+        descriptionSection.classList.remove('is-hidden');
+      }
+      if (inclusionsSection) {
+        inclusionsSection.innerHTML = '';
+        inclusionsSection.classList.remove('is-hidden');
+      }
+      if (eligibilitySection) {
+        eligibilitySection.innerHTML = '';
+        eligibilitySection.classList.remove('is-hidden');
+      }
+
+      if (packageArticle) {
+        packageArticle.classList.add('is-hidden');
+      }
+      if (notFoundSection) {
+        notFoundSection.classList.add('is-hidden');
+      }
+
+      if (viewCartButton) {
+        viewCartButton.disabled = true;
+      }
+      if (proceedButton) {
+        proceedButton.disabled = true;
+      }
+    }
+
+    function showNotFound(messageText) {
+      packageLoadState = 'error';
+      resetPageState();
+      if (!notFoundSection) {
+        return;
+      }
+      notFoundSection.classList.remove('is-hidden');
+      var msgEl = notFoundSection.querySelector('.not-found-message');
+      if (msgEl && messageText) {
+        msgEl.textContent = messageText;
+      }
+    }
+
+    function renderPackageHeader(container, servicePackage) {
+      if (!container) {
+        return;
+      }
+      var countryLabel = servicePackage.country_label || '';
+      var categoryLabel = servicePackage.service_category_label || '';
+      var name = servicePackage.name || '';
+      var headerHtml = `
+        <div class="package-header-inner">
+          <p class="package-breadcrumb">
+            <a href="services.html">Services</a>
+            <span class="breadcrumb-separator">/</span>
+            <span class="breadcrumb-category">${escapeHtml(categoryLabel)}</span>
+          </p>
+          <h2 class="package-title">${escapeHtml(name)}</h2>
+          <p class="package-meta">
+            ${countryLabel ? `<span class="package-country">${escapeHtml(countryLabel)}</span>` : ''}
+            ${countryLabel && categoryLabel ? '<span class="meta-separator">&bull;</span>' : ''}
+            ${categoryLabel ? `<span class="package-category">${escapeHtml(categoryLabel)}</span>` : ''}
+          </p>
+        </div>
+      `;
+      container.innerHTML = headerHtml;
+    }
+
+    function renderPricingPanel(container, servicePackage) {
+      if (!container) {
+        return;
+      }
+      var unitPriceFormatted = formatCurrency(servicePackage.price, servicePackage.currency);
+      var durationDescription = servicePackage.duration_description || '';
+      var durationLine = durationDescription
+        ? `<p class="pricing-duration">Typical engagement: ${escapeHtml(durationDescription)}</p>`
+        : '';
+      var pricingHtml = `
+        <div class="pricing-panel-inner">
+          <div class="pricing-header-row">
+            <div class="pricing-copy">
+              <p class="pricing-label">Package fee</p>
+              <p class="pricing-amount" data-role="unit-price">${escapeHtml(unitPriceFormatted)}</p>
+              ${durationLine}
+            </div>
+          </div>
+
+          <form class="add-to-cart-form" data-component="add-to-cart-form" data-action="add-to-cart">
+            <div class="pricing-form-grid">
+              <div class="quantity-block" data-component="package-quantity-selector">
+                <label for="quantityInput" class="field-label">Quantity</label>
+                <div class="quantity-input-group">
+                  <button type="button" class="quantity-btn quantity-decrease" data-action="decrease-quantity" aria-label="Decrease quantity">&minus;</button>
+                  <input
+                    id="quantityInput"
+                    name="quantity"
+                    class="quantity-input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value="${quantity}"
+                    inputmode="numeric"
+                    pattern="[0-9]*"
+                  />
+                  <button type="button" class="quantity-btn quantity-increase" data-action="increase-quantity" aria-label="Increase quantity">+</button>
+                </div>
+              </div>
+
+              <div class="total-block">
+                <p class="total-label">Total</p>
+                <p class="total-value" data-role="pricing-total">${escapeHtml(formatCurrency(servicePackage.price * quantity, servicePackage.currency))}</p>
+              </div>
+
+              <div class="action-block">
+                <button type="submit" class="btn btn-primary" data-role="add-to-cart-submit">Add to cart</button>
+                <p class="form-helper-text">You can review all items in your cart before confirming.</p>
+              </div>
+            </div>
+          </form>
+        </div>
+      `;
+      container.innerHTML = pricingHtml;
+    }
+
+    function renderDescriptionSection(container, servicePackage) {
+      if (!container) {
+        return;
+      }
+      var description = servicePackage.description || '';
+      var durationDescription = servicePackage.duration_description || '';
+      if (!description && !durationDescription) {
+        container.classList.add('is-hidden');
+        container.innerHTML = '';
+        return;
+      }
+      var descriptionHtmlParts = [];
+      descriptionHtmlParts.push('<div class="section-inner">');
+      descriptionHtmlParts.push('<h3 class="section-title">Overview</h3>');
+      descriptionHtmlParts.push('<div class="section-body">');
+      if (description) {
+        var paragraphs = String(description).split(/\n+/);
+        for (var i = 0; i < paragraphs.length; i++) {
+          if (paragraphs[i].trim().length > 0) {
+            descriptionHtmlParts.push('<p>' + escapeHtml(paragraphs[i].trim()) + '</p>');
+          }
+        }
+      }
+      if (durationDescription && (!description || description.indexOf(durationDescription) === -1)) {
+        descriptionHtmlParts.push('<p class="section-meta-line">Engagement length: ' + escapeHtml(durationDescription) + '</p>');
+      }
+      descriptionHtmlParts.push('</div></div>');
+      container.classList.remove('is-hidden');
+      container.innerHTML = descriptionHtmlParts.join('');
+    }
+
+    function renderInclusionsSection(container, servicePackage) {
+      if (!container) {
+        return;
+      }
+      var items = [];
+      if (typeof servicePackage.follow_up_calls_count === 'number' && servicePackage.follow_up_calls_count > 0) {
+        var callsLabel = servicePackage.follow_up_calls_count === 1
+          ? '1 follow-up call'
+          : servicePackage.follow_up_calls_count + ' follow-up calls';
+        items.push(callsLabel);
+      }
+      if (servicePackage.includes_initial_consultation) {
+        items.push('Initial consultation included');
+      }
+      if (servicePackage.includes_document_review) {
+        items.push('Document review included');
+      }
+      if (servicePackage.includes_mock_interview) {
+        items.push('Mock interview preparation');
+      }
+      if (Array.isArray(servicePackage.features)) {
+        for (var i = 0; i < servicePackage.features.length; i++) {
+          var feature = servicePackage.features[i];
+          if (feature) {
+            items.push(feature);
+          }
+        }
+      }
+      if (!items.length) {
+        container.classList.add('is-hidden');
+        container.innerHTML = '';
+        return;
+      }
+      var listHtmlParts = [];
+      listHtmlParts.push('<div class="section-inner">');
+      listHtmlParts.push('<h3 class="section-title">What\'s included</h3>');
+      listHtmlParts.push('<ul class="inclusions-list">');
+      for (var j = 0; j < items.length; j++) {
+        listHtmlParts.push('<li class="inclusions-item">' + escapeHtml(items[j]) + '</li>');
+      }
+      listHtmlParts.push('</ul></div>');
+      container.classList.remove('is-hidden');
+      container.innerHTML = listHtmlParts.join('');
+    }
+
+    function renderEligibilitySection(container, servicePackage) {
+      if (!container) {
+        return;
+      }
+      var notes = servicePackage.eligibility_notes || '';
+      if (!notes) {
+        container.classList.add('is-hidden');
+        container.innerHTML = '';
+        return;
+      }
+      var parts = [];
+      parts.push('<div class="section-inner eligibility-inner">');
+      parts.push('<h3 class="section-title">Eligibility notes</h3>');
+      parts.push('<div class="eligibility-body">');
+      var lines = String(notes).split(/\n+/);
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (line.length > 0) {
+          parts.push('<p>' + escapeHtml(line) + '</p>');
+        }
+      }
+      parts.push('</div></div>');
+      container.classList.remove('is-hidden');
+      container.innerHTML = parts.join('');
+    }
+
+    function updatePricingTotal() {
+      if (!loadedServicePackage || !pricingPanel) {
+        return;
+      }
+      var totalEl = pricingPanel.querySelector('[data-role="pricing-total"]');
+      if (!totalEl) {
+        return;
+      }
+      var total = loadedServicePackage.price * quantity;
+      totalEl.textContent = formatCurrency(total, loadedServicePackage.currency);
+    }
+
+    function updateQuantityFromInput() {
+      if (!pricingPanel) {
+        return;
+      }
+      var input = pricingPanel.querySelector('#quantityInput');
+      if (!input) {
+        return;
+      }
+      var raw = input.value;
+      var parsed = parseInt(raw, 10);
+      if (isNaN(parsed) || parsed < 1) {
+        parsed = 1;
+      }
+      quantity = parsed;
+      input.value = String(quantity);
+      updatePricingTotal();
+    }
+
+    function adjustQuantity(delta) {
+      if (!pricingPanel) {
+        return;
+      }
+      var input = pricingPanel.querySelector('#quantityInput');
+      if (!input) {
+        return;
+      }
+      var parsed = parseInt(input.value, 10);
+      if (isNaN(parsed) || parsed < 1) {
+        parsed = 1;
+      }
+      parsed = parsed + delta;
+      if (parsed < 1) {
+        parsed = 1;
+      }
+      quantity = parsed;
+      input.value = String(quantity);
+      updatePricingTotal();
+    }
+
+    function setAddToCartInProgress(isInProgress) {
+      addToCartState = isInProgress ? 'submitting' : 'idle';
+
+      if (pricingPanel) {
+        var submitBtn = pricingPanel.querySelector('[data-role="add-to-cart-submit"]');
+        var quantityInput = pricingPanel.querySelector('#quantityInput');
+        var minusBtn = pricingPanel.querySelector('[data-action="decrease-quantity"]');
+        var plusBtn = pricingPanel.querySelector('[data-action="increase-quantity"]');
+
+        var disabled = isInProgress || packageLoadState !== 'success';
+        if (submitBtn) {
+          submitBtn.disabled = disabled;
+        }
+        if (quantityInput) {
+          quantityInput.disabled = disabled;
+        }
+        if (minusBtn) {
+          minusBtn.disabled = disabled;
+        }
+        if (plusBtn) {
+          plusBtn.disabled = disabled;
+        }
+      }
+
+      if (proceedButton) {
+        proceedButton.disabled = isInProgress || packageLoadState !== 'success';
+      }
+    }
+
+    function showCartFeedback(kind, message, cartData) {
+      if (!cartFeedbackBanner) {
+        return;
+      }
+      cartFeedbackBanner.classList.remove('is-hidden');
+      cartFeedbackBanner.classList.remove('is-error');
+      cartFeedbackBanner.classList.remove('is-success');
+
+      var text = message || '';
+      if (kind === 'success' && cartData) {
+        var itemCount = 0;
+        if (Array.isArray(cartData.items)) {
+          for (var i = 0; i < cartData.items.length; i++) {
+            var item = cartData.items[i];
+            if (item && typeof item.quantity === 'number') {
+              itemCount += item.quantity;
+            }
+          }
+        }
+        var totalFormatted = typeof cartData.cart_total === 'number'
+          ? formatCurrency(cartData.cart_total, cartData.currency)
+          : '';
+        var parts = [];
+        parts.push('Added to your cart.');
+        if (itemCount > 0) {
+          parts.push('Cart items: ' + itemCount + '.');
+        }
+        if (totalFormatted) {
+          parts.push('Current cart total: ' + totalFormatted + '.');
+        }
+        if (message && message.trim().length > 0) {
+          parts.push(message);
+        }
+        text = parts.join(' ');
+      }
+
+      if (kind === 'error') {
+        cartFeedbackBanner.classList.add('is-error');
+      } else if (kind === 'success') {
+        cartFeedbackBanner.classList.add('is-success');
+      }
+      cartFeedbackBanner.textContent = text;
+    }
+
+    function handleAddToCart(afterSuccessAction) {
+      if (!loadedServicePackage || packageLoadState !== 'success') {
+        return;
+      }
+      updateQuantityFromInput();
+      if (quantity < 1) {
+        quantity = 1;
+      }
+
+      resetCartFeedback();
+      setAddToCartInProgress(true);
+
+      try {
+        var response = WebsiteSDK.addServicePackageToCart(loadedServicePackage.id, quantity);
+        var success = response && response.success && response.cart;
+        if (success) {
+          lastCartResponse = response.cart;
+          lastCartPackageId = loadedServicePackage.id;
+          lastCartQuantity = quantity;
+          showCartFeedback('success', response.message || '', response.cart);
+          addToCartState = 'success';
+
+          if (viewCartButton) {
+            viewCartButton.disabled = false;
+          }
+
+          if (afterSuccessAction === 'checkout') {
+            navigateToCheckout();
+          }
+        } else {
+          var message = (response && response.message)
+            ? response.message
+            : 'Could not add this package to your cart. Please try again.';
+          showCartFeedback('error', message, null);
+          addToCartState = 'error';
+        }
+      } catch (e) {
+        showCartFeedback('error', 'An unexpected error occurred while adding to your cart. Please try again.', null);
+        addToCartState = 'error';
+      } finally {
+        setAddToCartInProgress(false);
+      }
+    }
+
+    function navigateToCart() {
+      if (lastCartResponse && lastCartResponse.id) {
+        window.location.href = 'cart.html?cartId=' + encodeURIComponent(lastCartResponse.id);
+      } else {
+        window.location.href = 'cart.html';
+      }
+    }
+
+    function navigateToCheckout() {
+      if (lastCartResponse && lastCartResponse.id) {
+        window.location.href = 'checkout.html?cartId=' + encodeURIComponent(lastCartResponse.id);
+      } else {
+        window.location.href = 'checkout.html';
+      }
+    }
+
+    function handleProceedToCheckoutClick() {
+      if (!loadedServicePackage || packageLoadState !== 'success') {
+        return;
+      }
+      updateQuantityFromInput();
+      var currentQuantity = quantity;
+      var needsAddToCart = true;
+      if (lastCartResponse && lastCartPackageId === loadedServicePackage.id && lastCartQuantity === currentQuantity) {
+        needsAddToCart = false;
+      }
+      if (needsAddToCart) {
+        handleAddToCart('checkout');
+      } else {
+        navigateToCheckout();
+      }
+    }
+
+    function bindActionHandlers() {
+      var actionElements = document.querySelectorAll('[data-action]');
+      for (var i = 0; i < actionElements.length; i++) {
+        var el = actionElements[i];
+        if (el.dataset.bound === 'true') {
+          continue;
+        }
+        var action = el.dataset.action;
+
+        if (action === 'add-to-cart' && el.tagName === 'FORM') {
+          el.addEventListener('submit', function (event) {
+            event.preventDefault();
+            handleAddToCart(null);
+          });
+
+          var input = el.querySelector('#quantityInput');
+          if (input) {
+            input.addEventListener('change', function () {
+              updateQuantityFromInput();
+            });
+            input.addEventListener('blur', function () {
+              updateQuantityFromInput();
+            });
+          }
+        } else if (action === 'increase-quantity') {
+          el.addEventListener('click', function (event) {
+            event.preventDefault();
+            adjustQuantity(1);
+          });
+        } else if (action === 'decrease-quantity') {
+          el.addEventListener('click', function (event) {
+            event.preventDefault();
+            adjustQuantity(-1);
+          });
+        } else if (action === 'proceed-to-checkout') {
+          el.addEventListener('click', function (event) {
+            event.preventDefault();
+            handleProceedToCheckoutClick();
+          });
+        } else if (action === 'view-cart') {
+          el.addEventListener('click', function (event) {
+            event.preventDefault();
+            navigateToCart();
+          });
+        } else if (action === 'go-back') {
+          el.addEventListener('click', function (event) {
+            event.preventDefault();
+            if (window.history.length > 1) {
+              window.history.back();
+            } else {
+              window.location.href = 'services.html';
+            }
+          });
+        }
+
+        el.dataset.bound = 'true';
+      }
+
+      if (viewCartButton && !lastCartResponse) {
+        viewCartButton.disabled = true;
+      }
+      if (proceedButton) {
+        proceedButton.disabled = packageLoadState !== 'success';
+      }
+    }
+
+    function loadServicePackageById(servicePackageId) {
+      resetPageState();
+
+      if (!servicePackageId) {
+        showNotFound('No service package identifier was provided in the link.');
+        return;
+      }
+
+      packageLoadState = 'loading';
+      setLoading(true);
+
+      try {
+        var servicePackage = WebsiteSDK.getServicePackageDetail(servicePackageId);
+        if (!servicePackage || !servicePackage.id) {
+          setLoading(false);
+          showNotFound('The service package you requested could not be found.');
+          return;
+        }
+
+        loadedServicePackage = servicePackage;
+        packageLoadState = 'success';
+
+        if (packageArticle) {
+          packageArticle.classList.remove('is-hidden');
+        }
+        if (notFoundSection) {
+          notFoundSection.classList.add('is-hidden');
+        }
+
+        renderPackageHeader(headerSection, servicePackage);
+        renderPricingPanel(pricingPanel, servicePackage);
+        renderDescriptionSection(descriptionSection, servicePackage);
+        renderInclusionsSection(inclusionsSection, servicePackage);
+        renderEligibilitySection(eligibilitySection, servicePackage);
+
+        bindActionHandlers();
+        setLoading(false);
+      } catch (e) {
+        setLoading(false);
+        showNotFound('There was a problem loading this service package. Please try again later.');
+      }
+    }
+
+    function handleUrlChange() {
+      var newId = getUrlPackageId();
+      loadServicePackageById(newId);
+    }
+
+    var initialId = getUrlPackageId();
+    loadServicePackageById(initialId);
+
+    window.addEventListener('popstate', function () {
+      handleUrlChange();
+    });
+  });
+</script>

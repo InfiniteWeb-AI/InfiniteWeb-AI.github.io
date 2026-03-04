@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Travel Photo Gallery</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="about.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header" role="banner">
+      <nav class="site-nav" aria-label="Primary">
+        <a href="index.html" title="Homepage and dashboard">Home</a>
+        <a href="photos.html" title="Browse and filter all photos">All Photos</a>
+        <a href="albums.html" title="View and manage photo albums">Albums</a>
+        <a href="collections.html" title="Smart and custom photo collections">Collections</a>
+        <a href="trips.html" title="Travel stories and trip timelines">Trips</a>
+      </nav>
+    </header>
+
+    <main id="content" role="main">
+      <div class="about-page" data-component="about-page">
+        <!-- Local, minimal top-left nav: logo + back link -->
+        <div class="about-local-nav">
+          <nav class="about-local-nav-row" aria-label="About page local navigation">
+            <a href="javascript:void(0)" class="about-logo-link" data-component="site-logo-nav" data-action="navigate-home">Travel Photo Gallery</a>
+            <span class="about-nav-separator">&middot;</span>
+            <a href="javascript:void(0)" class="about-back-link" data-component="back-to-home-link" data-action="navigate-home">Back to Home</a>
+          </nav>
+        </div>
+
+        <div class="about-content-column">
+          <!-- Loader / error placeholder -->
+          <section class="about-loader" data-component="about-content-loader" aria-live="polite">
+            <p class="about-loader-text">Loading About information...</p>
+          </section>
+
+          <!-- Main About content, revealed once data is loaded -->
+          <article class="about-article" data-component="about-article" hidden>
+            <header class="about-header">
+              <h1 class="about-title" data-component="about-main-title" data-populate="about-title"></h1>
+
+              <nav class="about-section-nav" data-component="about-internal-navigation" aria-label="About sections">
+                <a href="javascript:void(0)" class="about-section-link" data-action="navigate-section" data-section-key="bio">Biography</a>
+                <span class="about-section-divider">/</span>
+                <a href="javascript:void(0)" class="about-section-link" data-action="navigate-section" data-section-key="gallery-structure">Gallery structure</a>
+                <span class="about-section-divider">/</span>
+                <a href="javascript:void(0)" class="about-section-link" data-action="navigate-section" data-section-key="contact">Contact</a>
+              </nav>
+            </header>
+
+            <section class="about-body" data-component="about-body-content" data-populate="about-body"></section>
+
+            <section class="about-contact framed-contact" id="contact" data-component="about-contact-section" data-populate="about-contact">
+              <!-- Contact details will be populated via JavaScript -->
+            </section>
+          </article>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+      <nav class="footer-nav" aria-label="Footer">
+        <a href="about.html" title="About this travel photo gallery">About</a>
+        <span class="footer-separator">&middot;</span>
+        <a href="help.html" title="Help and usage guide">Help</a>
+      </nav>
+      <p class="footer-meta">&copy; 2024 Travel Photo Gallery</p>
+    </footer>
+  </div>
+
+  <script src="business_logic.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const initialSectionKey = urlParams.get('section') || 'bio';
+
+      const loaderContainer = document.querySelector('[data-component="about-content-loader"]');
+      const articleContainer = document.querySelector('[data-component="about-article"]');
+      const titleContainer = document.querySelector('[data-component="about-main-title"]');
+      const bodyContainer = document.querySelector('[data-component="about-body-content"]');
+      const contactContainer = document.querySelector('[data-component="about-contact-section"]');
+      const sectionNav = document.querySelector('[data-component="about-internal-navigation"]');
+
+      const state = {
+        section: initialSectionKey,
+        data: null,
+        error: null
+      };
+
+      if (loaderContainer) {
+        loaderContainer.dataset.state = 'loading';
+        loaderContainer.hidden = false;
+      }
+
+      // Get About content from SDK (synchronous per specification)
+      try {
+        state.data = WebsiteSDK.getAboutContent();
+      } catch (err) {
+        state.error = err;
+      }
+
+      if (state.error) {
+        renderError(loaderContainer, state.error);
+        return;
+      }
+
+      renderAboutPage();
+      setupActions();
+
+      // Keep internal navigation in sync with browser history changes
+      window.addEventListener('popstate', function() {
+        const params = new URLSearchParams(window.location.search);
+        state.section = params.get('section') || 'bio';
+        updateSectionNavActive(sectionNav, state.section);
+        scrollToSection(state.section, bodyContainer, contactContainer, false);
+      });
+
+      function renderAboutPage() {
+        if (!state.data) return;
+
+        if (loaderContainer) {
+          loaderContainer.dataset.state = 'loaded';
+          loaderContainer.hidden = true;
+        }
+
+        if (articleContainer) {
+          articleContainer.hidden = false;
+        }
+
+        // about-main-title: title + document.title sync
+        if (titleContainer) {
+          const titleText = state.data.title && String(state.data.title).trim().length > 0
+            ? String(state.data.title)
+            : 'About';
+          titleContainer.textContent = titleText;
+
+          const baseTitle = 'Travel Photo Gallery';
+          document.title = titleText ? titleText + ' - ' + baseTitle : baseTitle;
+        }
+
+        // about-body-content: rich HTML body
+        if (bodyContainer) {
+          bodyContainer.innerHTML = state.data.bodyHtml || '';
+        }
+
+        // about-contact-section: contact email + social links
+        if (contactContainer) {
+          renderContact(contactContainer, state.data);
+        }
+
+        // Sync nav + scroll based on initial section
+        updateSectionNavActive(sectionNav, state.section);
+        syncSectionParam(state.section, false);
+        scrollToSection(state.section, bodyContainer, contactContainer, false);
+      }
+
+      function renderError(container, error) {
+        if (!container) return;
+        container.dataset.state = 'error';
+        container.hidden = false;
+        container.textContent = 'Failed to load About information. Please try again later.';
+      }
+
+      function renderContact(container, data) {
+        container.innerHTML = '';
+
+        const heading = document.createElement('h2');
+        heading.textContent = 'Contact';
+        heading.id = 'about-contact-heading';
+        container.appendChild(heading);
+
+        const emailParagraph = document.createElement('p');
+        const email = data && data.contactEmail ? String(data.contactEmail) : '';
+
+        if (email) {
+          const labelSpan = document.createElement('span');
+          labelSpan.textContent = 'Email: ';
+          emailParagraph.appendChild(labelSpan);
+
+          const emailLink = document.createElement('a');
+          emailLink.href = 'mailto:' + email;
+          emailLink.textContent = email;
+          emailLink.className = 'about-contact-email';
+          emailLink.setAttribute('data-action', 'contact-email');
+          emailParagraph.appendChild(emailLink);
+        } else {
+          emailParagraph.textContent = 'Email contact not available.';
+        }
+
+        container.appendChild(emailParagraph);
+
+        const socialLinks = Array.isArray(data && data.socialLinks) ? data.socialLinks : [];
+        if (socialLinks.length > 0) {
+          const socialIntro = document.createElement('p');
+          socialIntro.textContent = 'Social:';
+          container.appendChild(socialIntro);
+
+          const list = document.createElement('ul');
+          list.className = 'about-social-links';
+
+          socialLinks.forEach(function(link) {
+            const li = document.createElement('li');
+            const a = document.createElement('a');
+
+            const url = link && link.url ? String(link.url) : '#';
+            const label = link && (link.label || link.platform) ? String(link.label || link.platform) : url;
+
+            a.href = url;
+            a.textContent = label;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.setAttribute('data-action', 'social-link');
+            if (link && link.platform) {
+              a.dataset.platform = String(link.platform);
+            }
+
+            li.appendChild(a);
+            list.appendChild(li);
+          });
+
+          container.appendChild(list);
+        }
+      }
+
+      function setupActions() {
+        const actionElements = document.querySelectorAll('[data-action]');
+
+        actionElements.forEach(function(el) {
+          const action = el.dataset.action;
+
+          if (action === 'navigate-home') {
+            el.addEventListener('click', function(event) {
+              event.preventDefault();
+              window.location.href = 'index.html';
+            });
+          } else if (action === 'navigate-section') {
+            el.addEventListener('click', function(event) {
+              event.preventDefault();
+              const key = el.dataset.sectionKey || 'bio';
+              state.section = key;
+              updateSectionNavActive(sectionNav, key);
+              syncSectionParam(key, true);
+              scrollToSection(key, bodyContainer, contactContainer, true);
+            });
+          } else if (action === 'contact-email') {
+            // Allow default mailto behavior; hook for future analytics if needed
+            el.addEventListener('click', function() {
+              // No-op
+            });
+          } else if (action === 'social-link') {
+            // Allow default navigation; hook for future analytics if needed
+            el.addEventListener('click', function() {
+              // No-op
+            });
+          }
+        });
+      }
+
+      function updateSectionNavActive(navContainer, activeKey) {
+        if (!navContainer) return;
+        const links = navContainer.querySelectorAll('[data-section-key]');
+        links.forEach(function(link) {
+          if (link.dataset.sectionKey === activeKey) {
+            link.classList.add('is-active');
+            link.setAttribute('aria-current', 'page');
+          } else {
+            link.classList.remove('is-active');
+            link.removeAttribute('aria-current');
+          }
+        });
+      }
+
+      function syncSectionParam(key, push) {
+        const url = new URL(window.location.href);
+        if (key) {
+          url.searchParams.set('section', key);
+        } else {
+          url.searchParams.delete('section');
+        }
+
+        const method = push ? 'pushState' : 'replaceState';
+        window.history[method]({ section: key }, '', url.toString());
+      }
+
+      function scrollToSection(key, bodyEl, contactEl, smooth) {
+        let target = null;
+
+        if (key === 'contact' && contactEl) {
+          target = contactEl;
+        }
+
+        if (!target && bodyEl) {
+          // Try to find an element with matching id or data-section-key inside the body HTML
+          target = bodyEl.querySelector('[id="' + key + '"]') ||
+                   bodyEl.querySelector('[data-section-key="' + key + '"]');
+
+          // Simple heuristics for known logical sections
+          if (!target) {
+            if (key === 'bio' || key === 'biography') {
+              target = bodyEl.querySelector('h2, h3');
+            } else if (key === 'gallery-structure') {
+              target = bodyEl.querySelector('[id="gallery-structure"], [data-section-key="gallery-structure"]');
+            }
+          }
+        }
+
+        if (!target) {
+          // Fallback to the top of the main body content
+          target = bodyEl || contactEl;
+        }
+
+        if (!target) return;
+
+        const behavior = smooth ? 'smooth' : 'auto';
+        if (typeof target.scrollIntoView === 'function') {
+          target.scrollIntoView({ behavior: behavior, block: 'start' });
+        }
+
+        if (target instanceof HTMLElement) {
+          if (!target.hasAttribute('tabindex')) {
+            target.setAttribute('tabindex', '-1');
+          }
+          try {
+            target.focus({ preventScroll: true });
+          } catch (e) {
+            // Older browsers may not support focus options; ignore
+            try {
+              target.focus();
+            } catch (e2) {
+              // Ignore
+            }
+          }
+        }
+      }
+    });
+  </script>
+</body>
+</html>

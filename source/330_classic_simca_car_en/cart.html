@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <title>Simca Classics</title>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+
+    <!-- Typography -->
+    <link rel='preconnect' href='https://fonts.googleapis.com'>
+    <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+    <link href='https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&amp;family=Source+Sans+3:wght@300;400;600;700&amp;display=swap' rel='stylesheet'>
+
+    <!-- Site styles -->
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='cart.css'>
+</head>
+<body>
+    <div class='page-frame'>
+        <header class='site-header'>
+            <div class='header-top'>
+                <div class='header-branding'>
+                    <div class='logo-strip'>
+                        <div class='logo-badge logo-badge-left'>
+                            <span class='logo-badge-text'>SIMCA</span>
+                        </div>
+                        <div class='site-title'>
+                            <span class='title-main'>Simca</span>
+                            <span class='title-sub'>by Facel</span>
+                        </div>
+                        <div class='logo-badge-group'>
+                            <div class='logo-badge'>
+                                <span class='logo-badge-text'>FF</span>
+                            </div>
+                            <div class='logo-badge'>
+                                <span class='logo-badge-text'>IM</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class='header-user'>
+                    <div class='user-toggle' tabindex='0'>
+                        <span class='user-avatar' aria-hidden='true'></span>
+                        <span class='user-label'>My account</span>
+                        <span class='user-caret'>▼</span>
+                    </div>
+                    <div class='user-dropdown' role='menu' aria-label='Saved resources'>
+                        <a href='saved_listings.html' class='user-link' role='menuitem'>Saved Listings</a>
+                        <a href='wishlist.html' class='user-link' role='menuitem'>Wishlist</a>
+                        <a href='reading_list.html' class='user-link' role='menuitem'>Reading List</a>
+                    </div>
+                </div>
+            </div>
+
+            <nav class='main-nav' aria-label='Primary navigation'>
+                <div class='nav-inner'>
+                    <ul class='nav-list'>
+                        <li class='nav-item'><a href='index.html'>Home</a></li>
+                        <li class='nav-item'><a href='classifieds.html'>Classifieds</a></li>
+                        <li class='nav-item'><a href='shop.html?section=parts'>Parts Store</a></li>
+                        <li class='nav-item'><a href='shop.html?section=merchandise'>Merchandise</a></li>
+                        <li class='nav-item'><a href='guides.html'>Guides</a></li>
+                        <li class='nav-item'><a href='events.html'>Events</a></li>
+                        <li class='nav-item'><a href='forum.html'>Forum</a></li>
+                        <li class='nav-item'><a href='garage.html?section=vin_decoder'>Garage &amp; Tools</a></li>
+                    </ul>
+                </div>
+            </nav>
+        </header>
+
+        <main id='content' class='content-area' role='main'>
+            <section class='cart-page' data-component='cart-page-controller'>
+                <div id='cart-root' data-populate='cart'></div>
+            </section>
+        </main>
+
+        <footer class='site-footer'>
+            <div class='footer-inner'>
+                <ul class='footer-links'>
+                    <li class='footer-item'><a href='about.html'>About</a></li>
+                    <li class='footer-item'><a href='classifieds.html'>Classifieds</a></li>
+                    <li class='footer-item'><a href='guides.html'>Guides</a></li>
+                    <li class='footer-item'><a href='events.html'>Events</a></li>
+                    <li class='footer-item'><a href='forum.html'>Forum</a></li>
+                    <li class='footer-item'><a href='garage.html?section=my_garage'>Garage</a></li>
+                    <li class='footer-item'><a href='saved_listings.html'>Saved Listings</a></li>
+                    <li class='footer-item'><a href='reading_list.html'>Reading List</a></li>
+                </ul>
+            </div>
+        </footer>
+    </div>
+
+    <script src='business_logic.js'></script>
+    <script>
+    (function() {
+        let cartRootContainer = null;
+        let currentCartState = null;
+        let currentUrlState = { highlight_item: null, from: null, view: null };
+        let lastNonLoadError = '';
+
+        function escapeHtml(value) {
+            if (value == null) {
+                return '';
+            }
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function renderCartShell(container, state, urlState) {
+            const safeState = state || { items: [], subtotal_eur: 0 };
+            const items = Array.isArray(safeState.items) ? safeState.items : [];
+            const subtotalRaw = typeof safeState.subtotal_eur === 'number' ? safeState.subtotal_eur : 0;
+            const subtotal = subtotalRaw;
+            const itemCount = items.length;
+            const hasItems = itemCount > 0;
+
+            let fromText = 'Review your Simca parts and memorabilia before checkout.';
+            if (urlState && urlState.from === 'shop') {
+                fromText = 'You are reviewing items selected in the Parts Store.';
+            } else if (urlState && urlState.from === 'product') {
+                fromText = 'You just added an item from a product page. Check details before checkout.';
+            }
+
+            let layoutClass = 'cart-layout';
+            if (urlState && urlState.view === 'compact') {
+                layoutClass += ' cart-layout-compact';
+            } else if (urlState && urlState.view === 'detailed') {
+                layoutClass += ' cart-layout-detailed';
+            }
+
+            let maxShipDays = 0;
+            if (hasItems) {
+                for (let i = 0; i < items.length; i += 1) {
+                    const entry = items[i] || {};
+                    const product = entry.product || {};
+                    const days = product.estimated_shipping_days;
+                    if (typeof days === 'number' && days > maxShipDays) {
+                        maxShipDays = days;
+                    }
+                }
+            }
+
+            let longShippingHint = '';
+            if (maxShipDays > 0 && hasItems) {
+                if (maxShipDays >= 10) {
+                    longShippingHint = 'Some items may ship in up to ' + maxShipDays + ' days.';
+                } else {
+                    longShippingHint = 'Typical shipping within ' + maxShipDays + ' days.';
+                }
+            }
+
+            let errorBannerHtml = '';
+            if (lastNonLoadError) {
+                errorBannerHtml = '\n                    <div class="cart-alert cart-alert-error">\n                        ' + escapeHtml(lastNonLoadError) + '\n                    </div>\n                ';
+            }
+
+            let itemsRowsHtml = '';
+            if (hasItems) {
+                const rows = [];
+                for (let i = 0; i < items.length; i += 1) {
+                    const entry = items[i] || {};
+                    const cartItem = entry.cart_item || {};
+                    const product = entry.product || {};
+                    const lineTotal = typeof entry.line_total_eur === 'number' ? entry.line_total_eur : 0;
+
+                    const cartItemId = escapeHtml(cartItem.id || '');
+                    const productId = escapeHtml(product.id || '');
+                    const name = escapeHtml(product.name || 'Unnamed item');
+                    const unitPrice = typeof cartItem.unit_price_eur === 'number' ? cartItem.unit_price_eur.toFixed(2) : '0.00';
+                    const lineTotalStr = lineTotal.toFixed(2);
+                    const quantity = typeof cartItem.quantity === 'number' && cartItem.quantity > 0 ? cartItem.quantity : 1;
+
+                    let imgUrl = 'placeholder_part.png';
+                    if (Array.isArray(product.image_urls) && product.image_urls.length > 0 && product.image_urls[0]) {
+                        imgUrl = String(product.image_urls[0]);
+                    }
+                    imgUrl = escapeHtml(imgUrl);
+
+                    let stockText = '';
+                    const stockQty = product.stock_quantity;
+                    if (typeof stockQty === 'number') {
+                        if (stockQty <= 0) {
+                            stockText = 'Out of stock';
+                        } else if (stockQty <= 3) {
+                            stockText = 'Low stock (' + stockQty + ' left)';
+                        } else {
+                            stockText = stockQty + ' in stock';
+                        }
+                    }
+
+                    let shippingText = '';
+                    if (typeof product.estimated_shipping_days === 'number') {
+                        shippingText = 'Ships in ~' + product.estimated_shipping_days + ' days';
+                    }
+
+                    let typeLabel = '';
+                    if (product.product_type === 'part') {
+                        typeLabel = 'Part';
+                    } else if (product.product_type === 'merchandise') {
+                        typeLabel = 'Merch';
+                    }
+
+                    const compactParts = [];
+                    if (typeLabel) {
+                        compactParts.push(typeLabel);
+                    }
+                    if (stockText) {
+                        compactParts.push(stockText);
+                    }
+                    const compactDesc = compactParts.join(' • ');
+
+                    rows.push(
+                        '\n         <tr class=\'cart-item-row\' data-component=\'cart-item-row\' data-cart-item-id=\'' + cartItemId + '\'>\n' +
+                        '           <td class=\'cart-col-thumbnail\'>\n' +
+                        '             <a href=\'javascript:void(0)\' data-action=\'product-click\' data-product-id=\'' + productId + '\'>\n' +
+                        '               <img src=\'' + imgUrl + '\' alt=\'' + name + '\' class=\'cart-item-image\'>\n' +
+                        '             </a>\n' +
+                        '           </td>\n' +
+                        '           <td class=\'cart-col-details\'>\n' +
+                        '             <a href=\'javascript:void(0)\' class=\'cart-item-name\' data-action=\'product-click\' data-product-id=\'' + productId + '\'>\n' +
+                        '               <span class=\'cart-item-bullet\'>▸</span>' + name + '\n' +
+                        '             </a>\n' +
+                        '             <div class=\'cart-item-meta\'>\n' +
+                        (compactDesc ? '               <span class=\'cart-item-meta-line\'>' + escapeHtml(compactDesc) + '</span>\n' : '') +
+                        (shippingText ? '               <span class=\'cart-item-meta-line\'>' + escapeHtml(shippingText) + '</span>\n' : '') +
+                        '             </div>\n' +
+                        '           </td>\n' +
+                        '           <td class=\'cart-col-quantity\'>\n' +
+                        '             <label class=\'cart-qty-label\' for=\'qty-' + cartItemId + '\'>Qty</label>\n' +
+                        '             <input id=\'qty-' + cartItemId + '\' class=\'cart-qty-input\' type=\'number\' min=\'1\' value=\'' + quantity + '\' data-action=\'quantity-input\' data-cart-item-id=\'' + cartItemId + '\'>\n' +
+                        '             <div class=\'cart-qty-message\' data-role=\'qty-message\'></div>\n' +
+                        '           </td>\n' +
+                        '           <td class=\'cart-col-unit-price\'>\n' +
+                        '             <span class=\'cart-price-label\'>Unit</span>\n' +
+                        '             <span class=\'cart-price-value\'>€' + unitPrice + '</span>\n' +
+                        '           </td>\n' +
+                        '           <td class=\'cart-col-line-total\'>\n' +
+                        '             <span class=\'cart-price-label\'>Total</span>\n' +
+                        '             <span class=\'cart-price-value\'>€' + lineTotalStr + '</span>\n' +
+                        '             <a href=\'javascript:void(0)\' class=\'cart-remove-link\' data-action=\'remove-item\' data-cart-item-id=\'' + cartItemId + '\'>Remove</a>\n' +
+                        '           </td>\n' +
+                        '         </tr>\n'
+                    );
+                }
+                itemsRowsHtml = rows.join('');
+            }
+
+            let itemsSectionHtml = '';
+            if (hasItems) {
+                itemsSectionHtml = '\n    <section class=\'cart-items-section\' aria-label=\'Cart items\'>\n' +
+                    '      <div class=\'cart-table-wrapper\'>\n' +
+                    '        <table class=\'cart-table\'>\n' +
+                    '          <thead>\n' +
+                    '            <tr>\n' +
+                    '              <th class=\'cart-col-header cart-col-thumbnail-header\'>Item</th>\n' +
+                    '              <th class=\'cart-col-header cart-col-details-header\'>Part / Details</th>\n' +
+                    '              <th class=\'cart-col-header cart-col-quantity-header\'>Qty</th>\n' +
+                    '              <th class=\'cart-col-header cart-col-unit-header\'>Unit price</th>\n' +
+                    '              <th class=\'cart-col-header cart-col-total-header\'>Total</th>\n' +
+                    '            </tr>\n' +
+                    '          </thead>\n' +
+                    '          <tbody>\n' +
+                    itemsRowsHtml +
+                    '          </tbody>\n' +
+                    '        </table>\n' +
+                    '        <div class=\'cart-table-divider\'></div>\n' +
+                    '      </div>\n' +
+                    '    </section>\n';
+            }
+
+            let emptySectionHtml = '';
+            if (!hasItems) {
+                emptySectionHtml = '\n    <section class=\'empty-cart-section\' data-component=\'empty-cart-message\'>\n' +
+                    '      <div class=\'empty-cart-inner\'>\n' +
+                    '        <h2 class=\'empty-cart-title\'>Your cart is empty</h2>\n' +
+                    '        <p class=\'empty-cart-text\'>Browse Simca parts and memorabilia to start filling your garage shelves.</p>\n' +
+                    '        <div class=\'empty-cart-actions\'>\n' +
+                    '          <a href=\'javascript:void(0)\' class=\'cart-link\' data-action=\'continue-shopping\'>Go back to the parts shop</a>\n' +
+                    '          <span class=\'empty-cart-separator\'>|</span>\n' +
+                    '          <a href=\'javascript:void(0)\' class=\'cart-link\' data-action=\'reload-cart\'>Reload cart</a>\n' +
+                    '        </div>\n' +
+                    '      </div>\n' +
+                    '      <div class=\'cart-table-divider\'></div>\n' +
+                    '    </section>\n';
+            }
+
+            let summaryHtml = '';
+            if (hasItems) {
+                const subtotalStr = '€' + subtotal.toFixed(2);
+                summaryHtml = '\n    <aside class=\'cart-summary-panel\' data-component=\'cart-summary-panel\' aria-label=\'Cart summary\'>\n' +
+                    '      <div class=\'cart-summary-inner\'>\n' +
+                    '        <div class=\'cart-summary-row\'>\n' +
+                    '          <span class=\'cart-summary-label\'>Items</span>\n' +
+                    '          <span class=\'cart-summary-value\'>' + itemCount + '</span>\n' +
+                    '        </div>\n' +
+                    '        <div class=\'cart-summary-row cart-summary-subtotal\'>\n' +
+                    '          <span class=\'cart-summary-label\'>Subtotal</span>\n' +
+                    '          <span class=\'cart-summary-value\'>' + subtotalStr + '</span>\n' +
+                    '        </div>\n' +
+                    (longShippingHint ? '        <div class=\'cart-summary-hint\'>\n          ' + escapeHtml(longShippingHint) + '\n        </div>\n' : '') +
+                    '        <div class=\'cart-summary-actions\'>\n' +
+                    '          <a href=\'javascript:void(0)\' class=\'cart-primary-action\' data-action=\'proceed-checkout\'>Proceed to checkout</a>\n' +
+                    '          <a href=\'javascript:void(0)\' class=\'cart-secondary-action\' data-action=\'continue-shopping\'>Continue shopping</a>\n' +
+                    '          <a href=\'javascript:void(0)\' class=\'cart-tertiary-action\' data-action=\'reload-cart\'>Refresh</a>\n' +
+                    '        </div>\n' +
+                    '      </div>\n' +
+                    '    </aside>\n';
+            }
+
+            container.innerHTML = '\n    <div class=\'cart-page-inner\'>\n' +
+                '      <header class=\'cart-header-block\'>\n' +
+                '        <h1 id=\'cart-title\' class=\'cart-title\'>Your Cart</h1>\n' +
+                '        <p class=\'cart-description\'>' + escapeHtml(fromText) + '</p>\n' +
+                '      </header>\n' +
+                (errorBannerHtml || '') +
+                '      <div class=\'' + layoutClass + '\'>\n' +
+                itemsSectionHtml +
+                emptySectionHtml +
+                summaryHtml +
+                '      </div>\n' +
+                '    </div>\n';
+        }
+
+        function applyHighlight(container, highlightItemId) {
+            if (!highlightItemId) {
+                return;
+            }
+            const safeId = String(highlightItemId).replace(/'/g, "\\'");
+            const selector = ".cart-item-row[data-cart-item-id='" + safeId + "']";
+            const row = container.querySelector(selector);
+            if (row) {
+                row.classList.add('cart-item-highlight');
+                try {
+                    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } catch (e) {
+                    row.scrollIntoView();
+                }
+            }
+        }
+
+        function loadCart() {
+            if (!cartRootContainer || typeof WebsiteSDK === 'undefined' || !WebsiteSDK.getCart) {
+                return;
+            }
+            try {
+                const response = WebsiteSDK.getCart();
+                currentCartState = response;
+                lastNonLoadError = '';
+                renderCartShell(cartRootContainer, currentCartState, currentUrlState);
+                applyHighlight(cartRootContainer, currentUrlState.highlight_item);
+            } catch (e) {
+                if (!currentCartState) {
+                    cartRootContainer.innerHTML = '\n        <div class=\'cart-error-block\'>\n' +
+                        '          <p>Unable to load your cart at the moment.</p>\n' +
+                        '          <a href=\'javascript:void(0)\' class=\'cart-link\' data-action=\'reload-cart\'>Try again</a>\n' +
+                        '        </div>\n';
+                } else {
+                    lastNonLoadError = 'There was a problem refreshing your cart. Please try again.';
+                    renderCartShell(cartRootContainer, currentCartState, currentUrlState);
+                }
+                if (typeof console !== 'undefined' && console.error) {
+                    console.error('Error loading cart', e);
+                }
+            }
+        }
+
+        function getCurrentApiQuantity(cartItemId) {
+            if (!currentCartState || !Array.isArray(currentCartState.items)) {
+                return null;
+            }
+            for (let i = 0; i < currentCartState.items.length; i += 1) {
+                const entry = currentCartState.items[i] || {};
+                const ci = entry.cart_item || {};
+                if (ci.id === cartItemId) {
+                    const q = ci.quantity;
+                    return typeof q === 'number' ? q : null;
+                }
+            }
+            return null;
+        }
+
+        function validateQuantityValue(raw) {
+            const num = Number(raw);
+            if (!Number.isFinite(num) || !Number.isInteger(num) || num <= 0) {
+                return null;
+            }
+            return num;
+        }
+
+        function handleUpdateCartItemQuantity(cartItemId, quantity) {
+            if (!cartRootContainer || typeof WebsiteSDK === 'undefined' || !WebsiteSDK.updateCartItemQuantity) {
+                return;
+            }
+            try {
+                const response = WebsiteSDK.updateCartItemQuantity(cartItemId, quantity);
+                currentCartState = response;
+                lastNonLoadError = '';
+                renderCartShell(cartRootContainer, currentCartState, currentUrlState);
+                applyHighlight(cartRootContainer, currentUrlState.highlight_item);
+            } catch (e) {
+                lastNonLoadError = 'Could not update quantity. Please try again.';
+                if (currentCartState) {
+                    renderCartShell(cartRootContainer, currentCartState, currentUrlState);
+                    applyHighlight(cartRootContainer, currentUrlState.highlight_item);
+                }
+                if (typeof console !== 'undefined' && console.error) {
+                    console.error('Error updating quantity', e);
+                }
+            }
+        }
+
+        function handleRemoveCartItem(cartItemId) {
+            if (!cartRootContainer || typeof WebsiteSDK === 'undefined' || !WebsiteSDK.removeCartItem) {
+                return;
+            }
+            try {
+                const response = WebsiteSDK.removeCartItem(cartItemId);
+                currentCartState = response;
+                lastNonLoadError = '';
+                renderCartShell(cartRootContainer, currentCartState, currentUrlState);
+                applyHighlight(cartRootContainer, currentUrlState.highlight_item);
+            } catch (e) {
+                lastNonLoadError = 'Could not remove item from your cart. Please try again.';
+                if (currentCartState) {
+                    renderCartShell(cartRootContainer, currentCartState, currentUrlState);
+                    applyHighlight(cartRootContainer, currentUrlState.highlight_item);
+                }
+                if (typeof console !== 'undefined' && console.error) {
+                    console.error('Error removing cart item', e);
+                }
+            }
+        }
+
+        function handleQuantityEvent(event) {
+            const target = event.target;
+            if (!target || target.tagName !== 'INPUT') {
+                return;
+            }
+            if (target.dataset.action !== 'quantity-input') {
+                return;
+            }
+            const cartItemId = target.dataset.cartItemId;
+            if (!cartItemId) {
+                return;
+            }
+            const cell = target.closest('.cart-col-quantity');
+            const messageEl = cell ? cell.querySelector('[data-role="qty-message"]') : null;
+
+            const newQty = validateQuantityValue(target.value);
+            if (!newQty) {
+                if (messageEl) {
+                    messageEl.textContent = 'Enter a whole number greater than 0.';
+                    messageEl.classList.add('is-error');
+                }
+                return;
+            }
+            if (messageEl) {
+                messageEl.textContent = '';
+                messageEl.classList.remove('is-error');
+            }
+
+            const currentQty = getCurrentApiQuantity(cartItemId);
+            if (currentQty === newQty) {
+                return;
+            }
+
+            handleUpdateCartItemQuantity(cartItemId, newQty);
+        }
+
+        function handleClick(event) {
+            const actionEl = event.target.closest('[data-action]');
+            if (!actionEl) {
+                return;
+            }
+            const action = actionEl.dataset.action;
+            if (!action) {
+                return;
+            }
+
+            if (action === 'continue-shopping') {
+                event.preventDefault();
+                window.location.href = 'shop.html?section=parts';
+            } else if (action === 'proceed-checkout') {
+                event.preventDefault();
+                window.location.href = 'checkout.html';
+            } else if (action === 'reload-cart') {
+                event.preventDefault();
+                loadCart();
+            } else if (action === 'product-click') {
+                event.preventDefault();
+                const productId = actionEl.dataset.productId;
+                if (productId) {
+                    window.location.href = 'product_detail.html?id=' + encodeURIComponent(productId);
+                }
+            } else if (action === 'remove-item') {
+                event.preventDefault();
+                const cartItemId = actionEl.dataset.cartItemId;
+                if (cartItemId) {
+                    const confirmed = window.confirm('Remove this item from your cart?');
+                    if (confirmed) {
+                        handleRemoveCartItem(cartItemId);
+                    }
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const params = new URLSearchParams(window.location.search);
+            currentUrlState = {
+                highlight_item: params.get('highlight_item'),
+                from: params.get('from'),
+                view: params.get('view')
+            };
+
+            cartRootContainer = document.querySelector('[data-populate="cart"]');
+            if (!cartRootContainer) {
+                return;
+            }
+
+            loadCart();
+
+            document.addEventListener('click', handleClick);
+            document.addEventListener('change', handleQuantityEvent, true);
+            document.addEventListener('blur', handleQuantityEvent, true);
+        });
+    })();
+    </script>
+</body>
+</html>

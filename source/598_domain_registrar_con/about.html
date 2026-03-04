@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Domain Registrar Portal</title>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='about.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <nav class='primary-nav' aria-label='Primary navigation'>
+            <ul class='nav-list'>
+                <li class='nav-item'><a href='index.html'>Dashboard</a></li>
+                <li class='nav-item'><a href='my_domains.html'>My Domains</a></li>
+                <li class='nav-item'><a href='contact_verification_center.html'>Contact Verification</a></li>
+                <li class='nav-item'><a href='account_settings.html'>Account Settings</a></li>
+                <li class='nav-item'><a href='help.html'>Help</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id='content' class='site-main' role='main'>
+        <div id='about-page' data-component='about-page-controller'>
+            <div id='about-state' data-component='loading-and-error-state' aria-live='polite'></div>
+
+            <article id='about-article' data-component='static-content-renderer' hidden>
+                <h1 id='about-title' data-populate='about-title'></h1>
+                <div id='about-body' data-populate='about-body'></div>
+
+                <p id='about-last-updated' data-component='last-updated-indicator' data-populate='about-last-updated'></p>
+
+                <p id='about-support-links' data-component='support-links-section'>
+                    For additional information, you can
+                    <a href='javascript:void(0)' data-action='navigate-help-contact-verification'>learn more about contact verification</a>
+                    or
+                    <a href='javascript:void(0)' data-action='navigate-contact-general'>contact us</a>.
+                </p>
+
+                <div data-component='section-scroller' aria-hidden='true'></div>
+            </article>
+        </div>
+    </main>
+
+    <footer class='site-footer'>
+        <nav class='footer-nav' aria-label='Footer navigation'>
+            <ul class='footer-nav-list'>
+                <li class='footer-nav-item'><a href='about.html'>About</a></li>
+                <li class='footer-nav-item'><a href='help.html'>Help &amp; Support</a></li>
+                <li class='footer-nav-item'><a href='contact.html'>Contact Us</a></li>
+                <li class='footer-nav-item'><a href='privacy.html'>Privacy Policy</a></li>
+                <li class='footer-nav-item'><a href='terms.html'>Terms of Service</a></li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var pageKey = 'about';
+        var urlParams = new URLSearchParams(window.location.search);
+        var sectionParam = urlParams.get('section') || '';
+
+        var stateContainer = document.getElementById('about-state');
+        var article = document.getElementById('about-article');
+        var populateElements = document.querySelectorAll('[data-populate]');
+
+        function setLoading(isLoading) {
+            if (!stateContainer || !article) {
+                return;
+            }
+            if (isLoading) {
+                stateContainer.textContent = 'Loading...';
+                article.hidden = true;
+            } else if (stateContainer.textContent === 'Loading...') {
+                stateContainer.textContent = '';
+            }
+        }
+
+        function formatLastUpdated(isoString) {
+            if (!isoString) {
+                return '';
+            }
+            var date = new Date(isoString);
+            if (isNaN(date.getTime())) {
+                return '';
+            }
+            try {
+                return date.toLocaleDateString(undefined, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function scrollToSectionIfNeeded() {
+            if (!sectionParam) {
+                return;
+            }
+            var target = document.getElementById(sectionParam) || document.querySelector('[data-section="' + sectionParam + '"]');
+            if (target && typeof target.scrollIntoView === 'function') {
+                try {
+                    target.scrollIntoView({ block: 'start' });
+                } catch (e) {
+                    target.scrollIntoView();
+                }
+            }
+        }
+
+        function renderStaticPage(containers, response) {
+            containers.forEach(function(container) {
+                var type = container.dataset.populate;
+                if (type === 'about-title') {
+                    container.textContent = response.title || '';
+                } else if (type === 'about-body') {
+                    var html = response.bodyHtml || '';
+                    container.innerHTML = html;
+                } else if (type === 'about-last-updated') {
+                    var formatted = formatLastUpdated(response.lastUpdatedAt);
+                    if (formatted) {
+                        container.textContent = 'Last updated: ' + formatted;
+                        container.hidden = false;
+                    } else {
+                        container.hidden = true;
+                    }
+                }
+            });
+        }
+
+        function bindActionHandlers() {
+            var actionElements = document.querySelectorAll('[data-action]');
+            actionElements.forEach(function(el) {
+                if (el.dataset.bound === 'true') {
+                    return;
+                }
+                el.addEventListener('click', handleActionClick);
+                el.dataset.bound = 'true';
+            });
+        }
+
+        function showGenericError() {
+            if (!stateContainer || !article) {
+                return;
+            }
+            article.hidden = true;
+            stateContainer.innerHTML = '';
+
+            var message = document.createElement('p');
+            message.textContent = 'Unable to display this information right now.';
+            stateContainer.appendChild(message);
+
+            var retryButton = document.createElement('button');
+            retryButton.type = 'button';
+            retryButton.textContent = 'Retry';
+            retryButton.dataset.action = 'retry-load-about';
+            stateContainer.appendChild(retryButton);
+
+            bindActionHandlers();
+        }
+
+        function loadPageContent() {
+            setLoading(true);
+            try {
+                var response = WebsiteSDK.getStaticPageContent(pageKey);
+                if (!response || typeof response !== 'object') {
+                    throw new Error('Invalid response from getStaticPageContent');
+                }
+
+                var pageTitle = response.title || 'About';
+                document.title = pageTitle;
+
+                renderStaticPage(populateElements, response);
+
+                if (article) {
+                    article.hidden = false;
+                }
+                if (stateContainer && stateContainer.textContent === 'Loading...') {
+                    stateContainer.textContent = '';
+                }
+
+                scrollToSectionIfNeeded();
+            } catch (error) {
+                console.error(error);
+                showGenericError();
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function handleActionClick(event) {
+            var action = event.target && event.target.dataset && event.target.dataset.action;
+            if (!action) {
+                return;
+            }
+
+            if (action === 'navigate-help-contact-verification') {
+                event.preventDefault();
+                window.location.href = 'help.html?topicKey=contact_verification_overview';
+            } else if (action === 'navigate-contact-general') {
+                event.preventDefault();
+                window.location.href = 'contact.html?topic=general';
+            } else if (action === 'retry-load-about') {
+                event.preventDefault();
+                loadPageContent();
+            }
+        }
+
+        bindActionHandlers();
+        loadPageContent();
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8' />
+    <meta name='viewport' content='width=device-width, initial-scale=1' />
+    <title>Community HOA Portal</title>
+    <link rel='stylesheet' href='styles.css' />
+    <link rel='stylesheet' href='forum_topic.css' />
+</head>
+<body>
+    <div class='page'>
+        <header class='site-header'>
+            <div class='site-header-inner'>
+                <div class='site-mark' aria-hidden='true'></div>
+                <hr class='site-divider' />
+                <nav class='primary-nav' aria-label='Primary'>
+                    <ul class='nav-list'>
+                        <li class='nav-item'>
+                            <a class='nav-link' href='index.html' title='Resident home dashboard and overview'>Home</a>
+                        </li>
+                        <li class='nav-item'>
+                            <a class='nav-link' href='payments.html' title='View and pay HOA dues and invoices'>Payments</a>
+                        </li>
+                        <li class='nav-item'>
+                            <a class='nav-link' href='amenities.html' title='Browse and reserve community amenities'>Amenities</a>
+                        </li>
+                        <li class='nav-item'>
+                            <a class='nav-link' href='maintenance_requests.html' title='Submit and track maintenance requests'>Maintenance</a>
+                        </li>
+                        <li class='nav-item'>
+                            <a class='nav-link' href='events.html' title='View community events and calendar'>Events</a>
+                        </li>
+                        <li class='nav-item'>
+                            <a class='nav-link' href='forum.html' title='Participate in community discussions'>Forum</a>
+                        </li>
+                        <li class='nav-item'>
+                            <a class='nav-link' href='architectural_requests.html' title='Submit and view architectural change requests'>Architectural</a>
+                        </li>
+                        <li class='nav-item'>
+                            <a class='nav-link' href='rules.html' title='Review community rules and fines'>Rules</a>
+                        </li>
+                        <li class='nav-item'>
+                            <a class='nav-link' href='parking.html' title='Manage guest parking permits'>Parking</a>
+                        </li>
+                        <li class='nav-item'>
+                            <a class='nav-link' href='elections.html' title='View and participate in board elections'>Elections</a>
+                        </li>
+                        <li class='nav-item'>
+                            <a class='nav-link' href='watchlist.html' title='View rules saved to your personal watchlist'>Watchlist</a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+        </header>
+
+        <main id='content' class='site-main' tabindex='-1'>
+            <div class='forum-topic-page'>
+                <div class='forum-main-band'>
+                    <div class='forum-grid'>
+                        <section class='forum-thread-column' aria-label='Forum topic thread'>
+                            <div class='forum-thread-card' data-populate='forum-topic-thread'>
+                                <div class='thread-initial-message'>
+                                    <p>Loading topic thread&hellip;</p>
+                                </div>
+                            </div>
+                        </section>
+                        <aside class='forum-side-column' aria-label='Community branding'>
+                            <div class='forum-side-inner'>
+                                <div class='forum-side-seal-placeholder' aria-hidden='true'></div>
+                            </div>
+                        </aside>
+                    </div>
+                    <button type='button' class='scroll-to-reply-control' data-action='scroll-to-reply'>
+                        Reply to topic
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <footer class='site-footer'>
+            <div class='footer-inner'>
+                <nav class='footer-nav' aria-label='Footer'>
+                    <ul class='footer-link-list'>
+                        <li class='footer-link-item'>
+                            <a class='footer-link' href='about.html?section=about' title='Overview of the HOA and community information'>About the Community</a>
+                        </li>
+                        <li class='footer-link-item'>
+                            <a class='footer-link' href='about.html?section=contact' title='Contact details for the HOA office'>Contact &amp; Office Hours</a>
+                        </li>
+                        <li class='footer-link-item'>
+                            <a class='footer-link' href='about.html?section=help' title='Frequently asked questions and resident help'>Help &amp; FAQ</a>
+                        </li>
+                        <li class='footer-link-item'>
+                            <a class='footer-link' href='about.html?section=privacy_policy' title='Information on how your data is handled'>Privacy Policy</a>
+                        </li>
+                        <li class='footer-link-item'>
+                            <a class='footer-link' href='about.html?section=terms' title='Website and service terms and conditions'>Terms of Use</a>
+                        </li>
+                    </ul>
+                </nav>
+                <p class='footer-meta'>&copy; 2024 Community Homeowners Association. All rights reserved.</p>
+            </div>
+        </footer>
+    </div>
+
+    <script src='business_logic.js'></script>
+    <script>
+    (function() {
+        'use strict';
+
+        document.addEventListener('DOMContentLoaded', function() {
+            var threadContainer = document.querySelector('[data-populate=\'forum-topic-thread\']');
+            if (!threadContainer) return;
+
+            var urlParams = new URLSearchParams(window.location.search);
+            var topicId = urlParams.get('topicId');
+            var parentCategoryId = urlParams.get('parentCategoryId');
+            var orderParam = urlParams.get('order');
+            var lastPostIdParam = urlParams.get('lastPostId');
+
+            var state = {
+                topicId: topicId,
+                parentCategoryId: parentCategoryId,
+                order: orderParam === 'desc' ? 'desc' : 'asc',
+                lastPostId: lastPostIdParam,
+                topic: null,
+                posts: [],
+                isLoading: false,
+                loadError: null,
+                notification: null,
+                isSubmittingReply: false
+            };
+
+            renderThreadSkeleton(threadContainer);
+            updateReplyFormState(state);
+
+            if (!state.topicId) {
+                renderMissingTopicMessage(threadContainer);
+                return;
+            }
+
+            loadThreadDataAndRender(state);
+            initializeGlobalEventHandlers(state, threadContainer);
+
+            window.addEventListener('popstate', function() {
+                var params = new URLSearchParams(window.location.search);
+                var newTopicId = params.get('topicId');
+                var newOrder = params.get('order');
+                var newLastPostId = params.get('lastPostId');
+
+                state.order = newOrder === 'desc' ? 'desc' : 'asc';
+                state.lastPostId = newLastPostId;
+
+                if (newTopicId !== state.topicId) {
+                    state.topicId = newTopicId;
+                    state.topic = null;
+                    state.posts = [];
+                    state.loadError = null;
+                    state.notification = null;
+
+                    if (!state.topicId) {
+                        renderMissingTopicMessage(threadContainer);
+                        return;
+                    }
+
+                    renderThreadSkeleton(threadContainer);
+                    updateReplyFormState(state);
+                    loadThreadDataAndRender(state);
+                } else {
+                    renderSortOrderToggle(state);
+                    renderPostList(state);
+                    if (state.lastPostId) {
+                        scrollToPost(state.lastPostId, { smooth: false });
+                    }
+                }
+            });
+        });
+
+        function renderThreadSkeleton(container) {
+            container.innerHTML = `
+                <div class='forum-thread-card-inner'>
+                    <nav class='topic-breadcrumb' aria-label='Breadcrumb' data-component='topic-breadcrumb'></nav>
+                    <div class='thread-panel-inner' data-component='thread-panel-inner'>
+                        <header class='topic-header' data-component='topic-header'></header>
+                        <div class='topic-header-controls'>
+                            <div class='topic-meta-summary' data-component='topic-meta-summary'></div>
+                            <div class='sort-order-toggle' data-component='sort-order-toggle'></div>
+                        </div>
+                        <div class='notification-container'>
+                            <div class='notification-banner' role='status' aria-live='polite' data-component='notification-banner' hidden></div>
+                        </div>
+                        <div class='thread-loader' data-component='thread-loader' aria-hidden='true'>
+                            <div class='thread-loader-inner'>
+                                <span class='thread-loader-spinner' aria-hidden='true'></span>
+                                <span class='thread-loader-text'>Loading topic thread&hellip;</span>
+                            </div>
+                        </div>
+                        <section class='post-list' data-component='post-list' aria-label='Topic replies'></section>
+                        <section class='reply-form-section' data-component='reply-form-section'>
+                            <h2 class='reply-form-title'>Reply to this topic</h2>
+                            <form class='reply-form' data-component='reply-form'>
+                                <div class='form-group'>
+                                    <label class='form-label' for='replyBody'>Your reply</label>
+                                    <textarea class='form-textarea' id='replyBody' name='replyBody' rows='5' required data-action='reply-input'></textarea>
+                                </div>
+                                <div class='form-actions'>
+                                    <button type='submit' class='btn btn-primary' data-action='submit-reply' disabled>Post reply</button>
+                                </div>
+                                <p class='reply-form-note'>Please keep discussions respectful and on-topic.</p>
+                            </form>
+                        </section>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderMissingTopicMessage(container) {
+            container.innerHTML = `
+                <div class='forum-thread-card-inner'>
+                    <h1 class='topic-title'>Topic not available</h1>
+                    <p class='topic-missing-message'>This discussion topic cannot be loaded because no topic was specified in the address.</p>
+                    <p class='topic-missing-message'>Return to the forum and select a topic to view its full thread.</p>
+                </div>
+            `;
+        }
+
+        function loadThreadDataAndRender(state) {
+            state.isLoading = true;
+            state.loadError = null;
+            state.notification = null;
+            renderLoadingState(state);
+            renderNotification(state);
+
+            try {
+                var data = WebsiteSDK.getForumTopicThread(state.topicId);
+                state.topic = data && data.topic ? data.topic : null;
+                state.posts = data && Array.isArray(data.posts) ? data.posts.slice() : [];
+            } catch (err) {
+                state.isLoading = false;
+                state.loadError = 'We were not able to load this topic. Please try again.';
+                renderTopicBreadcrumb(state);
+                renderTopicHeader(state);
+                renderSortOrderToggle(state);
+                renderPostList(state);
+                renderLoadingState(state);
+                renderNotification(state);
+                return;
+            }
+
+            state.isLoading = false;
+            renderTopicBreadcrumb(state);
+            renderTopicHeader(state);
+            renderSortOrderToggle(state);
+            renderPostList(state);
+            renderLoadingState(state);
+            renderNotification(state);
+
+            if (state.lastPostId) {
+                scrollToPost(state.lastPostId, { smooth: true });
+            }
+        }
+
+        function renderTopicBreadcrumb(state) {
+            var crumbEl = document.querySelector('[data-component=\'topic-breadcrumb\']');
+            if (!crumbEl) return;
+
+            var subjectText = state.topic && typeof state.topic.subject === 'string'
+                ? escapeHtml(state.topic.subject)
+                : 'Topic';
+
+            if (state.parentCategoryId) {
+                crumbEl.innerHTML = `
+                    <span class='breadcrumb-root'>Forum</span>
+                    <span class='breadcrumb-separator' aria-hidden='true'>/</span>
+                    <button type='button' class='breadcrumb-link' data-action='navigate-category'>Back to category</button>
+                    <span class='breadcrumb-separator' aria-hidden='true'>/</span>
+                    <span class='breadcrumb-current' aria-current='page'>${subjectText}</span>
+                `;
+            } else {
+                crumbEl.innerHTML = `
+                    <span class='breadcrumb-root'>Forum</span>
+                    <span class='breadcrumb-separator' aria-hidden='true'>/</span>
+                    <span class='breadcrumb-current' aria-current='page'>${subjectText}</span>
+                `;
+            }
+        }
+
+        function renderTopicHeader(state) {
+            var headerEl = document.querySelector('[data-component=\'topic-header\']');
+            if (!headerEl) return;
+
+            if (!state.topic) {
+                headerEl.innerHTML = `
+                    <div class='topic-header-inner'>
+                        <h1 class='topic-title'>Topic</h1>
+                    </div>
+                `;
+                return;
+            }
+
+            var subjectText = state.topic && typeof state.topic.subject === 'string'
+                ? escapeHtml(state.topic.subject)
+                : 'Topic';
+            var createdAtText = state.topic && state.topic.created_at
+                ? formatDateTime(state.topic.created_at)
+                : '';
+            var postsCount = Array.isArray(state.posts) ? state.posts.length : 0;
+            var postsLabel = postsCount === 1 ? '1 post' : postsCount + ' posts';
+
+            var bodyHtml = '';
+            if (state.topic && typeof state.topic.body === 'string') {
+                bodyHtml = escapeHtml(state.topic.body).replace(/\n/g, '<br>');
+            }
+
+            headerEl.innerHTML = `
+                <div class='topic-header-inner'>
+                    <h1 class='topic-title'>${subjectText}</h1>
+                    <p class='topic-meta'>
+                        ${createdAtText ? `<span class='topic-meta-item'>Started ${createdAtText}</span>` : ''}
+                        <span class='topic-meta-separator' aria-hidden='true'>&middot;</span>
+                        <span class='topic-meta-item'>${postsLabel}</span>
+                    </p>
+                    <div class='topic-body'>
+                        <p>${bodyHtml}</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSortOrderToggle(state) {
+            var toggleEl = document.querySelector('[data-component=\'sort-order-toggle\']');
+            if (!toggleEl) return;
+
+            var label = state.order === 'desc' ? 'Newest first' : 'Oldest first';
+            var description = state.order === 'desc'
+                ? 'Showing newest replies at the top.'
+                : 'Showing oldest replies at the top.';
+            var pressed = state.order === 'desc' ? 'true' : 'false';
+
+            toggleEl.innerHTML = `
+                <button type='button' class='sort-toggle-btn' data-action='toggle-sort' aria-pressed='${pressed}'>
+                    <span class='sort-toggle-label'>${label}</span>
+                </button>
+                <p class='sort-toggle-description'>${description}</p>
+            `;
+        }
+
+        function renderPostList(state) {
+            var listEl = document.querySelector('[data-component=\'post-list\']');
+            if (!listEl) return;
+
+            var allPosts = Array.isArray(state.posts) ? state.posts : [];
+            var replies = allPosts.filter(function(post) {
+                return !post.is_original_post;
+            });
+
+            if (!replies.length) {
+                listEl.innerHTML = `
+                    <div class='post-list-empty'>
+                        <p class='post-list-empty-text'>No replies have been added yet. Be the first to start the conversation below.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            var sorted = replies.slice().sort(function(a, b) {
+                var timeA = a && a.created_at ? Date.parse(a.created_at) : 0;
+                var timeB = b && b.created_at ? Date.parse(b.created_at) : 0;
+                if (state.order === 'desc') {
+                    return timeB - timeA;
+                }
+                return timeA - timeB;
+            });
+
+            var itemsHtml = sorted.map(function(post) {
+                var bodyHtml = '';
+                if (post && typeof post.body === 'string') {
+                    bodyHtml = escapeHtml(post.body).replace(/\n/g, '<br>');
+                }
+                var createdText = post && post.created_at ? formatDateTime(post.created_at) : '';
+                return `
+                    <article class='forum-post' data-post-id='${post.id}'>
+                        <header class='forum-post-header'>
+                            <p class='forum-post-meta'>
+                                <span class='forum-post-meta-label'>Reply</span>
+                                ${createdText ? `<span class='forum-post-meta-separator' aria-hidden='true'>&middot;</span><span class='forum-post-meta-date'>${createdText}</span>` : ''}
+                            </p>
+                        </header>
+                        <div class='forum-post-body'>
+                            <p>${bodyHtml}</p>
+                        </div>
+                    </article>
+                `;
+            }).join('');
+
+            listEl.innerHTML = `
+                <div class='post-list-inner'>
+                    ${itemsHtml}
+                </div>
+            `;
+        }
+
+        function renderLoadingState(state) {
+            var loaderEl = document.querySelector('[data-component=\'thread-loader\']');
+            if (!loaderEl) return;
+            if (state.isLoading) {
+                loaderEl.removeAttribute('hidden');
+            } else {
+                loaderEl.setAttribute('hidden', 'hidden');
+            }
+        }
+
+        function renderNotification(state) {
+            var bannerEl = document.querySelector('[data-component=\'notification-banner\']');
+            if (!bannerEl) return;
+
+            var message = null;
+            var type = 'info';
+            var showRetry = false;
+
+            if (state.loadError) {
+                message = state.loadError;
+                type = 'error';
+                showRetry = !!state.topicId;
+            } else if (state.notification && state.notification.message) {
+                message = state.notification.message;
+                type = state.notification.type || 'info';
+            }
+
+            if (!message) {
+                bannerEl.hidden = true;
+                bannerEl.innerHTML = '';
+                return;
+            }
+
+            bannerEl.hidden = false;
+
+            var toneClass = 'notification-info';
+            if (type === 'success') toneClass = 'notification-success';
+            else if (type === 'error') toneClass = 'notification-error';
+
+            var retryHtml = showRetry
+                ? `<button type='button' class='notification-action' data-action='retry-load'>Retry loading topic</button>`
+                : '';
+
+            bannerEl.innerHTML = `
+                <div class='notification-banner-inner ${toneClass}'>
+                    <p class='notification-message'>${escapeHtml(message)}</p>
+                    <div class='notification-actions'>
+                        ${retryHtml}
+                        <button type='button' class='notification-dismiss' data-action='dismiss-notification' aria-label='Dismiss message'>
+                            &times;
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function showNotification(state, type, message) {
+            state.notification = { type: type, message: message };
+            renderNotification(state);
+        }
+
+        function initializeGlobalEventHandlers(state, threadContainer) {
+            document.addEventListener('click', function(event) {
+                var actionEl = event.target.closest('[data-action]');
+                if (!actionEl) return;
+
+                var action = actionEl.getAttribute('data-action');
+
+                if (action === 'toggle-sort') {
+                    handleToggleSort(state);
+                } else if (action === 'navigate-category') {
+                    handleNavigateCategory(state);
+                } else if (action === 'retry-load') {
+                    handleRetryLoad(state);
+                } else if (action === 'dismiss-notification') {
+                    state.loadError = null;
+                    state.notification = null;
+                    renderNotification(state);
+                } else if (action === 'scroll-to-reply') {
+                    handleScrollToReply();
+                }
+            });
+
+            document.addEventListener('submit', function(event) {
+                var form = event.target;
+                if (form && form.matches('[data-component=\'reply-form\']')) {
+                    event.preventDefault();
+                    handleSubmitReply(state);
+                }
+            });
+
+            document.addEventListener('input', function(event) {
+                var target = event.target;
+                if (target && target.matches('[data-action=\'reply-input\']')) {
+                    updateReplyFormState(state);
+                }
+            });
+        }
+
+        function handleToggleSort(state) {
+            if (!state.posts || !state.posts.length) return;
+            state.order = state.order === 'desc' ? 'asc' : 'desc';
+
+            var url = new URL(window.location.href);
+            url.searchParams.set('order', state.order);
+            window.history.replaceState(null, '', url.toString());
+
+            renderSortOrderToggle(state);
+            renderPostList(state);
+        }
+
+        function handleNavigateCategory(state) {
+            if (!state.parentCategoryId) return;
+            var targetUrl = 'forum_category.html?categoryId=' + encodeURIComponent(state.parentCategoryId);
+            window.location.href = targetUrl;
+        }
+
+        function handleRetryLoad(state) {
+            if (!state.topicId) return;
+            loadThreadDataAndRender(state);
+        }
+
+        function handleScrollToReply() {
+            var section = document.querySelector('[data-component=\'reply-form-section\']');
+            if (section) {
+                try {
+                    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } catch (e) {
+                    section.scrollIntoView();
+                }
+                var textarea = document.querySelector('[data-action=\'reply-input\']');
+                if (textarea) {
+                    textarea.focus();
+                }
+            }
+        }
+
+        function handleSubmitReply(state) {
+            if (!state.topicId) {
+                showNotification(state, 'error', 'This topic cannot accept replies because it is not available.');
+                return;
+            }
+
+            var form = document.querySelector('[data-component=\'reply-form\']');
+            if (!form) return;
+            var textarea = form.querySelector('[data-action=\'reply-input\']');
+            var submitBtn = form.querySelector('[data-action=\'submit-reply\']');
+            if (!textarea || !submitBtn) return;
+
+            var body = textarea.value ? textarea.value.trim() : '';
+            if (!body) {
+                showNotification(state, 'error', 'Please enter a reply before submitting.');
+                updateReplyFormState(state);
+                return;
+            }
+
+            state.isSubmittingReply = true;
+            updateReplyFormState(state);
+
+            var originalLabel = submitBtn.getAttribute('data-original-label') || submitBtn.textContent;
+            submitBtn.setAttribute('data-original-label', originalLabel);
+            submitBtn.textContent = 'Posting&hellip;';
+
+            try {
+                var result = WebsiteSDK.submitForumReply(state.topicId, body);
+                if (result && result.success && result.post) {
+                    state.posts = Array.isArray(state.posts) ? state.posts.slice() : [];
+                    state.posts.push(result.post);
+                    state.lastPostId = result.post.id || null;
+
+                    var url = new URL(window.location.href);
+                    if (state.lastPostId) {
+                        url.searchParams.set('lastPostId', state.lastPostId);
+                    } else {
+                        url.searchParams.delete('lastPostId');
+                    }
+                    window.history.replaceState(null, '', url.toString());
+
+                    textarea.value = '';
+                    showNotification(state, 'success', result.message || 'Your reply has been posted.');
+                    renderTopicHeader(state);
+                    renderPostList(state);
+                    if (state.lastPostId) {
+                        scrollToPost(state.lastPostId, { smooth: true });
+                    }
+                } else {
+                    var errMessage = result && result.message
+                        ? result.message
+                        : 'Your reply could not be posted. Please try again.';
+                    showNotification(state, 'error', errMessage);
+                }
+            } catch (error) {
+                showNotification(state, 'error', 'We were not able to submit your reply. Please try again.');
+            } finally {
+                state.isSubmittingReply = false;
+                submitBtn.textContent = submitBtn.getAttribute('data-original-label') || 'Post reply';
+                updateReplyFormState(state);
+            }
+        }
+
+        function scrollToPost(postId, options) {
+            if (!postId) return;
+            var posts = document.querySelectorAll('[data-post-id]');
+            var target = null;
+            posts.forEach(function(el) {
+                if (el.getAttribute('data-post-id') === postId) {
+                    target = el;
+                }
+            });
+            if (!target) return;
+
+            var behavior = options && options.smooth ? 'smooth' : 'auto';
+            try {
+                target.scrollIntoView({ behavior: behavior, block: 'center' });
+            } catch (e) {
+                target.scrollIntoView();
+            }
+
+            posts.forEach(function(el) {
+                el.classList.remove('post-highlighted');
+            });
+            target.classList.add('post-highlighted');
+        }
+
+        function updateReplyFormState(state) {
+            var form = document.querySelector('[data-component=\'reply-form\']');
+            if (!form) return;
+            var textarea = form.querySelector('[data-action=\'reply-input\']');
+            var submitBtn = form.querySelector('[data-action=\'submit-reply\']');
+            if (!textarea || !submitBtn) return;
+
+            var hasText = textarea.value && textarea.value.trim().length > 0;
+            submitBtn.disabled = !hasText || state.isSubmittingReply;
+        }
+
+        function escapeHtml(str) {
+            if (typeof str !== 'string') return '';
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        function formatDateTime(value) {
+            if (!value) return '';
+            var date = new Date(value);
+            if (isNaN(date.getTime())) return '';
+            return date.toLocaleString(undefined, {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit'
+            });
+        }
+
+    })();
+    </script>
+</body>
+</html>

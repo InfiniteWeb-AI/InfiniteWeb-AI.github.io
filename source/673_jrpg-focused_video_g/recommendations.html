@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Game Recommendations | JRPG Content Blog Framework</title>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='framework.css'>
+  <link rel='stylesheet' href='recommendations.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='header-bar container'>
+      <nav class='primary-nav' aria-label='Main site navigation'>
+        <ul class='nav-list'>
+          <li class='nav-item'><a href='index.html' title='Homepage with featured JRPG content and global navigation'>Home</a></li>
+          <li class='nav-item'><a href='recommendations.html' title='Browse filtered JRPG recommendations and reviews'>Game Recommendations</a></li>
+          <li class='nav-item'><a href='news.html' title='JRPG news and release-date updates'>News</a></li>
+          <li class='nav-item'><a href='features.html' title='Long-form JRPG features and narrative analysis'>Features</a></li>
+          <li class='nav-item'><a href='guides.html' title='Gameplay, beginner, and trophy guides for JRPGs'>Guides</a></li>
+          <li class='nav-item'><a href='top_lists.html' title='Ranked lists such as Top 10 classic JRPGs'>Top Lists</a></li>
+          <li class='nav-item'><a href='game_finder.html' title='Interactive JRPG recommendation tool'>Game Finder</a></li>
+          <li class='nav-item'><a href='library.html' title='View and manage your reading list, wishlist, bookmarks, collections, and followed releases'>My Library</a></li>
+        </ul>
+      </nav>
+      <div class='header-tools' aria-hidden='true'>
+        <span class='nav-search-icon' role='img'></span>
+      </div>
+    </div>
+  </header>
+
+  <main id='content' class='content-area'>
+    <div class='recommendations-page container' data-component='recommendations-page-controller'>
+      <header class='page-header-band'>
+        <div class='page-header-left'>
+          <h1 class='page-title'>Game Recommendations</h1>
+          <p class='page-subtitle' data-populate='page-meta'>
+            <!-- Populated via JavaScript with result count and paging info -->
+          </p>
+        </div>
+        <div class='page-header-right'>
+          <!-- Reserved for future secondary actions or view toggles -->
+        </div>
+      </header>
+
+      <section class='control-bar sticky-controls' aria-label='Filter and sort recommendations'>
+        <div class='filters-region' data-component='recommendation-filter-form' data-populate='filters'>
+          <!-- Filter form rendered by JavaScript -->
+        </div>
+        <div class='sort-region' data-component='recommendations-sort-control' data-populate='sort'>
+          <!-- Sort control rendered by JavaScript -->
+        </div>
+      </section>
+
+      <section class='applied-filters-band' data-component='applied-filters-summary' data-populate='applied-filters-summary' aria-label='Active filters and sort summary'>
+        <!-- Applied filters summary rendered by JavaScript -->
+      </section>
+
+      <section class='recommendations-grid-section'>
+        <div class='recommendations-grid' data-component='recommendations-list' data-populate='recommendations-list' aria-live='polite'>
+          <!-- Recommendation cards rendered by JavaScript -->
+        </div>
+        <div class='recommendations-empty-state' data-populate='recommendations-empty-state' hidden>
+          <!-- Empty state rendered by JavaScript when there are no results -->
+        </div>
+      </section>
+
+      <nav class='pagination-band' data-component='recommendations-pagination' data-populate='pagination' aria-label='Recommendations pagination'>
+        <!-- Pagination controls rendered by JavaScript -->
+      </nav>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner container'>
+      <nav class='footer-nav' aria-label='Footer navigation'>
+        <ul class='footer-links'>
+          <li class='footer-item'><a href='about.html' title='Learn more about the site and its mission'>About</a></li>
+          <li class='footer-item'><a href='contact.html' title='Get in touch with the site maintainers'>Contact</a></li>
+          <li class='footer-item'><a href='newsletter.html' title='Sign up for the JRPG newsletter and set your preferences'>Newsletter</a></li>
+          <li class='footer-item'><a href='privacy.html' title='Read about how your data and preferences are handled'>Privacy Policy</a></li>
+          <li class='footer-item'><a href='terms.html' title='Review the terms and conditions for using the site'>Terms of Use</a></li>
+        </ul>
+      </nav>
+      <div class='footer-meta'>
+        <p class='footer-copy'>&copy; <span class='footer-year'>2026</span> JRPG Content Blog. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    'use strict';
+    (function() {
+      var PAGE_SIZE = 18;
+      var INITIAL_PAGE = 1;
+
+      var pageContext = {
+        filterOptions: null,
+        state: null,
+        lastResult: null
+      };
+
+      document.addEventListener('DOMContentLoaded', function() {
+        try {
+          pageContext.filterOptions = WebsiteSDK.getRecommendationFilterOptions();
+        } catch (error) {
+          console.error('Error loading recommendation filter options', error);
+          showRecommendationsError('Unable to load filters right now. Please try again in a moment.');
+          return;
+        }
+
+        setupGlobalActionHandlers();
+        refreshFromUrl();
+      });
+
+      window.addEventListener('popstate', function() {
+        refreshFromUrl();
+      });
+
+      function setupGlobalActionHandlers() {
+        // Handle submit for any filter forms (event delegation)
+        document.addEventListener('submit', function(event) {
+          var target = event.target;
+          if (target && target.matches('form[data-action="apply-filters"]')) {
+            event.preventDefault();
+            handleApplyFilters(target);
+          }
+        });
+
+        // Handle change for sort controls
+        document.addEventListener('change', function(event) {
+          var target = event.target;
+          if (target && target.matches('[data-action="change-sort"]')) {
+            handleSortChange(target.value);
+          }
+        });
+
+        // Handle click actions generically
+        document.body.addEventListener('click', function(event) {
+          var actionElement = event.target.closest('[data-action]');
+          if (!actionElement) {
+            return;
+          }
+          var action = actionElement.getAttribute('data-action');
+          if (!action) {
+            return;
+          }
+
+          if (action === 'reset-filters') {
+            event.preventDefault();
+            resetFilters();
+          } else if (action === 'clear-single-filter') {
+            event.preventDefault();
+            var key = actionElement.getAttribute('data-filter-key');
+            if (key) {
+              clearSingleFilter(key);
+            }
+          } else if (action === 'change-page') {
+            event.preventDefault();
+            var pageValue = actionElement.getAttribute('data-page');
+            handlePageChange(pageValue);
+          } else if (action === 'open-article') {
+            event.preventDefault();
+            var card = actionElement.closest('[data-article-id]');
+            if (card) {
+              var articleId = card.getAttribute('data-article-id');
+              if (articleId) {
+                navigateToArticle(articleId);
+              }
+            }
+          }
+        });
+      }
+
+      function refreshFromUrl() {
+        var filterOptions = pageContext.filterOptions;
+        if (!filterOptions) {
+          return;
+        }
+
+        var state = parseUrlState(filterOptions);
+        pageContext.state = state;
+
+        // Render filter controls
+        var filterContainers = document.querySelectorAll('[data-populate="filters"]');
+        filterContainers.forEach(function(container) {
+          renderFilterControls(container, filterOptions, state);
+        });
+
+        // Render sort controls
+        var sortContainers = document.querySelectorAll('[data-populate="sort"]');
+        sortContainers.forEach(function(container) {
+          renderSortControl(container, filterOptions, state);
+        });
+
+        // Render applied filters summary
+        var summaryContainers = document.querySelectorAll('[data-populate="applied-filters-summary"]');
+        summaryContainers.forEach(function(container) {
+          renderAppliedFiltersSummary(container, filterOptions, state);
+        });
+
+        // Fetch articles based on current state
+        var articlesResult;
+        try {
+          articlesResult = WebsiteSDK.getRecommendationArticles(
+            state.platform,
+            state.minMainStoryLengthHours,
+            state.maxMainStoryLengthHours,
+            state.minRatingStars,
+            state.sortBy,
+            state.page,
+            PAGE_SIZE
+          );
+        } catch (error) {
+          console.error('Error loading recommendation articles', error);
+          showRecommendationsError('Unable to load recommendations right now. Please try again in a moment.');
+          return;
+        }
+
+        pageContext.lastResult = articlesResult;
+
+        // Render page meta
+        var metaContainers = document.querySelectorAll('[data-populate="page-meta"]');
+        metaContainers.forEach(function(container) {
+          renderPageMeta(container, state, articlesResult);
+        });
+
+        // Render recommendations list
+        var listContainers = document.querySelectorAll('[data-populate="recommendations-list"]');
+        listContainers.forEach(function(container) {
+          renderRecommendationsList(container, articlesResult);
+        });
+
+        // Render empty state
+        var emptyStateContainers = document.querySelectorAll('[data-populate="recommendations-empty-state"]');
+        emptyStateContainers.forEach(function(container) {
+          renderEmptyState(container, articlesResult);
+        });
+
+        // Render pagination
+        var paginationContainers = document.querySelectorAll('[data-populate="pagination"]');
+        paginationContainers.forEach(function(container) {
+          renderPagination(container, state, articlesResult);
+        });
+      }
+
+      function parseUrlState(filterOptions) {
+        var params = new URLSearchParams(window.location.search);
+        var state = {
+          platform: undefined,
+          minMainStoryLengthHours: undefined,
+          maxMainStoryLengthHours: undefined,
+          minRatingStars: undefined,
+          sortBy: undefined,
+          page: INITIAL_PAGE
+        };
+
+        var platform = params.get('platform');
+        if (platform && platform.trim() !== '') {
+          state.platform = platform.trim();
+        }
+
+        var minLenStr = params.get('minMainStoryLengthHours');
+        if (minLenStr !== null && minLenStr !== '') {
+          var minLen = Number(minLenStr);
+          if (!isNaN(minLen)) {
+            state.minMainStoryLengthHours = minLen;
+          }
+        }
+
+        var maxLenStr = params.get('maxMainStoryLengthHours');
+        if (maxLenStr !== null && maxLenStr !== '') {
+          var maxLen = Number(maxLenStr);
+          if (!isNaN(maxLen)) {
+            state.maxMainStoryLengthHours = maxLen;
+          }
+        }
+
+        var minRatingStr = params.get('minRatingStars');
+        if (minRatingStr !== null && minRatingStr !== '') {
+          var minRating = Number(minRatingStr);
+          if (!isNaN(minRating)) {
+            state.minRatingStars = minRating;
+          }
+        }
+
+        var sortByParam = params.get('sortBy');
+        var sortByValue = sortByParam;
+        if (!sortByValue && filterOptions && Array.isArray(filterOptions.sortOptions) && filterOptions.sortOptions.length > 0) {
+          sortByValue = filterOptions.sortOptions[0].value;
+        }
+        state.sortBy = sortByValue || undefined;
+
+        var pageStr = params.get('page');
+        var page = pageStr ? parseInt(pageStr, 10) : INITIAL_PAGE;
+        if (!page || page < 1) {
+          page = INITIAL_PAGE;
+        }
+        state.page = page;
+
+        return state;
+      }
+
+      function renderFilterControls(container, filterOptions, state) {
+        container.innerHTML = '';
+
+        var form = document.createElement('form');
+        form.className = 'filter-form';
+        form.setAttribute('data-action', 'apply-filters');
+
+        var fieldsRow = document.createElement('div');
+        fieldsRow.className = 'filter-fields-row';
+
+        // Platform filter
+        var platformGroup = document.createElement('div');
+        platformGroup.className = 'filter-group filter-platform';
+
+        var platformLabel = document.createElement('label');
+        platformLabel.setAttribute('for', 'platformFilter');
+        platformLabel.textContent = 'Platform';
+
+        var platformSelect = document.createElement('select');
+        platformSelect.id = 'platformFilter';
+        platformSelect.name = 'platform';
+
+        var anyPlatformOption = document.createElement('option');
+        anyPlatformOption.value = '';
+        anyPlatformOption.textContent = 'All platforms';
+        platformSelect.appendChild(anyPlatformOption);
+
+        if (filterOptions && Array.isArray(filterOptions.platforms)) {
+          filterOptions.platforms.forEach(function(opt) {
+            var option = document.createElement('option');
+            option.value = opt.value;
+            option.textContent = opt.label;
+            platformSelect.appendChild(option);
+          });
+        }
+
+        if (state.platform) {
+          platformSelect.value = state.platform;
+        }
+
+        platformGroup.appendChild(platformLabel);
+        platformGroup.appendChild(platformSelect);
+
+        // Main story length filter
+        var lengthGroup = document.createElement('div');
+        lengthGroup.className = 'filter-group filter-length';
+
+        var lengthLabel = document.createElement('label');
+        lengthLabel.setAttribute('for', 'minLengthFilter');
+        lengthLabel.textContent = 'Main story length (hours)';
+
+        var lengthInputsWrapper = document.createElement('div');
+        lengthInputsWrapper.className = 'filter-length-range';
+
+        var minInput = document.createElement('input');
+        minInput.type = 'number';
+        minInput.id = 'minLengthFilter';
+        minInput.name = 'minMainStoryLengthHours';
+        minInput.placeholder = 'Min';
+
+        var maxInput = document.createElement('input');
+        maxInput.type = 'number';
+        maxInput.id = 'maxLengthFilter';
+        maxInput.name = 'maxMainStoryLengthHours';
+        maxInput.placeholder = 'Max';
+
+        if (filterOptions && filterOptions.lengthRange) {
+          if (typeof filterOptions.lengthRange.minHours === 'number') {
+            minInput.min = String(filterOptions.lengthRange.minHours);
+            maxInput.min = String(filterOptions.lengthRange.minHours);
+          }
+          if (typeof filterOptions.lengthRange.maxHours === 'number') {
+            minInput.max = String(filterOptions.lengthRange.maxHours);
+            maxInput.max = String(filterOptions.lengthRange.maxHours);
+          }
+        }
+
+        if (typeof state.minMainStoryLengthHours === 'number') {
+          minInput.value = String(state.minMainStoryLengthHours);
+        }
+        if (typeof state.maxMainStoryLengthHours === 'number') {
+          maxInput.value = String(state.maxMainStoryLengthHours);
+        }
+
+        var rangeSeparator = document.createElement('span');
+        rangeSeparator.className = 'range-separator';
+        rangeSeparator.textContent = '–';
+
+        lengthInputsWrapper.appendChild(minInput);
+        lengthInputsWrapper.appendChild(rangeSeparator);
+        lengthInputsWrapper.appendChild(maxInput);
+
+        var lengthHelp = document.createElement('p');
+        lengthHelp.className = 'filter-help-text';
+        if (filterOptions && filterOptions.lengthRange) {
+          lengthHelp.textContent = 'Between ' + filterOptions.lengthRange.minHours + ' and ' + filterOptions.lengthRange.maxHours + ' hours.';
+        } else {
+          lengthHelp.textContent = 'Set a minimum and/or maximum main story length.';
+        }
+
+        lengthGroup.appendChild(lengthLabel);
+        lengthGroup.appendChild(lengthInputsWrapper);
+        lengthGroup.appendChild(lengthHelp);
+
+        // Rating filter
+        var ratingGroup = document.createElement('div');
+        ratingGroup.className = 'filter-group filter-rating';
+
+        var ratingLabel = document.createElement('label');
+        ratingLabel.setAttribute('for', 'ratingFilter');
+        ratingLabel.textContent = 'Minimum rating';
+
+        var ratingSelect = document.createElement('select');
+        ratingSelect.id = 'ratingFilter';
+        ratingSelect.name = 'minRatingStars';
+
+        var anyRatingOption = document.createElement('option');
+        anyRatingOption.value = '';
+        anyRatingOption.textContent = 'Any rating';
+        ratingSelect.appendChild(anyRatingOption);
+
+        if (filterOptions && Array.isArray(filterOptions.ratingOptions)) {
+          filterOptions.ratingOptions.forEach(function(opt) {
+            var option = document.createElement('option');
+            option.value = String(opt.minStars);
+            option.textContent = opt.label;
+            ratingSelect.appendChild(option);
+          });
+        }
+
+        if (typeof state.minRatingStars === 'number') {
+          ratingSelect.value = String(state.minRatingStars);
+        }
+
+        ratingGroup.appendChild(ratingLabel);
+        ratingGroup.appendChild(ratingSelect);
+
+        fieldsRow.appendChild(platformGroup);
+        fieldsRow.appendChild(lengthGroup);
+        fieldsRow.appendChild(ratingGroup);
+
+        var actionsRow = document.createElement('div');
+        actionsRow.className = 'filter-actions';
+
+        var applyButton = document.createElement('button');
+        applyButton.type = 'submit';
+        applyButton.className = 'btn btn-primary';
+        applyButton.textContent = 'Apply filters';
+
+        var clearButton = document.createElement('button');
+        clearButton.type = 'button';
+        clearButton.className = 'btn btn-ghost';
+        clearButton.setAttribute('data-action', 'reset-filters');
+        clearButton.textContent = 'Clear all';
+
+        actionsRow.appendChild(applyButton);
+        actionsRow.appendChild(clearButton);
+
+        form.appendChild(fieldsRow);
+        form.appendChild(actionsRow);
+
+        container.appendChild(form);
+      }
+
+      function renderSortControl(container, filterOptions, state) {
+        container.innerHTML = '';
+
+        var wrapper = document.createElement('div');
+        wrapper.className = 'sort-control';
+
+        var label = document.createElement('label');
+        label.setAttribute('for', 'sortBySelect');
+        label.textContent = 'Sort by';
+
+        var select = document.createElement('select');
+        select.id = 'sortBySelect';
+        select.name = 'sortBy';
+        select.setAttribute('data-action', 'change-sort');
+
+        var currentSort = state.sortBy;
+        var hasSetValue = false;
+
+        if (filterOptions && Array.isArray(filterOptions.sortOptions)) {
+          filterOptions.sortOptions.forEach(function(opt) {
+            var option = document.createElement('option');
+            option.value = opt.value;
+            option.textContent = opt.label;
+            select.appendChild(option);
+            if (currentSort && currentSort === opt.value) {
+              hasSetValue = true;
+            }
+          });
+        }
+
+        if (currentSort && hasSetValue) {
+          select.value = currentSort;
+        } else if (filterOptions && Array.isArray(filterOptions.sortOptions) && filterOptions.sortOptions.length > 0) {
+          select.value = filterOptions.sortOptions[0].value;
+        }
+
+        wrapper.appendChild(label);
+        wrapper.appendChild(select);
+
+        container.appendChild(wrapper);
+      }
+
+      function renderAppliedFiltersSummary(container, filterOptions, state) {
+        container.innerHTML = '';
+
+        var inner = document.createElement('div');
+        inner.className = 'applied-filters-inner';
+
+        var chipsList = document.createElement('ul');
+        chipsList.className = 'filters-chips-list';
+        chipsList.setAttribute('role', 'list');
+
+        var activeFilters = [];
+
+        if (state.platform) {
+          activeFilters.push({
+            key: 'platform',
+            label: 'Platform: ' + getPlatformLabel(filterOptions, state.platform)
+          });
+        }
+        if (typeof state.minMainStoryLengthHours === 'number') {
+          activeFilters.push({
+            key: 'minMainStoryLengthHours',
+            label: 'Min length: ' + formatHours(state.minMainStoryLengthHours)
+          });
+        }
+        if (typeof state.maxMainStoryLengthHours === 'number') {
+          activeFilters.push({
+            key: 'maxMainStoryLengthHours',
+            label: 'Max length: ' + formatHours(state.maxMainStoryLengthHours)
+          });
+        }
+        if (typeof state.minRatingStars === 'number') {
+          activeFilters.push({
+            key: 'minRatingStars',
+            label: 'Rating: ' + getRatingLabel(filterOptions, state.minRatingStars)
+          });
+        }
+
+        if (activeFilters.length === 0) {
+          var noneItem = document.createElement('li');
+          noneItem.className = 'filters-chip filters-chip-empty';
+          noneItem.textContent = 'No filters applied';
+          chipsList.appendChild(noneItem);
+        } else {
+          activeFilters.forEach(function(filter) {
+            var li = document.createElement('li');
+            li.className = 'filters-chip';
+
+            var labelSpan = document.createElement('span');
+            labelSpan.className = 'filters-chip-label';
+            labelSpan.textContent = filter.label;
+
+            var clearBtn = document.createElement('button');
+            clearBtn.type = 'button';
+            clearBtn.className = 'filters-chip-clear';
+            clearBtn.setAttribute('data-action', 'clear-single-filter');
+            clearBtn.setAttribute('data-filter-key', filter.key);
+
+            var clearTextHidden = document.createElement('span');
+            clearTextHidden.className = 'visually-hidden';
+            clearTextHidden.textContent = 'Clear ' + filter.label + ' filter';
+
+            var clearTextVisible = document.createElement('span');
+            clearTextVisible.setAttribute('aria-hidden', 'true');
+            clearTextVisible.textContent = 'd7';
+
+            clearBtn.appendChild(clearTextHidden);
+            clearBtn.appendChild(clearTextVisible);
+
+            li.appendChild(labelSpan);
+            li.appendChild(clearBtn);
+
+            chipsList.appendChild(li);
+          });
+        }
+
+        inner.appendChild(chipsList);
+
+        var sortInfo = document.createElement('div');
+        sortInfo.className = 'sort-summary';
+        var sortLabel = getSortLabel(filterOptions, state.sortBy);
+        sortInfo.textContent = 'Sorted by ' + sortLabel;
+
+        inner.appendChild(sortInfo);
+
+        if (activeFilters.length > 0) {
+          var clearAllBtn = document.createElement('button');
+          clearAllBtn.type = 'button';
+          clearAllBtn.className = 'btn-link clear-filters-all';
+          clearAllBtn.setAttribute('data-action', 'reset-filters');
+          clearAllBtn.textContent = 'Clear all filters';
+          inner.appendChild(clearAllBtn);
+        }
+
+        container.appendChild(inner);
+      }
+
+      function renderPageMeta(container, state, result) {
+        container.innerHTML = '';
+
+        var total = typeof result.totalCount === 'number' ? result.totalCount : 0;
+        var page = typeof result.page === 'number' ? result.page : state.page;
+        var pageSize = typeof result.pageSize === 'number' ? result.pageSize : PAGE_SIZE;
+
+        var text;
+        if (total === 0) {
+          text = 'No recommendations match your current filters.';
+        } else {
+          var startIndex = (page - 1) * pageSize + 1;
+          var onPage = Array.isArray(result.articles) ? result.articles.length : 0;
+          var endIndex = startIndex + onPage - 1;
+          if (endIndex < startIndex) {
+            endIndex = startIndex;
+          }
+          if (endIndex > total) {
+            endIndex = total;
+          }
+          text = 'Showing ' + startIndex + ' to ' + endIndex + ' of ' + total + ' JRPG recommendations';
+        }
+
+        var strong = document.createElement('span');
+        strong.className = 'page-meta-text';
+        strong.textContent = text;
+
+        container.appendChild(strong);
+      }
+
+      function renderRecommendationsList(container, result) {
+        container.innerHTML = '';
+
+        var articles = Array.isArray(result.articles) ? result.articles : [];
+
+        if (articles.length === 0) {
+          container.setAttribute('aria-hidden', 'true');
+          return;
+        }
+
+        container.removeAttribute('aria-hidden');
+
+        articles.forEach(function(article) {
+          var card = document.createElement('article');
+          card.className = 'recommendation-card';
+          card.setAttribute('data-article-id', article.id);
+
+          var button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'recommendation-card-inner';
+          button.setAttribute('data-action', 'open-article');
+
+          var media = document.createElement('div');
+          media.className = 'card-media-placeholder';
+
+          var mediaLabel = document.createElement('span');
+          mediaLabel.className = 'card-media-label';
+          mediaLabel.textContent = 'JRPG Review';
+          media.appendChild(mediaLabel);
+
+          var content = document.createElement('div');
+          content.className = 'card-content';
+
+          var titleEl = document.createElement('h2');
+          titleEl.className = 'card-title';
+          titleEl.textContent = article.title;
+
+          var metaRow = document.createElement('div');
+          metaRow.className = 'card-meta-row';
+
+          var platformBadge = document.createElement('span');
+          platformBadge.className = 'badge badge-platform';
+          if (article.primaryPlatform) {
+            platformBadge.textContent = getPlatformLabel(pageContext.filterOptions, article.primaryPlatform);
+          } else if (Array.isArray(article.platforms) && article.platforms.length > 0) {
+            platformBadge.textContent = getPlatformLabel(pageContext.filterOptions, article.platforms[0]);
+          } else {
+            platformBadge.textContent = 'Multi-platform';
+          }
+
+          var lengthBadge = document.createElement('span');
+          lengthBadge.className = 'badge badge-length';
+          if (typeof article.mainStoryLengthHours === 'number') {
+            lengthBadge.textContent = 'Main story: ' + formatHours(article.mainStoryLengthHours);
+          } else {
+            lengthBadge.textContent = 'Main story length: N/A';
+          }
+
+          var ratingBadge = document.createElement('span');
+          ratingBadge.className = 'badge badge-rating';
+          if (typeof article.ratingStars === 'number') {
+            ratingBadge.textContent = 'Rating: ' + article.ratingStars.toFixed(1) + ' / 5';
+          } else {
+            ratingBadge.textContent = 'Rating: Not yet rated';
+          }
+
+          metaRow.appendChild(platformBadge);
+          metaRow.appendChild(lengthBadge);
+          metaRow.appendChild(ratingBadge);
+
+          var excerpt = document.createElement('p');
+          excerpt.className = 'card-excerpt';
+          if (article.helpfulSnippet) {
+            excerpt.textContent = article.helpfulSnippet;
+          } else if (article.summary) {
+            excerpt.textContent = article.summary;
+          } else {
+            excerpt.textContent = 'Read our full impressions and find out if this JRPG fits your play style.';
+          }
+
+          content.appendChild(titleEl);
+          content.appendChild(metaRow);
+          content.appendChild(excerpt);
+
+          button.appendChild(media);
+          button.appendChild(content);
+
+          card.appendChild(button);
+
+          container.appendChild(card);
+        });
+      }
+
+      function renderEmptyState(container, result) {
+        container.innerHTML = '';
+        var hasArticles = result && Array.isArray(result.articles) && result.articles.length > 0;
+
+        if (hasArticles) {
+          container.setAttribute('hidden', 'hidden');
+          return;
+        }
+
+        container.removeAttribute('hidden');
+
+        var message = document.createElement('p');
+        message.className = 'empty-state-message';
+        message.textContent = 'No recommendations match these filters yet. Try clearing some filters or widening the main story length range.';
+
+        container.appendChild(message);
+      }
+
+      function renderPagination(container, state, result) {
+        container.innerHTML = '';
+
+        var total = typeof result.totalCount === 'number' ? result.totalCount : 0;
+        var pageSize = typeof result.pageSize === 'number' ? result.pageSize : PAGE_SIZE;
+        var currentPage = typeof result.page === 'number' ? result.page : state.page;
+
+        var totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 0;
+
+        if (!totalPages || totalPages <= 1) {
+          container.setAttribute('aria-hidden', 'true');
+          return;
+        }
+
+        container.removeAttribute('aria-hidden');
+
+        var wrapper = document.createElement('div');
+        wrapper.className = 'pagination-inner';
+
+        var prevBtn = document.createElement('button');
+        prevBtn.type = 'button';
+        prevBtn.className = 'page-nav page-prev';
+        prevBtn.setAttribute('data-action', 'change-page');
+        prevBtn.setAttribute('data-page', String(currentPage - 1));
+        prevBtn.textContent = 'Previous';
+        if (currentPage <= 1) {
+          prevBtn.disabled = true;
+        }
+        wrapper.appendChild(prevBtn);
+
+        for (var i = 1; i <= totalPages; i++) {
+          var pageBtn = document.createElement('button');
+          pageBtn.type = 'button';
+          pageBtn.className = 'page-number';
+          if (i === currentPage) {
+            pageBtn.className += ' is-active';
+          }
+          pageBtn.setAttribute('data-action', 'change-page');
+          pageBtn.setAttribute('data-page', String(i));
+          pageBtn.textContent = String(i);
+          wrapper.appendChild(pageBtn);
+        }
+
+        var nextBtn = document.createElement('button');
+        nextBtn.type = 'button';
+        nextBtn.className = 'page-nav page-next';
+        nextBtn.setAttribute('data-action', 'change-page');
+        nextBtn.setAttribute('data-page', String(currentPage + 1));
+        nextBtn.textContent = 'Next';
+        if (currentPage >= totalPages) {
+          nextBtn.disabled = true;
+        }
+        wrapper.appendChild(nextBtn);
+
+        container.appendChild(wrapper);
+      }
+
+      function handleApplyFilters(form) {
+        var formData = new FormData(form);
+        var params = new URLSearchParams(window.location.search);
+
+        var platform = (formData.get('platform') || '').toString();
+        if (platform) {
+          params.set('platform', platform);
+        } else {
+          params.delete('platform');
+        }
+
+        var minLenRaw = formData.get('minMainStoryLengthHours');
+        var maxLenRaw = formData.get('maxMainStoryLengthHours');
+
+        var minLen = minLenRaw !== null && minLenRaw !== '' ? Number(minLenRaw) : NaN;
+        var maxLen = maxLenRaw !== null && maxLenRaw !== '' ? Number(maxLenRaw) : NaN;
+
+        var lengthRange = pageContext.filterOptions && pageContext.filterOptions.lengthRange ? pageContext.filterOptions.lengthRange : null;
+
+        if (!isNaN(minLen) || !isNaN(maxLen)) {
+          if (lengthRange) {
+            if (!isNaN(minLen)) {
+              if (typeof lengthRange.minHours === 'number' && minLen < lengthRange.minHours) {
+                minLen = lengthRange.minHours;
+              }
+              if (typeof lengthRange.maxHours === 'number' && minLen > lengthRange.maxHours) {
+                minLen = lengthRange.maxHours;
+              }
+            }
+            if (!isNaN(maxLen)) {
+              if (typeof lengthRange.minHours === 'number' && maxLen < lengthRange.minHours) {
+                maxLen = lengthRange.minHours;
+              }
+              if (typeof lengthRange.maxHours === 'number' && maxLen > lengthRange.maxHours) {
+                maxLen = lengthRange.maxHours;
+              }
+            }
+          }
+
+          if (!isNaN(minLen) && !isNaN(maxLen) && minLen > maxLen) {
+            var temp = minLen;
+            minLen = maxLen;
+            maxLen = temp;
+          }
+        }
+
+        if (!isNaN(minLen)) {
+          params.set('minMainStoryLengthHours', String(minLen));
+        } else {
+          params.delete('minMainStoryLengthHours');
+        }
+
+        if (!isNaN(maxLen)) {
+          params.set('maxMainStoryLengthHours', String(maxLen));
+        } else {
+          params.delete('maxMainStoryLengthHours');
+        }
+
+        var minRatingRaw = formData.get('minRatingStars');
+        var minRatingStr = minRatingRaw !== null ? minRatingRaw.toString() : '';
+        if (minRatingStr) {
+          params.set('minRatingStars', minRatingStr);
+        } else {
+          params.delete('minRatingStars');
+        }
+
+        params.set('page', String(INITIAL_PAGE));
+
+        var newSearch = params.toString();
+        var newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '');
+        window.history.pushState(null, '', newUrl);
+        refreshFromUrl();
+      }
+
+      function resetFilters() {
+        var params = new URLSearchParams(window.location.search);
+        params.delete('platform');
+        params.delete('minMainStoryLengthHours');
+        params.delete('maxMainStoryLengthHours');
+        params.delete('minRatingStars');
+        params.set('page', String(INITIAL_PAGE));
+
+        var newSearch = params.toString();
+        var newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '');
+        window.history.pushState(null, '', newUrl);
+        refreshFromUrl();
+      }
+
+      function clearSingleFilter(key) {
+        var params = new URLSearchParams(window.location.search);
+        params.delete(key);
+        params.set('page', String(INITIAL_PAGE));
+
+        var newSearch = params.toString();
+        var newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '');
+        window.history.pushState(null, '', newUrl);
+        refreshFromUrl();
+      }
+
+      function handleSortChange(sortValue) {
+        var params = new URLSearchParams(window.location.search);
+        if (sortValue) {
+          params.set('sortBy', sortValue);
+        } else {
+          params.delete('sortBy');
+        }
+        params.set('page', String(INITIAL_PAGE));
+
+        var newSearch = params.toString();
+        var newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '');
+        window.history.pushState(null, '', newUrl);
+        refreshFromUrl();
+      }
+
+      function handlePageChange(pageValue) {
+        var targetPage = pageValue ? parseInt(pageValue, 10) : NaN;
+        if (!targetPage || targetPage < 1) {
+          return;
+        }
+
+        var currentState = pageContext.state;
+        if (currentState && currentState.page === targetPage) {
+          return;
+        }
+
+        var params = new URLSearchParams(window.location.search);
+        params.set('page', String(targetPage));
+
+        var newSearch = params.toString();
+        var newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '');
+        window.history.pushState(null, '', newUrl);
+        refreshFromUrl();
+      }
+
+      function navigateToArticle(articleId) {
+        var currentParams = new URLSearchParams(window.location.search);
+        var nextParams = new URLSearchParams();
+
+        currentParams.forEach(function(value, key) {
+          if (key === 'id' || key === 'source') {
+            return;
+          }
+          nextParams.append(key, value);
+        });
+
+        nextParams.set('id', articleId);
+        nextParams.set('source', 'recommendations');
+
+        var targetUrl = 'article.html?' + nextParams.toString();
+        window.location.href = targetUrl;
+      }
+
+      function showRecommendationsError(message) {
+        var listContainers = document.querySelectorAll('[data-populate="recommendations-list"]');
+        listContainers.forEach(function(container) {
+          container.innerHTML = '';
+          var errorEl = document.createElement('p');
+          errorEl.className = 'recommendations-error';
+          errorEl.textContent = message;
+          container.appendChild(errorEl);
+        });
+      }
+
+      function getPlatformLabel(filterOptions, platformValue) {
+        if (!platformValue) {
+          return 'Unknown platform';
+        }
+        if (filterOptions && Array.isArray(filterOptions.platforms)) {
+          for (var i = 0; i < filterOptions.platforms.length; i++) {
+            var opt = filterOptions.platforms[i];
+            if (opt.value === platformValue) {
+              return opt.label;
+            }
+          }
+        }
+        var formatted = platformValue.replace(/_/g, ' ');
+        return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+      }
+
+      function getRatingLabel(filterOptions, minStars) {
+        if (filterOptions && Array.isArray(filterOptions.ratingOptions)) {
+          for (var i = 0; i < filterOptions.ratingOptions.length; i++) {
+            var opt = filterOptions.ratingOptions[i];
+            if (opt.minStars === minStars) {
+              return opt.label;
+            }
+          }
+        }
+        return minStars + '+ stars';
+      }
+
+      function getSortLabel(filterOptions, sortBy) {
+        if (filterOptions && Array.isArray(filterOptions.sortOptions)) {
+          for (var i = 0; i < filterOptions.sortOptions.length; i++) {
+            var opt = filterOptions.sortOptions[i];
+            if (opt.value === sortBy) {
+              return opt.label;
+            }
+          }
+        }
+        return 'default order';
+      }
+
+      function formatHours(hours) {
+        if (typeof hours !== 'number' || isNaN(hours)) {
+          return 'N/A';
+        }
+        if (hours === 1) {
+          return '1 hr';
+        }
+        return hours + ' hrs';
+      }
+    })();
+  </script>
+</body>
+</html>

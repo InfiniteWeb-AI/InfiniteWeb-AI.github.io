@@ -1,0 +1,724 @@
+<link rel="stylesheet" href="volunteer.css">
+<script src="business_logic.js"></script>
+
+<section class="volunteer-page" aria-label="Volunteer opportunities">
+  <div class="volunteer-layout container">
+    <div class="volunteer-main-column">
+      <header class="volunteer-page-header">
+        <h1 class="page-title">Volunteer opportunities</h1>
+      </header>
+
+      <section class="filter-panel" data-component="filter-panel" data-populate="volunteer-filters" aria-label="Filter volunteer opportunities">
+        <!-- Filter controls will be rendered here via JavaScript -->
+      </section>
+
+      <div class="results-header-row">
+        <div class="results-meta" data-component="results-meta" aria-live="polite">
+          <!-- Results summary will be rendered here -->
+        </div>
+        <div class="sort-control" data-component="sort-control" data-populate="volunteer-sort">
+          <!-- Sort control will be rendered here -->
+        </div>
+      </div>
+
+      <section class="applied-filters-bar" data-component="applied-filters-bar" aria-label="Applied filters">
+        <!-- Applied filters chips will be rendered here -->
+      </section>
+
+      <section class="volunteer-results" data-component="volunteer-results-list" data-populate="volunteer-results" aria-label="Volunteer roles list">
+        <!-- Volunteer result cards will be rendered here -->
+      </section>
+    </div>
+
+    <aside class="volunteer-sidebar-column" aria-label="Your volunteer plan">
+      <section class="plan-summary-card" data-component="volunteer-plan-summary" data-populate="volunteer-plan-summary">
+        <!-- Volunteer plan summary will be rendered here -->
+      </section>
+    </aside>
+  </div>
+</section>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  'use strict';
+
+  var volunteerFilterOptionsData = null;
+  var volunteerPlanSummaryData = null;
+  var planOpportunityIds = new Set();
+  var lastSearchResponse = null;
+
+  function getUrlFilterState() {
+    var params = new URLSearchParams(window.location.search || '');
+    var locationType = params.get('location_type') || null;
+
+    var maxHoursRaw = params.get('max_weekly_time_commitment_hours');
+    var maxHours = null;
+    if (maxHoursRaw !== null && maxHoursRaw !== '') {
+      var parsed = parseFloat(maxHoursRaw);
+      if (!isNaN(parsed)) {
+        maxHours = parsed;
+      }
+    }
+
+    function parseMulti(name) {
+      var raw = params.get(name);
+      if (!raw) return [];
+      return raw.split(',').map(function(v) { return v.trim(); }).filter(function(v) { return v.length > 0; });
+    }
+
+    var causeCategories = parseMulti('cause_categories');
+    var roleTypes = parseMulti('role_types');
+    var sort = params.get('sort') || null;
+
+    return {
+      location_type: locationType,
+      max_weekly_time_commitment_hours: maxHours,
+      cause_categories: causeCategories,
+      role_types: roleTypes,
+      sort: sort
+    };
+  }
+
+  function updateUrlWithFilterState(filterState) {
+    var params = new URLSearchParams(window.location.search || '');
+
+    if (filterState.location_type) {
+      params.set('location_type', filterState.location_type);
+    } else {
+      params.delete('location_type');
+    }
+
+    if (typeof filterState.max_weekly_time_commitment_hours === 'number' && !isNaN(filterState.max_weekly_time_commitment_hours)) {
+      params.set('max_weekly_time_commitment_hours', String(filterState.max_weekly_time_commitment_hours));
+    } else {
+      params.delete('max_weekly_time_commitment_hours');
+    }
+
+    if (Array.isArray(filterState.cause_categories) && filterState.cause_categories.length > 0) {
+      params.set('cause_categories', filterState.cause_categories.join(','));
+    } else {
+      params.delete('cause_categories');
+    }
+
+    if (Array.isArray(filterState.role_types) && filterState.role_types.length > 0) {
+      params.set('role_types', filterState.role_types.join(','));
+    } else {
+      params.delete('role_types');
+    }
+
+    var newQuery = params.toString();
+    var newUrl = window.location.pathname + (newQuery ? '?' + newQuery : '');
+    window.history.pushState({}, '', newUrl);
+    handleUrlChange();
+  }
+
+  function clearAllFilters() {
+    var params = new URLSearchParams(window.location.search || '');
+    params.delete('location_type');
+    params.delete('max_weekly_time_commitment_hours');
+    params.delete('cause_categories');
+    params.delete('role_types');
+    var newQuery = params.toString();
+    var newUrl = window.location.pathname + (newQuery ? '?' + newQuery : '');
+    window.history.pushState({}, '', newUrl);
+    handleUrlChange();
+  }
+
+  function getFilterStateFromControls() {
+    var panel = document.querySelector('[data-component="filter-panel"]');
+    if (!panel) {
+      return {
+        location_type: null,
+        max_weekly_time_commitment_hours: null,
+        cause_categories: [],
+        role_types: []
+      };
+    }
+
+    var locationChecked = panel.querySelector('input[name="location_type"]:checked');
+    var locationType = locationChecked ? locationChecked.value : null;
+
+    var timeSelect = panel.querySelector('select[name="max_weekly_time_commitment_hours"]');
+    var maxHours = null;
+    if (timeSelect && timeSelect.value) {
+      var parsed = parseFloat(timeSelect.value);
+      if (!isNaN(parsed)) {
+        maxHours = parsed;
+      }
+    }
+
+    var causeCheckedNodes = panel.querySelectorAll('input[name="cause_categories"]:checked');
+    var causeCategories = Array.prototype.map.call(causeCheckedNodes, function(input) { return input.value; });
+
+    var roleCheckedNodes = panel.querySelectorAll('input[name="role_types"]:checked');
+    var roleTypes = Array.prototype.map.call(roleCheckedNodes, function(input) { return input.value; });
+
+    return {
+      location_type: locationType,
+      max_weekly_time_commitment_hours: maxHours,
+      cause_categories: causeCategories,
+      role_types: roleTypes
+    };
+  }
+
+  function humanizeLocationType(value) {
+    if (value === 'remote') return 'Remote';
+    if (value === 'in_person') return 'In-person';
+    if (value === 'hybrid') return 'Hybrid';
+    return value || '';
+  }
+
+  function humanizeUrgency(value) {
+    if (value === 'critical') return 'Critical';
+    if (value === 'high') return 'High';
+    if (value === 'medium') return 'Medium';
+    if (value === 'low') return 'Low';
+    return value || '';
+  }
+
+  function getOptionLabelByValue(options, value, valueKey, labelKey) {
+    if (!options || !Array.isArray(options)) return value;
+    var vk = valueKey || 'value';
+    var lk = labelKey || 'label';
+    for (var i = 0; i < options.length; i++) {
+      if (options[i] && options[i][vk] === value) {
+        return options[i][lk];
+      }
+    }
+    return value;
+  }
+
+  function renderFilterPanel(container, filterOptionsData, urlState) {
+    var causeOptions = (filterOptionsData && filterOptionsData.cause_options) ? filterOptionsData.cause_options : [];
+    var roleOptions = (filterOptionsData && filterOptionsData.role_options) ? filterOptionsData.role_options : [];
+    var locationOptions = (filterOptionsData && filterOptionsData.location_type_options) ? filterOptionsData.location_type_options : [];
+    var timeOptions = (filterOptionsData && filterOptionsData.time_commitment_options) ? filterOptionsData.time_commitment_options : [];
+
+    var selectedCauses = {};
+    (urlState.cause_categories || []).forEach(function(v) { selectedCauses[v] = true; });
+    var selectedRoles = {};
+    (urlState.role_types || []).forEach(function(v) { selectedRoles[v] = true; });
+
+    var selectedLocation = urlState.location_type || '';
+    var selectedMaxHours = (typeof urlState.max_weekly_time_commitment_hours === 'number' && !isNaN(urlState.max_weekly_time_commitment_hours))
+      ? urlState.max_weekly_time_commitment_hours
+      : '';
+
+    var causeHtml = causeOptions.map(function(opt) {
+      var checkedAttr = selectedCauses[opt.value] ? ' checked' : '';
+      return '<label class="filter-option">' +
+             '<input type="checkbox" name="cause_categories" value="' + opt.value + '" data-action="filter-change"' + checkedAttr + '>' +
+             '<span>' + opt.label + '</span>' +
+             '</label>';
+    }).join('');
+
+    var roleHtml = roleOptions.map(function(opt) {
+      var checkedAttr = selectedRoles[opt.value] ? ' checked' : '';
+      return '<label class="filter-option">' +
+             '<input type="checkbox" name="role_types" value="' + opt.value + '" data-action="filter-change"' + checkedAttr + '>' +
+             '<span>' + opt.label + '</span>' +
+             '</label>';
+    }).join('');
+
+    var locationHtml = locationOptions.map(function(opt) {
+      var checkedAttr = (selectedLocation === opt.value) ? ' checked' : '';
+      return '<label class="filter-option filter-option-inline">' +
+             '<input type="radio" name="location_type" value="' + opt.value + '" data-action="filter-change"' + checkedAttr + '>' +
+             '<span>' + opt.label + '</span>' +
+             '</label>';
+    }).join('');
+
+    var timeOptionsHtml = timeOptions.map(function(opt) {
+      var selectedAttr = (selectedMaxHours === opt.max_hours_per_week) ? ' selected' : '';
+      return '<option value="' + opt.max_hours_per_week + '"' + selectedAttr + '>' + opt.label + '</option>';
+    }).join('');
+
+    container.innerHTML = '' +
+      '<div class="filter-panel-inner">' +
+        '<div class="filter-panel-header">' +
+          '<h2 class="filter-panel-title">Refine roles</h2>' +
+          '<button type="button" class="filter-reset" data-action="reset-filters">Reset all</button>' +
+        '</div>' +
+        '<div class="filter-groups">' +
+          '<div class="filter-group filter-group-location">' +
+            '<h3 class="filter-group-label">Location</h3>' +
+            '<div class="filter-group-options">' + locationHtml + '</div>' +
+          '</div>' +
+          '<div class="filter-group filter-group-time">' +
+            '<h3 class="filter-group-label">Weekly time</h3>' +
+            '<label class="filter-select-label">' +
+              '<span class="sr-only">Maximum weekly time commitment</span>' +
+              '<select name="max_weekly_time_commitment_hours" data-action="filter-change">' +
+                '<option value="">Any amount of time</option>' +
+                timeOptionsHtml +
+              '</select>' +
+            '</label>' +
+          '</div>' +
+          '<div class="filter-group filter-group-cause">' +
+            '<h3 class="filter-group-label">Cause</h3>' +
+            '<div class="filter-group-options">' + causeHtml + '</div>' +
+          '</div>' +
+          '<div class="filter-group filter-group-role">' +
+            '<h3 class="filter-group-label">Role</h3>' +
+            '<div class="filter-group-options">' + roleHtml + '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function renderSortControl(container, sortOptions, urlState) {
+    var currentSort = urlState.sort || '';
+    if (!currentSort && sortOptions && sortOptions.length > 0) {
+      currentSort = sortOptions[0].value;
+    }
+
+    var optionsHtml = (sortOptions || []).map(function(opt) {
+      var selectedAttr = (currentSort === opt.value) ? ' selected' : '';
+      return '<option value="' + opt.value + '"' + selectedAttr + '>' + opt.label + '</option>';
+    }).join('');
+
+    container.innerHTML = '' +
+      '<label class="sort-label">' +
+        '<span class="sort-label-text">Sort</span>' +
+        '<select name="sort" class="sort-select" data-action="sort-change">' +
+          optionsHtml +
+        '</select>' +
+      '</label>';
+  }
+
+  function renderResultsMeta(container, total, appliedFilters) {
+    if (!container) return;
+    var text = '';
+    if (typeof total === 'number') {
+      if (total === 0) {
+        text = 'No volunteer opportunities match your filters';
+      } else if (total === 1) {
+        text = '1 volunteer opportunity';
+      } else {
+        text = total + ' volunteer opportunities';
+      }
+    } else {
+      text = 'Volunteer opportunities';
+    }
+
+    container.textContent = text;
+  }
+
+  function renderAppliedFiltersBar(container, appliedFilters, filterOptionsData) {
+    if (!container) return;
+    appliedFilters = appliedFilters || {};
+
+    var hasAny = false;
+    var chipsHtml = '';
+
+    var locationValue = appliedFilters.location_type || null;
+    if (locationValue) {
+      hasAny = true;
+      var locLabel = getOptionLabelByValue(
+        (filterOptionsData && filterOptionsData.location_type_options) ? filterOptionsData.location_type_options : [],
+        locationValue,
+        'value',
+        'label'
+      );
+      chipsHtml += '<button type="button" class="filter-chip" data-action="remove-filter" data-filter-key="location_type" data-filter-value="' + locationValue + '">' +
+                   'Location: ' + locLabel + '  d7</button>';
+    }
+
+    var maxHours = appliedFilters.max_weekly_time_commitment_hours;
+    if (typeof maxHours === 'number' && !isNaN(maxHours)) {
+      hasAny = true;
+      var timeLabel = String(maxHours) + ' hrs/week max';
+      var timeOptions = (filterOptionsData && filterOptionsData.time_commitment_options) ? filterOptionsData.time_commitment_options : [];
+      for (var i = 0; i < timeOptions.length; i++) {
+        if (timeOptions[i] && timeOptions[i].max_hours_per_week === maxHours) {
+          timeLabel = timeOptions[i].label;
+          break;
+        }
+      }
+      chipsHtml += '<button type="button" class="filter-chip" data-action="remove-filter" data-filter-key="max_weekly_time_commitment_hours" data-filter-value="' + maxHours + '">' +
+                   'Time: ' + timeLabel + '  d7</button>';
+    }
+
+    var causeValues = Array.isArray(appliedFilters.cause_categories) ? appliedFilters.cause_categories : [];
+    if (causeValues.length > 0) {
+      var causeOptions = (filterOptionsData && filterOptionsData.cause_options) ? filterOptionsData.cause_options : [];
+      causeValues.forEach(function(val) {
+        hasAny = true;
+        var label = getOptionLabelByValue(causeOptions, val, 'value', 'label');
+        chipsHtml += '<button type="button" class="filter-chip" data-action="remove-filter" data-filter-key="cause_categories" data-filter-value="' + val + '">' +
+                     'Cause: ' + label + '  d7</button>';
+      });
+    }
+
+    var roleValues = Array.isArray(appliedFilters.role_types) ? appliedFilters.role_types : [];
+    if (roleValues.length > 0) {
+      var roleOptions = (filterOptionsData && filterOptionsData.role_options) ? filterOptionsData.role_options : [];
+      roleValues.forEach(function(val) {
+        hasAny = true;
+        var label = getOptionLabelByValue(roleOptions, val, 'value', 'label');
+        chipsHtml += '<button type="button" class="filter-chip" data-action="remove-filter" data-filter-key="role_types" data-filter-value="' + val + '">' +
+                     'Role: ' + label + '  d7</button>';
+      });
+    }
+
+    var sortValue = appliedFilters.sort || null;
+    if (sortValue) {
+      var sortOptions = (filterOptionsData && filterOptionsData.sort_options) ? filterOptionsData.sort_options : [];
+      var sortLabel = getOptionLabelByValue(sortOptions, sortValue, 'value', 'label');
+      chipsHtml += '<button type="button" class="filter-chip filter-chip-sort" data-action="remove-filter" data-filter-key="sort" data-filter-value="' + sortValue + '">' +
+                   'Sort: ' + sortLabel + '  d7</button>';
+    }
+
+    if (!hasAny && !sortValue) {
+      container.innerHTML = '<div class="applied-filters-inner empty"><span>No filters applied yet.</span></div>';
+      return;
+    }
+
+    var clearHtml = '<button type="button" class="applied-filters-clear" data-action="clear-all-filters">Clear all filters</button>';
+
+    container.innerHTML = '' +
+      '<div class="applied-filters-inner">' +
+        '<div class="applied-filters-chips">' + chipsHtml + '</div>' +
+        clearHtml +
+      '</div>';
+  }
+
+  function renderResultsList(container, results, planIds) {
+    if (!container) return;
+    var items = Array.isArray(results) ? results : [];
+    if (items.length === 0) {
+      container.innerHTML = '<p class="results-empty">No volunteer roles match your current filters. Try adjusting location, time, or cause.</p>';
+      return;
+    }
+
+    var cardsHtml = items.map(function(item) {
+      var id = item.volunteer_opportunity_id;
+      var title = item.title || '';
+      var description = item.short_description || '';
+      var orgName = item.organization_name || '';
+      var city = item.city || '';
+      var state = item.state || '';
+      var cityState = '';
+      if (city && state) {
+        cityState = city + ', ' + state;
+      } else if (city) {
+        cityState = city;
+      } else if (state) {
+        cityState = state;
+      }
+      var locTypeLabel = humanizeLocationType(item.location_type);
+      var urgencyLabel = humanizeUrgency(item.urgency);
+      var timeLabel = (typeof item.weekly_time_commitment_hours === 'number' && !isNaN(item.weekly_time_commitment_hours))
+        ? (item.weekly_time_commitment_hours + ' hrs/week')
+        : '';
+      var isInPlan = planIds && planIds.has(id);
+      var isActive = item.is_active !== false;
+
+      var statusBadge = '';
+      if (!isActive) {
+        statusBadge = '<span class="card-badge card-badge-closed">Closed</span>';
+      } else if (urgencyLabel) {
+        statusBadge = '<span class="card-badge card-badge-urgency">Urgency: ' + urgencyLabel + '</span>';
+      }
+
+      var planBadge = '';
+      if (isInPlan) {
+        planBadge = '<span class="card-badge card-badge-plan">In your plan</span>';
+      }
+
+      var locationMeta = '';
+      if (locTypeLabel || cityState) {
+        locationMeta = '<span class="card-meta-item">' +
+          (locTypeLabel ? locTypeLabel : '') +
+          (locTypeLabel && cityState ? '  b7 ' : '') +
+          (cityState ? cityState : '') +
+        '</span>';
+      }
+
+      var timeMeta = '';
+      if (timeLabel) {
+        timeMeta = '<span class="card-meta-item">' + timeLabel + '</span>';
+      }
+
+      var orgMeta = '';
+      if (orgName) {
+        orgMeta = '<span class="card-meta-item">' + orgName + '</span>';
+      }
+
+      return '' +
+        '<article class="volunteer-card" data-volunteer-id="' + id + '">' +
+          '<header class="volunteer-card-header">' +
+            '<button type="button" class="card-title" data-action="open-volunteer-detail" data-volunteer-id="' + id + '">' + title + '</button>' +
+            '<div class="card-badges">' + statusBadge + planBadge + '</div>' +
+          '</header>' +
+          (description ? '<p class="card-description">' + description + '</p>' : '') +
+          '<div class="card-meta">' +
+            locationMeta +
+            timeMeta +
+            orgMeta +
+          '</div>' +
+          '<div class="card-actions">' +
+            '<button type="button" class="card-link" data-action="open-volunteer-detail" data-volunteer-id="' + id + '">View details</button>' +
+          '</div>' +
+        '</article>';
+    }).join('');
+
+    container.innerHTML = cardsHtml;
+  }
+
+  function renderPlanSummary(container, planSummaryData) {
+    if (!container) return;
+    var items = (planSummaryData && Array.isArray(planSummaryData.items)) ? planSummaryData.items : [];
+    var count = items.length;
+    var totalWeekly = 0;
+    for (var i = 0; i < items.length; i++) {
+      var hrs = items[i].weekly_time_commitment_hours;
+      if (typeof hrs === 'number' && !isNaN(hrs)) {
+        totalWeekly += hrs;
+      }
+    }
+
+    var summaryLine = '';
+    if (count === 0) {
+      summaryLine = 'You haven\'t added any roles to your volunteer plan yet.';
+    } else if (count === 1) {
+      summaryLine = 'You\'re planning 1 role';
+    } else {
+      summaryLine = 'You\'re planning ' + count + ' roles';
+    }
+
+    if (totalWeekly > 0) {
+      summaryLine += '  b7 about ' + totalWeekly + ' hrs/week';
+    }
+
+    var listHtml = '';
+    if (count > 0) {
+      var limited = items.slice(0, 3);
+      listHtml = '<ul class="plan-summary-list">' + limited.map(function(item) {
+        var title = item.title || '';
+        var loc = humanizeLocationType(item.location_type);
+        var urgency = humanizeUrgency(item.urgency);
+        var metaParts = [];
+        if (loc) metaParts.push(loc);
+        if (typeof item.weekly_time_commitment_hours === 'number' && !isNaN(item.weekly_time_commitment_hours)) {
+          metaParts.push(item.weekly_time_commitment_hours + ' hrs/week');
+        }
+        if (urgency) metaParts.push('Urgency: ' + urgency);
+        var metaText = metaParts.join('  b7 ');
+        return '<li class="plan-summary-item">' +
+                 '<div class="plan-summary-item-title">' + title + '</div>' +
+                 (metaText ? '<div class="plan-summary-item-meta">' + metaText + '</div>' : '') +
+               '</li>';
+      }).join('') + '</ul>';
+    }
+
+    container.innerHTML = '' +
+      '<h2 class="plan-summary-title">Your plan</h2>' +
+      '<hr class="plan-summary-rule">' +
+      '<p class="plan-summary-text">' + summaryLine + '</p>' +
+      listHtml +
+      '<div class="plan-summary-actions">' +
+        '<a href="saved.html" class="btn-plan" data-action="view-plan">View full volunteer plan</a>' +
+      '</div>';
+  }
+
+  function handleUrlChange() {
+    if (!volunteerFilterOptionsData) {
+      return;
+    }
+
+    var urlState = getUrlFilterState();
+
+    var locationTypeArg = urlState.location_type || undefined;
+    var maxHoursArg = (typeof urlState.max_weekly_time_commitment_hours === 'number' && !isNaN(urlState.max_weekly_time_commitment_hours))
+      ? urlState.max_weekly_time_commitment_hours
+      : undefined;
+    var causeArrayArg = (Array.isArray(urlState.cause_categories) && urlState.cause_categories.length > 0)
+      ? urlState.cause_categories
+      : undefined;
+    var roleArrayArg = (Array.isArray(urlState.role_types) && urlState.role_types.length > 0)
+      ? urlState.role_types
+      : undefined;
+    var sortArg = urlState.sort || undefined;
+
+    var searchResponse = null;
+    try {
+      searchResponse = WebsiteSDK.searchVolunteerOpportunities(
+        locationTypeArg,
+        maxHoursArg,
+        causeArrayArg,
+        roleArrayArg,
+        sortArg
+      );
+    } catch (e) {
+      console.error('Error searching volunteer opportunities', e);
+    }
+    lastSearchResponse = searchResponse;
+
+    var filterPanelEl = document.querySelector('[data-component="filter-panel"]');
+    if (filterPanelEl) {
+      renderFilterPanel(filterPanelEl, volunteerFilterOptionsData, urlState);
+    }
+
+    var sortControlEl = document.querySelector('[data-component="sort-control"]');
+    var sortOptions = volunteerFilterOptionsData.sort_options || [];
+    if (sortControlEl) {
+      var effectiveSort = urlState.sort;
+      if (searchResponse && searchResponse.applied_filters && searchResponse.applied_filters.sort) {
+        effectiveSort = searchResponse.applied_filters.sort;
+      }
+      var sortState = {
+        location_type: urlState.location_type,
+        max_weekly_time_commitment_hours: urlState.max_weekly_time_commitment_hours,
+        cause_categories: urlState.cause_categories,
+        role_types: urlState.role_types,
+        sort: effectiveSort
+      };
+      renderSortControl(sortControlEl, sortOptions, sortState);
+    }
+
+    if (searchResponse) {
+      var resultsListEl = document.querySelector('[data-component="volunteer-results-list"]');
+      var resultsMetaEl = document.querySelector('[data-component="results-meta"]');
+      var appliedFiltersBarEl = document.querySelector('[data-component="applied-filters-bar"]');
+
+      if (resultsListEl) {
+        renderResultsList(resultsListEl, searchResponse.results, planOpportunityIds);
+      }
+      if (resultsMetaEl) {
+        renderResultsMeta(resultsMetaEl, searchResponse.total, searchResponse.applied_filters);
+      }
+      if (appliedFiltersBarEl) {
+        renderAppliedFiltersBar(appliedFiltersBarEl, searchResponse.applied_filters, volunteerFilterOptionsData);
+      }
+    }
+  }
+
+  document.addEventListener('change', function(event) {
+    var target = event.target;
+    if (!target) return;
+    var actionEl = target.closest('[data-action]');
+    if (!actionEl) return;
+    var action = actionEl.getAttribute('data-action');
+
+    if (action === 'filter-change') {
+      var filterState = getFilterStateFromControls();
+      updateUrlWithFilterState(filterState);
+    } else if (action === 'sort-change') {
+      var selectEl = actionEl;
+      var value = selectEl.value || '';
+      var params = new URLSearchParams(window.location.search || '');
+      if (value) {
+        params.set('sort', value);
+      } else {
+        params.delete('sort');
+      }
+      var newQuery = params.toString();
+      var newUrl = window.location.pathname + (newQuery ? '?' + newQuery : '');
+      window.history.pushState({}, '', newUrl);
+      handleUrlChange();
+    }
+  });
+
+  document.addEventListener('click', function(event) {
+    var target = event.target;
+    if (!target) return;
+    var actionEl = target.closest('[data-action]');
+    if (!actionEl) return;
+    var action = actionEl.getAttribute('data-action');
+
+    if (action === 'reset-filters' || action === 'clear-all-filters') {
+      event.preventDefault();
+      clearAllFilters();
+    } else if (action === 'remove-filter') {
+      event.preventDefault();
+      var key = actionEl.getAttribute('data-filter-key');
+      var value = actionEl.getAttribute('data-filter-value');
+      var params = new URLSearchParams(window.location.search || '');
+
+      if (key === 'cause_categories' || key === 'role_types') {
+        var existing = params.get(key);
+        if (existing) {
+          var parts = existing.split(',').map(function(v) { return v.trim(); }).filter(function(v) { return v.length > 0 && v !== value; });
+          if (parts.length > 0) {
+            params.set(key, parts.join(','));
+          } else {
+            params.delete(key);
+          }
+        }
+      } else if (key === 'max_weekly_time_commitment_hours') {
+        params.delete('max_weekly_time_commitment_hours');
+      } else if (key === 'location_type') {
+        params.delete('location_type');
+      } else if (key === 'sort') {
+        params.delete('sort');
+      }
+
+      var newQuery = params.toString();
+      var newUrl = window.location.pathname + (newQuery ? '?' + newQuery : '');
+      window.history.pushState({}, '', newUrl);
+      handleUrlChange();
+    } else if (action === 'open-volunteer-detail') {
+      event.preventDefault();
+      var volunteerId = actionEl.getAttribute('data-volunteer-id');
+      if (volunteerId) {
+        window.location.href = 'volunteer_detail.html?volunteerOpportunityId=' + encodeURIComponent(volunteerId);
+      }
+    } else if (action === 'view-plan') {
+      event.preventDefault();
+      window.location.href = 'saved.html';
+    }
+  });
+
+  window.addEventListener('popstate', function() {
+    handleUrlChange();
+  });
+
+  var populateElements = document.querySelectorAll('[data-populate]');
+  var hasVolunteerSearchComponents = false;
+  var hasPlanSummaryComponent = false;
+
+  populateElements.forEach(function(element) {
+    var dataType = element.getAttribute('data-populate');
+    if (dataType === 'volunteer-results' || dataType === 'volunteer-filters' || dataType === 'volunteer-sort') {
+      hasVolunteerSearchComponents = true;
+    }
+    if (dataType === 'volunteer-plan-summary') {
+      hasPlanSummaryComponent = true;
+    }
+  });
+
+  if (hasVolunteerSearchComponents) {
+    try {
+      volunteerFilterOptionsData = WebsiteSDK.getVolunteerFilterOptions();
+    } catch (e) {
+      console.error('Error loading volunteer filter options', e);
+      volunteerFilterOptionsData = null;
+    }
+    if (volunteerFilterOptionsData) {
+      handleUrlChange();
+    }
+  }
+
+  if (hasPlanSummaryComponent) {
+    var planContainer = document.querySelector('[data-component="volunteer-plan-summary"]');
+    try {
+      volunteerPlanSummaryData = WebsiteSDK.getVolunteerPlanSummary();
+      var items = (volunteerPlanSummaryData && Array.isArray(volunteerPlanSummaryData.items)) ? volunteerPlanSummaryData.items : [];
+      planOpportunityIds = new Set(items.map(function(item) { return item.volunteer_opportunity_id; }));
+      renderPlanSummary(planContainer, volunteerPlanSummaryData);
+      if (lastSearchResponse) {
+        var resultsListEl = document.querySelector('[data-component="volunteer-results-list"]');
+        if (resultsListEl) {
+          renderResultsList(resultsListEl, lastSearchResponse.results, planOpportunityIds);
+        }
+      }
+    } catch (e) {
+      console.error('Error loading volunteer plan summary', e);
+      if (planContainer) {
+        planContainer.innerHTML = '<p class="plan-summary-error">Unable to load your volunteer plan right now.</p>';
+      }
+    }
+  }
+});
+</script>

@@ -1,0 +1,1434 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Collection Detail - Admiral Bookmarks</title>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='collection_detail.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <div class='navbar'>
+            <div class='container navbar-inner'>
+                <div class='navbar-brand'>
+                    <a href='index.html' class='brand-link'>admiralbookmarks</a>
+                </div>
+                <nav class='navbar-nav' aria-label='Main navigation'>
+                    <ul class='nav-list'>
+                        <li class='nav-item is-active'><a href='index.html'>Home</a></li>
+                        <li class='nav-item'><a href='explore.html'>Explore</a></li>
+                        <li class='nav-item'><a href='results.html?categoryId=web_development'>Web Development</a></li>
+                        <li class='nav-item'><a href='results.html?categoryId=security'>Security</a></li>
+                        <li class='nav-item'><a href='my_bookmarks.html'>My Bookmarks</a></li>
+                        <li class='nav-item'><a href='collections.html'>Collections</a></li>
+                        <li class='nav-item'><a href='community.html'>Community</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+
+        <div class='breadcrumb-bar'>
+            <div class='container'>
+                <nav aria-label='Breadcrumb'>
+                    <ol class='breadcrumb'>
+                        <li class='breadcrumb-item'><a href='index.html'>Home</a></li>
+                    </ol>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <div class='page'>
+        <div class='container'>
+            <div class='layout'>
+                <main id='content' class='content' role='main'>
+                    <div class='collection-detail-page' data-component='collection-page-loader'>
+                        <div id='collectionStatusMessage' class='status-message' aria-live='polite'></div>
+
+                        <div class='collection-layout-inner'>
+                            <div class='collection-main-column'>
+                                <section class='collection-header-section' data-component='collection-header' data-populate='collection-header'></section>
+
+                                <section class='collection-filter-bar-section' data-component='collection-filter-bar' data-populate='collection-filter-bar'></section>
+
+                                <section class='bulk-actions-toolbar-section' data-component='bulk-actions-toolbar' data-populate='bulk-actions-toolbar' hidden></section>
+
+                                <section class='collection-state-section' data-component='collection-empty-or-error-state' data-populate='collection-state' hidden></section>
+
+                                <section class='collection-items-section'>
+                                    <div class='collection-items-list' data-component='collection-items-list' data-populate='collection-items'></div>
+                                </section>
+
+                                <nav class='collection-pagination-section' data-component='pagination-controls' aria-label='Pagination'>
+                                    <ul class='pagination' data-populate='pagination'></ul>
+                                </nav>
+                            </div>
+
+                            <aside class='collection-sidebar-column'>
+                                <div class='collection-share-card' data-component='collection-share-controls' data-populate='collection-share-controls'></div>
+                            </aside>
+                        </div>
+
+                        <div class='collection-loader-overlay' data-component='collection-page-loader-overlay' hidden>
+                            <div class='loader-inner'>
+                                <div class='spinner'></div>
+                                <div class='loader-text'>Loading collection</div>
+                            </div>
+                        </div>
+
+                        <div class='modal-backdrop' data-component='bulk-visibility-modal' hidden>
+                            <div class='modal-panel'></div>
+                        </div>
+
+                        <div class='modal-backdrop' data-component='move-copy-modal' hidden>
+                            <div class='modal-panel'></div>
+                        </div>
+                    </div>
+                </main>
+                <aside class='sidebar' aria-label='Sidebar'>
+                    <!-- Optional global sidebar content can be added here -->
+                </aside>
+            </div>
+        </div>
+    </div>
+
+    <footer class='site-footer'>
+        <div class='container'>
+            <div class='footer-inner'>
+                <p class='footer-copy'>&copy; 2024 admiralbookmarks</p>
+                <nav class='footer-nav' aria-label='Footer navigation'>
+                    <ul class='footer-list'>
+                        <li class='footer-item'><a href='about.html'>About</a></li>
+                        <li class='footer-item'><a href='help.html'>Help &amp; FAQs</a></li>
+                        <li class='footer-item'><a href='privacy.html'>Privacy Policy</a></li>
+                        <li class='footer-item'><a href='terms.html'>Terms of Use</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+    (function() {
+        'use strict';
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function escapeAttr(value) {
+            return escapeHtml(value);
+        }
+
+        var state = {
+            collectionId: null,
+            currentCollection: null,
+            items: [],
+            pagination: null,
+            filterOptions: null,
+            currentTagId: null,
+            currentSortBy: null,
+            defaultSortBy: null,
+            currentPage: 1,
+            currentVisibilityFilter: 'all',
+            currentSearchTerm: '',
+            selection: new Set(),
+            allItemsSelectedInCollection: false
+        };
+
+        function setStatusMessage(message, type) {
+            var el = document.getElementById('collectionStatusMessage');
+            if (!el) {
+                return;
+            }
+            if (!message) {
+                el.textContent = '';
+                el.className = 'status-message';
+                return;
+            }
+            var cls = 'status-message';
+            if (type === 'error') {
+                cls += ' status-message-error';
+            } else if (type === 'success') {
+                cls += ' status-message-success';
+            } else {
+                cls += ' status-message-info';
+            }
+            el.className = cls;
+            el.textContent = message;
+            window.setTimeout(function() {
+                if (el.textContent === message) {
+                    el.textContent = '';
+                    el.className = 'status-message';
+                }
+            }, 5000);
+        }
+
+        function setLoading(isLoading) {
+            var overlay = document.querySelector('[data-component="collection-page-loader-overlay"]');
+            if (!overlay) {
+                return;
+            }
+            overlay.hidden = !isLoading;
+        }
+
+        function syncStateFromUrl() {
+            var url = new URL(window.location.href);
+            var params = url.searchParams;
+            var collectionId = params.get('collectionId');
+            state.collectionId = collectionId || null;
+
+            var tagId = params.get('tagId');
+            state.currentTagId = tagId || null;
+
+            var sortBy = params.get('sortBy');
+            state.currentSortBy = sortBy || state.currentSortBy || state.defaultSortBy;
+
+            var pageParam = params.get('page');
+            var pageNum = parseInt(pageParam, 10);
+            if (!pageParam || isNaN(pageNum) || pageNum < 1) {
+                state.currentPage = 1;
+            } else {
+                state.currentPage = pageNum;
+            }
+        }
+
+        function updateUrlParams(updates, replace) {
+            var url = new URL(window.location.href);
+            var params = url.searchParams;
+            for (var key in updates) {
+                if (!Object.prototype.hasOwnProperty.call(updates, key)) {
+                    continue;
+                }
+                var value = updates[key];
+                if (value === null || value === undefined || value === '') {
+                    params.delete(key);
+                } else {
+                    params.set(key, String(value));
+                }
+            }
+            url.search = params.toString();
+            if (replace) {
+                window.history.replaceState(null, '', url.toString());
+            } else {
+                window.history.pushState(null, '', url.toString());
+            }
+            syncStateFromUrl();
+        }
+
+        function updateBreadcrumb() {
+            var breadcrumb = document.querySelector('.breadcrumb');
+            if (!breadcrumb) {
+                return;
+            }
+            if (!state.currentCollection) {
+                breadcrumb.innerHTML = '<li class="breadcrumb-item"><a href="index.html">Home</a></li>';
+                return;
+            }
+            var html = '';
+            html += '<li class="breadcrumb-item"><a href="index.html">Home</a></li>';
+            html += '<li class="breadcrumb-item"><a href="collections.html">Collections</a></li>';
+            html += '<li class="breadcrumb-item active">' + escapeHtml(state.currentCollection.title) + '</li>';
+            breadcrumb.innerHTML = html;
+        }
+
+        function renderCollectionHeader(container, collection, editMode) {
+            if (!container) {
+                return;
+            }
+            if (!collection) {
+                container.innerHTML = '';
+                return;
+            }
+            var visibilityLabel = collection.visibility === 'public' ? 'Public' : 'Private';
+            var bookmarkCountText = '';
+            if (collection.bookmarkCount !== null && collection.bookmarkCount !== undefined) {
+                bookmarkCountText = collection.bookmarkCount + ' bookmarks';
+            }
+            var updatedText = '';
+            if (collection.updatedAt) {
+                try {
+                    updatedText = new Date(collection.updatedAt).toLocaleString();
+                } catch (e) {
+                    updatedText = collection.updatedAt;
+                }
+            }
+
+            if (editMode) {
+                container.innerHTML = '' +
+                    '<div class="panel panel-default">' +
+                    '  <div class="panel-body">' +
+                    '    <form class="collection-metadata-form" data-action="save-metadata">' +
+                    '      <div class="form-group">' +
+                    '        <label for="collectionTitleInput">Title</label>' +
+                    '        <input type="text" id="collectionTitleInput" name="title" class="form-control" required value="' + escapeAttr(collection.title) + '">' +
+                    '      </div>' +
+                    '      <div class="form-group">' +
+                    '        <label for="collectionDescriptionInput">Description</label>' +
+                    '        <textarea id="collectionDescriptionInput" name="description" class="form-control" rows="3">' + escapeHtml(collection.description || '') + '</textarea>' +
+                    '      </div>' +
+                    '      <div class="form-group">' +
+                    '        <label for="collectionVisibilitySelect">Visibility</label>' +
+                    '        <select id="collectionVisibilitySelect" name="visibility" class="form-control">' +
+                    '          <option value="public"' + (collection.visibility === 'public' ? ' selected' : '') + '>Public</option>' +
+                    '          <option value="private"' + (collection.visibility === 'private' ? ' selected' : '') + '>Private</option>' +
+                    '        </select>' +
+                    '      </div>' +
+                    '      <div class="form-actions">' +
+                    '        <button type="submit" class="btn btn-primary btn-sm">Save</button>' +
+                    '        <button type="button" class="btn btn-default btn-sm" data-action="cancel-edit-metadata">Cancel</button>' +
+                    '      </div>' +
+                    '    </form>' +
+                    '  </div>' +
+                    '</div>';
+            } else {
+                var titleHtml = '<h1 class="collection-title">' + escapeHtml(collection.title) + '</h1>';
+                var descriptionHtml = '';
+                if (collection.description) {
+                    descriptionHtml = '<p class="collection-description">' + escapeHtml(collection.description) + '</p>';
+                }
+                var metaParts = [];
+                if (bookmarkCountText) {
+                    metaParts.push('<span class="collection-count">' + escapeHtml(bookmarkCountText) + '</span>');
+                }
+                metaParts.push('<span class="collection-visibility-label">Visibility: <strong data-field="visibility-text">' + escapeHtml(visibilityLabel) + '</strong></span>');
+                if (updatedText) {
+                    metaParts.push('<span class="collection-updated">Updated ' + escapeHtml(updatedText) + '</span>');
+                }
+                var metaHtml = '<p class="collection-meta">' + metaParts.join(' · ') + '</p>';
+
+                container.innerHTML = '' +
+                    '<div class="panel panel-default">' +
+                    '  <div class="panel-body">' +
+                    '    <div class="collection-header-main">' +
+                    '      <div class="collection-header-info">' +
+                    '        ' + titleHtml +
+                    '        ' + descriptionHtml +
+                    '        ' + metaHtml +
+                    '      </div>' +
+                    '      <div class="collection-header-actions">' +
+                    '        <button type="button" class="btn btn-default btn-xs" data-action="enter-edit-metadata">Edit</button>' +
+                    '        <button type="button" class="btn btn-link btn-xs" data-action="toggle-visibility-shortcut">Toggle visibility</button>' +
+                    '      </div>' +
+                    '    </div>' +
+                    '  </div>' +
+                    '</div>';
+            }
+        }
+
+        function renderFilterBar(container) {
+            if (!container) {
+                return;
+            }
+            if (!state.filterOptions) {
+                container.innerHTML = '';
+                return;
+            }
+            var tags = state.filterOptions.tags || [];
+            var sortOptions = state.filterOptions.sortOptions || [];
+
+            var tagOptionsHtml = '<option value="">All tags</option>';
+            for (var i = 0; i < tags.length; i++) {
+                var tag = tags[i];
+                var selectedAttr = tag.id === state.currentTagId ? ' selected' : '';
+                tagOptionsHtml += '<option value="' + escapeAttr(tag.id) + '"' + selectedAttr + '>' + escapeHtml(tag.name) + '</option>';
+            }
+
+            var sortOptionsHtml = '';
+            for (var j = 0; j < sortOptions.length; j++) {
+                var opt = sortOptions[j];
+                var selectedSort = opt.id === state.currentSortBy ? ' selected' : '';
+                sortOptionsHtml += '<option value="' + escapeAttr(opt.id) + '"' + selectedSort + '>' + escapeHtml(opt.label) + '</option>';
+            }
+
+            var searchValue = state.currentSearchTerm || '';
+            var visibility = state.currentVisibilityFilter || 'all';
+
+            container.innerHTML = '' +
+                '<div class="panel panel-default collection-filter-panel">' +
+                '  <div class="panel-body">' +
+                '    <form class="collection-filter-form" data-action="filter-form">' +
+                '      <div class="filter-row">' +
+                '        <div class="filter-group filter-group-search">' +
+                '          <label for="collectionSearchInput">Search</label>' +
+                '          <input type="search" id="collectionSearchInput" name="search" class="form-control" placeholder="Search in this collection" value="' + escapeAttr(searchValue) + '">' +
+                '        </div>' +
+                '        <div class="filter-group">' +
+                '          <label for="tagFilterSelect">Tag</label>' +
+                '          <select id="tagFilterSelect" name="tagId" class="form-control">' + tagOptionsHtml + '</select>' +
+                '        </div>' +
+                '        <div class="filter-group">' +
+                '          <label for="sortBySelect">Sort by</label>' +
+                '          <select id="sortBySelect" name="sortBy" class="form-control">' + sortOptionsHtml + '</select>' +
+                '        </div>' +
+                '        <div class="filter-group">' +
+                '          <label for="visibilityFilterSelect">Visibility</label>' +
+                '          <select id="visibilityFilterSelect" name="visibility" class="form-control">' +
+                '            <option value="all"' + (visibility === 'all' ? ' selected' : '') + '>All</option>' +
+                '            <option value="public"' + (visibility === 'public' ? ' selected' : '') + '>Public</option>' +
+                '            <option value="private"' + (visibility === 'private' ? ' selected' : '') + '>Private</option>' +
+                '          </select>' +
+                '        </div>' +
+                '        <div class="filter-actions">' +
+                '          <button type="submit" class="btn btn-primary btn-sm" data-action="search-submit">Apply</button>' +
+                '          <button type="button" class="btn btn-default btn-sm" data-action="clear-filters">Clear</button>' +
+                '        </div>' +
+                '      </div>' +
+                '    </form>' +
+                '  </div>' +
+                '</div>';
+        }
+
+        function renderBulkToolbar(container) {
+            if (!container) {
+                return;
+            }
+            var count = state.selection ? state.selection.size : 0;
+            if (!count) {
+                container.hidden = true;
+                container.innerHTML = '';
+                return;
+            }
+            container.hidden = false;
+            container.innerHTML = '' +
+                '<div class="bulk-toolbar-inner">' +
+                '  <div class="bulk-actions-left">' +
+                '    <button type="button" class="btn btn-default btn-sm" data-action="bulk-change-visibility">Change visibility</button>' +
+                '    <button type="button" class="btn btn-default btn-sm" data-action="bulk-move-copy">Move/Copy to collection</button>' +
+                '  </div>' +
+                '  <div class="bulk-actions-right">' +
+                '    <span class="bulk-selection-count">' + count + ' selected</span>' +
+                '    <button type="button" class="btn btn-link btn-xs" data-action="clear-selection">Clear selection</button>' +
+                '  </div>' +
+                '</div>';
+        }
+
+        function renderItemsList(container) {
+            if (!container) {
+                return;
+            }
+            var items = state.items || [];
+            if (!items.length) {
+                container.innerHTML = '';
+                return;
+            }
+            var allSelectedOnPage = true;
+            for (var i = 0; i < items.length; i++) {
+                if (!state.selection.has(items[i].savedBookmarkId)) {
+                    allSelectedOnPage = false;
+                    break;
+                }
+            }
+
+            var itemsHtml = '';
+            for (var j = 0; j < items.length; j++) {
+                var item = items[j];
+                var checkedAttr = state.selection.has(item.savedBookmarkId) ? ' checked' : '';
+                var tagsHtml = '';
+                if (item.tagNames && item.tagNames.length) {
+                    var tagParts = [];
+                    for (var t = 0; t < item.tagNames.length; t++) {
+                        tagParts.push('<span class="label label-default">' + escapeHtml(item.tagNames[t]) + '</span>');
+                    }
+                    tagsHtml = '<p class="item-tags">' + tagParts.join(' ') + '</p>';
+                }
+                var metaParts = [];
+                if (item.savesCount !== null && item.savesCount !== undefined) {
+                    metaParts.push('<span class="meta-saves">' + item.savesCount + ' saves</span>');
+                }
+                if (item.commentsCount !== null && item.commentsCount !== undefined) {
+                    metaParts.push('<span class="meta-comments">' + item.commentsCount + ' comments</span>');
+                }
+                if (item.ratingAverage !== null && item.ratingAverage !== undefined) {
+                    var ratingText;
+                    try {
+                        ratingText = Number(item.ratingAverage).toFixed(1);
+                    } catch (e) {
+                        ratingText = item.ratingAverage;
+                    }
+                    metaParts.push('<span class="meta-rating">' + escapeHtml(ratingText) + ' b</span>');
+                }
+                if (item.visibility) {
+                    metaParts.push('<span class="meta-visibility">Visibility: <strong>' + escapeHtml(item.visibility) + '</strong></span>');
+                }
+                var metaHtml = '';
+                if (metaParts.length) {
+                    metaHtml = '<p class="item-meta">' + metaParts.join(' b ') +
+                        ' <button type="button" class="btn btn-link btn-xs" data-action="quick-toggle-visibility" data-saved-bookmark-id="' + escapeAttr(item.savedBookmarkId) + '" data-current-visibility="' + escapeAttr(item.visibility || '') + '">Make ' + (item.visibility === 'public' ? 'private' : 'public') + '</button>' +
+                        '</p>';
+                }
+                var titleText = item.title || 'Untitled';
+                var savedBookmarkIdAttr = escapeAttr(item.savedBookmarkId);
+                var bookmarkIdAttr = escapeAttr(item.bookmarkId);
+                var urlAttr = escapeAttr(item.url || '');
+                var rowHtml = '' +
+                    '<li class="collection-item-row" data-saved-bookmark-id="' + savedBookmarkIdAttr + '">' +
+                    '  <div class="media">' +
+                    '    <div class="media-left">' +
+                    '      <input type="checkbox" class="item-select-checkbox" data-action="toggle-item-selection" data-saved-bookmark-id="' + savedBookmarkIdAttr + '"' + checkedAttr + '>' +
+                    '    </div>' +
+                    '    <div class="media-body">' +
+                    '      <h3 class="item-title">' +
+                    '        <a href="bookmark_detail.html?bookmarkId=' + encodeURIComponent(bookmarkIdAttr) + '">' + escapeHtml(titleText) + '</a>' +
+                    '      </h3>' +
+                    '      <p class="item-url"><a href="' + urlAttr + '" target="_blank" rel="noopener">' + escapeHtml(item.url || '') + '</a></p>' +
+                    '      ' + tagsHtml +
+                    '      ' + metaHtml +
+                    '    </div>' +
+                    '  </div>' +
+                    '</li>';
+                itemsHtml += rowHtml;
+            }
+
+            container.innerHTML = '' +
+                '<div class="collection-items-header-row">' +
+                '  <label class="select-all-page-label">' +
+                '    <input type="checkbox" data-action="select-all-on-page"' + (allSelectedOnPage && items.length ? ' checked' : '') + '> Select all on this page' +
+                '  </label>' +
+                '  <button type="button" class="btn btn-link btn-xs select-all-collection-button" data-action="select-all-in-collection">Select all in collection</button>' +
+                '</div>' +
+                '<ul class="collection-items-list-inner list-unstyled">' + itemsHtml + '</ul>';
+        }
+
+        function renderPagination(container) {
+            if (!container) {
+                return;
+            }
+            var pagination = state.pagination;
+            if (!pagination || !pagination.totalPages || pagination.totalPages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+            var page = pagination.page || 1;
+            var totalPages = pagination.totalPages || 1;
+            var html = '';
+            var prevDisabled = page <= 1 ? ' class="disabled"' : '';
+            html += '<li' + prevDisabled + '><a href="javascript:void(0)" data-action="prev-page" aria-label="Previous">&laquo;</a></li>';
+            for (var p = 1; p <= totalPages; p++) {
+                var activeClass = p === page ? ' class="active"' : '';
+                html += '<li' + activeClass + '><a href="javascript:void(0)" data-action="change-page" data-page="' + p + '">' + p + '</a></li>';
+            }
+            var nextDisabled = page >= totalPages ? ' class="disabled"' : '';
+            html += '<li' + nextDisabled + '><a href="javascript:void(0)" data-action="next-page" aria-label="Next">&raquo;</a></li>';
+            container.innerHTML = html;
+        }
+
+        function renderShareControls(container) {
+            if (!container) {
+                return;
+            }
+            var collection = state.currentCollection;
+            if (!collection) {
+                container.innerHTML = '';
+                return;
+            }
+            var isPublic = collection.visibility === 'public';
+            var lastCopied = '';
+            if (collection.lastShareLinkCopiedAt) {
+                try {
+                    lastCopied = new Date(collection.lastShareLinkCopiedAt).toLocaleString();
+                } catch (e) {
+                    lastCopied = collection.lastShareLinkCopiedAt;
+                }
+            }
+            var noteText = isPublic ? 'This collection is public. You can share it using the link below.' : 'This collection is private. Make it public to share a link.';
+            var hintsText = isPublic ? 'Anyone with the link can view this collection.' : 'To enable sharing, edit the collection and set visibility to public.';
+            var lastCopiedHtml = '';
+            if (lastCopied) {
+                lastCopiedHtml = '<p>Last copied: ' + escapeHtml(lastCopied) + '</p>';
+            }
+
+            container.innerHTML = '' +
+                '<div class="panel panel-default share-panel">' +
+                '  <div class="panel-heading">' +
+                '    <h2 class="panel-title">Share this collection</h2>' +
+                '  </div>' +
+                '  <div class="panel-body">' +
+                '    <p class="share-visibility-note">' + escapeHtml(noteText) + '</p>' +
+                '    <button type="button" class="btn btn-primary btn-sm" data-action="copy-public-link"' + (isPublic ? '' : ' disabled') + '>Copy public link</button>' +
+                '    <button type="button" class="btn btn-link btn-xs" data-action="toggle-share-hints">Share help</button>' +
+                '    <div class="share-hints" data-share-hints hidden>' +
+                '      <p>' + escapeHtml(hintsText) + '</p>' +
+                '      ' + lastCopiedHtml +
+                '    </div>' +
+                '    <div class="share-feedback" data-share-feedback></div>' +
+                '  </div>' +
+                '</div>';
+        }
+
+        function renderEmptyOrErrorState(container, mode, options) {
+            if (!container) {
+                return;
+            }
+            container.hidden = false;
+            var title = '';
+            var body = '';
+            var actionHtml = '';
+            if (mode === 'missing-collection-id') {
+                title = 'Collection not found';
+                body = 'A collectionId is required in the URL to view a collection.';
+                actionHtml = '<p><a href="collections.html" class="btn btn-primary btn-sm">Back to collections</a></p>';
+            } else if (mode === 'error') {
+                title = 'Unable to load collection';
+                var msg = options && options.message ? options.message : 'There was a problem loading this collection. Please try again.';
+                body = escapeHtml(msg);
+                actionHtml = '<p><button type="button" class="btn btn-default btn-sm" data-action="reload-collection">Retry</button></p>';
+            } else if (mode === 'empty') {
+                title = 'No bookmarks to show';
+                body = 'No items match your current filters.';
+                actionHtml = '<p><button type="button" class="btn btn-default btn-sm" data-action="clear-filters">Clear filters</button></p>';
+            }
+            container.innerHTML = '' +
+                '<div class="panel panel-default collection-state-panel">' +
+                '  <div class="panel-body text-center">' +
+                '    <h2 class="state-title">' + escapeHtml(title) + '</h2>' +
+                '    <p class="state-description">' + body + '</p>' +
+                '    ' + actionHtml +
+                '  </div>' +
+                '</div>';
+        }
+
+        function hideEmptyOrErrorState() {
+            var container = document.querySelector('[data-populate="collection-state"]');
+            if (!container) {
+                return;
+            }
+            container.hidden = true;
+            container.innerHTML = '';
+        }
+
+        function updateSelectionUI() {
+            var toolbarContainer = document.querySelector('[data-populate="bulk-actions-toolbar"]');
+            renderBulkToolbar(toolbarContainer);
+            var itemsContainer = document.querySelector('[data-populate="collection-items"]');
+            renderItemsList(itemsContainer);
+        }
+
+        function loadFilterOptionsOnce() {
+            if (state.filterOptions) {
+                return;
+            }
+            try {
+                state.filterOptions = WebsiteSDK.getBookmarkFilterOptions();
+                var sortOptions = state.filterOptions.sortOptions || [];
+                var defaultSort = null;
+                for (var i = 0; i < sortOptions.length; i++) {
+                    if (sortOptions[i].id === 'date_saved_newest') {
+                        defaultSort = sortOptions[i].id;
+                        break;
+                    }
+                }
+                if (!defaultSort && sortOptions.length) {
+                    defaultSort = sortOptions[0].id;
+                }
+                state.defaultSortBy = defaultSort;
+                if (!state.currentSortBy) {
+                    state.currentSortBy = defaultSort;
+                }
+            } catch (e) {
+                setStatusMessage('Failed to load filter options.', 'error');
+            }
+        }
+
+        function buildFiltersForRequest() {
+            var filters = {};
+            if (state.currentTagId) {
+                filters.tagIds = [state.currentTagId];
+            }
+            if (state.currentVisibilityFilter && state.currentVisibilityFilter !== 'all') {
+                filters.visibility = state.currentVisibilityFilter;
+            }
+            if (state.currentSearchTerm) {
+                filters.searchTerm = state.currentSearchTerm;
+            }
+            return filters;
+        }
+
+        function loadCollectionAndRender() {
+            var headerContainer = document.querySelector('[data-populate="collection-header"]');
+            var filterBarContainer = document.querySelector('[data-populate="collection-filter-bar"]');
+            var itemsContainer = document.querySelector('[data-populate="collection-items"]');
+            var paginationContainer = document.querySelector('[data-populate="pagination"]');
+            var shareContainer = document.querySelector('[data-populate="collection-share-controls"]');
+            var stateContainer = document.querySelector('[data-populate="collection-state"]');
+
+            if (!state.collectionId) {
+                setLoading(false);
+                state.currentCollection = null;
+                state.items = [];
+                state.pagination = null;
+                if (headerContainer) {
+                    headerContainer.innerHTML = '';
+                }
+                if (filterBarContainer) {
+                    renderFilterBar(filterBarContainer);
+                }
+                if (itemsContainer) {
+                    itemsContainer.innerHTML = '';
+                }
+                if (paginationContainer) {
+                    paginationContainer.innerHTML = '';
+                }
+                if (shareContainer) {
+                    shareContainer.innerHTML = '';
+                }
+                if (stateContainer) {
+                    renderEmptyOrErrorState(stateContainer, 'missing-collection-id');
+                }
+                updateBreadcrumb();
+                return;
+            }
+
+            setLoading(true);
+            hideEmptyOrErrorState();
+
+            var filters = buildFiltersForRequest();
+            var sortBy = state.currentSortBy || state.defaultSortBy;
+            var page = state.currentPage || 1;
+
+            var result;
+            try {
+                result = WebsiteSDK.getCollectionDetail(state.collectionId, filters, sortBy, page);
+            } catch (e) {
+                setLoading(false);
+                if (stateContainer) {
+                    renderEmptyOrErrorState(stateContainer, 'error', { message: e && e.message ? e.message : String(e) });
+                }
+                if (headerContainer) {
+                    headerContainer.innerHTML = '';
+                }
+                if (itemsContainer) {
+                    itemsContainer.innerHTML = '';
+                }
+                if (paginationContainer) {
+                    paginationContainer.innerHTML = '';
+                }
+                if (shareContainer) {
+                    shareContainer.innerHTML = '';
+                }
+                updateBreadcrumb();
+                return;
+            }
+
+            state.currentCollection = result.collection || null;
+            state.items = result.items || [];
+            state.pagination = result.pagination || null;
+
+            if (headerContainer) {
+                renderCollectionHeader(headerContainer, state.currentCollection, false);
+            }
+            if (filterBarContainer) {
+                renderFilterBar(filterBarContainer);
+            }
+            if (shareContainer) {
+                renderShareControls(shareContainer);
+            }
+
+            if (!state.items.length) {
+                if (itemsContainer) {
+                    itemsContainer.innerHTML = '';
+                }
+                if (paginationContainer) {
+                    paginationContainer.innerHTML = '';
+                }
+                if (stateContainer && state.currentCollection) {
+                    renderEmptyOrErrorState(stateContainer, 'empty');
+                }
+            } else {
+                hideEmptyOrErrorState();
+                if (itemsContainer) {
+                    renderItemsList(itemsContainer);
+                }
+                if (paginationContainer) {
+                    renderPagination(paginationContainer);
+                }
+            }
+
+            var toolbarContainer = document.querySelector('[data-populate="bulk-actions-toolbar"]');
+            renderBulkToolbar(toolbarContainer);
+
+            updateBreadcrumb();
+            setLoading(false);
+        }
+
+        function handleTagFilterChange(value) {
+            state.currentTagId = value || null;
+            state.currentPage = 1;
+            updateUrlParams({ tagId: state.currentTagId, page: 1 }, false);
+            loadCollectionAndRender();
+        }
+
+        function handleSortChange(value) {
+            state.currentSortBy = value || state.defaultSortBy;
+            state.currentPage = 1;
+            updateUrlParams({ sortBy: state.currentSortBy, page: 1 }, false);
+            loadCollectionAndRender();
+        }
+
+        function handleVisibilityFilterChange(value) {
+            state.currentVisibilityFilter = value || 'all';
+            state.currentPage = 1;
+            updateUrlParams({ page: 1 }, false);
+            loadCollectionAndRender();
+        }
+
+        function handleSearchSubmit(form) {
+            var searchInput = form.querySelector('#collectionSearchInput');
+            var value = searchInput ? searchInput.value.trim() : '';
+            state.currentSearchTerm = value;
+            state.currentPage = 1;
+            updateUrlParams({ page: 1 }, false);
+            loadCollectionAndRender();
+        }
+
+        function handleClearFilters() {
+            state.currentTagId = null;
+            state.currentVisibilityFilter = 'all';
+            state.currentSearchTerm = '';
+            state.currentPage = 1;
+            state.currentSortBy = state.defaultSortBy;
+            updateUrlParams({ tagId: null, sortBy: null, page: 1 }, false);
+            loadCollectionAndRender();
+        }
+
+        function handleChangePage(page) {
+            if (!state.pagination) {
+                return;
+            }
+            var totalPages = state.pagination.totalPages || 1;
+            if (page < 1 || page > totalPages) {
+                return;
+            }
+            state.currentPage = page;
+            updateUrlParams({ page: page }, false);
+            loadCollectionAndRender();
+        }
+
+        function handlePrevPage() {
+            if (!state.pagination) {
+                return;
+            }
+            var page = state.pagination.page || 1;
+            if (page <= 1) {
+                return;
+            }
+            handleChangePage(page - 1);
+        }
+
+        function handleNextPage() {
+            if (!state.pagination) {
+                return;
+            }
+            var page = state.pagination.page || 1;
+            var totalPages = state.pagination.totalPages || 1;
+            if (page >= totalPages) {
+                return;
+            }
+            handleChangePage(page + 1);
+        }
+
+        function handleToggleItemSelection(savedBookmarkId) {
+            if (!savedBookmarkId) {
+                return;
+            }
+            if (state.selection.has(savedBookmarkId)) {
+                state.selection.delete(savedBookmarkId);
+            } else {
+                state.selection.add(savedBookmarkId);
+            }
+            state.allItemsSelectedInCollection = false;
+            updateSelectionUI();
+        }
+
+        function handleSelectAllOnPage() {
+            var items = state.items || [];
+            if (!items.length) {
+                return;
+            }
+            var allSelected = true;
+            for (var i = 0; i < items.length; i++) {
+                if (!state.selection.has(items[i].savedBookmarkId)) {
+                    allSelected = false;
+                    break;
+                }
+            }
+            if (allSelected) {
+                for (var j = 0; j < items.length; j++) {
+                    state.selection.delete(items[j].savedBookmarkId);
+                }
+            } else {
+                for (var k = 0; k < items.length; k++) {
+                    if (items[k].savedBookmarkId) {
+                        state.selection.add(items[k].savedBookmarkId);
+                    }
+                }
+            }
+            state.allItemsSelectedInCollection = false;
+            updateSelectionUI();
+        }
+
+        function handleSelectAllInCollection() {
+            if (!state.collectionId) {
+                return;
+            }
+            var filters = buildFiltersForRequest();
+            var sortBy = state.currentSortBy || state.defaultSortBy;
+            var firstPage;
+            try {
+                firstPage = WebsiteSDK.getCollectionDetail(state.collectionId, filters, sortBy, 1);
+            } catch (e) {
+                setStatusMessage('Unable to select all items: ' + (e && e.message ? e.message : String(e)), 'error');
+                return;
+            }
+            var totalPages = firstPage.pagination && firstPage.pagination.totalPages ? firstPage.pagination.totalPages : 1;
+            var selection = new Set();
+            var p;
+            for (p = 1; p <= totalPages; p++) {
+                var pageData;
+                if (p === 1) {
+                    pageData = firstPage;
+                } else {
+                    pageData = WebsiteSDK.getCollectionDetail(state.collectionId, filters, sortBy, p);
+                }
+                var pageItems = pageData.items || [];
+                for (var i = 0; i < pageItems.length; i++) {
+                    if (pageItems[i].savedBookmarkId) {
+                        selection.add(pageItems[i].savedBookmarkId);
+                    }
+                }
+            }
+            state.selection = selection;
+            state.allItemsSelectedInCollection = true;
+            updateSelectionUI();
+            setStatusMessage('All ' + selection.size + ' bookmarks in this filtered collection view are selected.', 'info');
+        }
+
+        function openBulkVisibilityModal() {
+            if (!state.selection || state.selection.size === 0) {
+                setStatusMessage('Select at least one bookmark first.', 'info');
+                return;
+            }
+            var backdrop = document.querySelector('[data-component="bulk-visibility-modal"]');
+            if (!backdrop) {
+                return;
+            }
+            var panel = backdrop.querySelector('.modal-panel');
+            if (!panel) {
+                return;
+            }
+            backdrop.hidden = false;
+            var count = state.selection.size;
+            panel.innerHTML = '' +
+                '<div class="modal-dialog panel panel-default" role="dialog" aria-modal="true">' +
+                '  <div class="panel-heading">' +
+                '    <h2 class="panel-title">Change visibility</h2>' +
+                '  </div>' +
+                '  <div class="panel-body">' +
+                '    <p>You are about to change visibility for <strong>' + count + '</strong> bookmarks.</p>' +
+                '    <form data-action="bulk-visibility-form">' +
+                '      <div class="form-group">' +
+                '        <label><input type="radio" name="visibility" value="public" checked> Make public</label>' +
+                '      </div>' +
+                '      <div class="form-group">' +
+                '        <label><input type="radio" name="visibility" value="private"> Make private</label>' +
+                '      </div>' +
+                '      <div class="modal-actions">' +
+                '        <button type="submit" class="btn btn-primary">Apply</button>' +
+                '        <button type="button" class="btn btn-default" data-action="bulk-visibility-cancel">Cancel</button>' +
+                '      </div>' +
+                '    </form>' +
+                '  </div>' +
+                '</div>';
+        }
+
+        function closeBulkVisibilityModal() {
+            var backdrop = document.querySelector('[data-component="bulk-visibility-modal"]');
+            if (!backdrop) {
+                return;
+            }
+            backdrop.hidden = true;
+            var panel = backdrop.querySelector('.modal-panel');
+            if (panel) {
+                panel.innerHTML = '';
+            }
+        }
+
+        function openMoveCopyModal() {
+            if (!state.selection || state.selection.size === 0) {
+                setStatusMessage('Select at least one bookmark first.', 'info');
+                return;
+            }
+            var backdrop = document.querySelector('[data-component="move-copy-modal"]');
+            if (!backdrop) {
+                return;
+            }
+            var panel = backdrop.querySelector('.modal-panel');
+            if (!panel) {
+                return;
+            }
+            backdrop.hidden = false;
+
+            var collections = [];
+            try {
+                var raw = window.localStorage.getItem('collections') || '[]';
+                collections = JSON.parse(raw);
+            } catch (e) {
+                collections = [];
+            }
+            var optionsHtml = '<option value="">Select a collection</option>';
+            for (var i = 0; i < collections.length; i++) {
+                var col = collections[i];
+                if (!col || !col.id || !col.title) {
+                    continue;
+                }
+                if (state.collectionId && col.id === state.collectionId) {
+                    continue;
+                }
+                optionsHtml += '<option value="' + escapeAttr(col.id) + '">' + escapeHtml(col.title) + '</option>';
+            }
+
+            var count = state.selection.size;
+            panel.innerHTML = '' +
+                '<div class="modal-dialog panel panel-default" role="dialog" aria-modal="true">' +
+                '  <div class="panel-heading">' +
+                '    <h2 class="panel-title">Move or copy bookmarks</h2>' +
+                '  </div>' +
+                '  <div class="panel-body">' +
+                '    <p>You have selected <strong>' + count + '</strong> bookmarks.</p>' +
+                '    <form data-action="move-copy-form">' +
+                '      <fieldset class="form-group">' +
+                '        <legend>Operation</legend>' +
+                '        <label><input type="radio" name="operation" value="copy" checked> Copy to another collection</label><br>' +
+                '        <label><input type="radio" name="operation" value="move"> Move to another collection</label>' +
+                '      </fieldset>' +
+                '      <fieldset class="form-group">' +
+                '        <legend>Target collection</legend>' +
+                '        <label><input type="radio" name="targetMode" value="existing" checked> Existing collection</label><br>' +
+                '        <select name="targetCollectionId" class="form-control">' + optionsHtml + '</select><br>' +
+                '        <label><input type="radio" name="targetMode" value="create_new"> Create new collection</label>' +
+                '        <div class="new-collection-fields">' +
+                '          <label for="newCollectionTitleInput">New collection title</label>' +
+                '          <input type="text" id="newCollectionTitleInput" name="newCollectionTitle" class="form-control" placeholder="e.g., AI Reading List">' +
+                '          <label for="newCollectionVisibilitySelect">New collection visibility</label>' +
+                '          <select id="newCollectionVisibilitySelect" name="newCollectionVisibility" class="form-control">' +
+                '            <option value="private" selected>Private</option>' +
+                '            <option value="public">Public</option>' +
+                '          </select>' +
+                '        </div>' +
+                '      </fieldset>' +
+                '      <div class="modal-actions">' +
+                '        <button type="submit" class="btn btn-primary">Run</button>' +
+                '        <button type="button" class="btn btn-default" data-action="move-copy-cancel">Cancel</button>' +
+                '      </div>' +
+                '      <div class="move-copy-feedback" data-move-copy-feedback></div>' +
+                '    </form>' +
+                '  </div>' +
+                '</div>';
+        }
+
+        function closeMoveCopyModal() {
+            var backdrop = document.querySelector('[data-component="move-copy-modal"]');
+            if (!backdrop) {
+                return;
+            }
+            backdrop.hidden = true;
+            var panel = backdrop.querySelector('.modal-panel');
+            if (panel) {
+                panel.innerHTML = '';
+            }
+        }
+
+        function toggleShareHints(button) {
+            var panelBody = button.closest('.panel-body');
+            if (!panelBody) {
+                return;
+            }
+            var hints = panelBody.querySelector('[data-share-hints]');
+            if (!hints) {
+                return;
+            }
+            hints.hidden = !hints.hidden;
+        }
+
+        function handleCopyPublicLink(button) {
+            if (!state.collectionId) {
+                return;
+            }
+            try {
+                var response = WebsiteSDK.copyCollectionPublicLink(state.collectionId);
+                if (!response || !response.success || !response.publicShareUrl) {
+                    setStatusMessage(response && response.message ? response.message : 'Unable to copy link.', 'error');
+                    return;
+                }
+                var url = response.publicShareUrl;
+                var copied = false;
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(url).then(function() {
+                        copied = true;
+                        setStatusMessage('Public link copied to clipboard.', 'success');
+                        var shareContainer = document.querySelector('[data-populate="collection-share-controls"]');
+                        renderShareControls(shareContainer);
+                    }).catch(function() {
+                        setStatusMessage('Public link: ' + url, 'info');
+                    });
+                } else {
+                    var textarea = document.createElement('textarea');
+                    textarea.value = url;
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    try {
+                        document.execCommand('copy');
+                        copied = true;
+                    } catch (e) {
+                        copied = false;
+                    }
+                    document.body.removeChild(textarea);
+                    if (copied) {
+                        setStatusMessage('Public link copied to clipboard.', 'success');
+                    } else {
+                        setStatusMessage('Public link: ' + url, 'info');
+                    }
+                    var shareContainer2 = document.querySelector('[data-populate="collection-share-controls"]');
+                    renderShareControls(shareContainer2);
+                }
+            } catch (e) {
+                setStatusMessage('Unable to copy public link.', 'error');
+            }
+        }
+
+        function handleSaveMetadata(form) {
+            if (!state.collectionId) {
+                return;
+            }
+            var titleInput = form.querySelector('#collectionTitleInput');
+            var descInput = form.querySelector('#collectionDescriptionInput');
+            var visibilitySelect = form.querySelector('#collectionVisibilitySelect');
+            var title = titleInput ? titleInput.value.trim() : '';
+            var description = descInput ? descInput.value.trim() : '';
+            var visibility = visibilitySelect ? visibilitySelect.value : '';
+            if (!title) {
+                setStatusMessage('Title is required.', 'error');
+                return;
+            }
+            try {
+                var response = WebsiteSDK.updateCollectionMetadata(state.collectionId, title, description, visibility);
+                if (!response || !response.success || !response.collection) {
+                    setStatusMessage('Unable to update collection metadata.', 'error');
+                    return;
+                }
+                state.currentCollection = response.collection;
+                var headerContainer = document.querySelector('[data-populate="collection-header"]');
+                renderCollectionHeader(headerContainer, state.currentCollection, false);
+                var shareContainer = document.querySelector('[data-populate="collection-share-controls"]');
+                renderShareControls(shareContainer);
+                updateBreadcrumb();
+                setStatusMessage('Collection updated.', 'success');
+            } catch (e) {
+                setStatusMessage('Unable to update collection metadata.', 'error');
+            }
+        }
+
+        function handleToggleVisibilityShortcut() {
+            if (!state.collectionId || !state.currentCollection) {
+                return;
+            }
+            var newVisibility = state.currentCollection.visibility === 'public' ? 'private' : 'public';
+            try {
+                var response = WebsiteSDK.updateCollectionMetadata(state.collectionId, state.currentCollection.title, state.currentCollection.description || '', newVisibility);
+                if (!response || !response.success || !response.collection) {
+                    setStatusMessage('Unable to change visibility.', 'error');
+                    return;
+                }
+                state.currentCollection = response.collection;
+                var headerContainer = document.querySelector('[data-populate="collection-header"]');
+                renderCollectionHeader(headerContainer, state.currentCollection, false);
+                var shareContainer = document.querySelector('[data-populate="collection-share-controls"]');
+                renderShareControls(shareContainer);
+                updateBreadcrumb();
+                setStatusMessage('Collection visibility updated to ' + newVisibility + '.', 'success');
+            } catch (e) {
+                setStatusMessage('Unable to change visibility.', 'error');
+            }
+        }
+
+        function handleBulkVisibilitySubmit(form) {
+            if (!state.selection || state.selection.size === 0) {
+                setStatusMessage('No bookmarks selected.', 'error');
+                return;
+            }
+            var visibility = 'public';
+            var radios = form.elements.visibility;
+            if (radios) {
+                if (radios.length) {
+                    for (var i = 0; i < radios.length; i++) {
+                        if (radios[i].checked) {
+                            visibility = radios[i].value;
+                            break;
+                        }
+                    }
+                } else if (radios.checked) {
+                    visibility = radios.value;
+                }
+            }
+            var ids = Array.from(state.selection);
+            try {
+                var result = WebsiteSDK.bulkChangeSavedBookmarkVisibility(ids, visibility);
+                if (!result || !result.success) {
+                    setStatusMessage('Bulk visibility change failed.', 'error');
+                    return;
+                }
+                closeBulkVisibilityModal();
+                state.selection.clear();
+                state.allItemsSelectedInCollection = false;
+                loadCollectionAndRender();
+                setStatusMessage('Visibility updated for ' + (result.updatedCount || ids.length) + ' bookmarks.', 'success');
+            } catch (e) {
+                setStatusMessage('Bulk visibility change failed.', 'error');
+            }
+        }
+
+        function handleMoveCopySubmit(form) {
+            if (!state.collectionId || !state.selection || state.selection.size === 0) {
+                setStatusMessage('No bookmarks selected.', 'error');
+                return;
+            }
+            var operation = 'copy';
+            var opRadios = form.elements.operation;
+            if (opRadios) {
+                if (opRadios.length) {
+                    for (var i = 0; i < opRadios.length; i++) {
+                        if (opRadios[i].checked) {
+                            operation = opRadios[i].value;
+                            break;
+                        }
+                    }
+                } else if (opRadios.checked) {
+                    operation = opRadios.value;
+                }
+            }
+            var targetMode = 'existing';
+            var modeRadios = form.elements.targetMode;
+            if (modeRadios) {
+                if (modeRadios.length) {
+                    for (var j = 0; j < modeRadios.length; j++) {
+                        if (modeRadios[j].checked) {
+                            targetMode = modeRadios[j].value;
+                            break;
+                        }
+                    }
+                } else if (modeRadios.checked) {
+                    targetMode = modeRadios.value;
+                }
+            }
+            var targetCollectionAction = { mode: targetMode };
+            if (targetMode === 'existing') {
+                var select = form.elements.targetCollectionId;
+                var targetId = select ? select.value : '';
+                if (!targetId) {
+                    setStatusMessage('Select a target collection.', 'error');
+                    return;
+                }
+                targetCollectionAction.collectionId = targetId;
+            } else {
+                var titleInput = form.elements.newCollectionTitle;
+                var newTitle = titleInput ? titleInput.value.trim() : '';
+                if (!newTitle) {
+                    setStatusMessage('Enter a title for the new collection.', 'error');
+                    return;
+                }
+                var visibilitySelect = form.elements.newCollectionVisibility;
+                var vis = visibilitySelect ? visibilitySelect.value : 'private';
+                targetCollectionAction.newCollectionTitle = newTitle;
+                targetCollectionAction.newCollectionVisibility = vis;
+            }
+            var ids = Array.from(state.selection);
+            var feedback = form.querySelector('[data-move-copy-feedback]');
+            try {
+                var result = WebsiteSDK.moveOrCopyCollectionItems(state.collectionId, ids, operation, targetCollectionAction);
+                if (!result || !result.success) {
+                    if (feedback) {
+                        feedback.textContent = 'Operation failed.';
+                    }
+                    setStatusMessage('Move/Copy operation failed.', 'error');
+                    return;
+                }
+                var message = result.message || 'Operation completed.';
+                if (feedback) {
+                    var extra = '';
+                    if (result.movedCount !== null && result.movedCount !== undefined) {
+                        extra += ' Moved: ' + result.movedCount + '.';
+                    }
+                    if (result.copiedCount !== null && result.copiedCount !== undefined) {
+                        extra += ' Copied: ' + result.copiedCount + '.';
+                    }
+                    feedback.innerHTML = '<p>' + escapeHtml(message + extra) + '</p>';
+                    if (result.targetCollectionId) {
+                        feedback.innerHTML += '<p><button type="button" class="btn btn-link btn-sm" data-action="navigate-to-target-collection" data-target-collection-id="' + escapeAttr(result.targetCollectionId) + '">View target collection</button></p>';
+                    }
+                }
+                state.selection.clear();
+                state.allItemsSelectedInCollection = false;
+                loadCollectionAndRender();
+                setStatusMessage('Move/Copy operation completed.', 'success');
+            } catch (e) {
+                if (feedback) {
+                    feedback.textContent = 'Operation failed.';
+                }
+                setStatusMessage('Move/Copy operation failed.', 'error');
+            }
+        }
+
+        function navigateToTargetCollection(targetId) {
+            if (!targetId) {
+                return;
+            }
+            window.location.href = 'collection_detail.html?collectionId=' + encodeURIComponent(targetId);
+        }
+
+        function initEventListeners() {
+            document.addEventListener('click', function(event) {
+                var target = event.target.closest('[data-action]');
+                if (!target) {
+                    return;
+                }
+                var action = target.getAttribute('data-action');
+                if (!action) {
+                    return;
+                }
+                if (action === 'enter-edit-metadata') {
+                    if (!state.currentCollection) {
+                        return;
+                    }
+                    var headerContainer = document.querySelector('[data-populate="collection-header"]');
+                    renderCollectionHeader(headerContainer, state.currentCollection, true);
+                } else if (action === 'cancel-edit-metadata') {
+                    if (!state.currentCollection) {
+                        return;
+                    }
+                    var headerContainer2 = document.querySelector('[data-populate="collection-header"]');
+                    renderCollectionHeader(headerContainer2, state.currentCollection, false);
+                } else if (action === 'toggle-visibility-shortcut') {
+                    handleToggleVisibilityShortcut();
+                } else if (action === 'clear-filters') {
+                    event.preventDefault();
+                    handleClearFilters();
+                } else if (action === 'change-page') {
+                    var pageStr = target.getAttribute('data-page');
+                    var page = parseInt(pageStr, 10);
+                    if (!isNaN(page)) {
+                        handleChangePage(page);
+                    }
+                } else if (action === 'prev-page') {
+                    handlePrevPage();
+                } else if (action === 'next-page') {
+                    handleNextPage();
+                } else if (action === 'toggle-item-selection') {
+                    var id = target.getAttribute('data-saved-bookmark-id');
+                    handleToggleItemSelection(id);
+                } else if (action === 'select-all-on-page') {
+                    handleSelectAllOnPage();
+                } else if (action === 'select-all-in-collection') {
+                    handleSelectAllInCollection();
+                } else if (action === 'quick-toggle-visibility') {
+                    var savedId = target.getAttribute('data-saved-bookmark-id');
+                    var currentVis = target.getAttribute('data-current-visibility') || 'private';
+                    var newVis = currentVis === 'public' ? 'private' : 'public';
+                    try {
+                        var res = WebsiteSDK.bulkChangeSavedBookmarkVisibility([savedId], newVis);
+                        if (!res || !res.success) {
+                            setStatusMessage('Unable to change visibility.', 'error');
+                            return;
+                        }
+                        setStatusMessage('Visibility updated.', 'success');
+                        loadCollectionAndRender();
+                    } catch (e) {
+                        setStatusMessage('Unable to change visibility.', 'error');
+                    }
+                } else if (action === 'bulk-change-visibility') {
+                    openBulkVisibilityModal();
+                } else if (action === 'bulk-move-copy') {
+                    openMoveCopyModal();
+                } else if (action === 'clear-selection') {
+                    state.selection.clear();
+                    state.allItemsSelectedInCollection = false;
+                    updateSelectionUI();
+                } else if (action === 'bulk-visibility-cancel') {
+                    closeBulkVisibilityModal();
+                } else if (action === 'move-copy-cancel') {
+                    closeMoveCopyModal();
+                } else if (action === 'reload-collection') {
+                    loadCollectionAndRender();
+                } else if (action === 'copy-public-link') {
+                    handleCopyPublicLink(target);
+                } else if (action === 'toggle-share-hints') {
+                    toggleShareHints(target);
+                } else if (action === 'navigate-to-target-collection') {
+                    var targetId = target.getAttribute('data-target-collection-id');
+                    navigateToTargetCollection(targetId);
+                }
+            });
+
+            document.addEventListener('change', function(event) {
+                var target = event.target;
+                if (!target) {
+                    return;
+                }
+                if (target.id === 'tagFilterSelect') {
+                    handleTagFilterChange(target.value);
+                } else if (target.id === 'sortBySelect') {
+                    handleSortChange(target.value);
+                } else if (target.id === 'visibilityFilterSelect') {
+                    handleVisibilityFilterChange(target.value);
+                }
+            });
+
+            document.addEventListener('submit', function(event) {
+                var form = event.target;
+                if (!form || !form.getAttribute) {
+                    return;
+                }
+                var action = form.getAttribute('data-action');
+                if (!action) {
+                    return;
+                }
+                if (action === 'filter-form') {
+                    event.preventDefault();
+                    handleSearchSubmit(form);
+                } else if (action === 'save-metadata') {
+                    event.preventDefault();
+                    handleSaveMetadata(form);
+                } else if (action === 'bulk-visibility-form') {
+                    event.preventDefault();
+                    handleBulkVisibilitySubmit(form);
+                } else if (action === 'move-copy-form') {
+                    event.preventDefault();
+                    handleMoveCopySubmit(form);
+                }
+            });
+
+            window.addEventListener('popstate', function() {
+                syncStateFromUrl();
+                loadCollectionAndRender();
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadFilterOptionsOnce();
+            syncStateFromUrl();
+            initEventListeners();
+            loadCollectionAndRender();
+        });
+    })();
+    </script>
+</body>
+</html>

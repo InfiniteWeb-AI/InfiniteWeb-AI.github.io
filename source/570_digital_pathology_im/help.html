@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Help &amp; User Guide - Digital Pathology Image Analysis Platform</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Provides searchable help topics and detailed articles about using the digital pathology image analysis platform, including workflows, terminology, troubleshooting, and links to related pages.">
+    
+    <link rel="stylesheet" href="help.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <div class="site-branding">
+                <span class="site-title">Digital Pathology Image Analysis</span>
+            </div>
+            <nav class="site-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html">Dashboard</a></li>
+                    <li><a href="projects.html">Projects</a></li>
+                    <li><a href="slide_library.html">Slide Library</a></li>
+                    <li><a href="analytics_biomarker_browser.html">Analytics</a></li>
+                    <li><a href="collections.html">Collections</a></li>
+                    <li><a href="cohorts.html">Cohorts</a></li>
+                    <li><a href="algorithms.html">Algorithms</a></li>
+                    <li><a href="qc_dashboard.html">QC</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id="content" class="site-content" role="main">
+        <div class="help-page" data-component="help-page-controller">
+            <nav class="help-breadcrumb" aria-label="Breadcrumb" data-component="help-breadcrumb-navigation">
+                <a href="index.html" data-action="back-to-dashboard">Dashboard</a> &gt;
+                <span>Help &amp; User Guide</span>
+            </nav>
+
+            <section class="help-header-block">
+                <h1 class="help-title">Help &amp; User Guide</h1>
+                <p class="help-description">Search and browse guides for workflows, terminology, troubleshooting, and navigation across the digital pathology image analysis platform.</p>
+            </section>
+
+            <section class="help-filters" data-component="help-topic-filters">
+                <form id="helpFiltersForm">
+                    <div class="help-filter-row">
+                        <label for="helpSearch">Search topics</label><br>
+                        <input type="search" id="helpSearch" name="q" autocomplete="off" />
+                    </div>
+                    <div class="help-filter-row">
+                        <label for="helpCategory">Category</label><br>
+                        <select id="helpCategory" name="category">
+                            <option value="">All categories</option>
+                            <!-- Options will be populated from help topics in JavaScript -->
+                        </select>
+                    </div>
+                    <div class="help-filter-row help-filter-actions">
+                        <button type="submit" data-action="search-submit">Apply</button>
+                        <button type="button" data-action="clear-filters">Clear</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="help-topics-section" aria-label="Help topics list">
+                <h2 class="help-topics-heading">Help topics</h2>
+                <div data-component="help-topic-list">
+                    <ul id="helpTopicsList" data-populate="help-topics" aria-label="Help topics"></ul>
+                    <p class="help-topics-empty" data-populate="help-topics-empty-message" hidden>No topics match your search and filters.</p>
+                    <p class="help-topics-error" data-populate="help-topics-error-message" hidden>Unable to load help topics.</p>
+                </div>
+            </section>
+
+            <section class="help-article-section" data-component="help-article-viewer" aria-label="Help article">
+                <header class="help-article-header">
+                    <h2 id="helpArticleTitle" data-populate="help-article-title"></h2>
+                    <button type="button" class="help-copy-link" data-component="help-deeplink-share" data-action="copy-article-link">Copy link to this article</button>
+                </header>
+                <article id="helpArticleBody" data-populate="help-article-body"></article>
+                <p class="help-article-loading" data-populate="help-article-loading-message" hidden>Loading article…</p>
+                <p class="help-article-error" data-populate="help-article-error-message" hidden>Unable to load this article. Please select another topic.</p>
+                <p class="help-article-placeholder" data-populate="help-article-placeholder-message" hidden>Select a help topic above to view detailed guidance.</p>
+            </section>
+
+            <section class="help-related-section" data-component="help-related-topics" aria-label="Related help topics">
+                <h3 class="help-related-heading">Related topics</h3>
+                <ul id="helpRelatedTopicsList" data-populate="help-related-topics"></ul>
+            </section>
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="about.html">About</a></li>
+                    <li><a href="help.html">Help &amp; User Guide</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">Digital pathology image analysis platform</p>
+        </div>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    (function() {
+        'use strict';
+
+        let allTopics = [];
+        let filteredTopics = [];
+        const topicIndexById = {};
+        let currentFilters = { q: '', category: '' };
+        let currentArticleId = null;
+        let lastLoadedArticleId = null;
+
+        let topicsListEl;
+        let topicsEmptyEl;
+        let topicsErrorEl;
+        let relatedListEl;
+        let articleTitleEl;
+        let articleBodyEl;
+        let articleLoadingEl;
+        let articleErrorEl;
+        let articlePlaceholderEl;
+        let searchInputEl;
+        let categorySelectEl;
+        let filtersFormEl;
+
+        function parseUrlState() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                articleId: params.get('articleId'),
+                q: params.get('q') || '',
+                category: params.get('category') || ''
+            };
+        }
+
+        function updateUrl(state, options) {
+            const settings = options || {};
+            const replace = !!settings.replace;
+            const params = new URLSearchParams(window.location.search);
+
+            if (state.articleId) {
+                params.set('articleId', state.articleId);
+            } else {
+                params.delete('articleId');
+            }
+
+            if (state.q && state.q.trim() !== '') {
+                params.set('q', state.q.trim());
+            } else {
+                params.delete('q');
+            }
+
+            if (state.category && state.category.trim() !== '') {
+                params.set('category', state.category.trim());
+            } else {
+                params.delete('category');
+            }
+
+            const search = params.toString();
+            const newUrl = search ? (window.location.pathname + '?' + search) : window.location.pathname;
+
+            if (replace) {
+                window.history.replaceState(null, '', newUrl);
+            } else {
+                window.history.pushState(null, '', newUrl);
+            }
+        }
+
+        function filterTopics(topics, q, category) {
+            const query = (q || '').toLowerCase().trim();
+            const cat = (category || '').trim();
+            return topics.filter(function(topic) {
+                if (cat && topic.category !== cat) {
+                    return false;
+                }
+                if (!query) {
+                    return true;
+                }
+                const title = (topic.title || '').toLowerCase();
+                const categoryText = (topic.category || '').toLowerCase();
+                return title.indexOf(query) !== -1 || categoryText.indexOf(query) !== -1;
+            });
+        }
+
+        function renderTopicList(container, emptyMessageEl, errorMessageEl, topics, selectedId) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+
+            if (errorMessageEl) {
+                errorMessageEl.hidden = true;
+            }
+
+            if (!topics || topics.length === 0) {
+                if (emptyMessageEl) {
+                    emptyMessageEl.hidden = false;
+                }
+                return;
+            }
+
+            if (emptyMessageEl) {
+                emptyMessageEl.hidden = true;
+            }
+
+            topics.forEach(function(topic) {
+                const li = document.createElement('li');
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.textContent = topic.title || '';
+                button.setAttribute('data-action', 'topic-click');
+                button.setAttribute('data-topic-id', topic.id || '');
+                if (selectedId && topic.id === selectedId) {
+                    button.setAttribute('aria-current', 'true');
+                }
+                li.appendChild(button);
+                container.appendChild(li);
+            });
+        }
+
+        function renderRelatedTopics(container, relatedTopics) {
+            if (!container) {
+                return;
+            }
+            container.innerHTML = '';
+
+            if (!relatedTopics || relatedTopics.length === 0) {
+                const li = document.createElement('li');
+                li.textContent = 'No related topics linked to this article.';
+                container.appendChild(li);
+                return;
+            }
+
+            relatedTopics.forEach(function(topic) {
+                const li = document.createElement('li');
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.textContent = topic.title || '';
+                button.setAttribute('data-action', 'topic-click');
+                button.setAttribute('data-topic-id', topic.id || '');
+                li.appendChild(button);
+                container.appendChild(li);
+            });
+        }
+
+        function clearArticleDisplay() {
+            if (articleTitleEl) {
+                articleTitleEl.textContent = '';
+            }
+            if (articleBodyEl) {
+                articleBodyEl.innerHTML = '';
+            }
+            if (articleErrorEl) {
+                articleErrorEl.hidden = true;
+            }
+            if (articleLoadingEl) {
+                articleLoadingEl.hidden = true;
+            }
+            if (articlePlaceholderEl) {
+                articlePlaceholderEl.hidden = false;
+            }
+            if (relatedListEl) {
+                relatedListEl.innerHTML = '';
+            }
+        }
+
+        function ensureSelectedArticleId(desiredArticleId, state) {
+            const s = state || currentFilters;
+            const filtered = filteredTopics;
+            let selected = null;
+
+            if (desiredArticleId && Object.prototype.hasOwnProperty.call(topicIndexById, desiredArticleId)) {
+                const topic = topicIndexById[desiredArticleId];
+                const matchesCategory = !s.category || topic.category === s.category;
+                const matchesQuery = !s.q || filterTopics([topic], s.q, s.category).length === 1;
+                if (matchesCategory && matchesQuery) {
+                    selected = desiredArticleId;
+                }
+            }
+
+            if (!selected && filtered && filtered.length > 0) {
+                selected = filtered[0].id;
+            }
+
+            return selected;
+        }
+
+        function getRelatedTopicsForArticle(article) {
+            if (!article || !Array.isArray(article.relatedTopicIds)) {
+                return [];
+            }
+            const results = [];
+            article.relatedTopicIds.forEach(function(id) {
+                if (Object.prototype.hasOwnProperty.call(topicIndexById, id)) {
+                    results.push(topicIndexById[id]);
+                }
+            });
+            return results;
+        }
+
+        function loadArticle(articleId, options) {
+            const settings = options || {};
+            if (!articleTitleEl || !articleBodyEl) {
+                return;
+            }
+
+            if (!articleId) {
+                lastLoadedArticleId = null;
+                clearArticleDisplay();
+                return;
+            }
+
+            if (articleLoadingEl) {
+                articleLoadingEl.hidden = false;
+            }
+            if (articleErrorEl) {
+                articleErrorEl.hidden = true;
+            }
+            if (articlePlaceholderEl) {
+                articlePlaceholderEl.hidden = true;
+            }
+            articleTitleEl.textContent = '';
+            articleBodyEl.innerHTML = '';
+
+            let article = null;
+            try {
+                article = WebsiteSDK.getHelpArticle(articleId);
+            } catch (e) {
+                console.error('Error loading help article', e);
+                if (articleLoadingEl) {
+                    articleLoadingEl.hidden = true;
+                }
+                if (articleErrorEl) {
+                    articleErrorEl.hidden = false;
+                }
+                if (relatedListEl) {
+                    relatedListEl.innerHTML = '';
+                }
+                lastLoadedArticleId = null;
+                return;
+            }
+
+            if (articleLoadingEl) {
+                articleLoadingEl.hidden = true;
+            }
+
+            if (!article || !article.id) {
+                if (articleErrorEl) {
+                    articleErrorEl.hidden = false;
+                }
+                if (relatedListEl) {
+                    relatedListEl.innerHTML = '';
+                }
+                lastLoadedArticleId = null;
+                return;
+            }
+
+            lastLoadedArticleId = article.id;
+
+            articleTitleEl.textContent = article.title || '';
+            const bodyHtml = article.body || '';
+            articleBodyEl.innerHTML = bodyHtml;
+
+            const relatedTopics = getRelatedTopicsForArticle(article);
+            renderRelatedTopics(relatedListEl, relatedTopics);
+        }
+
+        function syncControlsWithFilters() {
+            if (searchInputEl) {
+                searchInputEl.value = currentFilters.q || '';
+            }
+            if (categorySelectEl) {
+                categorySelectEl.value = currentFilters.category || '';
+            }
+        }
+
+        function populateCategoryOptions(topics) {
+            if (!categorySelectEl) {
+                return;
+            }
+            const seen = {};
+            topics.forEach(function(topic) {
+                const cat = topic.category || '';
+                if (!cat) {
+                    return;
+                }
+                if (!Object.prototype.hasOwnProperty.call(seen, cat)) {
+                    seen[cat] = true;
+                }
+            });
+            Object.keys(seen).sort().forEach(function(cat) {
+                const option = document.createElement('option');
+                option.value = cat;
+                const label = cat.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+                option.textContent = label;
+                categorySelectEl.appendChild(option);
+            });
+        }
+
+        function applyStateAndRender(options) {
+            const settings = options || {};
+            const desiredArticleId = settings.articleId != null ? settings.articleId : currentArticleId;
+
+            filteredTopics = filterTopics(allTopics, currentFilters.q, currentFilters.category);
+            const selectedId = ensureSelectedArticleId(desiredArticleId, currentFilters);
+            currentArticleId = selectedId;
+
+            renderTopicList(topicsListEl, topicsEmptyEl, topicsErrorEl, filteredTopics, currentArticleId);
+
+            if (settings.updateUrl !== false) {
+                updateUrl({
+                    articleId: currentArticleId,
+                    q: currentFilters.q,
+                    category: currentFilters.category
+                }, { replace: !!settings.replaceUrl });
+            }
+
+            loadArticle(currentArticleId, {});
+        }
+
+        function handleFiltersSubmit(event) {
+            if (event) {
+                event.preventDefault();
+            }
+            if (!searchInputEl || !categorySelectEl) {
+                return;
+            }
+            currentFilters.q = searchInputEl.value || '';
+            currentFilters.category = categorySelectEl.value || '';
+            applyStateAndRender({ updateUrl: true });
+        }
+
+        function handleCategoryChange() {
+            if (!categorySelectEl) {
+                return;
+            }
+            currentFilters.category = categorySelectEl.value || '';
+            applyStateAndRender({ updateUrl: true });
+        }
+
+        function handleClearFilters() {
+            currentFilters.q = '';
+            currentFilters.category = '';
+            syncControlsWithFilters();
+            applyStateAndRender({ updateUrl: true });
+        }
+
+        function handleTopicSelection(topicId) {
+            if (!topicId || topicId === currentArticleId) {
+                return;
+            }
+            if (!Object.prototype.hasOwnProperty.call(topicIndexById, topicId)) {
+                return;
+            }
+            currentArticleId = topicId;
+            renderTopicList(topicsListEl, topicsEmptyEl, topicsErrorEl, filteredTopics, currentArticleId);
+            updateUrl({
+                articleId: currentArticleId,
+                q: currentFilters.q,
+                category: currentFilters.category
+            }, { replace: false });
+            loadArticle(currentArticleId, {});
+        }
+
+        function handleCopyLinkClick() {
+            const url = window.location.href;
+            if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(url).catch(function(err) {
+                    console.warn('Clipboard write failed', err);
+                });
+            } else {
+                const tempInput = document.createElement('input');
+                tempInput.type = 'text';
+                tempInput.value = url;
+                document.body.appendChild(tempInput);
+                tempInput.select();
+                try {
+                    document.execCommand('copy');
+                } catch (e) {
+                    console.warn('Copy command failed', e);
+                }
+                document.body.removeChild(tempInput);
+            }
+        }
+
+        function handlePopState() {
+            if (!allTopics || allTopics.length === 0) {
+                return;
+            }
+            const state = parseUrlState();
+            currentFilters.q = state.q || '';
+            currentFilters.category = state.category || '';
+            syncControlsWithFilters();
+            filteredTopics = filterTopics(allTopics, currentFilters.q, currentFilters.category);
+            const selectedId = ensureSelectedArticleId(state.articleId, currentFilters);
+            currentArticleId = selectedId;
+            renderTopicList(topicsListEl, topicsEmptyEl, topicsErrorEl, filteredTopics, currentArticleId);
+            loadArticle(currentArticleId, {});
+        }
+
+        function setupGenericActionHandler() {
+            document.addEventListener('click', function(event) {
+                const target = event.target.closest('[data-action]');
+                if (!target) {
+                    return;
+                }
+                const action = target.getAttribute('data-action');
+                if (!action) {
+                    return;
+                }
+
+                if (action === 'search-submit') {
+                    event.preventDefault();
+                    handleFiltersSubmit(event);
+                } else if (action === 'clear-filters') {
+                    event.preventDefault();
+                    handleClearFilters();
+                } else if (action === 'topic-click') {
+                    event.preventDefault();
+                    const topicId = target.getAttribute('data-topic-id');
+                    handleTopicSelection(topicId);
+                } else if (action === 'copy-article-link') {
+                    event.preventDefault();
+                    handleCopyLinkClick();
+                } else if (action === 'back-to-dashboard') {
+                    // Let the anchor's href handle navigation; no additional logic required.
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            topicsListEl = document.querySelector('[data-populate="help-topics"]');
+            topicsEmptyEl = document.querySelector('[data-populate="help-topics-empty-message"]');
+            topicsErrorEl = document.querySelector('[data-populate="help-topics-error-message"]');
+            relatedListEl = document.querySelector('[data-populate="help-related-topics"]');
+            articleTitleEl = document.querySelector('[data-populate="help-article-title"]');
+            articleBodyEl = document.querySelector('[data-populate="help-article-body"]');
+            articleLoadingEl = document.querySelector('[data-populate="help-article-loading-message"]');
+            articleErrorEl = document.querySelector('[data-populate="help-article-error-message"]');
+            articlePlaceholderEl = document.querySelector('[data-populate="help-article-placeholder-message"]');
+            searchInputEl = document.getElementById('helpSearch');
+            categorySelectEl = document.getElementById('helpCategory');
+            filtersFormEl = document.getElementById('helpFiltersForm');
+
+            if (filtersFormEl) {
+                filtersFormEl.addEventListener('submit', handleFiltersSubmit);
+            }
+            if (categorySelectEl) {
+                categorySelectEl.addEventListener('change', handleCategoryChange);
+            }
+
+            setupGenericActionHandler();
+            window.addEventListener('popstate', handlePopState);
+
+            const initialState = parseUrlState();
+            currentFilters.q = initialState.q || '';
+            currentFilters.category = initialState.category || '';
+            syncControlsWithFilters();
+
+            try {
+                const topicsResponse = WebsiteSDK.getHelpTopics();
+                if (topicsResponse && Array.isArray(topicsResponse.topics)) {
+                    allTopics = topicsResponse.topics.slice();
+                } else {
+                    allTopics = [];
+                }
+            } catch (e) {
+                console.error('Error loading help topics', e);
+                allTopics = [];
+                if (topicsErrorEl) {
+                    topicsErrorEl.hidden = false;
+                }
+            }
+
+            allTopics.forEach(function(topic) {
+                if (topic && topic.id) {
+                    topicIndexById[topic.id] = topic;
+                }
+            });
+
+            populateCategoryOptions(allTopics);
+
+            if (!allTopics || allTopics.length === 0) {
+                renderTopicList(topicsListEl, topicsEmptyEl, topicsErrorEl, [], null);
+                clearArticleDisplay();
+                return;
+            }
+
+            filteredTopics = filterTopics(allTopics, currentFilters.q, currentFilters.category);
+            currentArticleId = ensureSelectedArticleId(initialState.articleId, currentFilters);
+
+            renderTopicList(topicsListEl, topicsEmptyEl, topicsErrorEl, filteredTopics, currentArticleId);
+
+            updateUrl({
+                articleId: currentArticleId,
+                q: currentFilters.q,
+                category: currentFilters.category
+            }, { replace: true });
+
+            loadArticle(currentArticleId, {});
+        });
+    })();
+    </script>
+</body>
+</html>

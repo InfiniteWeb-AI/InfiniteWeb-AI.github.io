@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Domain Registrar Layout</title>
+
+    <!-- Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=IBM+Plex+Sans:wght@300;400;500;600&amp;display=swap" rel="stylesheet" />
+
+    <!-- Framework styles -->
+    <link rel="stylesheet" href="framework.css" />
+    <!-- Page styles -->
+    <link rel="stylesheet" href="domain_overview.css" />
+</head>
+<body class="layout-body">
+    <header class="site-header" role="banner">
+        <div class="header-inner">
+            <div class="brand-lockup" aria-label="Site identity">
+                <span class="brand-mark"></span>
+                <span class="brand-text">Parked Domains</span>
+            </div>
+            <nav class="main-nav" aria-label="Primary navigation">
+                <ul class="nav-list">
+                    <li class="nav-item">
+                        <a href="index.html" class="nav-link">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="domain_search.html" class="nav-link">Search Domains</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="domain_list.html" class="nav-link">My Domains</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="pricing.html" class="nav-link">Pricing</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="help.html" class="nav-link">Help</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="cart.html" class="nav-link">Cart</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id="content" class="site-main" role="main">
+        <div class="page-bg-teal">
+            <div class="domain-overview-column" data-component="domain-overview-page">
+                <!-- Loading state -->
+                <section class="centered-state overview-loading" data-component="overview-loading-indicator" aria-label="Loading domain overview">
+                    <div class="state-card">
+                        <div class="spinner" aria-hidden="true"></div>
+                        <p class="state-message">Loading domain overview</p>
+                    </div>
+                </section>
+
+                <!-- Error / empty state -->
+                <section class="centered-state overview-error is-hidden" data-component="overview-error-state" aria-live="polite">
+                    <div class="state-card state-card-error">
+                        <h1 class="state-title">Unable to load domain</h1>
+                        <p class="state-message" data-role="error-message">No domain selected. Open this page from My Domains to manage a domain.</p>
+                        <button type="button" class="primary-button" data-action="retry-load">Retry</button>
+                    </div>
+                </section>
+
+                <!-- Main overview content (hidden until data is loaded) -->
+                <div class="domain-overview-stack is-hidden" data-component="domain-overview-stack">
+                    <!-- Hero-style domain summary header -->
+                    <section data-component="domain-summary-header" data-populate="domain-summary-header"></section>
+
+                    <!-- Management tabs -->
+                    <nav data-component="domain-management-tabs" data-populate="domain-management-tabs" aria-label="Domain management sections"></nav>
+
+                    <!-- Renewal summary panel -->
+                    <section data-component="renewal-summary-panel" data-populate="renewal-summary-panel"></section>
+
+                    <!-- DNS summary panel -->
+                    <section data-component="dns-summary-panel" data-populate="dns-summary-panel"></section>
+
+                    <!-- Nameserver feedback banner -->
+                    <section data-component="nameserver-feedback-banner" data-populate="nameserver-feedback-banner" class="is-hidden"></section>
+
+                    <!-- Nameserver settings form -->
+                    <section data-component="nameserver-settings-form" data-populate="nameserver-settings-form"></section>
+
+                    <!-- Forwarding summary panel -->
+                    <section data-component="forwarding-summary-panel" data-populate="forwarding-summary-panel"></section>
+
+                    <!-- Parked page summary panel -->
+                    <section data-component="parked-page-summary-panel" data-populate="parked-page-summary-panel"></section>
+
+                    <!-- Add-ons summary list -->
+                    <section data-component="addons-summary-list" data-populate="addons-summary-list"></section>
+                </div>
+            </div>
+        </div>
+
+        <!-- SDK / business logic -->
+        <script src="business_logic.js"></script>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var urlParams = new URLSearchParams(window.location.search);
+            var currentDomainId = urlParams.get('domainId') || '';
+
+            var loadingSection = document.querySelector('[data-component="overview-loading-indicator"]');
+            var errorSection = document.querySelector('[data-component="overview-error-state"]');
+            var errorMessageNode = errorSection ? errorSection.querySelector('[data-role="error-message"]') : null;
+            var retryButton = errorSection ? errorSection.querySelector('[data-action="retry-load"]') : null;
+            var stackContainer = document.querySelector('[data-component="domain-overview-stack"]');
+
+            var nameserverFormContainer = document.querySelector('[data-populate="nameserver-settings-form"]');
+            var nameserverFeedbackContainer = document.querySelector('[data-populate="nameserver-feedback-banner"]');
+
+            var overviewData = null; // { domain, renewal_setting, addon_subscriptions, parked_page_settings, dns_record_count, forwarding_rule_count }
+            var nameserverState = { list: [], saving: false };
+            var feedbackState = null; // { type: 'success' | 'error', message: string }
+
+            function setVisibility(element, visible) {
+                if (!element) return;
+                if (visible) {
+                    element.classList.remove('is-hidden');
+                } else {
+                    element.classList.add('is-hidden');
+                }
+            }
+
+            function showLoading() {
+                setVisibility(loadingSection, true);
+                setVisibility(stackContainer, false);
+            }
+
+            function hideLoading() {
+                setVisibility(loadingSection, false);
+            }
+
+            function showError(message, allowRetry) {
+                if (!errorSection) return;
+                if (errorMessageNode) {
+                    errorMessageNode.textContent = message;
+                }
+                setVisibility(errorSection, true);
+                if (retryButton) {
+                    if (allowRetry) {
+                        retryButton.classList.remove('is-hidden');
+                        retryButton.removeAttribute('disabled');
+                    } else {
+                        retryButton.classList.add('is-hidden');
+                        retryButton.setAttribute('disabled', 'disabled');
+                    }
+                }
+            }
+
+            function hideError() {
+                setVisibility(errorSection, false);
+            }
+
+            function showMain() {
+                setVisibility(stackContainer, true);
+            }
+
+            function clearStateForDomain() {
+                overviewData = null;
+                nameserverState = { list: [], saving: false };
+                feedbackState = null;
+            }
+
+            function safeDate(value) {
+                if (!value) return 'N/A';
+                var d = new Date(value);
+                if (isNaN(d.getTime())) return 'N/A';
+                return d.toLocaleDateString();
+            }
+
+            function initNameserverStateFromDomain() {
+                var domain = overviewData && overviewData.domain;
+                if (!domain) {
+                    nameserverState.list = [];
+                    return;
+                }
+                var arr = Array.isArray(domain.nameservers) ? domain.nameservers.slice() : [];
+                if (!arr.length) {
+                    // Start with two empty rows to encourage at least ns1/ns2
+                    arr = ['', ''];
+                }
+                nameserverState.list = arr;
+            }
+
+            function loadDomainOverview(domainId) {
+                currentDomainId = domainId || '';
+                clearStateForDomain();
+
+                if (!currentDomainId) {
+                    hideLoading();
+                    setVisibility(stackContainer, false);
+                    showError('No domain selected. Open this page from My Domains, the Dashboard, or an order confirmation to manage a domain.', false);
+                    return;
+                }
+
+                hideError();
+                showLoading();
+
+                try {
+                    var result = WebsiteSDK.getDomainOverview(currentDomainId);
+                    overviewData = result || null;
+
+                    if (!overviewData || !overviewData.domain) {
+                        hideLoading();
+                        setVisibility(stackContainer, false);
+                        showError('Domain not found. The selected domain could not be loaded.', true);
+                        return;
+                    }
+
+                    initNameserverStateFromDomain();
+                    hideLoading();
+                    hideError();
+                    showMain();
+                    renderAll();
+                } catch (err) {
+                    console.error(err);
+                    hideLoading();
+                    setVisibility(stackContainer, false);
+                    showError('Something went wrong while loading this domain. Please try again.', true);
+                }
+            }
+
+            function renderDomainSummary(container) {
+                if (!overviewData || !overviewData.domain) {
+                    container.innerHTML = '';
+                    return;
+                }
+                var domain = overviewData.domain;
+                var dnsCount = typeof overviewData.dns_record_count === 'number' ? overviewData.dns_record_count : 0;
+                var hasCustomDns = !!domain.has_custom_dns;
+                var forwardingCount = typeof overviewData.forwarding_rule_count === 'number' ? overviewData.forwarding_rule_count : 0;
+
+                var statusLabelMap = {
+                    active: 'Active',
+                    expired: 'Expired',
+                    pending_setup: 'Pending setup',
+                    parked: 'Parked',
+                    forwarding_only: 'Forwarding only'
+                };
+                var statusKey = domain.status || 'unknown';
+                var statusLabel = statusLabelMap[statusKey] || statusKey;
+
+                var term = domain.registration_term_years;
+                var registrationTerm = term ? term + (term === 1 ? ' year' : ' years') : 'N/A';
+                var registrationStart = safeDate(domain.registration_start);
+                var registrationEnd = safeDate(domain.registration_end);
+
+                var dnsSummary = hasCustomDns ? 'Custom DNS' : 'Default DNS';
+                var parkedLabel = domain.is_parked ? 'Parked page enabled' : 'No parked page configured';
+                var forwardingLabel = forwardingCount > 0
+                    ? forwardingCount + ' forwarding rule' + (forwardingCount === 1 ? '' : 's')
+                    : 'No forwarding rules';
+
+                container.innerHTML = `
+                    <div class="card domain-summary-header-card">
+                        <div class="domain-summary-header-main">
+                            <div class="domain-summary-title-row">
+                                <h1 class="domain-name">${domain.domain_name || ''}</h1>
+                                <span class="domain-status-tag domain-status-${statusKey}">${statusLabel}</span>
+                            </div>
+                            <div class="domain-summary-meta">
+                                <div class="meta-item">
+                                    <span class="meta-label">Registered</span>
+                                    <span class="meta-value">${registrationStart}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">Expires</span>
+                                    <span class="meta-value">${registrationEnd}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">Term</span>
+                                    <span class="meta-value">${registrationTerm}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="domain-summary-secondary">
+                            <div class="domain-summary-traffic">
+                                <div class="meta-item">
+                                    <span class="meta-label">DNS</span>
+                                    <span class="meta-value">${dnsSummary} b7 ${dnsCount} record${dnsCount === 1 ? '' : 's'}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">Forwarding</span>
+                                    <span class="meta-value">${forwardingLabel}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">Parking</span>
+                                    <span class="meta-value">${parkedLabel}</span>
+                                </div>
+                            </div>
+                            <button type="button" class="icon-button" data-action="refresh-overview" aria-label="Reload domain overview">
+                                <span class="icon icon-refresh" aria-hidden="true"></span>
+                                <span class="icon-button-text">Reload</span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderDomainTabs(container) {
+                if (!overviewData || !overviewData.domain) {
+                    container.innerHTML = '';
+                    return;
+                }
+                container.innerHTML = `
+                    <div class="card domain-tabs-card" data-component="domain-management-tabs-inner">
+                        <ul class="domain-tabs-list" role="tablist">
+                            <li class="domain-tab-item" role="presentation">
+                                <button type="button" class="domain-tab is-active" data-action="nav-overview" aria-current="page">Overview</button>
+                            </li>
+                            <li class="domain-tab-item" role="presentation">
+                                <button type="button" class="domain-tab" data-action="nav-dns">DNS</button>
+                            </li>
+                            <li class="domain-tab-item" role="presentation">
+                                <button type="button" class="domain-tab" data-action="nav-forwarding">Forwarding</button>
+                            </li>
+                            <li class="domain-tab-item" role="presentation">
+                                <button type="button" class="domain-tab" data-action="nav-parked-page">Parked Page</button>
+                            </li>
+                            <li class="domain-tab-item" role="presentation">
+                                <button type="button" class="domain-tab" data-action="nav-addons">Add-ons</button>
+                            </li>
+                            <li class="domain-tab-item" role="presentation">
+                                <button type="button" class="domain-tab" data-action="nav-renewal">Renewal</button>
+                            </li>
+                        </ul>
+                    </div>
+                `;
+            }
+
+            function renderRenewalSummary(container) {
+                if (!overviewData || !overviewData.domain) {
+                    container.innerHTML = '';
+                    return;
+                }
+                var domain = overviewData.domain;
+                var renewal = overviewData.renewal_setting || null;
+
+                var renewalType = renewal ? renewal.renewal_type : null;
+                var renewalTypeLabel = renewalType === 'auto' ? 'Auto-renew' : (renewalType === 'manual' ? 'Manual renewal' : 'N/A');
+                var renewalTermYears = renewal ? renewal.renewal_term_years : null;
+                var renewalTermLabel = renewalTermYears ? (renewalTermYears + (renewalTermYears === 1 ? ' year' : ' years')) : 'N/A';
+                var expiresOn = safeDate(domain.registration_end);
+
+                container.innerHTML = `
+                    <div class="card renewal-summary-card">
+                        <div class="card-header">
+                            <h2 class="card-title">Renewal settings</h2>
+                            <p class="card-subtitle">Control how this domain renews when it reaches its expiration date.</p>
+                        </div>
+                        <div class="card-body renewal-summary-body">
+                            <div class="renewal-summary-grid">
+                                <div class="renewal-item">
+                                    <span class="meta-label">Renewal type</span>
+                                    <span class="meta-value">${renewalTypeLabel}</span>
+                                </div>
+                                <div class="renewal-item">
+                                    <span class="meta-label">Renewal term</span>
+                                    <span class="meta-value">${renewalTermLabel}</span>
+                                </div>
+                                <div class="renewal-item">
+                                    <span class="meta-label">Current expiration</span>
+                                    <span class="meta-value">${expiresOn}</span>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <button type="button" class="link-button" data-action="nav-renewal">Manage renewal settings</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderDnsSummary(container) {
+                if (!overviewData || !overviewData.domain) {
+                    container.innerHTML = '';
+                    return;
+                }
+                var domain = overviewData.domain;
+                var dnsCount = typeof overviewData.dns_record_count === 'number' ? overviewData.dns_record_count : 0;
+                var hasCustomDns = !!domain.has_custom_dns;
+                var dnsSummary = hasCustomDns ? 'Custom DNS' : 'Default DNS';
+
+                container.innerHTML = `
+                    <div class="card dns-summary-card">
+                        <div class="card-header">
+                            <h2 class="card-title">DNS summary</h2>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-line"><span class="meta-label">Mode:</span> <span class="meta-value">${dnsSummary}</span></p>
+                            <p class="card-line"><span class="meta-label">Records:</span> <span class="meta-value">${dnsCount} record${dnsCount === 1 ? '' : 's'}</span></p>
+                            <div class="card-actions">
+                                <button type="button" class="link-button" data-action="nav-dns">Manage DNS</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderNameserverFeedback(container) {
+                if (!feedbackState || !feedbackState.message) {
+                    container.innerHTML = '';
+                    container.classList.add('is-hidden');
+                    return;
+                }
+                var isError = feedbackState.type === 'error';
+                var bannerClass = isError ? 'feedback-banner-error' : 'feedback-banner-success';
+                container.classList.remove('is-hidden');
+                container.innerHTML = `
+                    <div class="feedback-banner ${bannerClass}">
+                        <div class="feedback-banner-content">
+                            <span class="feedback-indicator" aria-hidden="true"></span>
+                            <p class="feedback-message">${feedbackState.message}</p>
+                        </div>
+                        <button type="button" class="link-button feedback-dismiss" data-action="dismiss-nameserver-feedback" aria-label="Dismiss message">
+                            Dismiss
+                        </button>
+                    </div>
+                `;
+            }
+
+            function renderNameserverSettings(container) {
+                if (!overviewData || !overviewData.domain) {
+                    container.innerHTML = '';
+                    return;
+                }
+                var disabledAttr = nameserverState.saving ? 'disabled' : '';
+                var rowsHtml = '';
+                for (var i = 0; i < nameserverState.list.length; i++) {
+                    var value = nameserverState.list[i] || '';
+                    var canRemove = nameserverState.list.length > 1 && !nameserverState.saving;
+                    rowsHtml += `
+                        <div class="form-row nameserver-row">
+                            <label class="field-label" for="ns-${i}">Nameserver ${i + 1}</label>
+                            <div class="field-control">
+                                <input
+                                    id="ns-${i}"
+                                    name="nameserver-${i}"
+                                    type="text"
+                                    class="text-input nameserver-input"
+                                    data-nameserver-index="${i}"
+                                    value="${value}"
+                                    ${nameserverState.saving ? 'disabled' : ''}
+                                    autocomplete="off"
+                                    inputmode="url"
+                                />
+                                <button
+                                    type="button"
+                                    class="link-button remove-nameserver"
+                                    data-action="remove-nameserver-row"
+                                    data-index="${i}"
+                                    ${canRemove ? '' : 'disabled'}
+                                >
+                                    Remove
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                container.innerHTML = `
+                    <div class="card nameserver-card">
+                        <div class="card-header">
+                            <h2 class="card-title">Nameserver settings</h2>
+                            <p class="card-subtitle">Update the nameservers for this domain to point at your DNS provider.</p>
+                        </div>
+                        <form class="nameserver-form" data-action="submit-nameservers">
+                            <div class="nameserver-rows">
+                                ${rowsHtml}
+                            </div>
+                            <div class="nameserver-form-footer">
+                                <button type="button" class="link-button add-nameserver" data-action="add-nameserver-row" ${disabledAttr}>
+                                    + Add nameserver
+                                </button>
+                                <button type="submit" class="primary-button" ${disabledAttr}>
+                                    ${nameserverState.saving ? 'Saving...' : 'Save nameservers'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                `;
+            }
+
+            function renderForwardingSummary(container) {
+                if (!overviewData || !overviewData.domain) {
+                    container.innerHTML = '';
+                    return;
+                }
+                var domain = overviewData.domain;
+                var count = typeof overviewData.forwarding_rule_count === 'number' ? overviewData.forwarding_rule_count : 0;
+                var countLabel = count > 0
+                    ? count + ' active rule' + (count === 1 ? '' : 's')
+                    : 'No forwarding rules configured';
+                var statusNote = domain.status === 'forwarding_only' ? 'This domain is configured as forwarding-only.' : '';
+
+                container.innerHTML = `
+                    <div class="card forwarding-summary-card">
+                        <div class="card-header">
+                            <h2 class="card-title">Forwarding</h2>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-line"><span class="meta-label">HTTP forwarding:</span> <span class="meta-value">${countLabel}</span></p>
+                            ${statusNote ? `<p class="card-line card-note">${statusNote}</p>` : ''}
+                            <div class="card-actions">
+                                <button type="button" class="link-button" data-action="nav-forwarding">Configure forwarding</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderParkedPageSummary(container) {
+                if (!overviewData || !overviewData.domain) {
+                    container.innerHTML = '';
+                    return;
+                }
+                var domain = overviewData.domain;
+                var settings = overviewData.parked_page_settings || null;
+
+                var enabled = settings ? settings.enabled : !!domain.is_parked;
+                var enabledLabel = enabled ? 'Enabled' : 'Disabled';
+                var templateCode = settings && settings.template_code ? settings.template_code : null;
+                var templateLabelMap = {
+                    minimal_ads: 'Minimal Ads',
+                    clean_landing: 'Clean Landing',
+                    standard_ads: 'Standard Ads'
+                };
+                var templateLabel = templateCode ? (templateLabelMap[templateCode] || templateCode) : 'N/A';
+                var languageMap = { en: 'English', es: 'Spanish', fr: 'French', de: 'German' };
+                var languageLabel = settings && settings.language ? (languageMap[settings.language] || settings.language) : 'N/A';
+                var showAds = settings && typeof settings.show_ads === 'boolean' ? settings.show_ads : null;
+                var adsLabel = showAds === null ? 'N/A' : (showAds ? 'Ads shown' : 'Ads hidden');
+
+                container.innerHTML = `
+                    <div class="card parked-page-summary-card">
+                        <div class="card-header">
+                            <h2 class="card-title">Parked page</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="parked-summary-grid">
+                                <div class="parked-item">
+                                    <span class="meta-label">Status</span>
+                                    <span class="meta-value">${enabledLabel}</span>
+                                </div>
+                                <div class="parked-item">
+                                    <span class="meta-label">Template</span>
+                                    <span class="meta-value">${templateLabel}</span>
+                                </div>
+                                <div class="parked-item">
+                                    <span class="meta-label">Language</span>
+                                    <span class="meta-value">${languageLabel}</span>
+                                </div>
+                                <div class="parked-item">
+                                    <span class="meta-label">Ads</span>
+                                    <span class="meta-value">${adsLabel}</span>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <button type="button" class="link-button" data-action="nav-parked-page">Manage landing page</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderAddonsSummary(container) {
+                if (!overviewData) {
+                    container.innerHTML = '';
+                    return;
+                }
+                var subscriptions = Array.isArray(overviewData.addon_subscriptions) ? overviewData.addon_subscriptions : [];
+                var itemsHtml = '';
+
+                if (!subscriptions.length) {
+                    itemsHtml = '<p class="card-line">No add-ons are active for this domain.</p>';
+                } else {
+                    var addonNameMap = {
+                        whois_privacy: 'WHOIS Privacy',
+                        email_forwarding: 'Email Forwarding'
+                    };
+                    var statusLabelMap = {
+                        active: 'Active',
+                        pending_activation: 'Pending activation',
+                        cancelled: 'Cancelled'
+                    };
+                    for (var i = 0; i < subscriptions.length; i++) {
+                        var sub = subscriptions[i];
+                        var addonCode = sub.addon_code;
+                        var addonName = addonNameMap[addonCode] || addonCode;
+                        var statusLabel = statusLabelMap[sub.status] || sub.status;
+                        var start = safeDate(sub.start_date);
+                        var end = safeDate(sub.end_date);
+                        var autoRenewLabel = typeof sub.auto_renew === 'boolean'
+                            ? (sub.auto_renew ? 'Auto-renews with domain' : 'Does not auto-renew')
+                            : 'N/A';
+                        itemsHtml += `
+                            <li class="addon-item">
+                                <div class="addon-main">
+                                    <span class="addon-name">${addonName}</span>
+                                    <span class="addon-status addon-status-${sub.status}">${statusLabel}</span>
+                                </div>
+                                <div class="addon-meta-row">
+                                    <span class="meta-label">Start:</span>
+                                    <span class="meta-value">${start}</span>
+                                    <span class="meta-separator">b7</span>
+                                    <span class="meta-label">End:</span>
+                                    <span class="meta-value">${end}</span>
+                                    <span class="meta-separator">b7</span>
+                                    <span class="meta-label">Renewal:</span>
+                                    <span class="meta-value">${autoRenewLabel}</span>
+                                </div>
+                            </li>
+                        `;
+                    }
+                }
+
+                container.innerHTML = `
+                    <div class="card addons-summary-card">
+                        <div class="card-header">
+                            <h2 class="card-title">Add-ons</h2>
+                        </div>
+                        <div class="card-body">
+                            <ul class="addons-list">
+                                ${itemsHtml}
+                            </ul>
+                            <div class="card-actions">
+                                <button type="button" class="link-button" data-action="nav-addons">Manage add-ons</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderAll() {
+                var elements = document.querySelectorAll('[data-populate]');
+                for (var i = 0; i < elements.length; i++) {
+                    var el = elements[i];
+                    var key = el.dataset.populate;
+                    if (key === 'domain-summary-header') {
+                        renderDomainSummary(el);
+                    } else if (key === 'domain-management-tabs') {
+                        renderDomainTabs(el);
+                    } else if (key === 'renewal-summary-panel') {
+                        renderRenewalSummary(el);
+                    } else if (key === 'dns-summary-panel') {
+                        renderDnsSummary(el);
+                    } else if (key === 'nameserver-feedback-banner') {
+                        renderNameserverFeedback(el);
+                    } else if (key === 'nameserver-settings-form') {
+                        renderNameserverSettings(el);
+                    } else if (key === 'forwarding-summary-panel') {
+                        renderForwardingSummary(el);
+                    } else if (key === 'parked-page-summary-panel') {
+                        renderParkedPageSummary(el);
+                    } else if (key === 'addons-summary-list') {
+                        renderAddonsSummary(el);
+                    }
+                }
+            }
+
+            function navigateTo(target) {
+                if (!overviewData || !overviewData.domain) return;
+                var id = overviewData.domain.id || currentDomainId;
+                if (!id) return;
+                var filename = null;
+                if (target === 'dns') {
+                    filename = 'domain_dns.html';
+                } else if (target === 'forwarding') {
+                    filename = 'domain_forwarding.html';
+                } else if (target === 'parked-page') {
+                    filename = 'domain_parked_page.html';
+                } else if (target === 'addons') {
+                    filename = 'domain_addons.html';
+                } else if (target === 'renewal') {
+                    filename = 'domain_renewal.html';
+                } else if (target === 'overview') {
+                    // Already on overview; no navigation needed.
+                    return;
+                }
+                if (filename) {
+                    window.location.href = filename + '?domainId=' + encodeURIComponent(id);
+                }
+            }
+
+            // Event delegation for clicks
+            document.addEventListener('click', function(evt) {
+                var actionEl = evt.target.closest('[data-action]');
+                if (!actionEl) return;
+                var action = actionEl.dataset.action;
+
+                if (action === 'retry-load') {
+                    evt.preventDefault();
+                    if (currentDomainId) {
+                        loadDomainOverview(currentDomainId);
+                    }
+                } else if (action === 'refresh-overview') {
+                    evt.preventDefault();
+                    if (currentDomainId) {
+                        loadDomainOverview(currentDomainId);
+                    }
+                } else if (action === 'nav-overview') {
+                    evt.preventDefault();
+                    // Stay on this page; nothing to do.
+                } else if (action === 'nav-dns') {
+                    evt.preventDefault();
+                    navigateTo('dns');
+                } else if (action === 'nav-forwarding') {
+                    evt.preventDefault();
+                    navigateTo('forwarding');
+                } else if (action === 'nav-parked-page') {
+                    evt.preventDefault();
+                    navigateTo('parked-page');
+                } else if (action === 'nav-addons') {
+                    evt.preventDefault();
+                    navigateTo('addons');
+                } else if (action === 'nav-renewal') {
+                    evt.preventDefault();
+                    navigateTo('renewal');
+                } else if (action === 'add-nameserver-row') {
+                    evt.preventDefault();
+                    if (nameserverState.saving) return;
+                    nameserverState.list.push('');
+                    if (nameserverFormContainer) {
+                        renderNameserverSettings(nameserverFormContainer);
+                    }
+                } else if (action === 'remove-nameserver-row') {
+                    evt.preventDefault();
+                    if (nameserverState.saving) return;
+                    var indexStr = actionEl.dataset.index;
+                    var idx = typeof indexStr === 'string' ? parseInt(indexStr, 10) : NaN;
+                    if (!isNaN(idx) && idx >= 0 && idx < nameserverState.list.length) {
+                        nameserverState.list.splice(idx, 1);
+                        if (!nameserverState.list.length) {
+                            nameserverState.list.push('');
+                        }
+                        if (nameserverFormContainer) {
+                            renderNameserverSettings(nameserverFormContainer);
+                        }
+                    }
+                } else if (action === 'dismiss-nameserver-feedback') {
+                    evt.preventDefault();
+                    feedbackState = null;
+                    if (nameserverFeedbackContainer) {
+                        renderNameserverFeedback(nameserverFeedbackContainer);
+                    }
+                }
+            });
+
+            // Track nameserver input changes into local state
+            document.addEventListener('input', function(evt) {
+                var input = evt.target;
+                if (!input || !input.classList.contains('nameserver-input')) return;
+                var indexStr = input.dataset.nameserverIndex;
+                var idx = typeof indexStr === 'string' ? parseInt(indexStr, 10) : NaN;
+                if (!isNaN(idx) && idx >= 0) {
+                    nameserverState.list[idx] = input.value;
+                }
+            });
+
+            // Handle nameserver form submit
+            document.addEventListener('submit', function(evt) {
+                var form = evt.target;
+                if (!form || form.dataset.action !== 'submit-nameservers') return;
+                evt.preventDefault();
+                if (!overviewData || !overviewData.domain || !currentDomainId) return;
+
+                nameserverState.saving = true;
+                if (nameserverFormContainer) {
+                    renderNameserverSettings(nameserverFormContainer);
+                }
+
+                var trimmed = [];
+                for (var i = 0; i < nameserverState.list.length; i++) {
+                    var value = (nameserverState.list[i] || '').trim();
+                    if (value) {
+                        trimmed.push(value);
+                    }
+                }
+
+                try {
+                    var response = WebsiteSDK.updateDomainNameservers(currentDomainId, trimmed);
+                    nameserverState.saving = false;
+
+                    if (response && response.success) {
+                        if (response.domain) {
+                            overviewData.domain = response.domain;
+                        }
+                        initNameserverStateFromDomain();
+                        feedbackState = {
+                            type: 'success',
+                            message: (response.message && String(response.message)) || 'Nameservers updated.'
+                        };
+                    } else {
+                        var msg = response && response.message ? String(response.message) : 'Nameserver update failed. Please review your entries and try again.';
+                        feedbackState = {
+                            type: 'error',
+                            message: msg
+                        };
+                    }
+                } catch (err) {
+                    console.error(err);
+                    nameserverState.saving = false;
+                    feedbackState = {
+                        type: 'error',
+                        message: 'Unexpected error while updating nameservers. Please try again.'
+                    };
+                }
+
+                if (nameserverFormContainer) {
+                    renderNameserverSettings(nameserverFormContainer);
+                }
+                if (nameserverFeedbackContainer) {
+                    renderNameserverFeedback(nameserverFeedbackContainer);
+                }
+
+                // DNS summary may depend on nameserver changes indirectly; re-render it.
+                var dnsContainer = document.querySelector('[data-populate="dns-summary-panel"]');
+                if (dnsContainer && overviewData) {
+                    renderDnsSummary(dnsContainer);
+                }
+            });
+
+            // Handle browser navigation that changes the domainId query param
+            window.addEventListener('popstate', function() {
+                var params = new URLSearchParams(window.location.search);
+                var newId = params.get('domainId') || '';
+                if (newId && newId !== currentDomainId) {
+                    loadDomainOverview(newId);
+                }
+            });
+
+            // Initial load
+            if (currentDomainId) {
+                showLoading();
+                loadDomainOverview(currentDomainId);
+            } else {
+                hideLoading();
+                setVisibility(stackContainer, false);
+                showError('No domain selected. Open this page from My Domains, the Dashboard, or an order confirmation to manage a domain.', false);
+            }
+        });
+        </script>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+        <div class="footer-inner">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul class="footer-links">
+                    <li class="footer-item"><a href="about.html" class="footer-link">About</a></li>
+                    <li class="footer-item"><a href="pricing.html" class="footer-link">Pricing</a></li>
+                    <li class="footer-item"><a href="help.html" class="footer-link">Help &amp; Support</a></li>
+                    <li class="footer-item"><a href="contact.html" class="footer-link">Contact</a></li>
+                    <li class="footer-item"><a href="terms.html" class="footer-link">Terms of Service</a></li>
+                    <li class="footer-item"><a href="privacy.html" class="footer-link">Privacy Policy</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">&copy; <span data-year="current-year">2024</span> Parked Domains. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        (function () {
+            var yearNode = document.querySelector('[data-year="current-year"]');
+            if (yearNode) {
+                yearNode.textContent = String(new Date().getFullYear());
+            }
+        })();
+    </script>
+</body>
+</html>

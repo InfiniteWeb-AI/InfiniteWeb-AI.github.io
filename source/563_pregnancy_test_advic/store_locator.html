@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<link rel="stylesheet" href="store_locator.css">
+
+<section class="store-locator-page" aria-labelledby="store-locator-title" data-component="store-locator-page">
+  <header class="page-header">
+    <h1 id="store-locator-title" class="page-title">Store Locator</h1>
+  </header>
+
+  <!-- Search hero / form -->
+  <section class="store-search-hero" data-component="store-search-form-section">
+    <form id="store-search-form" class="store-search-form" data-component="store-search-form" data-action="submit-search" novalidate>
+      <fieldset class="store-search-fieldset">
+        <legend class="visually-hidden">Find nearby stores that carry pregnancy tests</legend>
+        <div class="store-search-grid">
+          <div class="form-group form-group-zip">
+            <label for="zip-code-input" class="form-label">ZIP code<span class="required-indicator">*</span></label>
+            <input
+              id="zip-code-input"
+              name="zip_code"
+              type="text"
+              inputmode="numeric"
+              pattern="\d{5}"
+              autocomplete="postal-code"
+              class="form-input"
+              placeholder="e.g. 10001"
+              aria-required="true"
+            >
+          </div>
+
+          <div class="form-group form-group-radius">
+            <label for="radius-input" class="form-label">Distance radius</label>
+            <select id="radius-input" name="radius_miles" class="form-select">
+              <option value="5">Within 5 miles</option>
+              <option value="10" selected>Within 10 miles</option>
+              <option value="15">Within 15 miles</option>
+              <option value="25">Within 25 miles</option>
+              <option value="50">Within 50 miles</option>
+            </select>
+          </div>
+
+          <div class="form-group form-group-brand">
+            <label for="brand-name-input" class="form-label">Brand (optional)</label>
+            <input
+              id="brand-name-input"
+              name="brand_name"
+              type="text"
+              class="form-input"
+              placeholder="e.g. Early Response"
+            >
+          </div>
+
+          <div class="form-group form-group-product">
+            <label for="product-name-input" class="form-label">Product (optional)</label>
+            <input
+              id="product-name-input"
+              name="product_name"
+              type="text"
+              class="form-input"
+              placeholder="e.g. digital test, 2-pack"
+            >
+          </div>
+
+          <div class="form-group form-group-submit">
+            <button type="submit" class="btn btn-primary store-search-submit">Search</button>
+          </div>
+        </div>
+      </fieldset>
+    </form>
+  </section>
+
+  <!-- Error message (searchStores error or validation error) -->
+  <div id="store-search-error" class="alert alert-error" role="alert" data-component="error-message" hidden>
+    <div class="alert-content">
+      <p class="alert-text" data-populate="error-message-text"></p>
+      <button type="button" class="btn btn-text alert-retry" data-action="retry-search">Try again</button>
+    </div>
+  </div>
+
+  <!-- Results control bar: summary, view toggle, sort -->
+  <section class="results-controls" aria-label="Search results controls">
+    <div class="results-controls-inner">
+      <div class="results-summary" data-component="results-summary" data-populate="results-summary" aria-live="polite"></div>
+
+      <div class="results-controls-right">
+        <div class="results-view-toggle" data-component="results-view-toggle" role="group" aria-label="Results view">
+          <button
+            type="button"
+            class="view-toggle-btn is-active"
+            data-action="toggle-view"
+            data-view-mode="list-map"
+            aria-pressed="true"
+          >
+            List + Map
+          </button>
+          <button
+            type="button"
+            class="view-toggle-btn"
+            data-action="toggle-view"
+            data-view-mode="list"
+            aria-pressed="false"
+          >
+            List only
+          </button>
+        </div>
+
+        <div class="results-sort-controls" data-component="results-sort-controls">
+          <label for="sort-results-select" class="sort-label">Sort by</label>
+          <select id="sort-results-select" class="form-select sort-select" data-action="change-sort">
+            <option value="distance" selected>Distance</option>
+            <option value="availability">Availability</option>
+            <option value="name">Store name</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Results region -->
+  <section class="results-region" aria-label="Search results" data-component="results-region">
+    <!-- Loading indicator -->
+    <div class="loading-indicator" data-component="loading-indicator" data-populate="loading-indicator" hidden>
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <p class="loading-text">Loading nearby stores</p>
+    </div>
+
+    <!-- Empty state -->
+    <div class="empty-state" data-component="empty-state-message" data-populate="empty-state-message" hidden></div>
+
+    <!-- Results list + map layout -->
+    <div class="results-layout">
+      <div class="results-list-column" data-component="store-results-list" data-populate="store-results-list" aria-live="polite"></div>
+
+      <aside class="results-map-column" data-component="map-view" data-populate="map-view" aria-label="Store locations map"></aside>
+    </div>
+  </section>
+</section>
+
+<script src="business_logic.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const DEFAULT_RADIUS = 10;
+
+    const searchForm = document.getElementById('store-search-form');
+    const zipInput = document.getElementById('zip-code-input');
+    const radiusInput = document.getElementById('radius-input');
+    const brandInput = document.getElementById('brand-name-input');
+    const productInput = document.getElementById('product-name-input');
+    const searchButton = searchForm ? searchForm.querySelector('button[type="submit"]') : null;
+
+    const resultsSummaryEl = document.querySelector('[data-populate="results-summary"]');
+    const loadingEl = document.querySelector('[data-component="loading-indicator"]');
+    const emptyStateEl = document.querySelector('[data-component="empty-state-message"]');
+    const resultsListEl = document.querySelector('[data-component="store-results-list"]');
+    const mapViewEl = document.querySelector('[data-component="map-view"]');
+    const resultsLayoutEl = document.querySelector('.results-layout');
+    const errorEl = document.querySelector('[data-component="error-message"]');
+    const errorTextEl = document.querySelector('[data-populate="error-message-text"]');
+    const sortSelectEl = document.getElementById('sort-results-select');
+    const viewToggleButtons = document.querySelectorAll('.view-toggle-btn');
+
+    let currentSearch = {
+      zip_code: '',
+      radius_miles: DEFAULT_RADIUS,
+      brand_name: '',
+      product_name: ''
+    };
+    let searchResults = [];
+    let totalCount = 0;
+    let isLoading = false;
+    let errorState = null;
+    let hasSearched = false;
+    let viewMode = 'list-map';
+    let sortKey = 'distance';
+    let sortDirection = 'asc';
+    let selectedStoreId = null;
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) {
+        return '';
+      }
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function escapeHtmlAttribute(str) {
+      return escapeHtml(str).replace(/"/g, '&quot;');
+    }
+
+    function getAvailabilityLabel(status) {
+      switch (status) {
+        case 'in_stock':
+          return 'In stock';
+        case 'limited_stock':
+          return 'Limited stock';
+        case 'out_of_stock':
+          return 'Out of stock';
+        default:
+          return 'Availability unknown';
+      }
+    }
+
+    function syncFormWithUrl() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const zip = urlParams.get('zip_code') || '';
+      const radius = urlParams.get('radius_miles');
+      const brand = urlParams.get('brand_name') || '';
+      const product = urlParams.get('product_name') || '';
+
+      if (zipInput) {
+        zipInput.value = zip;
+      }
+
+      if (radiusInput) {
+        const numericRadius = radius ? Number(radius) : NaN;
+        let radiusToSet = DEFAULT_RADIUS;
+        if (!Number.isNaN(numericRadius) && numericRadius > 0) {
+          radiusToSet = numericRadius;
+        }
+        const radiusString = String(radiusToSet);
+        let optionExists = false;
+        for (let i = 0; i < radiusInput.options.length; i += 1) {
+          if (radiusInput.options[i].value === radiusString) {
+            optionExists = true;
+            break;
+          }
+        }
+        if (!optionExists) {
+          const opt = document.createElement('option');
+          opt.value = radiusString;
+          opt.textContent = 'Within ' + radiusString + ' miles';
+          radiusInput.appendChild(opt);
+        }
+        radiusInput.value = radiusString;
+      }
+
+      if (brandInput) {
+        brandInput.value = brand;
+      }
+      if (productInput) {
+        productInput.value = product;
+      }
+
+      currentSearch.zip_code = zip;
+      currentSearch.radius_miles = radiusInput ? Number(radiusInput.value) || DEFAULT_RADIUS : DEFAULT_RADIUS;
+      currentSearch.brand_name = brand;
+      currentSearch.product_name = product;
+    }
+
+    function validateForm() {
+      const zip = zipInput ? zipInput.value.trim() : '';
+      if (!zip) {
+        return {
+          valid: false,
+          message: 'Please enter a ZIP code to search.'
+        };
+      }
+      if (!/^\d{5}$/.test(zip)) {
+        return {
+          valid: false,
+          message: 'Please enter a valid 5-digit ZIP code.'
+        };
+      }
+
+      let radiusMiles = DEFAULT_RADIUS;
+      if (radiusInput) {
+        const parsed = Number(radiusInput.value);
+        if (!parsed || parsed <= 0) {
+          return {
+            valid: false,
+            message: 'Please choose a distance radius greater than 0.'
+          };
+        }
+        radiusMiles = parsed;
+      }
+
+      const brand = brandInput ? brandInput.value.trim() : '';
+      const product = productInput ? productInput.value.trim() : '';
+
+      return {
+        valid: true,
+        zip_code: zip,
+        radius_miles: radiusMiles,
+        brand_name: brand,
+        product_name: product
+      };
+    }
+
+    function renderResultsSummary(container) {
+      if (!container) {
+        return;
+      }
+      if (!hasSearched || !currentSearch.zip_code) {
+        container.textContent = 'Enter a ZIP code and distance to find nearby stores that carry pregnancy tests.';
+        return;
+      }
+
+      const parts = [];
+      const countText = totalCount === 1 ? '1 store' : totalCount + ' stores';
+      const radiusText = currentSearch.radius_miles ? 'within ' + currentSearch.radius_miles + ' miles' : '';
+      const zipText = currentSearch.zip_code ? 'of ' + currentSearch.zip_code : '';
+
+      parts.push('Showing ' + countText);
+      if (radiusText || zipText) {
+        parts.push(' ' + radiusText + (radiusText && zipText ? ' ' : '') + zipText);
+      }
+
+      const filters = [];
+      if (currentSearch.brand_name) {
+        filters.push('Brand: ' + currentSearch.brand_name);
+      }
+      if (currentSearch.product_name) {
+        filters.push('Product: ' + currentSearch.product_name);
+      }
+      if (filters.length > 0) {
+        parts.push('  Filters  ' + filters.join(', '));
+      }
+
+      container.textContent = parts.join('');
+    }
+
+    function renderLoadingIndicator(container) {
+      if (!container) {
+        return;
+      }
+      if (isLoading) {
+        container.hidden = false;
+      } else {
+        container.hidden = true;
+      }
+      if (searchButton) {
+        searchButton.disabled = isLoading;
+      }
+    }
+
+    function renderErrorMessage(container, textContainer) {
+      if (!container) {
+        return;
+      }
+      if (errorState && errorState.message) {
+        if (textContainer) {
+          textContainer.textContent = errorState.message;
+        }
+        container.hidden = false;
+      } else {
+        container.hidden = true;
+        if (textContainer) {
+          textContainer.textContent = '';
+        }
+      }
+    }
+
+    function renderEmptyState(container) {
+      if (!container) {
+        return;
+      }
+      const shouldShow = hasSearched && !isLoading && !errorState && totalCount === 0;
+      if (!shouldShow) {
+        container.hidden = true;
+        container.innerHTML = '';
+        return;
+      }
+
+      const searchZip = currentSearch.zip_code ? escapeHtml(currentSearch.zip_code) : '';
+      const radiusText = currentSearch.radius_miles ? 'within ' + currentSearch.radius_miles + ' miles' : '';
+      const brandFilter = currentSearch.brand_name ? ' for brand "' + escapeHtml(currentSearch.brand_name) + '"' : '';
+      const productFilter = currentSearch.product_name ? ' and product "' + escapeHtml(currentSearch.product_name) + '"' : '';
+
+      container.hidden = false;
+      container.innerHTML = `
+        <div class="empty-state-inner">
+          <h2 class="empty-state-title">No stores found</h2>
+          <p class="empty-state-body">We couldn't find any stores ${radiusText} of ${searchZip}${brandFilter}${productFilter}.</p>
+          <p class="empty-state-suggestion">Try widening your distance radius or clearing some filters, then search again.</p>
+        </div>
+      `;
+    }
+
+    function getSortedResults() {
+      const items = Array.isArray(searchResults) ? searchResults.slice() : [];
+      if (items.length === 0) {
+        return items;
+      }
+
+      items.sort(function(a, b) {
+        if (sortKey === 'name') {
+          const nameA = a && a.store && a.store.name ? a.store.name.toLowerCase() : '';
+          const nameB = b && b.store && b.store.name ? b.store.name.toLowerCase() : '';
+          return nameA.localeCompare(nameB);
+        }
+        if (sortKey === 'availability') {
+          const rank = {
+            in_stock: 0,
+            limited_stock: 1,
+            unknown: 2,
+            out_of_stock: 3
+          };
+          const aStatus = a && a.availability_status ? a.availability_status : 'unknown';
+          const bStatus = b && b.availability_status ? b.availability_status : 'unknown';
+          const diff = (rank[aStatus] !== undefined ? rank[aStatus] : rank.unknown) - (rank[bStatus] !== undefined ? rank[bStatus] : rank.unknown);
+          if (diff !== 0) {
+            return diff;
+          }
+          const aDist = typeof a.distance_miles === 'number' ? a.distance_miles : Number.POSITIVE_INFINITY;
+          const bDist = typeof b.distance_miles === 'number' ? b.distance_miles : Number.POSITIVE_INFINITY;
+          return aDist - bDist;
+        }
+        const aDist = typeof a.distance_miles === 'number' ? a.distance_miles : Number.POSITIVE_INFINITY;
+        const bDist = typeof b.distance_miles === 'number' ? b.distance_miles : Number.POSITIVE_INFINITY;
+        const baseDiff = aDist - bDist;
+        if (sortDirection === 'desc') {
+          return -baseDiff;
+        }
+        return baseDiff;
+      });
+
+      return items;
+    }
+
+    function renderResultsList(container) {
+      if (!container) {
+        return;
+      }
+
+      if (!hasSearched || isLoading || errorState || totalCount === 0) {
+        container.innerHTML = '';
+        return;
+      }
+
+      const sorted = getSortedResults();
+      if (!sorted.length) {
+        container.innerHTML = '';
+        return;
+      }
+
+      const cardsHtml = sorted.map(function(result) {
+        const store = result && result.store ? result.store : {};
+        const storeId = store.id ? String(store.id) : '';
+        const selectedClass = selectedStoreId && storeId === selectedStoreId ? ' store-card--selected' : '';
+        const name = store.name ? escapeHtml(store.name) : 'Store';
+        const address1 = store.address_line1 ? escapeHtml(store.address_line1) : '';
+        const address2 = store.address_line2 ? `<span class="store-address-line2">${escapeHtml(store.address_line2)}</span>` : '';
+        const cityStateZipParts = [];
+        if (store.city) {
+          cityStateZipParts.push(escapeHtml(store.city));
+        }
+        if (store.state) {
+          cityStateZipParts.push(escapeHtml(store.state));
+        }
+        if (store.zip_code) {
+          cityStateZipParts.push(escapeHtml(store.zip_code));
+        }
+        const cityStateZip = cityStateZipParts.join(', ');
+        const phoneLine = store.phone ? `<span class="store-phone">${escapeHtml(store.phone)}</span>` : '';
+        const distanceText = typeof result.distance_miles === 'number' ? result.distance_miles.toFixed(1) + ' mi' : '';
+        const distanceLine = distanceText ? `<span class="store-distance">${escapeHtml(distanceText)}</span>` : '';
+        const availabilityStatus = result && result.availability_status ? result.availability_status : 'unknown';
+        const availabilityLabel = getAvailabilityLabel(availabilityStatus);
+        const availabilityClass = 'availability-tag availability-' + availabilityStatus;
+        const productNameLine = result && result.product_name ? `<div class="store-product-name">Product: ${escapeHtml(result.product_name)}</div>` : '';
+
+        return `
+          <article class="store-card${selectedClass}" data-store-id="${escapeHtmlAttribute(storeId)}" data-action="select-store-card">
+            <div class="store-card-header">
+              <h2 class="store-name">${name}</h2>
+              ${distanceLine}
+            </div>
+            <div class="store-card-body">
+              <div class="store-address-block">
+                <span class="store-address-line1">${address1}</span>
+                ${address2}
+                ${cityStateZip ? `<span class="store-address-city">${cityStateZip}</span>` : ''}
+              </div>
+              <div class="store-meta-block">
+                <span class="${availabilityClass}">${escapeHtml(availabilityLabel)}</span>
+                ${phoneLine}
+              </div>
+              ${productNameLine}
+            </div>
+            <div class="store-card-footer">
+              <button type="button" class="store-details-link" data-action="open-store-details" data-store-id="${escapeHtmlAttribute(storeId)}">Store details</button>
+            </div>
+          </article>
+        `;
+      }).join('');
+
+      container.innerHTML = cardsHtml;
+    }
+
+    function renderMapView(container) {
+      if (!container) {
+        return;
+      }
+
+      if (viewMode === 'list') {
+        container.hidden = true;
+        container.innerHTML = '';
+        return;
+      }
+
+      if (!hasSearched || isLoading || errorState || totalCount === 0) {
+        container.hidden = true;
+        container.innerHTML = '';
+        return;
+      }
+
+      container.hidden = false;
+      const sorted = getSortedResults();
+      if (!sorted.length) {
+        container.innerHTML = '';
+        return;
+      }
+
+      const markersHtml = sorted.map(function(result, index) {
+        const store = result && result.store ? result.store : {};
+        const storeId = store.id ? String(store.id) : '';
+        const isSelected = selectedStoreId && storeId === selectedStoreId;
+        const selectedClass = isSelected ? ' map-marker--selected' : '';
+        const markerLabel = store.name ? escapeHtml(store.name) : 'Store ' + (index + 1);
+        const distanceText = typeof result.distance_miles === 'number' ? result.distance_miles.toFixed(1) + ' mi' : '';
+        const distanceSnippet = distanceText ? `<span class="map-marker-distance">${escapeHtml(distanceText)}</span>` : '';
+        return `
+          <button
+            type="button"
+            class="map-marker${selectedClass}"
+            data-action="select-store-from-map"
+            data-store-id="${escapeHtmlAttribute(storeId)}"
+          >
+            <span class="map-marker-label">${markerLabel}</span>
+            ${distanceSnippet}
+          </button>
+        `;
+      }).join('');
+
+      container.innerHTML = `
+        <div class="map-view-inner">
+          <div class="map-view-header">
+            <h2 class="map-view-title">Stores on map</h2>
+            <p class="map-view-helper">Select a marker to highlight the store in the list.</p>
+          </div>
+          <div class="map-view-body">
+            ${markersHtml}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderViewMode() {
+      if (mapViewEl) {
+        if (viewMode === 'list') {
+          mapViewEl.hidden = true;
+        } else {
+          mapViewEl.hidden = false;
+        }
+      }
+      if (viewToggleButtons && viewToggleButtons.length) {
+        viewToggleButtons.forEach(function(btn) {
+          const mode = btn.dataset.viewMode;
+          const isActive = mode === viewMode;
+          if (isActive) {
+            btn.classList.add('is-active');
+            btn.setAttribute('aria-pressed', 'true');
+          } else {
+            btn.classList.remove('is-active');
+            btn.setAttribute('aria-pressed', 'false');
+          }
+        });
+      }
+    }
+
+    function renderResultsLayoutVisibility() {
+      if (!resultsLayoutEl) {
+        return;
+      }
+      const shouldShowLayout = hasSearched && !isLoading && !errorState && totalCount > 0;
+      resultsLayoutEl.style.display = shouldShowLayout ? '' : 'none';
+    }
+
+    function renderAll() {
+      renderErrorMessage(errorEl, errorTextEl);
+      renderLoadingIndicator(loadingEl);
+      renderResultsSummary(resultsSummaryEl);
+      renderEmptyState(emptyStateEl);
+      renderResultsLayoutVisibility();
+      renderResultsList(resultsListEl);
+      renderViewMode();
+      renderMapView(mapViewEl);
+    }
+
+    function runSearchFromUrl() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const zip = urlParams.get('zip_code') || '';
+      const radiusString = urlParams.get('radius_miles');
+      const brand = urlParams.get('brand_name') || '';
+      const product = urlParams.get('product_name') || '';
+
+      if (!zip) {
+        hasSearched = false;
+        searchResults = [];
+        totalCount = 0;
+        isLoading = false;
+        errorState = null;
+        selectedStoreId = null;
+        currentSearch.zip_code = '';
+        currentSearch.radius_miles = DEFAULT_RADIUS;
+        currentSearch.brand_name = '';
+        currentSearch.product_name = '';
+        renderAll();
+        return;
+      }
+
+      let radiusMiles = DEFAULT_RADIUS;
+      if (radiusString) {
+        const parsedRadius = Number(radiusString);
+        if (parsedRadius && parsedRadius > 0) {
+          radiusMiles = parsedRadius;
+        }
+      } else if (radiusInput) {
+        const parsedRadius = Number(radiusInput.value);
+        if (parsedRadius && parsedRadius > 0) {
+          radiusMiles = parsedRadius;
+        }
+      }
+
+      currentSearch.zip_code = zip;
+      currentSearch.radius_miles = radiusMiles;
+      currentSearch.brand_name = brand;
+      currentSearch.product_name = product;
+
+      hasSearched = true;
+      isLoading = true;
+      errorState = null;
+      selectedStoreId = null;
+      renderAll();
+
+      try {
+        const response = WebsiteSDK && typeof WebsiteSDK.searchStores === 'function'
+          ? WebsiteSDK.searchStores(zip, radiusMiles, brand || '', product || '')
+          : { results: [], total_count: 0 };
+
+        const results = response && Array.isArray(response.results) ? response.results : [];
+        const count = response && typeof response.total_count === 'number' ? response.total_count : results.length;
+
+        searchResults = results;
+        totalCount = count;
+        isLoading = false;
+        errorState = null;
+      } catch (err) {
+        searchResults = [];
+        totalCount = 0;
+        isLoading = false;
+        errorState = {
+          message: err && err.message ? err.message : 'Something went wrong while searching for stores. Please check your details and try again.'
+        };
+      }
+
+      renderAll();
+    }
+
+    function updateUrlFromValidation(validationResult) {
+      const params = new URLSearchParams();
+      params.set('zip_code', validationResult.zip_code);
+      params.set('radius_miles', String(validationResult.radius_miles));
+      if (validationResult.brand_name) {
+        params.set('brand_name', validationResult.brand_name);
+      }
+      if (validationResult.product_name) {
+        params.set('product_name', validationResult.product_name);
+      }
+      const newUrl = window.location.pathname + '?' + params.toString();
+      window.history.pushState(null, '', newUrl);
+    }
+
+    function handleSearchFormSubmit() {
+      const validation = validateForm();
+      if (!validation.valid) {
+        hasSearched = false;
+        searchResults = [];
+        totalCount = 0;
+        isLoading = false;
+        errorState = {
+          message: validation.message
+        };
+        selectedStoreId = null;
+        renderAll();
+        return;
+      }
+
+      errorState = null;
+      updateUrlFromValidation(validation);
+      runSearchFromUrl();
+    }
+
+    function selectStore(storeId, options) {
+      if (!storeId) {
+        return;
+      }
+      selectedStoreId = storeId;
+      renderResultsList(resultsListEl);
+      renderMapView(mapViewEl);
+
+      const shouldScroll = options && options.scrollIntoView;
+      if (shouldScroll && resultsListEl) {
+        const selector = '[data-store-id="' + storeId.replace(/"/g, '\\"') + '"]';
+        const card = resultsListEl.querySelector(selector);
+        if (card && typeof card.scrollIntoView === 'function') {
+          card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    }
+
+    function openStoreDetails(storeId) {
+      if (!storeId) {
+        return;
+      }
+      const targetUrl = 'store_detail.html?id=' + encodeURIComponent(storeId);
+      window.location.href = targetUrl;
+    }
+
+    document.addEventListener('submit', function(event) {
+      const target = event.target;
+      if (target && target.dataset && target.dataset.action === 'submit-search') {
+        event.preventDefault();
+        handleSearchFormSubmit();
+      }
+    });
+
+    document.addEventListener('click', function(event) {
+      const actionEl = event.target.closest('[data-action]');
+      if (!actionEl) {
+        return;
+      }
+      const action = actionEl.dataset.action;
+
+      if (action === 'toggle-view') {
+        const mode = actionEl.dataset.viewMode || 'list-map';
+        viewMode = mode === 'list' ? 'list' : 'list-map';
+        renderViewMode();
+        renderMapView(mapViewEl);
+        return;
+      }
+
+      if (action === 'open-store-details') {
+        event.preventDefault();
+        event.stopPropagation();
+        const storeId = actionEl.dataset.storeId || '';
+        openStoreDetails(storeId);
+        return;
+      }
+
+      if (action === 'select-store-card') {
+        const storeId = actionEl.dataset.storeId || '';
+        selectStore(storeId, { scrollIntoView: false });
+        return;
+      }
+
+      if (action === 'select-store-from-map') {
+        const storeId = actionEl.dataset.storeId || '';
+        selectStore(storeId, { scrollIntoView: true });
+        return;
+      }
+
+      if (action === 'retry-search') {
+        event.preventDefault();
+        if (!hasSearched && zipInput && zipInput.value.trim()) {
+          const validation = validateForm();
+          if (!validation.valid) {
+            errorState = {
+              message: validation.message
+            };
+            renderAll();
+            return;
+          }
+          updateUrlFromValidation(validation);
+        }
+        runSearchFromUrl();
+      }
+    });
+
+    document.addEventListener('change', function(event) {
+      const target = event.target;
+      if (!target || !target.dataset) {
+        return;
+      }
+      const action = target.dataset.action;
+      if (action === 'change-sort') {
+        const newSortKey = target.value || 'distance';
+        sortKey = newSortKey;
+        sortDirection = 'asc';
+        renderResultsList(resultsListEl);
+        renderMapView(mapViewEl);
+      }
+    });
+
+    window.addEventListener('popstate', function() {
+      syncFormWithUrl();
+      runSearchFromUrl();
+    });
+
+    syncFormWithUrl();
+    renderAll();
+
+    const initialParams = new URLSearchParams(window.location.search);
+    if (initialParams.get('zip_code')) {
+      runSearchFromUrl();
+    }
+  });
+</script>

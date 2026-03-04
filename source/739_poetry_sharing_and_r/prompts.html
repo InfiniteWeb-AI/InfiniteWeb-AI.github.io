@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Prompts Overview &mdash; Poetic House</title>
+
+    <!-- Typography -->
+    <link rel='preconnect' href='https://fonts.googleapis.com'>
+    <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+    <link href='https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&amp;family=Libre+Baskerville:wght@400;700&amp;display=swap' rel='stylesheet'>
+
+    <!-- Site stylesheet -->
+    <link rel='stylesheet' href='styles.css'>
+    <!-- Page-specific stylesheet -->
+    <link rel='stylesheet' href='prompts.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <div class='header-hero'>
+            <div class='header-hero-overlay'></div>
+            <div class='container header-hero-inner'>
+                <a href='index.html' class='site-logo'>
+                    <span class='logo-primary'>poetic</span><span class='logo-secondary'>house</span><span class='logo-dot'>.com</span>
+                </a>
+
+                <div class='user-menu' aria-label='Account menu'>
+                    <div class='user-menu-toggle'>
+                        <span class='avatar-circle'>PH</span>
+                        <span class='user-menu-label'>Account</span>
+                        <span class='user-menu-caret'>▾</span>
+                    </div>
+                    <ul class='user-dropdown'>
+                        <li><a href='settings.html'>Settings</a></li>
+                        <li><a href='drafts.html'>My drafts</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class='header-nav-bar'>
+                <div class='container'>
+                    <nav class='main-nav' aria-label='Primary navigation'>
+                        <ul>
+                            <li><a href='index.html'>Home</a></li>
+                            <li><a href='browse.html'>Browse</a></li>
+                            <li><a href='prompts.html'>Prompts</a></li>
+                            <li><a href='spoken_word.html'>Spoken Word</a></li>
+                            <li><a href='lists.html'>Reading Lists</a></li>
+                            <li><a href='write.html'>Write</a></li>
+                        </ul>
+                    </nav>
+                </div>
+            </div>
+        </div>
+
+        <div class='header-subband'>
+            <div class='container header-subband-inner'>
+                <p class='header-subband-text'>A curated place to share, discover, and collect poetry.</p>
+            </div>
+        </div>
+    </header>
+
+    <main id='content' class='site-main'>
+        <div class='container content-container'>
+            <!-- Page-specific content starts here -->
+
+            <div class='prompts-page' data-component='prompts-page'>
+                <!-- Data loader overlay -->
+                <div class='prompts-loader-overlay' data-component='prompts-data-loader' aria-hidden='true' hidden>
+                    <div class='prompts-loader-backdrop'></div>
+                    <div class='prompts-loader-inner'>
+                        <div class='prompts-loader-spinner' aria-hidden='true'></div>
+                        <p class='prompts-loader-text'>Loading prompts...</p>
+                    </div>
+                </div>
+
+                <!-- Error state -->
+                <div class='prompts-error' data-component='prompts-error' role='alert' hidden>
+                    <p class='prompts-error-message'>We could not load the prompts right now. Please try again.</p>
+                    <button type='button' class='btn btn-secondary' data-action='retry-load'>Try again</button>
+                </div>
+
+                <!-- Main prompts content will be rendered here by JS -->
+                <div class='prompts-main' data-populate='promptsOverview'></div>
+            </div>
+
+            <!-- Page-specific content ends here -->
+        </div>
+    </main>
+
+    <footer class='site-footer'>
+        <div class='footer-main'>
+            <div class='container footer-main-inner'>
+                <nav class='footer-nav' aria-label='Footer navigation'>
+                    <ul>
+                        <li><a href='about.html'>About</a></li>
+                        <li><a href='help.html'>Help / FAQ</a></li>
+                        <li><a href='terms.html'>Terms &amp; Guidelines</a></li>
+                        <li><a href='privacy.html'>Privacy Policy</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+        <div class='footer-bottom'>
+            <div class='container footer-bottom-inner'>
+                <p class='footer-meta'>&copy; <span class='footer-site-name'>Poetry Platform</span>. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- SDK / business logic -->
+    <script src='business_logic.js'></script>
+
+    <!-- Page UI logic -->
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var pageRoot = document.querySelector('[data-component=prompts-page]');
+        if (!pageRoot) {
+            return;
+        }
+
+        var loader = pageRoot.querySelector('[data-component=prompts-data-loader]');
+        var errorBox = pageRoot.querySelector('[data-component=prompts-error]');
+        var overviewContainer = pageRoot.querySelector('[data-populate=promptsOverview]');
+        var promptsOverviewData = null;
+
+        // Determine initial tab from URL (?tab=this_week|past)
+        var urlParams = new URLSearchParams(window.location.search);
+        var tabParam = urlParams.get('tab');
+        var activeTab = (tabParam === 'past' || tabParam === 'this_week') ? tabParam : 'this_week';
+
+        function showLoader(show) {
+            if (!loader) return;
+            if (show) {
+                loader.hidden = false;
+                loader.setAttribute('aria-hidden', 'false');
+            } else {
+                loader.hidden = true;
+                loader.setAttribute('aria-hidden', 'true');
+            }
+        }
+
+        function showError(show) {
+            if (!errorBox) return;
+            errorBox.hidden = !show;
+        }
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) return '';
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function escapeAttr(value) {
+            return escapeHtml(value);
+        }
+
+        function formatDate(value) {
+            if (!value) return '';
+            var date = new Date(value);
+            if (isNaN(date.getTime())) return '';
+            var options = { year: 'numeric', month: 'short', day: 'numeric' };
+            try {
+                return date.toLocaleDateString(undefined, options);
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function updateTabInUrl(tab) {
+            try {
+                var url = new URL(window.location.href);
+                url.searchParams.set('tab', tab);
+                window.history.pushState({ tab: tab }, '', url.toString());
+            } catch (e) {
+                // Fallback: do nothing if URL API is unavailable
+            }
+        }
+
+        function updateTabUI(container) {
+            if (!container) return;
+
+            var tabButtons = container.querySelectorAll('[data-action=switch-tab]');
+            for (var i = 0; i < tabButtons.length; i++) {
+                var btn = tabButtons[i];
+                var tabName = btn.getAttribute('data-tab');
+                if (tabName === activeTab) {
+                    btn.classList.add('is-active');
+                    btn.setAttribute('aria-current', 'page');
+                } else {
+                    btn.classList.remove('is-active');
+                    btn.removeAttribute('aria-current');
+                }
+            }
+
+            var thisWeekSection = container.querySelector('[data-component=this-week-section]');
+            var pastSection = container.querySelector('[data-component=past-prompts-section]');
+
+            if (thisWeekSection) {
+                if (activeTab === 'this_week') {
+                    thisWeekSection.classList.add('is-active');
+                    thisWeekSection.classList.remove('is-hidden');
+                } else {
+                    thisWeekSection.classList.remove('is-active');
+                    thisWeekSection.classList.add('is-hidden');
+                }
+            }
+
+            if (pastSection) {
+                if (activeTab === 'past') {
+                    pastSection.classList.add('is-active');
+                    pastSection.classList.remove('is-hidden');
+                } else {
+                    pastSection.classList.remove('is-active');
+                    pastSection.classList.add('is-hidden');
+                }
+            }
+        }
+
+        function handleTabClick(event) {
+            var target = event.currentTarget;
+            var tabName = target.getAttribute('data-tab');
+            if (tabName !== 'this_week' && tabName !== 'past') {
+                return;
+            }
+            if (tabName === activeTab) {
+                return;
+            }
+            activeTab = tabName;
+            updateTabInUrl(tabName);
+            updateTabUI(overviewContainer);
+        }
+
+        function handleWeeklyCardClick(event) {
+            var card = event.currentTarget;
+            var promptId = card.getAttribute('data-prompt-id');
+            if (!promptId) return;
+            window.location.href = 'prompt.html?id=' + encodeURIComponent(promptId);
+        }
+
+        function handleWriteResponseClick(event) {
+            event.stopPropagation();
+            var btn = event.currentTarget;
+            var promptId = btn.getAttribute('data-prompt-id');
+            if (!promptId) return;
+            window.location.href = 'write.html?promptId=' + encodeURIComponent(promptId);
+        }
+
+        function handlePastPromptClick(event) {
+            var card = event.currentTarget;
+            var promptId = card.getAttribute('data-prompt-id');
+            if (!promptId) return;
+            window.location.href = 'prompt.html?id=' + encodeURIComponent(promptId);
+        }
+
+        function handleExplorePastClick(event) {
+            event.preventDefault();
+            activeTab = 'past';
+            updateTabInUrl('past');
+            updateTabUI(overviewContainer);
+        }
+
+        function bindRenderedInteractions(container, data) {
+            if (!container) return;
+
+            // Tab buttons
+            var tabButtons = container.querySelectorAll('[data-action=switch-tab]');
+            for (var i = 0; i < tabButtons.length; i++) {
+                tabButtons[i].addEventListener('click', handleTabClick);
+            }
+
+            // Weekly prompt card
+            var weeklyCard = container.querySelector('[data-component=weekly-prompt-card]');
+            if (weeklyCard) {
+                weeklyCard.addEventListener('click', handleWeeklyCardClick);
+            }
+
+            // Weekly 'Write a response' buttons
+            var writeButtons = container.querySelectorAll('[data-action=write-response]');
+            for (var j = 0; j < writeButtons.length; j++) {
+                writeButtons[j].addEventListener('click', handleWriteResponseClick);
+            }
+
+            // Past prompt cards
+            var pastCards = container.querySelectorAll('[data-component=past-prompt-card]');
+            for (var k = 0; k < pastCards.length; k++) {
+                pastCards[k].addEventListener('click', handlePastPromptClick);
+            }
+
+            // Empty-state explore past button (when no weekly prompt)
+            var explorePastBtn = container.querySelector('[data-action=explore-past]');
+            if (explorePastBtn) {
+                explorePastBtn.addEventListener('click', handleExplorePastClick);
+            }
+
+            // Initial tab UI
+            updateTabUI(container);
+        }
+
+        function renderPromptsOverview(container, data) {
+            if (!container) return;
+            promptsOverviewData = data;
+
+            var weekly = data && data.current_weekly_prompt ? data.current_weekly_prompt : null;
+            var past = data && Array.isArray(data.past_prompts) ? data.past_prompts : [];
+            var hasWeekly = !!weekly;
+            var hasPast = past.length > 0;
+
+            var weeklyCardHtml = '';
+            if (hasWeekly) {
+                var weeklyTitle = escapeHtml(weekly.title);
+                var weeklyDescription = weekly.description || '';
+                var weeklySnippet = weeklyDescription.length > 220 ? weeklyDescription.slice(0, 217) + '…' : weeklyDescription;
+                var weeklySnippetHtml = escapeHtml(weeklySnippet);
+                var weeklyTypeLabel = 'Weekly prompt';
+                if (weekly.prompt_type && weekly.prompt_type !== 'weekly') {
+                    weeklyTypeLabel = escapeHtml(weekly.prompt_type) + ' prompt';
+                }
+
+                weeklyCardHtml = `
+                    <article class='weekly-prompt-card' data-component='weekly-prompt-card' data-prompt-id='${escapeAttr(weekly.id)}'>
+                        <header class='weekly-prompt-header'>
+                            <p class='weekly-prompt-label'>${weeklyTypeLabel}</p>
+                            <h2 class='weekly-prompt-title'>${weeklyTitle}</h2>
+                        </header>
+                        <p class='weekly-prompt-description'>${weeklySnippetHtml}</p>
+                        <div class='weekly-prompt-actions'>
+                            <button type='button' class='btn btn-primary' data-action='write-response' data-prompt-id='${escapeAttr(weekly.id)}'>Write a response</button>
+                        </div>
+                    </article>
+                `;
+            } else {
+                weeklyCardHtml = `
+                    <div class='prompts-empty-state weekly-empty-state' data-component='prompts-empty-state-indicator'>
+                        <h2 class='empty-state-title'>No weekly prompt is active right now</h2>
+                        <p class='empty-state-body'>We are between weekly prompts. Explore the archive of past prompts while you wait for the next theme.</p>
+                        <button type='button' class='btn btn-secondary' data-action='explore-past'>Browse past prompts</button>
+                    </div>
+                `;
+            }
+
+            var pastCards = '';
+            if (hasPast) {
+                for (var i = 0; i < past.length; i++) {
+                    var prompt = past[i];
+                    var title = escapeHtml(prompt.title);
+                    var desc = prompt.description || '';
+                    var snippet = desc.length > 180 ? desc.slice(0, 177) + '…' : desc;
+                    var snippetHtml = escapeHtml(snippet);
+                    var dateLabel = formatDate(prompt.start_date);
+                    var metaHtml = '';
+                    if (dateLabel) {
+                        metaHtml = `<p class='past-prompt-meta'>Started on ${escapeHtml(dateLabel)}</p>`;
+                    }
+
+                    pastCards += `
+                        <article class='past-prompt-card' data-component='past-prompt-card' data-prompt-id='${escapeAttr(prompt.id)}'>
+                            <div class='past-prompt-main'>
+                                <h3 class='past-prompt-title'>${title}</h3>
+                                <p class='past-prompt-description'>${snippetHtml}</p>
+                                ${metaHtml}
+                            </div>
+                            <div class='past-prompt-cta'>
+                                <span class='past-prompt-link'>View prompt</span>
+                            </div>
+                        </article>
+                    `;
+                }
+            }
+
+            var pastSectionInner = '';
+            if (hasPast) {
+                pastSectionInner = `
+                    <div class='past-prompts-list'>
+                        ${pastCards}
+                    </div>
+                `;
+            } else {
+                pastSectionInner = `
+                    <div class='prompts-empty-state past-empty-state' data-component='prompts-empty-state-indicator'>
+                        <h2 class='empty-state-title'>No past prompts yet</h2>
+                        <p class='empty-state-body'>Once prompts have run their course, you will find them archived here for future inspiration.</p>
+                    </div>
+                `;
+            }
+
+            var thisWeekSectionClasses = 'this-week-section';
+            var pastSectionClasses = 'past-prompts-section';
+            if (activeTab === 'this_week') {
+                thisWeekSectionClasses += ' is-active';
+                pastSectionClasses += ' is-hidden';
+            } else {
+                pastSectionClasses += ' is-active';
+                thisWeekSectionClasses += ' is-hidden';
+            }
+
+            container.innerHTML = `
+                <div class='prompts-tab-controller' data-component='prompts-tab-controller' aria-label='Prompt views'>
+                    <div class='prompts-tab-row'>
+                        <button type='button' class='prompts-tab' data-action='switch-tab' data-tab='this_week'>This Week</button>
+                        <button type='button' class='prompts-tab' data-action='switch-tab' data-tab='past'>Past Prompts</button>
+                    </div>
+                </div>
+
+                <section class='${thisWeekSectionClasses}' data-component='this-week-section' aria-labelledby='this-week-heading'>
+                    <div class='this-week-inner'>
+                        <h1 id='this-week-heading' class='section-title'>This week's prompt</h1>
+                        ${weeklyCardHtml}
+                    </div>
+                </section>
+
+                <section class='${pastSectionClasses}' data-component='past-prompts-section' aria-labelledby='past-prompts-heading'>
+                    <div class='past-prompts-inner'>
+                        <header class='past-prompts-header'>
+                            <h2 id='past-prompts-heading' class='section-title'>Past prompts</h2>
+                        </header>
+                        ${pastSectionInner}
+                    </div>
+                </section>
+            `;
+
+            bindRenderedInteractions(container, data);
+        }
+
+        function loadPromptsOverview() {
+            if (!overviewContainer) return;
+            showLoader(true);
+            showError(false);
+            try {
+                var data = WebsiteSDK.getPromptsOverview();
+                renderPromptsOverview(overviewContainer, data);
+            } catch (e) {
+                // Log and show error UI
+                if (window && window.console && window.console.error) {
+                    console.error('Failed to load prompts overview', e);
+                }
+                showError(true);
+            } finally {
+                showLoader(false);
+            }
+        }
+
+        if (errorBox) {
+            var retryBtn = errorBox.querySelector('[data-action=retry-load]');
+            if (retryBtn) {
+                retryBtn.addEventListener('click', function () {
+                    loadPromptsOverview();
+                });
+            }
+        }
+
+        // Respond to manual back/forward navigation that changes the tab parameter
+        window.addEventListener('popstate', function (event) {
+            var stateTab = event && event.state && event.state.tab ? event.state.tab : null;
+            var newTab = stateTab;
+            if (!newTab) {
+                var params = new URLSearchParams(window.location.search);
+                var t = params.get('tab');
+                if (t === 'this_week' || t === 'past') {
+                    newTab = t;
+                }
+            }
+            if (newTab !== 'this_week' && newTab !== 'past') {
+                newTab = 'this_week';
+            }
+            if (newTab !== activeTab) {
+                activeTab = newTab;
+                updateTabUI(overviewContainer);
+            }
+        });
+
+        // Initial load
+        loadPromptsOverview();
+    });
+    </script>
+</body>
+</html>

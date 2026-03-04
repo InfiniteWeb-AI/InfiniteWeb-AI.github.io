@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='candidate_alerts.css'>
+
+<section class='page-hero page-hero--job-alerts'>
+  <div class='container page-hero-inner'>
+    <h1 class='page-title'>Job alerts</h1>
+  </div>
+</section>
+
+<div class='alerts-page' data-component='alerts-page-init'>
+  <div class='container alerts-page-inner'>
+    <div class='alerts-feedback-banner is-hidden' data-component='alerts-feedback-banner'>
+      <div class='alerts-feedback-banner-inner'>
+        <span class='alerts-feedback-banner-message' data-populate='banner-message'></span>
+        <button type='button' class='alerts-feedback-banner-close' data-action='banner-dismiss' aria-label='Dismiss notification'>&times;</button>
+      </div>
+    </div>
+
+    <div class='alerts-layout'>
+      <section class='alerts-main-column' aria-label='Your job alerts'>
+        <div class='job-alerts-toolbar card' data-component='job-alerts-toolbar'>
+          <div class='job-alerts-toolbar-left'>
+            <h2 class='section-title'>Your job alerts</h2>
+            <p class='section-subtitle'>
+              <span data-populate='alerts-count'>0</span> alerts configured
+            </p>
+          </div>
+          <div class='job-alerts-toolbar-right'>
+            <label class='filter-label' for='alerts-filter'>Show</label>
+            <select id='alerts-filter' class='select' data-action='change-filter'>
+              <option value='all'>All alerts</option>
+              <option value='active'>Active only</option>
+            </select>
+            <button type='button' class='btn btn-primary' data-action='create-alert'>Create alert</button>
+          </div>
+        </div>
+
+        <div class='job-alerts-list' data-component='job-alerts-list' data-populate='job-alerts-list' aria-live='polite'></div>
+      </section>
+
+      <aside class='alerts-sidebar-column'>
+        <div class='job-alert-form card' data-component='job-alert-form'>
+          <header class='job-alert-form-header'>
+            <h2 class='widget-title' data-populate='form-title'>Create job alert</h2>
+            <p class='widget-subtitle' data-populate='form-caption'>Set up alerts to get new roles by email.</p>
+          </header>
+          <form class='job-alert-form-body' data-action='alert-form-submit' novalidate>
+            <div class='form-field'>
+              <label for='alert-name-input'>Alert name <span class='label-optional'>(optional)</span></label>
+              <input id='alert-name-input' name='name' type='text' class='input' autocomplete='off'>
+            </div>
+            <div class='form-field'>
+              <label for='alert-keywords-input'>Job title or keywords<span class='required-indicator'>*</span></label>
+              <input id='alert-keywords-input' name='job_title_keywords' type='text' class='input' required autocomplete='off'>
+            </div>
+            <div class='form-field'>
+              <label for='alert-location-input'>Location</label>
+              <input id='alert-location-input' name='location' type='text' class='input' autocomplete='off'>
+            </div>
+            <div class='form-field form-field--inline'>
+              <div class='form-field'>
+                <label for='alert-salary-min-input'>Salary min</label>
+                <input id='alert-salary-min-input' name='salary_min' type='number' class='input' min='0' step='1000' inputmode='decimal'>
+              </div>
+              <div class='form-field'>
+                <label for='alert-salary-max-input'>Salary max</label>
+                <input id='alert-salary-max-input' name='salary_max' type='number' class='input' min='0' step='1000' inputmode='decimal'>
+              </div>
+            </div>
+            <div class='form-field'>
+              <label for='alert-frequency-input'>Alert frequency<span class='required-indicator'>*</span></label>
+              <select id='alert-frequency-input' name='frequency' class='select' required>
+                <option value=''>Select frequency</option>
+                <option value='instant'>Instant</option>
+                <option value='daily'>Daily</option>
+                <option value='weekly'>Weekly</option>
+                <option value='monthly'>Monthly</option>
+              </select>
+            </div>
+            <div class='form-error-message' data-populate='form-error' aria-live='polite'></div>
+            <div class='form-actions'>
+              <button type='submit' class='btn btn-primary' data-action='alert-form-submit-button'>Save alert</button>
+              <button type='button' class='btn btn-secondary' data-action='alert-form-cancel'>Cancel</button>
+            </div>
+            <input type='hidden' name='mode' value='create' data-populate='form-mode'>
+            <input type='hidden' name='alert_id' value='' data-populate='form-alert-id'>
+          </form>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div class='modal-backdrop is-hidden' data-component='job-alert-delete-dialog' aria-hidden='true'>
+    <div class='modal-dialog' role='dialog' aria-modal='true' aria-labelledby='delete-dialog-title'>
+      <h2 id='delete-dialog-title' class='modal-title'>Delete job alert?</h2>
+      <p class='modal-message' data-populate='delete-message'>Are you sure you want to delete this job alert?</p>
+      <div class='modal-actions'>
+        <button type='button' class='btn btn-secondary' data-action='cancel-delete-alert'>Cancel</button>
+        <button type='button' class='btn btn-danger' data-action='confirm-delete-alert'>Delete alert</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src='business_logic.js'></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  'use strict';
+
+  function escapeHtml(value) {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  var urlParams = new URLSearchParams(window.location.search || '');
+  var currentFilterStatus = urlParams.get('filter_status') === 'active' ? 'active' : 'all';
+  var prefillKeywords = urlParams.get('prefill_keywords') || '';
+  var prefillLocation = urlParams.get('prefill_location') || '';
+  var jobAlerts = [];
+  var alertsListContainer = null;
+  var currentFormMode = 'create';
+  var currentEditingAlertId = '';
+  var pendingDeleteAlertId = '';
+
+  var pageContainer = document.querySelector('[data-component=alerts-page-init]');
+  if (!pageContainer) {
+    return;
+  }
+
+  var bannerEl = pageContainer.querySelector('[data-component=alerts-feedback-banner]');
+  var toolbarEl = pageContainer.querySelector('[data-component=job-alerts-toolbar]');
+  var listEl = pageContainer.querySelector('[data-component=job-alerts-list]');
+  var formComponentEl = pageContainer.querySelector('[data-component=job-alert-form]');
+  var deleteDialogEl = pageContainer.querySelector('[data-component=job-alert-delete-dialog]');
+
+  var bannerMessageEl = bannerEl ? bannerEl.querySelector('[data-populate=banner-message]') : null;
+  var bannerDismissBtn = bannerEl ? bannerEl.querySelector('[data-action=banner-dismiss]') : null;
+
+  var alertsCountEl = toolbarEl ? toolbarEl.querySelector('[data-populate=alerts-count]') : null;
+  var filterSelectEl = toolbarEl ? toolbarEl.querySelector('[data-action=change-filter]') : null;
+  var createAlertBtn = toolbarEl ? toolbarEl.querySelector('[data-action=create-alert]') : null;
+
+  var formEl = formComponentEl ? formComponentEl.querySelector('form[data-action=alert-form-submit]') : null;
+  var formTitleEl = formComponentEl ? formComponentEl.querySelector('[data-populate=form-title]') : null;
+  var formCaptionEl = formComponentEl ? formComponentEl.querySelector('[data-populate=form-caption]') : null;
+  var formErrorEl = formComponentEl ? formComponentEl.querySelector('[data-populate=form-error]') : null;
+  var formModeInput = formComponentEl ? formComponentEl.querySelector('[data-populate=form-mode]') : null;
+  var formAlertIdInput = formComponentEl ? formComponentEl.querySelector('[data-populate=form-alert-id]') : null;
+  var formCancelBtn = formComponentEl ? formComponentEl.querySelector('[data-action=alert-form-cancel]') : null;
+
+  var deleteMessageEl = deleteDialogEl ? deleteDialogEl.querySelector('[data-populate=delete-message]') : null;
+  var deleteConfirmBtn = deleteDialogEl ? deleteDialogEl.querySelector('[data-action=confirm-delete-alert]') : null;
+  var deleteCancelBtn = deleteDialogEl ? deleteDialogEl.querySelector('[data-action=cancel-delete-alert]') : null;
+
+  function updateUrlParams(changes, mode) {
+    var params = new URLSearchParams(window.location.search || '');
+    Object.keys(changes).forEach(function(key) {
+      var value = changes[key];
+      if (value === null || value === undefined || value === '') {
+        params['delete'](key);
+      } else {
+        params.set(key, value);
+      }
+    });
+    var newQuery = params.toString();
+    var newUrl = window.location.pathname + (newQuery ? '?' + newQuery : '');
+    var historyMode = mode === 'replace' ? 'replaceState' : 'pushState';
+    window.history[historyMode](null, '', newUrl);
+  }
+
+  function syncStatusBannerFromUrl() {
+    if (!bannerEl || !bannerMessageEl) {
+      return;
+    }
+    var params = new URLSearchParams(window.location.search || '');
+    var status = params.get('status');
+    if (!status) {
+      bannerEl.classList.add('is-hidden');
+      return;
+    }
+    var message = '';
+    if (status === 'created') {
+      message = 'Job alert created successfully.';
+    } else if (status === 'updated') {
+      message = 'Job alert updated successfully.';
+    } else if (status === 'deleted') {
+      message = 'Job alert deleted successfully.';
+    } else if (status === 'toggled') {
+      message = 'Job alert status updated.';
+    } else if (status === 'error') {
+      message = 'There was a problem processing your request. Please try again.';
+    } else {
+      message = '';
+    }
+    if (message) {
+      bannerMessageEl.textContent = message;
+      bannerEl.classList.remove('is-hidden');
+    } else {
+      bannerEl.classList.add('is-hidden');
+    }
+  }
+
+  function showInlineError(message) {
+    if (!formErrorEl) {
+      return;
+    }
+    formErrorEl.textContent = message || '';
+    if (message) {
+      formErrorEl.classList.add('is-visible');
+    } else {
+      formErrorEl.classList.remove('is-visible');
+    }
+  }
+
+  function updateToolbarMeta() {
+    if (!alertsCountEl) {
+      return;
+    }
+    alertsCountEl.textContent = jobAlerts.length.toString();
+  }
+
+  function formatSalaryRange(alert) {
+    var hasMin = typeof alert.salary_min === 'number' && !isNaN(alert.salary_min);
+    var hasMax = typeof alert.salary_max === 'number' && !isNaN(alert.salary_max);
+    if (!hasMin && !hasMax) {
+      return 'Any salary';
+    }
+    if (hasMin && hasMax) {
+      return 'Salary ' + alert.salary_min.toLocaleString() + ' - ' + alert.salary_max.toLocaleString();
+    }
+    if (hasMin) {
+      return 'Salary from ' + alert.salary_min.toLocaleString();
+    }
+    return 'Salary up to ' + alert.salary_max.toLocaleString();
+  }
+
+  function formatFrequency(frequency) {
+    if (frequency === 'instant') {
+      return 'Instant';
+    }
+    if (frequency === 'daily') {
+      return 'Daily';
+    }
+    if (frequency === 'weekly') {
+      return 'Weekly';
+    }
+    if (frequency === 'monthly') {
+      return 'Monthly';
+    }
+    return frequency || '';
+  }
+
+  function formatLastRun(lastRun) {
+    if (!lastRun) {
+      return 'Not run yet';
+    }
+    var date;
+    try {
+      date = new Date(lastRun);
+      if (isNaN(date.getTime())) {
+        return 'Not run yet';
+      }
+    } catch (e) {
+      return 'Not run yet';
+    }
+    return 'Last sent ' + date.toLocaleString();
+  }
+
+  function renderAlertsList(container, alerts, filterStatus) {
+    if (!container) {
+      return;
+    }
+    container.innerHTML = '';
+    var filtered = alerts;
+    if (filterStatus === 'active') {
+      filtered = alerts.filter(function(a) { return !!a.is_active; });
+    }
+    if (!filtered.length) {
+      var emptyState = document.createElement('div');
+      emptyState.className = 'job-alerts-empty';
+      emptyState.innerHTML = '' +
+        '<p class=\'job-alerts-empty-text\'>You do not have any job alerts yet.</p>' +
+        '<button type=\'button\' class=\'btn btn-primary\' data-action=\'empty-create-alert\'>Create your first alert</button>';
+      container.appendChild(emptyState);
+      return;
+    }
+    var listWrapper = document.createElement('div');
+    listWrapper.className = 'job-alerts-list-inner';
+    filtered.forEach(function(alert) {
+      var title = alert.name || alert.job_title_keywords || 'Untitled alert';
+      var locationText = alert.location ? alert.location : 'Any location';
+      var salaryText = formatSalaryRange(alert);
+      var freqText = formatFrequency(alert.frequency);
+      var lastRunText = formatLastRun(alert.last_run_at);
+      var statusLabel = alert.is_active ? 'Active' : 'Paused';
+      var statusClass = alert.is_active ? 'status-badge status-badge--active' : 'status-badge status-badge--paused';
+      var card = document.createElement('article');
+      card.className = 'job-alert-card card';
+      card.setAttribute('data-component', 'job-alert-row');
+      card.setAttribute('data-alert-id', alert.id);
+      card.innerHTML = '' +
+        '<div class=\'job-alert-card-main\'>' +
+          '<h3 class=\'job-alert-card-title\'>' + escapeHtml(title) + '</h3>' +
+          '<div class=\'job-alert-card-meta\'>' +
+            '<span class=\'job-alert-keywords\'>' + escapeHtml(alert.job_title_keywords || '') + '</span>' +
+            '<span class=\'meta-separator\'>·</span>' +
+            '<span class=\'job-alert-location\'>' + escapeHtml(locationText) + '</span>' +
+          '</div>' +
+          '<div class=\'job-alert-card-secondary\'>' +
+            '<span class=\'job-alert-frequency\'>Frequency: ' + escapeHtml(freqText) + '</span>' +
+            '<span class=\'meta-separator\'>·</span>' +
+            '<span class=\'job-alert-salary\'>' + escapeHtml(salaryText) + '</span>' +
+            '<span class=\'meta-separator\'>·</span>' +
+            '<span class=\'job-alert-last-run\'>' + escapeHtml(lastRunText) + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class=\'job-alert-card-actions\'>' +
+          '<span class=\'' + statusClass + '\'>' + escapeHtml(statusLabel) + '</span>' +
+          '<button type=\'button\' class=\'btn btn-link toggle-active-btn\' data-action=\'toggle-alert-active\'> ' +
+            (alert.is_active ? 'Pause' : 'Activate') +
+          '</button>' +
+          '<button type=\'button\' class=\'btn btn-secondary\' data-action=\'edit-alert\'>Edit</button>' +
+          '<button type=\'button\' class=\'btn btn-link text-danger\' data-action=\'delete-alert\'>Delete</button>' +
+          '<button type=\'button\' class=\'btn btn-link\' data-action=\'view-matching-jobs\'>View matching jobs</button>' +
+        '</div>';
+      listWrapper.appendChild(card);
+    });
+    container.appendChild(listWrapper);
+  }
+
+  function setFormMode(mode, alert) {
+    currentFormMode = mode;
+    if (formModeInput) {
+      formModeInput.value = mode;
+    }
+    if (!formEl) {
+      return;
+    }
+    showInlineError('');
+    if (mode === 'edit' && alert) {
+      currentEditingAlertId = alert.id;
+      if (formAlertIdInput) {
+        formAlertIdInput.value = alert.id;
+      }
+      var nameInput = formEl.querySelector('#alert-name-input');
+      var keywordsInput = formEl.querySelector('#alert-keywords-input');
+      var locationInput = formEl.querySelector('#alert-location-input');
+      var salaryMinInput = formEl.querySelector('#alert-salary-min-input');
+      var salaryMaxInput = formEl.querySelector('#alert-salary-max-input');
+      var frequencyInput = formEl.querySelector('#alert-frequency-input');
+
+      if (nameInput) { nameInput.value = alert.name || ''; }
+      if (keywordsInput) { keywordsInput.value = alert.job_title_keywords || ''; }
+      if (locationInput) { locationInput.value = alert.location || ''; }
+      if (salaryMinInput) { salaryMinInput.value = (typeof alert.salary_min === 'number' && !isNaN(alert.salary_min)) ? alert.salary_min : ''; }
+      if (salaryMaxInput) { salaryMaxInput.value = (typeof alert.salary_max === 'number' && !isNaN(alert.salary_max)) ? alert.salary_max : ''; }
+      if (frequencyInput) { frequencyInput.value = alert.frequency || ''; }
+
+      if (formTitleEl) {
+        formTitleEl.textContent = 'Edit job alert';
+      }
+      if (formCaptionEl) {
+        var title = alert.name || alert.job_title_keywords || 'this alert';
+        formCaptionEl.textContent = 'Updating ' + title + '.';
+      }
+    } else {
+      currentEditingAlertId = '';
+      if (formAlertIdInput) {
+        formAlertIdInput.value = '';
+      }
+      var nameInputNew = formEl.querySelector('#alert-name-input');
+      var keywordsInputNew = formEl.querySelector('#alert-keywords-input');
+      var locationInputNew = formEl.querySelector('#alert-location-input');
+      var salaryMinInputNew = formEl.querySelector('#alert-salary-min-input');
+      var salaryMaxInputNew = formEl.querySelector('#alert-salary-max-input');
+      var frequencyInputNew = formEl.querySelector('#alert-frequency-input');
+
+      if (nameInputNew) { nameInputNew.value = ''; }
+      if (keywordsInputNew) { keywordsInputNew.value = prefillKeywords || ''; }
+      if (locationInputNew) { locationInputNew.value = prefillLocation || ''; }
+      if (salaryMinInputNew) { salaryMinInputNew.value = ''; }
+      if (salaryMaxInputNew) { salaryMaxInputNew.value = ''; }
+      if (frequencyInputNew) { frequencyInputNew.value = ''; }
+
+      if (formTitleEl) {
+        formTitleEl.textContent = 'Create job alert';
+      }
+      if (formCaptionEl) {
+        formCaptionEl.textContent = 'Configure a new alert to hear about matching roles.';
+      }
+    }
+  }
+
+  function applyActionFromUrl() {
+    var params = new URLSearchParams(window.location.search || '');
+    var action = params.get('action') || '';
+    var alertId = params.get('alert_id') || '';
+    if (action === 'edit' && alertId) {
+      var found = jobAlerts.find(function(a) { return a.id === alertId; });
+      if (found) {
+        setFormMode('edit', found);
+      } else {
+        setFormMode('create', null);
+        updateUrlParams({ action: null, alert_id: null, status: 'error' }, 'replace');
+        syncStatusBannerFromUrl();
+      }
+    } else if (action === 'create') {
+      setFormMode('create', null);
+    } else {
+      setFormMode('create', null);
+    }
+  }
+
+  function loadAlerts(targetContainer) {
+    alertsListContainer = targetContainer;
+    try {
+      jobAlerts = WebsiteSDK.getJobAlerts() || [];
+      if (filterSelectEl) {
+        filterSelectEl.value = currentFilterStatus;
+      }
+      renderAlertsList(alertsListContainer, jobAlerts, currentFilterStatus);
+      updateToolbarMeta();
+      applyActionFromUrl();
+      syncStatusBannerFromUrl();
+    } catch (e) {
+      console.error('Error loading job alerts', e);
+      if (bannerMessageEl && bannerEl) {
+        bannerMessageEl.textContent = 'There was a problem loading your job alerts. Please refresh the page.';
+        bannerEl.classList.remove('is-hidden');
+      }
+    }
+  }
+
+  function handleFilterChange(value) {
+    currentFilterStatus = value === 'active' ? 'active' : 'all';
+    updateUrlParams({ filter_status: currentFilterStatus }, 'push');
+    renderAlertsList(alertsListContainer, jobAlerts, currentFilterStatus);
+  }
+
+  function handleCreateClick() {
+    updateUrlParams({ action: 'create', alert_id: null }, 'push');
+    setFormMode('create', null);
+  }
+
+  function handleToggleActive(alertId) {
+    if (!alertId) {
+      return;
+    }
+    var alert = jobAlerts.find(function(a) { return a.id === alertId; });
+    if (!alert) {
+      return;
+    }
+    var newActive = !alert.is_active;
+    try {
+      var updated = WebsiteSDK.toggleJobAlertActive(alertId, newActive);
+      if (updated && typeof updated.is_active === 'boolean') {
+        alert.is_active = updated.is_active;
+        alert.frequency = updated.frequency || alert.frequency;
+        alert.location = updated.location || alert.location;
+        alert.job_title_keywords = updated.job_title_keywords || alert.job_title_keywords;
+      } else {
+        alert.is_active = newActive;
+      }
+      renderAlertsList(alertsListContainer, jobAlerts, currentFilterStatus);
+      updateToolbarMeta();
+      updateUrlParams({ status: 'toggled' }, 'replace');
+      syncStatusBannerFromUrl();
+    } catch (e) {
+      console.error('Error toggling alert active state', e);
+      updateUrlParams({ status: 'error' }, 'replace');
+      syncStatusBannerFromUrl();
+    }
+  }
+
+  function handleEditClick(alertId) {
+    if (!alertId) {
+      return;
+    }
+    var alert = jobAlerts.find(function(a) { return a.id === alertId; });
+    if (!alert) {
+      updateUrlParams({ status: 'error' }, 'replace');
+      syncStatusBannerFromUrl();
+      return;
+    }
+    updateUrlParams({ action: 'edit', alert_id: alertId }, 'push');
+    setFormMode('edit', alert);
+  }
+
+  function openDeleteDialog(alertId) {
+    if (!alertId || !deleteDialogEl) {
+      return;
+    }
+    var alert = jobAlerts.find(function(a) { return a.id === alertId; });
+    pendingDeleteAlertId = alertId;
+    if (deleteMessageEl) {
+      var title = alert && (alert.name || alert.job_title_keywords) ? (alert.name || alert.job_title_keywords) : 'this job alert';
+      deleteMessageEl.textContent = 'Are you sure you want to delete "' + title + '"? This action cannot be undone.';
+    }
+    deleteDialogEl.classList.remove('is-hidden');
+    deleteDialogEl.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-open');
+  }
+
+  function closeDeleteDialog() {
+    if (!deleteDialogEl) {
+      return;
+    }
+    deleteDialogEl.classList.add('is-hidden');
+    deleteDialogEl.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('modal-open');
+    pendingDeleteAlertId = '';
+  }
+
+  function handleConfirmDelete() {
+    if (!pendingDeleteAlertId) {
+      closeDeleteDialog();
+      return;
+    }
+    try {
+      var result = WebsiteSDK.deleteJobAlert(pendingDeleteAlertId);
+      if (result && result.success) {
+        jobAlerts = jobAlerts.filter(function(a) { return a.id !== pendingDeleteAlertId; });
+        renderAlertsList(alertsListContainer, jobAlerts, currentFilterStatus);
+        updateToolbarMeta();
+        updateUrlParams({ status: 'deleted', action: null, alert_id: null }, 'replace');
+        syncStatusBannerFromUrl();
+      } else {
+        updateUrlParams({ status: 'error' }, 'replace');
+        syncStatusBannerFromUrl();
+      }
+    } catch (e) {
+      console.error('Error deleting job alert', e);
+      updateUrlParams({ status: 'error' }, 'replace');
+      syncStatusBannerFromUrl();
+    } finally {
+      closeDeleteDialog();
+    }
+  }
+
+  function handleViewMatchingJobs(alertId) {
+    if (!alertId) {
+      return;
+    }
+    var alert = jobAlerts.find(function(a) { return a.id === alertId; });
+    if (!alert) {
+      return;
+    }
+    var params = new URLSearchParams();
+    if (alert.job_title_keywords) {
+      params.set('keywords', alert.job_title_keywords);
+    }
+    if (alert.location) {
+      params.set('location', alert.location);
+    }
+    if (typeof alert.salary_min === 'number' && !isNaN(alert.salary_min)) {
+      params.set('salary_min', String(alert.salary_min));
+    }
+    if (typeof alert.salary_max === 'number' && !isNaN(alert.salary_max)) {
+      params.set('salary_max', String(alert.salary_max));
+    }
+    params.set('sort_by', 'date_posted_newest');
+    var query = params.toString();
+    window.location.href = 'jobs.html' + (query ? '?' + query : '');
+  }
+
+  function handleFormSubmit(event) {
+    if (event && event.preventDefault) {
+      event.preventDefault();
+    }
+    if (!formEl) {
+      return;
+    }
+    showInlineError('');
+    var formData = new FormData(formEl);
+    var name = (formData.get('name') || '').toString().trim();
+    var keywords = (formData.get('job_title_keywords') || '').toString().trim();
+    var location = (formData.get('location') || '').toString().trim();
+    var salaryMinRaw = (formData.get('salary_min') || '').toString().trim();
+    var salaryMaxRaw = (formData.get('salary_max') || '').toString().trim();
+    var frequency = (formData.get('frequency') || '').toString().trim();
+
+    if (!keywords) {
+      showInlineError('Please enter job title or keywords for this alert.');
+      return;
+    }
+    if (!frequency) {
+      showInlineError('Please select how often you would like to receive this alert.');
+      return;
+    }
+
+    var salaryMin = salaryMinRaw ? Number(salaryMinRaw) : null;
+    var salaryMax = salaryMaxRaw ? Number(salaryMaxRaw) : null;
+    if (salaryMin !== null && isNaN(salaryMin)) {
+      showInlineError('Salary min must be a number.');
+      return;
+    }
+    if (salaryMax !== null && isNaN(salaryMax)) {
+      showInlineError('Salary max must be a number.');
+      return;
+    }
+    if (salaryMin !== null && salaryMax !== null && salaryMin > salaryMax) {
+      showInlineError('Salary min cannot be greater than salary max.');
+      return;
+    }
+
+    var safeName = name || undefined;
+    var safeLocation = location || undefined;
+    var safeSalaryMin = salaryMin !== null ? salaryMin : undefined;
+    var safeSalaryMax = salaryMax !== null ? salaryMax : undefined;
+
+    try {
+      if (currentFormMode === 'edit' && currentEditingAlertId) {
+        var updates = {
+          name: safeName,
+          job_title_keywords: keywords,
+          location: safeLocation,
+          salary_min: safeSalaryMin,
+          salary_max: safeSalaryMax,
+          frequency: frequency
+        };
+        var updatedAlert = WebsiteSDK.updateJobAlert(currentEditingAlertId, updates);
+        if (updatedAlert) {
+          var index = jobAlerts.findIndex(function(a) { return a.id === currentEditingAlertId; });
+          if (index !== -1) {
+            jobAlerts[index] = updatedAlert;
+          }
+          renderAlertsList(alertsListContainer, jobAlerts, currentFilterStatus);
+          updateToolbarMeta();
+          updateUrlParams({ status: 'updated' }, 'replace');
+          syncStatusBannerFromUrl();
+        }
+      } else {
+        var createdAlert = WebsiteSDK.createJobAlert(
+          keywords,
+          safeLocation,
+          safeSalaryMin,
+          safeSalaryMax,
+          frequency,
+          safeName
+        );
+        if (createdAlert) {
+          jobAlerts.push(createdAlert);
+          renderAlertsList(alertsListContainer, jobAlerts, currentFilterStatus);
+          updateToolbarMeta();
+          setFormMode('create', null);
+          updateUrlParams({
+            status: 'created',
+            action: null,
+            alert_id: null,
+            prefill_keywords: null,
+            prefill_location: null
+          }, 'replace');
+          syncStatusBannerFromUrl();
+        }
+      }
+    } catch (e) {
+      console.error('Error saving job alert', e);
+      updateUrlParams({ status: 'error' }, 'replace');
+      syncStatusBannerFromUrl();
+    }
+  }
+
+  function handleFormCancel() {
+    setFormMode('create', null);
+    updateUrlParams({ action: null, alert_id: null }, 'replace');
+  }
+
+  function handleBannerDismiss() {
+    updateUrlParams({ status: null }, 'replace');
+    syncStatusBannerFromUrl();
+  }
+
+  if (bannerDismissBtn) {
+    bannerDismissBtn.addEventListener('click', handleBannerDismiss);
+  }
+
+  if (filterSelectEl) {
+    filterSelectEl.value = currentFilterStatus;
+    filterSelectEl.addEventListener('change', function(event) {
+      handleFilterChange(event.target.value);
+    });
+  }
+
+  if (createAlertBtn) {
+    createAlertBtn.addEventListener('click', handleCreateClick);
+  }
+
+  if (formEl) {
+    formEl.addEventListener('submit', handleFormSubmit);
+  }
+  if (formCancelBtn) {
+    formCancelBtn.addEventListener('click', handleFormCancel);
+  }
+
+  if (deleteConfirmBtn) {
+    deleteConfirmBtn.addEventListener('click', handleConfirmDelete);
+  }
+  if (deleteCancelBtn) {
+    deleteCancelBtn.addEventListener('click', function() {
+      closeDeleteDialog();
+    });
+  }
+
+  if (listEl) {
+    listEl.addEventListener('click', function(event) {
+      var actionEl = event.target.closest('[data-action]');
+      if (!actionEl) {
+        return;
+      }
+      var action = actionEl.getAttribute('data-action');
+      var rowEl = actionEl.closest('[data-component=job-alert-row]');
+      var alertId = rowEl ? rowEl.getAttribute('data-alert-id') : '';
+      if (action === 'edit-alert') {
+        handleEditClick(alertId);
+      } else if (action === 'toggle-alert-active') {
+        handleToggleActive(alertId);
+      } else if (action === 'delete-alert') {
+        openDeleteDialog(alertId);
+      } else if (action === 'view-matching-jobs') {
+        handleViewMatchingJobs(alertId);
+      } else if (action === 'empty-create-alert') {
+        handleCreateClick();
+      }
+    });
+  }
+
+  if (bannerEl) {
+    syncStatusBannerFromUrl();
+  }
+
+  var populateElements = pageContainer.querySelectorAll('[data-populate]');
+  populateElements.forEach(function(element) {
+    if (element.getAttribute('data-populate') === 'job-alerts-list') {
+      loadAlerts(element);
+    }
+  });
+
+  window.addEventListener('popstate', function() {
+    var params = new URLSearchParams(window.location.search || '');
+    currentFilterStatus = params.get('filter_status') === 'active' ? 'active' : 'all';
+    if (filterSelectEl) {
+      filterSelectEl.value = currentFilterStatus;
+    }
+    renderAlertsList(alertsListContainer, jobAlerts, currentFilterStatus);
+    applyActionFromUrl();
+    syncStatusBannerFromUrl();
+  });
+});
+</script>

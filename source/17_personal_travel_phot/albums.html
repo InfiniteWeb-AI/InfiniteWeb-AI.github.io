@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Albums - Travel Photo Gallery</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="albums.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header" role="banner">
+      <nav class="site-nav" aria-label="Primary">
+        <a href="index.html" title="Homepage and dashboard">Home</a>
+        <a href="photos.html" title="Browse and filter all photos">All Photos</a>
+        <a href="albums.html" title="View and manage photo albums">Albums</a>
+        <a href="collections.html" title="Smart and custom photo collections">Collections</a>
+        <a href="trips.html" title="Travel stories and trip timelines">Trips</a>
+      </nav>
+    </header>
+
+    <main id="content" role="main">
+      <div class="albums-page" data-component="albums-page">
+        <div id="albums-page-messages" class="albums-page-messages" aria-live="polite"></div>
+
+        <section class="albums-main-column" aria-label="Albums list">
+          <header class="albums-toolbar">
+            <div class="albums-controls-row" data-component="albums-controls" data-populate="albums-controls"></div>
+            <div class="albums-applied-filters" data-component="albums-applied-filters-summary" data-populate="albums-applied-filters"></div>
+            <div class="albums-bulk-toolbar" data-component="albums-bulk-actions-toolbar" aria-live="polite"></div>
+          </header>
+
+          <section class="albums-grid-wrapper" data-component="albums-grid-wrapper">
+            <div data-component="albums-grid" data-populate="albums-grid"></div>
+          </section>
+        </section>
+
+        <!-- Create Album Modal -->
+        <div class="albums-create-album-modal-overlay" data-component="albums-create-album-form" hidden>
+          <div class="albums-create-album-modal" role="dialog" aria-modal="true" aria-labelledby="create-album-title">
+            <header class="create-album-header">
+              <h2 id="create-album-title">Create New Album</h2>
+            </header>
+            <div class="create-album-error" aria-live="polite"></div>
+            <form class="create-album-form" data-action="create-album-submit">
+              <div class="form-field">
+                <label for="create-album-title-input">Title<span aria-hidden="true">*</span></label>
+                <input id="create-album-title-input" name="title" type="text" required />
+              </div>
+
+              <div class="form-field">
+                <label for="create-album-description-input">Description</label>
+                <textarea id="create-album-description-input" name="description" rows="3"></textarea>
+              </div>
+
+              <div class="form-field form-field-inline">
+                <div class="form-field">
+                  <label for="create-album-year-input">Year</label>
+                  <select id="create-album-year-input" name="year">
+                    <option value="">Select year</option>
+                    <!-- Options populated in JS from filter options -->
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label for="create-album-start-date-input">Start date</label>
+                  <input id="create-album-start-date-input" name="startDate" type="date" />
+                </div>
+                <div class="form-field">
+                  <label for="create-album-end-date-input">End date</label>
+                  <input id="create-album-end-date-input" name="endDate" type="date" />
+                </div>
+              </div>
+
+              <div class="form-field form-field-inline">
+                <div class="form-field">
+                  <label for="create-album-country-input">Main country</label>
+                  <select id="create-album-country-input" name="mainCountry">
+                    <option value="">Select country</option>
+                    <!-- Options populated in JS from filter options -->
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label for="create-album-city-input">Main city</label>
+                  <input id="create-album-city-input" name="mainCity" type="text" />
+                </div>
+              </div>
+
+              <fieldset class="form-field">
+                <legend>Privacy and visibility<span aria-hidden="true">*</span></legend>
+                <div class="form-field">
+                  <label for="create-album-privacy-input">Privacy</label>
+                  <select id="create-album-privacy-input" name="privacy" required>
+                    <option value="">Select privacy</option>
+                    <option value="public">Public</option>
+                    <option value="private">Private</option>
+                  </select>
+                </div>
+                <div class="form-field-inline toggles-inline">
+                  <label>
+                    <input id="create-album-show-profile-input" name="showOnProfile" type="checkbox" />
+                    Show on profile
+                  </label>
+                  <label>
+                    <input id="create-album-show-home-input" name="showOnHomepage" type="checkbox" />
+                    Show on homepage
+                  </label>
+                </div>
+              </fieldset>
+
+              <div class="form-actions">
+                <button type="submit">Create album</button>
+                <button type="button" data-action="create-album-cancel">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+      <nav class="footer-nav" aria-label="Footer">
+        <a href="about.html" title="About this travel photo gallery">About</a>
+        <span class="footer-separator">&middot;</span>
+        <a href="help.html" title="Help and usage guide">Help</a>
+      </nav>
+      <p class="footer-meta">&copy; 2024 Travel Photo Gallery</p>
+    </footer>
+  </div>
+
+  <script src="business_logic.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const state = {
+        filters: {
+          yearParam: null,
+          country: null,
+          privacy: null,
+          titleQuery: null
+        },
+        sort: 'created_at_newest',
+        page: 1,
+        pageSize: 24,
+        albums: [],
+        totalCount: 0,
+        filterOptions: {
+          years: [],
+          countries: [],
+          privacyOptions: []
+        },
+        selectedAlbumIds: new Set(),
+        bulk: {
+          privacy: '',
+          showOnProfile: 'no_change',
+          showOnHomepage: 'no_change',
+          error: ''
+        }
+      };
+
+      function escapeHTML(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function getUrlParams() {
+        return new URLSearchParams(window.location.search);
+      }
+
+      function updateUrlParams(params) {
+        const query = params.toString();
+        const newUrl = window.location.pathname + (query ? '?' + query : '');
+        window.history.replaceState({}, '', newUrl);
+      }
+
+      function syncStateWithUrl(params) {
+        const yearParam = params.get('year');
+        const country = params.get('country');
+        const privacy = params.get('privacy');
+        const titleQuery = params.get('titleQuery');
+        const sort = params.get('sort') || state.sort || 'created_at_newest';
+        const pageStr = params.get('page');
+        const pageSizeStr = params.get('pageSize');
+
+        let page = parseInt(pageStr, 10);
+        if (!Number.isFinite(page) || page < 1) page = 1;
+
+        let pageSize = parseInt(pageSizeStr, 10);
+        if (!Number.isFinite(pageSize) || pageSize < 1) pageSize = state.pageSize || 24;
+
+        state.filters.yearParam = yearParam;
+        state.filters.country = country;
+        state.filters.privacy = privacy;
+        state.filters.titleQuery = titleQuery;
+        state.sort = sort;
+        state.page = page;
+        state.pageSize = pageSize;
+      }
+
+      function parseYearParam(yearParam) {
+        const result = {};
+        if (!yearParam) return result;
+
+        if (/^\d{4}$/.test(yearParam)) {
+          const year = parseInt(yearParam, 10);
+          if (Number.isFinite(year)) {
+            result.yearFrom = year;
+            result.yearTo = year;
+            result.yearMode = 'exact';
+          }
+          return result;
+        }
+
+        if (/^\d{4}_and_earlier$/.test(yearParam)) {
+          const year = parseInt(yearParam.split('_')[0], 10);
+          if (Number.isFinite(year)) {
+            result.yearTo = year;
+            result.yearMode = 'and_earlier';
+          }
+          return result;
+        }
+
+        if (/^\d{4}_and_later$/.test(yearParam)) {
+          const year = parseInt(yearParam.split('_')[0], 10);
+          if (Number.isFinite(year)) {
+            result.yearFrom = year;
+            result.yearMode = 'and_later';
+          }
+          return result;
+        }
+
+        if (/^\d{4}-\d{4}$/.test(yearParam)) {
+          const parts = yearParam.split('-');
+          const from = parseInt(parts[0], 10);
+          const to = parseInt(parts[1], 10);
+          if (Number.isFinite(from)) result.yearFrom = from;
+          if (Number.isFinite(to)) result.yearTo = to;
+          if (Number.isFinite(from) && Number.isFinite(to)) {
+            result.yearMode = 'range';
+          }
+          return result;
+        }
+
+        return result;
+      }
+
+      function formatYearFilterLabel(yearParam) {
+        if (!yearParam) return '';
+        if (/^\d{4}$/.test(yearParam)) {
+          return yearParam;
+        }
+        if (/^\d{4}_and_earlier$/.test(yearParam)) {
+          const year = yearParam.split('_')[0];
+          return year + ' and earlier';
+        }
+        if (/^\d{4}_and_later$/.test(yearParam)) {
+          const year = yearParam.split('_')[0];
+          return year + ' and later';
+        }
+        if (/^\d{4}-\d{4}$/.test(yearParam)) {
+          const parts = yearParam.split('-');
+          return parts[0] + '\u2013' + parts[1];
+        }
+        return yearParam;
+      }
+
+      function buildFiltersFromState() {
+        const filters = {};
+        const yearParam = state.filters.yearParam;
+        const country = state.filters.country;
+        const privacy = state.filters.privacy;
+        const titleQuery = state.filters.titleQuery;
+
+        if (yearParam) {
+          const yearParts = parseYearParam(yearParam);
+          if (yearParts.yearFrom !== undefined) filters.yearFrom = yearParts.yearFrom;
+          if (yearParts.yearTo !== undefined) filters.yearTo = yearParts.yearTo;
+          if (yearParts.yearMode) filters.yearMode = yearParts.yearMode;
+        }
+        if (country) {
+          filters.mainCountry = country;
+        }
+        if (privacy) {
+          filters.privacy = privacy;
+        }
+        if (titleQuery) {
+          filters.titleQuery = titleQuery;
+        }
+        return filters;
+      }
+
+      function showGlobalMessage(message, type) {
+        const container = document.getElementById('albums-page-messages');
+        if (!container) return;
+        if (!message) {
+          container.textContent = '';
+          container.className = 'albums-page-messages';
+          return;
+        }
+        container.textContent = message;
+        container.className = 'albums-page-messages ' + (type === 'error' ? 'is-error' : '');
+      }
+
+      function loadAlbumsAndRender() {
+        const params = getUrlParams();
+        syncStateWithUrl(params);
+        const filters = buildFiltersFromState();
+
+        let result;
+        try {
+          result = WebsiteSDK.getAlbums(filters, state.sort, state.page, state.pageSize);
+        } catch (error) {
+          console.error('Error loading albums', error);
+          state.albums = [];
+          state.totalCount = 0;
+          showGlobalMessage('Could not load albums. Please try again.', 'error');
+          refreshUI();
+          return;
+        }
+
+        state.albums = Array.isArray(result && result.albums) ? result.albums : [];
+        state.totalCount = typeof result && result.totalCount === 'number' ? result.totalCount : (result && result.totalCount) || 0;
+
+        if (!state.albums.length && state.totalCount === 0) {
+          state.selectedAlbumIds = new Set();
+        }
+
+        refreshUI();
+      }
+
+      function renderAlbumsControls(container) {
+        const years = Array.isArray(state.filterOptions.years) ? state.filterOptions.years.slice().sort((a, b) => b - a) : [];
+        const countries = Array.isArray(state.filterOptions.countries) ? state.filterOptions.countries.slice().sort() : [];
+        const privacyOptions = Array.isArray(state.filterOptions.privacyOptions) ? state.filterOptions.privacyOptions : [];
+
+        const yearParam = state.filters.yearParam;
+        const countryParam = state.filters.country || '';
+        const privacyParam = state.filters.privacy || '';
+        const titleQuery = state.filters.titleQuery || '';
+
+        const totalPages = state.pageSize > 0 ? Math.max(1, Math.ceil(state.totalCount / state.pageSize)) : 1;
+        const currentPage = Math.min(state.page, totalPages);
+
+        const yearOptionsHtml = years
+          .map((year) => {
+            const value = String(year);
+            const selected = yearParam === value ? ' selected' : '';
+            return `<option value="${value}"${selected}>${year}</option>`;
+          })
+          .join('');
+
+        const countryOptionsHtml = countries
+          .map((country) => {
+            const value = escapeHTML(country);
+            const selected = countryParam === country ? ' selected' : '';
+            return `<option value="${value}"${selected}>${escapeHTML(country)}</option>`;
+          })
+          .join('');
+
+        const privacyOptionsHtml = privacyOptions
+          .map((opt) => {
+            const value = escapeHTML(opt.value);
+            const selected = privacyParam === opt.value ? ' selected' : '';
+            const label = escapeHTML(opt.label || opt.value);
+            return `<option value="${value}"${selected}>${label}</option>`;
+          })
+          .join('');
+
+        const sortOptions = [
+          { value: 'created_at_newest', label: 'Created (newest first)' },
+          { value: 'created_at_oldest', label: 'Created (oldest first)' },
+          { value: 'title_az', label: 'Title (A-Z)' },
+          { value: 'title_za', label: 'Title (Z-A)' }
+        ];
+
+        const sortOptionsHtml = sortOptions
+          .map((opt) => {
+            const selected = state.sort === opt.value ? ' selected' : '';
+            return `<option value="${opt.value}"${selected}>${opt.label}</option>`;
+          })
+          .join('');
+
+        const pageSizeOptions = [24, 48, 96];
+        const pageSizeOptionsHtml = pageSizeOptions
+          .map((size) => {
+            const selected = state.pageSize === size ? ' selected' : '';
+            return `<option value="${size}"${selected}>${size}</option>`;
+          })
+          .join('');
+
+        container.innerHTML = `
+          <div class="albums-controls-row-inner">
+            <div class="albums-filter-bar" data-component="albums-filter-bar">
+              <div class="filter-group">
+                <label>
+                  <span class="filter-label">Year</span>
+                  <select data-action="filter-year-change">
+                    <option value="">All years</option>
+                    ${yearOptionsHtml}
+                  </select>
+                </label>
+                <label>
+                  <span class="filter-label">Country</span>
+                  <select data-action="filter-country-change">
+                    <option value="">All countries</option>
+                    ${countryOptionsHtml}
+                  </select>
+                </label>
+                <label>
+                  <span class="filter-label">Privacy</span>
+                  <select data-action="filter-privacy-change">
+                    <option value="">All privacy</option>
+                    ${privacyOptionsHtml}
+                  </select>
+                </label>
+                <label class="filter-title-search">
+                  <span class="filter-label">Title contains</span>
+                  <input type="search" value="${escapeHTML(titleQuery)}" placeholder="Search title" data-action="filter-title-change" />
+                </label>
+                <button type="button" class="link-button" data-action="filters-clear-all">Clear filters</button>
+              </div>
+            </div>
+            <div class="albums-sort-pagination" data-component="albums-sort-and-pagination-controls">
+              <div class="sort-group">
+                <label>
+                  <span class="filter-label">Sort</span>
+                  <select data-action="sort-change">
+                    ${sortOptionsHtml}
+                  </select>
+                </label>
+              </div>
+              <div class="pagination-group">
+                <button type="button" data-action="page-prev" ${currentPage <= 1 || state.totalCount === 0 ? 'disabled' : ''}>&lt; Prev</button>
+                <span class="pagination-status">Page ${currentPage} of ${totalPages}</span>
+                <button type="button" data-action="page-next" ${currentPage >= totalPages || state.totalCount === 0 ? 'disabled' : ''}>Next &gt;</button>
+                <label>
+                  <span class="filter-label">Per page</span>
+                  <select data-action="page-size-change">
+                    ${pageSizeOptionsHtml}
+                  </select>
+                </label>
+              </div>
+              <div class="primary-actions">
+                <button type="button" data-action="create-album-open">Create album</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderAppliedFilters(container) {
+        const active = [];
+        const yearParam = state.filters.yearParam;
+        const country = state.filters.country;
+        const privacy = state.filters.privacy;
+        const titleQuery = state.filters.titleQuery;
+
+        if (yearParam) {
+          active.push({ key: 'year', label: formatYearFilterLabel(yearParam) });
+        }
+        if (country) {
+          active.push({ key: 'country', label: country });
+        }
+        if (privacy) {
+          const opt = (state.filterOptions.privacyOptions || []).find((p) => p.value === privacy);
+          active.push({ key: 'privacy', label: (opt && opt.label) || privacy });
+        }
+        if (titleQuery) {
+          active.push({ key: 'titleQuery', label: `Title contains "${titleQuery}"` });
+        }
+
+        if (!active.length) {
+          container.innerHTML = '';
+          return;
+        }
+
+        const itemsHtml = active
+          .map((item) => {
+            return `
+              <li class="applied-filter-item">
+                <span class="applied-filter-label">${escapeHTML(item.label)}</span>
+                <button type="button" class="applied-filter-remove" data-action="applied-filter-remove" data-filter-key="${escapeHTML(item.key)}" aria-label="Remove filter ${escapeHTML(item.label)}">&times;</button>
+              </li>
+            `;
+          })
+          .join('');
+
+        container.innerHTML = `
+          <div class="applied-filters-inner">
+            <span class="applied-filters-heading">Filters:</span>
+            <ul class="applied-filters-list">
+              ${itemsHtml}
+            </ul>
+          </div>
+        `;
+      }
+
+      function renderBulkToolbar(container) {
+        if (!container) return;
+        const selectedCount = state.selectedAlbumIds.size;
+        if (!selectedCount) {
+          container.innerHTML = '';
+          container.classList.remove('is-visible');
+          return;
+        }
+        container.classList.add('is-visible');
+
+        const privacyOptions = [
+          { value: '', label: 'Select privacy (Required)' },
+          { value: 'public', label: 'Public' },
+          { value: 'private', label: 'Private' }
+        ];
+
+        const privacyOptionsHtml = privacyOptions
+          .map((opt) => {
+            const selected = state.bulk.privacy === opt.value ? ' selected' : '';
+            return `<option value="${opt.value}"${selected}>${opt.label}</option>`;
+          })
+          .join('');
+
+        const errorHtml = state.bulk.error ? `<div class="bulk-error">${escapeHTML(state.bulk.error)}</div>` : '';
+
+        container.innerHTML = `
+          <div class="bulk-toolbar-inner">
+            <div class="bulk-summary">${selectedCount} album${selectedCount === 1 ? '' : 's'} selected</div>
+            <form class="bulk-form" data-action="bulk-update-submit">
+              <label>
+                <span class="filter-label">Privacy</span>
+                <select data-action="bulk-privacy-change">
+                  ${privacyOptionsHtml}
+                </select>
+              </label>
+              <label>
+                <span class="filter-label">Show on profile</span>
+                <select data-action="bulk-show-profile-change">
+                  <option value="no_change" ${state.bulk.showOnProfile === 'no_change' ? 'selected' : ''}>No change</option>
+                  <option value="true" ${state.bulk.showOnProfile === 'true' ? 'selected' : ''}>Show</option>
+                  <option value="false" ${state.bulk.showOnProfile === 'false' ? 'selected' : ''}>Hide</option>
+                </select>
+              </label>
+              <label>
+                <span class="filter-label">Show on homepage</span>
+                <select data-action="bulk-show-homepage-change">
+                  <option value="no_change" ${state.bulk.showOnHomepage === 'no_change' ? 'selected' : ''}>No change</option>
+                  <option value="true" ${state.bulk.showOnHomepage === 'true' ? 'selected' : ''}>Show</option>
+                  <option value="false" ${state.bulk.showOnHomepage === 'false' ? 'selected' : ''}>Hide</option>
+                </select>
+              </label>
+              <button type="submit">Apply</button>
+              <button type="button" data-action="bulk-clear-selection">Clear selection</button>
+            </form>
+            ${errorHtml}
+          </div>
+        `;
+      }
+
+      function renderAlbumsGrid(container) {
+        if (!container) return;
+
+        if (!state.albums.length && state.totalCount === 0) {
+          container.innerHTML = `
+            <div class="albums-empty-state" data-component="albums-empty-state-handler">
+              <p class="empty-state-message">No albums found for the current filters.</p>
+              <div class="empty-state-actions">
+                <button type="button" data-action="empty-clear-filters">Clear filters</button>
+                <button type="button" data-action="create-album-open">Create your first album</button>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        const selectAllChecked = state.albums.length > 0 && state.albums.every((album) => state.selectedAlbumIds.has(album.id));
+
+        const tilesHtml = state.albums
+          .map((album) => {
+            const id = album.id;
+            const title = escapeHTML(album.title);
+            const locationParts = [];
+            if (album.mainCity) locationParts.push(album.mainCity);
+            if (album.mainCountry) locationParts.push(album.mainCountry);
+            const location = locationParts.join(', ');
+            const yearText = album.year ? String(album.year) : '';
+            const metaLine = [yearText, location].filter(Boolean).join(' · ');
+            const privacy = escapeHTML(album.privacy);
+            const showOnProfile = album.showOnProfile ? 'On profile' : 'Hidden from profile';
+            const showOnHomepage = album.showOnHomepage ? 'On homepage' : 'Not on homepage';
+            const checkedAttr = state.selectedAlbumIds.has(id) ? ' checked' : '';
+
+            return `
+              <article class="album-tile" data-album-id="${escapeHTML(id)}" role="listitem">
+                <div class="album-tile-select">
+                  <input type="checkbox" data-action="album-select-toggle" data-album-id="${escapeHTML(id)}"${checkedAttr} aria-label="Select album ${title}" />
+                </div>
+                <figure class="photo-frame album-tile-frame" data-action="album-tile-click" data-album-id="${escapeHTML(id)}">
+                  <div class="album-cover-placeholder" aria-hidden="true"></div>
+                </figure>
+                <header class="album-tile-meta" data-action="album-tile-click" data-album-id="${escapeHTML(id)}">
+                  <h3 class="album-title">${title}</h3>
+                  <p class="album-meta-line">${escapeHTML(metaLine)}</p>
+                  <p class="album-privacy">Privacy: ${privacy}</p>
+                  <p class="album-visibility">${escapeHTML(showOnProfile)} · ${escapeHTML(showOnHomepage)}</p>
+                </header>
+              </article>
+            `;
+          })
+          .join('');
+
+        container.innerHTML = `
+          <div class="albums-grid-header">
+            <div class="albums-grid-header-left">
+              <button type="button" data-action="select-all-on-page">${selectAllChecked ? 'Clear selection on this page' : 'Select all on this page'}</button>
+            </div>
+            <div class="albums-grid-header-right">
+              <span class="albums-count">Showing ${state.albums.length} of ${state.totalCount} album${state.totalCount === 1 ? '' : 's'}</span>
+            </div>
+          </div>
+          <div class="albums-grid" role="list">
+            ${tilesHtml}
+          </div>
+        `;
+      }
+
+      function refreshUI() {
+        const controlsContainer = document.querySelector('[data-populate="albums-controls"]');
+        if (controlsContainer) {
+          renderAlbumsControls(controlsContainer);
+        }
+
+        const appliedFiltersContainer = document.querySelector('[data-populate="albums-applied-filters"]');
+        if (appliedFiltersContainer) {
+          renderAppliedFilters(appliedFiltersContainer);
+        }
+
+        const gridContainer = document.querySelector('[data-populate="albums-grid"]');
+        if (gridContainer) {
+          renderAlbumsGrid(gridContainer);
+        }
+
+        const bulkToolbarContainer = document.querySelector('[data-component="albums-bulk-actions-toolbar"]');
+        if (bulkToolbarContainer) {
+          renderBulkToolbar(bulkToolbarContainer);
+        }
+
+        populateCreateAlbumFormOptions();
+      }
+
+      function clearAllFiltersAndResetPage() {
+        const params = getUrlParams();
+        params.delete('year');
+        params.delete('country');
+        params.delete('privacy');
+        params.delete('titleQuery');
+        params.delete('page');
+        updateUrlParams(params);
+        state.selectedAlbumIds = new Set();
+        loadAlbumsAndRender();
+      }
+
+      function handleFilterChange(key, value) {
+        const params = getUrlParams();
+        if (value === null || value === undefined || value === '') {
+          params.delete(key);
+        } else {
+          params.set(key, value);
+        }
+        params.delete('page');
+        updateUrlParams(params);
+        state.selectedAlbumIds = new Set();
+        loadAlbumsAndRender();
+      }
+
+      function handleSortChange(value) {
+        const params = getUrlParams();
+        if (value) {
+          params.set('sort', value);
+        } else {
+          params.delete('sort');
+        }
+        params.delete('page');
+        updateUrlParams(params);
+        state.selectedAlbumIds = new Set();
+        loadAlbumsAndRender();
+      }
+
+      function handlePageChange(direction) {
+        const params = getUrlParams();
+        const currentPageStr = params.get('page');
+        let currentPage = parseInt(currentPageStr, 10);
+        if (!Number.isFinite(currentPage) || currentPage < 1) currentPage = 1;
+
+        const totalPages = state.pageSize > 0 ? Math.max(1, Math.ceil(state.totalCount / state.pageSize)) : 1;
+
+        let newPage = currentPage;
+        if (direction === 'prev' && currentPage > 1) {
+          newPage = currentPage - 1;
+        } else if (direction === 'next' && currentPage < totalPages) {
+          newPage = currentPage + 1;
+        }
+
+        if (newPage === currentPage) return;
+
+        params.set('page', String(newPage));
+        updateUrlParams(params);
+        state.selectedAlbumIds = new Set();
+        loadAlbumsAndRender();
+      }
+
+      function handlePageSizeChange(value) {
+        const size = parseInt(value, 10);
+        if (!Number.isFinite(size) || size < 1) return;
+        const params = getUrlParams();
+        params.set('pageSize', String(size));
+        params.delete('page');
+        updateUrlParams(params);
+        state.selectedAlbumIds = new Set();
+        loadAlbumsAndRender();
+      }
+
+      function handleAppliedFilterRemove(key) {
+        const params = getUrlParams();
+        if (key === 'year') params.delete('year');
+        if (key === 'country') params.delete('country');
+        if (key === 'privacy') params.delete('privacy');
+        if (key === 'titleQuery') params.delete('titleQuery');
+        params.delete('page');
+        updateUrlParams(params);
+        state.selectedAlbumIds = new Set();
+        loadAlbumsAndRender();
+      }
+
+      function handleAlbumTileClick(albumId) {
+        if (!albumId) return;
+        window.location.href = 'album_detail.html?id=' + encodeURIComponent(albumId);
+      }
+
+      function handleAlbumSelectToggle(albumId, checked) {
+        if (!albumId) return;
+        if (checked) {
+          state.selectedAlbumIds.add(albumId);
+        } else {
+          state.selectedAlbumIds.delete(albumId);
+        }
+        const bulkToolbarContainer = document.querySelector('[data-component="albums-bulk-actions-toolbar"]');
+        if (bulkToolbarContainer) {
+          renderBulkToolbar(bulkToolbarContainer);
+        }
+        const gridContainer = document.querySelector('[data-populate="albums-grid"]');
+        if (gridContainer) {
+          renderAlbumsGrid(gridContainer);
+        }
+      }
+
+      function handleSelectAllOnPage() {
+        if (!state.albums.length) return;
+        const allSelected = state.albums.every((album) => state.selectedAlbumIds.has(album.id));
+        if (allSelected) {
+          state.albums.forEach((album) => {
+            state.selectedAlbumIds.delete(album.id);
+          });
+        } else {
+          state.albums.forEach((album) => {
+            state.selectedAlbumIds.add(album.id);
+          });
+        }
+        const bulkToolbarContainer = document.querySelector('[data-component="albums-bulk-actions-toolbar"]');
+        if (bulkToolbarContainer) {
+          renderBulkToolbar(bulkToolbarContainer);
+        }
+        const gridContainer = document.querySelector('[data-populate="albums-grid"]');
+        if (gridContainer) {
+          renderAlbumsGrid(gridContainer);
+        }
+      }
+
+      function handleBulkSubmit(eventTarget) {
+        state.bulk.error = '';
+        const selectedIds = Array.from(state.selectedAlbumIds);
+        if (!selectedIds.length) {
+          state.bulk.error = 'Select at least one album.';
+          const bulkToolbarContainer = document.querySelector('[data-component="albums-bulk-actions-toolbar"]');
+          if (bulkToolbarContainer) renderBulkToolbar(bulkToolbarContainer);
+          return;
+        }
+        if (!state.bulk.privacy) {
+          state.bulk.error = 'Choose a privacy value for the selected albums.';
+          const bulkToolbarContainer2 = document.querySelector('[data-component="albums-bulk-actions-toolbar"]');
+          if (bulkToolbarContainer2) renderBulkToolbar(bulkToolbarContainer2);
+          return;
+        }
+
+        let showOnProfileValue;
+        if (state.bulk.showOnProfile === 'true') showOnProfileValue = true;
+        if (state.bulk.showOnProfile === 'false') showOnProfileValue = false;
+
+        let showOnHomepageValue;
+        if (state.bulk.showOnHomepage === 'true') showOnHomepageValue = true;
+        if (state.bulk.showOnHomepage === 'false') showOnHomepageValue = false;
+
+        let result;
+        try {
+          result = WebsiteSDK.bulkUpdateAlbumPrivacy(
+            selectedIds,
+            state.bulk.privacy,
+            showOnProfileValue,
+            showOnHomepageValue
+          );
+        } catch (error) {
+          console.error('Error updating album privacy in bulk', error);
+          state.bulk.error = 'Bulk update failed. Please try again.';
+          const bulkToolbarContainer3 = document.querySelector('[data-component="albums-bulk-actions-toolbar"]');
+          if (bulkToolbarContainer3) renderBulkToolbar(bulkToolbarContainer3);
+          return;
+        }
+
+        if (!result || !result.success) {
+          state.bulk.error = (result && result.message) || 'Bulk update was not successful.';
+          const bulkToolbarContainer4 = document.querySelector('[data-component="albums-bulk-actions-toolbar"]');
+          if (bulkToolbarContainer4) renderBulkToolbar(bulkToolbarContainer4);
+          return;
+        }
+
+        const updatedAlbums = Array.isArray(result.updatedAlbums) ? result.updatedAlbums : [];
+        if (updatedAlbums.length) {
+          const updatedMap = {};
+          updatedAlbums.forEach((a) => {
+            if (a && a.id) updatedMap[a.id] = a;
+          });
+          state.albums = state.albums.map((album) => {
+            if (album && album.id && updatedMap[album.id]) {
+              return updatedMap[album.id];
+            }
+            return album;
+          });
+        }
+
+        state.selectedAlbumIds = new Set();
+        state.bulk.privacy = '';
+        state.bulk.showOnProfile = 'no_change';
+        state.bulk.showOnHomepage = 'no_change';
+        state.bulk.error = '';
+
+        const bulkToolbarContainer5 = document.querySelector('[data-component="albums-bulk-actions-toolbar"]');
+        if (bulkToolbarContainer5) renderBulkToolbar(bulkToolbarContainer5);
+        const gridContainer = document.querySelector('[data-populate="albums-grid"]');
+        if (gridContainer) renderAlbumsGrid(gridContainer);
+      }
+
+      function openCreateAlbumModal() {
+        const overlay = document.querySelector('[data-component="albums-create-album-form"]');
+        if (!overlay) return;
+        overlay.hidden = false;
+        const errorContainer = overlay.querySelector('.create-album-error');
+        if (errorContainer) errorContainer.textContent = '';
+
+        const params = getUrlParams();
+        const yearParam = params.get('year');
+        const country = params.get('country') || '';
+
+        const yearSelect = document.getElementById('create-album-year-input');
+        if (yearSelect) {
+          if (!yearSelect.options.length) {
+            populateCreateAlbumFormOptions();
+          }
+          if (yearParam && /^\d{4}$/.test(yearParam)) {
+            yearSelect.value = yearParam;
+          } else {
+            yearSelect.value = '';
+          }
+        }
+
+        const countrySelect = document.getElementById('create-album-country-input');
+        if (countrySelect) {
+          if (!countrySelect.options.length) {
+            populateCreateAlbumFormOptions();
+          }
+          countrySelect.value = country || '';
+        }
+
+        const titleInput = document.getElementById('create-album-title-input');
+        if (titleInput) {
+          titleInput.focus();
+        }
+      }
+
+      function closeCreateAlbumModal() {
+        const overlay = document.querySelector('[data-component="albums-create-album-form"]');
+        if (!overlay) return;
+        overlay.hidden = true;
+      }
+
+      function populateCreateAlbumFormOptions() {
+        const years = Array.isArray(state.filterOptions.years) ? state.filterOptions.years.slice().sort((a, b) => b - a) : [];
+        const countries = Array.isArray(state.filterOptions.countries) ? state.filterOptions.countries.slice().sort() : [];
+
+        const yearSelect = document.getElementById('create-album-year-input');
+        if (yearSelect && yearSelect.options.length <= 1) {
+          years.forEach((year) => {
+            const opt = document.createElement('option');
+            opt.value = String(year);
+            opt.textContent = String(year);
+            yearSelect.appendChild(opt);
+          });
+        }
+
+        const countrySelect = document.getElementById('create-album-country-input');
+        if (countrySelect && countrySelect.options.length <= 1) {
+          countries.forEach((country) => {
+            const opt = document.createElement('option');
+            opt.value = country;
+            opt.textContent = country;
+            countrySelect.appendChild(opt);
+          });
+        }
+      }
+
+      function handleCreateAlbumSubmit(formElement) {
+        const overlay = document.querySelector('[data-component="albums-create-album-form"]');
+        const errorContainer = overlay ? overlay.querySelector('.create-album-error') : null;
+        if (errorContainer) errorContainer.textContent = '';
+
+        const titleInput = formElement.querySelector('#create-album-title-input');
+        const descriptionInput = formElement.querySelector('#create-album-description-input');
+        const yearSelect = formElement.querySelector('#create-album-year-input');
+        const startDateInput = formElement.querySelector('#create-album-start-date-input');
+        const endDateInput = formElement.querySelector('#create-album-end-date-input');
+        const countrySelect = formElement.querySelector('#create-album-country-input');
+        const cityInput = formElement.querySelector('#create-album-city-input');
+        const privacySelect = formElement.querySelector('#create-album-privacy-input');
+        const showProfileInput = formElement.querySelector('#create-album-show-profile-input');
+        const showHomeInput = formElement.querySelector('#create-album-show-home-input');
+
+        const title = titleInput ? titleInput.value.trim() : '';
+        const description = descriptionInput ? descriptionInput.value.trim() : '';
+        const yearStr = yearSelect ? yearSelect.value : '';
+        const startDate = startDateInput && startDateInput.value ? startDateInput.value : undefined;
+        const endDate = endDateInput && endDateInput.value ? endDateInput.value : undefined;
+        const mainCountry = countrySelect && countrySelect.value ? countrySelect.value : undefined;
+        const mainCity = cityInput && cityInput.value ? cityInput.value.trim() : undefined;
+        const privacy = privacySelect ? privacySelect.value : '';
+        const showOnProfile = !!(showProfileInput && showProfileInput.checked);
+        const showOnHomepage = !!(showHomeInput && showHomeInput.checked);
+
+        if (!title) {
+          if (errorContainer) errorContainer.textContent = 'Title is required.';
+          return;
+        }
+        if (!privacy) {
+          if (errorContainer) errorContainer.textContent = 'Privacy is required.';
+          return;
+        }
+
+        let yearNumber;
+        if (yearStr) {
+          const parsedYear = parseInt(yearStr, 10);
+          if (Number.isFinite(parsedYear)) {
+            yearNumber = parsedYear;
+          }
+        }
+
+        let result;
+        try {
+          result = WebsiteSDK.createAlbum(
+            title,
+            description || undefined,
+            yearNumber,
+            startDate,
+            endDate,
+            mainCountry,
+            mainCity,
+            privacy,
+            showOnProfile,
+            showOnHomepage
+          );
+        } catch (error) {
+          console.error('Error creating album', error);
+          if (errorContainer) errorContainer.textContent = 'Could not create album. Please try again.';
+          return;
+        }
+
+        if (!result || !result.success || !result.album || !result.album.id) {
+          if (errorContainer) {
+            errorContainer.textContent = (result && result.message) || 'Album was not created. Please adjust the form and try again.';
+          }
+          return;
+        }
+
+        const newId = result.album.id;
+        window.location.href = 'album_detail.html?id=' + encodeURIComponent(newId);
+      }
+
+      function handleClick(event) {
+        const target = event.target.closest('[data-action]');
+        if (!target) return;
+        const action = target.dataset.action;
+
+        if (action === 'filters-clear-all') {
+          event.preventDefault();
+          clearAllFiltersAndResetPage();
+        }
+
+        if (action === 'applied-filter-remove') {
+          event.preventDefault();
+          const key = target.dataset.filterKey;
+          handleAppliedFilterRemove(key);
+        }
+
+        if (action === 'page-prev') {
+          event.preventDefault();
+          handlePageChange('prev');
+        }
+
+        if (action === 'page-next') {
+          event.preventDefault();
+          handlePageChange('next');
+        }
+
+        if (action === 'select-all-on-page') {
+          event.preventDefault();
+          handleSelectAllOnPage();
+        }
+
+        if (action === 'album-tile-click') {
+          const albumId = target.dataset.albumId;
+          handleAlbumTileClick(albumId);
+        }
+
+        if (action === 'bulk-clear-selection') {
+          event.preventDefault();
+          state.selectedAlbumIds = new Set();
+          const bulkToolbarContainer = document.querySelector('[data-component="albums-bulk-actions-toolbar"]');
+          if (bulkToolbarContainer) renderBulkToolbar(bulkToolbarContainer);
+          const gridContainer = document.querySelector('[data-populate="albums-grid"]');
+          if (gridContainer) renderAlbumsGrid(gridContainer);
+        }
+
+        if (action === 'empty-clear-filters') {
+          event.preventDefault();
+          clearAllFiltersAndResetPage();
+        }
+
+        if (action === 'create-album-open') {
+          event.preventDefault();
+          openCreateAlbumModal();
+        }
+
+        if (action === 'create-album-cancel') {
+          event.preventDefault();
+          closeCreateAlbumModal();
+        }
+      }
+
+      function handleChange(event) {
+        const target = event.target;
+        const action = target.dataset.action;
+        if (!action) return;
+
+        if (action === 'filter-year-change') {
+          handleFilterChange('year', target.value || '');
+        }
+
+        if (action === 'filter-country-change') {
+          handleFilterChange('country', target.value || '');
+        }
+
+        if (action === 'filter-privacy-change') {
+          handleFilterChange('privacy', target.value || '');
+        }
+
+        if (action === 'filter-title-change') {
+          handleFilterChange('titleQuery', target.value.trim());
+        }
+
+        if (action === 'sort-change') {
+          handleSortChange(target.value || '');
+        }
+
+        if (action === 'page-size-change') {
+          handlePageSizeChange(target.value || '');
+        }
+
+        if (action === 'album-select-toggle') {
+          const albumId = target.dataset.albumId;
+          handleAlbumSelectToggle(albumId, target.checked);
+          event.stopPropagation();
+        }
+
+        if (action === 'bulk-privacy-change') {
+          state.bulk.privacy = target.value || '';
+        }
+
+        if (action === 'bulk-show-profile-change') {
+          state.bulk.showOnProfile = target.value || 'no_change';
+        }
+
+        if (action === 'bulk-show-homepage-change') {
+          state.bulk.showOnHomepage = target.value || 'no_change';
+        }
+      }
+
+      function handleSubmit(event) {
+        const target = event.target;
+        const action = target.dataset.action;
+        if (!action) return;
+
+        if (action === 'bulk-update-submit') {
+          event.preventDefault();
+          handleBulkSubmit(target);
+        }
+
+        if (action === 'create-album-submit') {
+          event.preventDefault();
+          handleCreateAlbumSubmit(target);
+        }
+      }
+
+      document.addEventListener('click', handleClick);
+      document.addEventListener('change', handleChange);
+      document.addEventListener('submit', handleSubmit);
+
+      function init() {
+        try {
+          const filterOptions = WebsiteSDK.getAlbumFilterOptions();
+          if (filterOptions) {
+            state.filterOptions.years = Array.isArray(filterOptions.years) ? filterOptions.years : [];
+            state.filterOptions.countries = Array.isArray(filterOptions.countries) ? filterOptions.countries : [];
+            state.filterOptions.privacyOptions = Array.isArray(filterOptions.privacyOptions) ? filterOptions.privacyOptions : [];
+          }
+        } catch (error) {
+          console.error('Error loading album filter options', error);
+          showGlobalMessage('Could not load filters. Album list may be incomplete.', 'error');
+        }
+
+        loadAlbumsAndRender();
+      }
+
+      init();
+    });
+  </script>
+</body>
+</html>

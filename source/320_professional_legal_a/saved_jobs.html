@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saved Jobs | Legal Association Newsletter</title>
+    <meta name="description" content="Displays all job postings the user has bookmarked, with options to sort, review notes, open job details, and manage the saved list.">
+    
+    <link rel="stylesheet" href="saved_jobs.css">
+</head>
+<body>
+    <header class="site-header" role="banner">
+        <div class="site-header-inner">
+            <div class="site-branding">
+                <div class="site-logo-mark" aria-hidden="true"></div>
+                <div class="site-brand-text">
+                    <div class="site-parent-org">Deutscher Anwaltverein</div>
+                    <hr class="site-brand-divider">
+                    <div class="site-title">Arbeitsgemeinschaft<br>Insolvenzrecht &amp; Sanierung</div>
+                </div>
+            </div>
+            <!-- User avatar/menu could be added here in the future if special access pages are defined -->
+        </div>
+        <nav class="primary-nav" aria-label="Primary navigation">
+            <ul>
+                <li><a href="index.html" title="Association homepage">Home</a></li>
+                <li><a href="newsletter.html" title="Newsletter hub with latest articles and topics">Newsletter</a></li>
+                <li><a href="newsletter_issue.html?issueId=latest" title="Most recent newsletter issue table of contents">Latest Issue</a></li>
+                <li><a href="newsletter_archive.html" title="Browse all past newsletter issues">Archive</a></li>
+                <li><a href="search_results.html" title="Search and filter newsletter articles">Search Articles</a></li>
+                <li><a href="events.html" title="Continuing legal education and events listing">CLE &amp; Events</a></li>
+                <li><a href="jobs.html" title="Legal job highlights and listings">Careers</a></li>
+                <li><a href="reading_list.html" title="View and manage saved newsletter articles">My Reading List</a></li>
+                <li><a href="my_events.html" title="View and manage saved CLE and events">My Events</a></li>
+                <li><a href="saved_jobs.html" title="View and manage bookmarked job postings">Saved Jobs</a></li>
+                <li><a href="display_settings.html" title="Adjust theme, text size, and line spacing">Display Settings</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main id="content" role="main">
+        <section class="saved-jobs-page" data-component="saved-jobs-page-controller">
+            <div class="saved-jobs-inner">
+                <header class="saved-jobs-header">
+                    <h1 class="saved-jobs-title">Saved Jobs</h1>
+                    <p class="saved-jobs-context"><strong>Your bookmarked positions</strong></p>
+                    <p class="saved-jobs-meta-line" data-populate="saved-jobs-meta"></p>
+                </header>
+
+                <section class="saved-jobs-controls" aria-label="Saved jobs sorting">
+                    <label for="savedJobsSort">Sort by:</label>
+                    <select id="savedJobsSort" name="sortBy" data-component="saved-jobs-sort-control" data-action="change-sort">
+                        <option value="date_saved_newest">Date saved (newest first)</option>
+                        <option value="date_saved_oldest">Date saved (oldest first)</option>
+                        <option value="posting_date_newest">Posting date (newest first)</option>
+                        <option value="posting_date_oldest">Posting date (oldest first)</option>
+                    </select>
+                </section>
+
+                <section class="saved-jobs-list-container" data-populate="saved-jobs-list" data-component="saved-jobs-list" aria-live="polite" aria-busy="false">
+                    <!-- Saved jobs list or empty state will be rendered here -->
+                </section>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul>
+                <li><a href="about.html" title="Information about the legal association and newsletter">About the Association</a></li>
+                <li><a href="help.html" title="FAQs and contact information for assistance">Help &amp; Support</a></li>
+                <li><a href="subscription.html" title="Manage newsletter topics and email delivery settings">Newsletter Preferences</a></li>
+                <li><a href="collections.html" title="View and manage article collections">Collections</a></li>
+                <li><a href="events.html" title="Browse continuing legal education and events">CLE &amp; Events</a></li>
+                <li><a href="jobs.html" title="Browse legal job listings and opportunities">Careers</a></li>
+                <li><a href="display_settings.html" title="Configure appearance and accessibility options">Display Settings</a></li>
+            </ul>
+        </nav>
+        <div class="site-footer-meta">
+            <p>&copy; <span class="footer-year">2025</span> Legal Association Newsletter.</p>
+        </div>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Extract URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const sortByParam = urlParams.get('sortBy') || undefined;
+
+        // Page state
+        const state = {
+            sortBy: sortByParam,
+            items: [],
+            expandedNotes: new Set()
+        };
+
+        // Key DOM references
+        const listContainer = document.querySelector('[data-populate="saved-jobs-list"]');
+        const metaContainer = document.querySelector('[data-populate="saved-jobs-meta"]');
+        const sortSelect = document.getElementById('savedJobsSort');
+
+        // Apply current sort to control if provided
+        if (sortSelect && state.sortBy) {
+            let hasMatch = false;
+            for (let i = 0; i < sortSelect.options.length; i++) {
+                if (sortSelect.options[i].value === state.sortBy) {
+                    hasMatch = true;
+                    break;
+                }
+            }
+            if (hasMatch) {
+                sortSelect.value = state.sortBy;
+            }
+        }
+
+        function getSortLabel(sortKey) {
+            switch (sortKey) {
+                case 'date_saved_newest':
+                    return 'Date saved (newest first)';
+                case 'date_saved_oldest':
+                    return 'Date saved (oldest first)';
+                case 'posting_date_newest':
+                    return 'Posting date (newest first)';
+                case 'posting_date_oldest':
+                    return 'Posting date (oldest first)';
+                case undefined:
+                case null:
+                default:
+                    return '';
+            }
+        }
+
+        function formatDate(value) {
+            try {
+                const date = new Date(value);
+                if (!isNaN(date.getTime())) {
+                    return date.toLocaleDateString();
+                }
+            } catch (e) {
+                return value;
+            }
+            return value;
+        }
+
+        function formatPracticeArea(value) {
+            const map = {
+                litigation: 'Litigation',
+                court_practice: 'Court practice',
+                ethics: 'Ethics',
+                intellectual_property: 'Intellectual property',
+                compliance: 'Compliance',
+                corporate_compliance: 'Corporate compliance',
+                general: 'General'
+            };
+            if (map[value]) {
+                return map[value];
+            }
+            return value;
+        }
+
+        function renderSavedJobsMeta(container, stateObj) {
+            const count = stateObj.items.length;
+            const sortLabel = getSortLabel(stateObj.sortBy);
+            const parts = [];
+
+            if (count === 1) {
+                parts.push('1 saved posting');
+            } else {
+                parts.push(count + ' saved postings');
+            }
+
+            if (sortLabel) {
+                parts.push('sorted by ' + sortLabel.toLowerCase());
+            }
+
+            container.textContent = parts.join('  b7 ');
+        }
+
+        function renderSavedJobsList(container, stateObj, isError) {
+            container.setAttribute('aria-busy', 'true');
+            container.innerHTML = '';
+
+            if (isError) {
+                const p = document.createElement('p');
+                p.className = 'saved-jobs-error';
+                p.textContent = 'Saved jobs could not be loaded at this time. Please try again later.';
+                container.appendChild(p);
+                container.setAttribute('aria-busy', 'false');
+                return;
+            }
+
+            const items = stateObj.items;
+
+            if (!items || items.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'saved-jobs-empty-state';
+                empty.setAttribute('data-component', 'saved-jobs-empty-state');
+
+                const p1 = document.createElement('p');
+                p1.textContent = 'You have not saved any jobs yet.';
+                const p2 = document.createElement('p');
+                p2.textContent = 'Browse current opportunities in the Careers section and use "Save job" to add positions here.';
+
+                empty.appendChild(p1);
+                empty.appendChild(p2);
+                container.appendChild(empty);
+                container.setAttribute('aria-busy', 'false');
+                return;
+            }
+
+            const list = document.createElement('ul');
+            list.className = 'saved-jobs-list';
+            list.setAttribute('data-component', 'saved-jobs-list');
+
+            items.forEach(function(entry) {
+                const job = entry.job || {};
+                const savedJob = entry.savedJob || {};
+
+                const li = document.createElement('li');
+                li.className = 'saved-job-item';
+                li.setAttribute('data-component', 'saved-job-item');
+                if (savedJob.id) {
+                    li.setAttribute('data-saved-job-id', savedJob.id);
+                }
+
+                // Job title (navigates to detail page)
+                const titleLink = document.createElement('a');
+                titleLink.href = 'javascript:void(0)';
+                titleLink.setAttribute('data-action', 'job-title-click');
+                if (job.id) {
+                    titleLink.setAttribute('data-job-id', job.id);
+                }
+                titleLink.className = 'saved-job-title';
+                titleLink.textContent = job.title || 'Untitled position';
+                li.appendChild(titleLink);
+
+                // Employer
+                if (job.employerName) {
+                    const employer = document.createElement('div');
+                    employer.className = 'saved-job-employer';
+                    employer.textContent = job.employerName;
+                    li.appendChild(employer);
+                }
+
+                // Details line (location, practice area)
+                const detailsLineParts = [];
+                if (job.locationDisplay) {
+                    detailsLineParts.push(job.locationDisplay);
+                } else {
+                    const locParts = [];
+                    if (job.locationCity) {
+                        locParts.push(job.locationCity);
+                    }
+                    if (job.locationState) {
+                        locParts.push(job.locationState);
+                    }
+                    if (job.locationCountry) {
+                        locParts.push(job.locationCountry);
+                    }
+                    if (locParts.length > 0) {
+                        detailsLineParts.push(locParts.join(', '));
+                    }
+                }
+                if (job.practiceArea) {
+                    detailsLineParts.push(formatPracticeArea(job.practiceArea));
+                }
+
+                if (detailsLineParts.length > 0) {
+                    const details = document.createElement('div');
+                    details.className = 'saved-job-details';
+                    details.textContent = detailsLineParts.join('  b7 ');
+                    li.appendChild(details);
+                }
+
+                // Meta line (saved date, posted date, notes indicator)
+                const metaLine = document.createElement('div');
+                metaLine.className = 'saved-job-meta';
+                const metaParts = [];
+
+                if (savedJob.addedAt) {
+                    metaParts.push('Saved on ' + formatDate(savedJob.addedAt));
+                }
+                if (job.postedAt) {
+                    metaParts.push('Posted ' + formatDate(job.postedAt));
+                }
+                if (savedJob.notes) {
+                    metaParts.push('Contains personal notes');
+                }
+
+                if (metaParts.length > 0) {
+                    metaLine.textContent = metaParts.join('  b7 ');
+                    li.appendChild(metaLine);
+                }
+
+                // Notes section (toggle)
+                if (savedJob.notes) {
+                    const notesContainer = document.createElement('div');
+                    notesContainer.className = 'saved-job-notes';
+
+                    const isExpanded = stateObj.expandedNotes.has(savedJob.id);
+
+                    const toggleButton = document.createElement('button');
+                    toggleButton.type = 'button';
+                    toggleButton.className = 'saved-job-notes-toggle';
+                    toggleButton.setAttribute('data-action', 'toggle-notes');
+                    if (savedJob.id) {
+                        toggleButton.setAttribute('data-saved-job-id', savedJob.id);
+                    }
+                    toggleButton.textContent = isExpanded ? 'Hide notes' : 'Show notes';
+                    notesContainer.appendChild(toggleButton);
+
+                    if (isExpanded) {
+                        const notesBody = document.createElement('div');
+                        notesBody.className = 'saved-job-notes-body';
+                        const notesParagraph = document.createElement('p');
+                        notesParagraph.textContent = savedJob.notes;
+                        notesBody.appendChild(notesParagraph);
+                        notesContainer.appendChild(notesBody);
+                    }
+
+                    li.appendChild(notesContainer);
+                }
+
+                // Actions: open details, remove
+                const actions = document.createElement('div');
+                actions.className = 'saved-job-actions';
+
+                const openDetailsLink = document.createElement('a');
+                openDetailsLink.href = 'javascript:void(0)';
+                openDetailsLink.setAttribute('data-action', 'job-title-click');
+                if (job.id) {
+                    openDetailsLink.setAttribute('data-job-id', job.id);
+                }
+                openDetailsLink.className = 'saved-job-open-details';
+                openDetailsLink.textContent = 'Open job details';
+                actions.appendChild(openDetailsLink);
+
+                const removeButton = document.createElement('button');
+                removeButton.type = 'button';
+                removeButton.setAttribute('data-action', 'remove-saved-job');
+                if (savedJob.id) {
+                    removeButton.setAttribute('data-saved-job-id', savedJob.id);
+                }
+                if (job.id) {
+                    removeButton.setAttribute('data-job-id', job.id);
+                }
+                removeButton.className = 'saved-job-remove';
+                removeButton.textContent = 'Remove from saved';
+                actions.appendChild(removeButton);
+
+                li.appendChild(actions);
+
+                list.appendChild(li);
+            });
+
+            container.appendChild(list);
+            container.setAttribute('aria-busy', 'false');
+        }
+
+        function loadSavedJobs() {
+            let items = [];
+            try {
+                if (state.sortBy) {
+                    items = WebsiteSDK.getSavedJobsListing(state.sortBy) || [];
+                } else {
+                    items = WebsiteSDK.getSavedJobsListing(undefined) || [];
+                }
+            } catch (error) {
+                console.error('Error loading saved jobs', error);
+                state.items = [];
+                if (listContainer) {
+                    renderSavedJobsList(listContainer, state, true);
+                }
+                if (metaContainer) {
+                    renderSavedJobsMeta(metaContainer, state);
+                }
+                return;
+            }
+
+            state.items = items;
+
+            if (listContainer) {
+                renderSavedJobsList(listContainer, state, false);
+            }
+            if (metaContainer) {
+                renderSavedJobsMeta(metaContainer, state);
+            }
+        }
+
+        // Event delegation for change events (sorting)
+        document.addEventListener('change', function(event) {
+            const target = event.target;
+            if (!target) {
+                return;
+            }
+            const actionElement = target.closest('[data-action]');
+            if (!actionElement) {
+                return;
+            }
+            const action = actionElement.dataset.action;
+
+            if (action === 'change-sort') {
+                const selected = actionElement.value;
+                if (selected) {
+                    const url = 'saved_jobs.html?sortBy=' + encodeURIComponent(selected);
+                    window.location.href = url;
+                } else {
+                    window.location.href = 'saved_jobs.html';
+                }
+            }
+        });
+
+        // Event delegation for click events (job navigation, remove, notes toggle)
+        document.addEventListener('click', function(event) {
+            const target = event.target;
+            if (!target) {
+                return;
+            }
+            const actionElement = target.closest('[data-action]');
+            if (!actionElement) {
+                return;
+            }
+            const action = actionElement.dataset.action;
+
+            if (action === 'job-title-click') {
+                event.preventDefault();
+                const jobId = actionElement.dataset.jobId;
+                if (jobId) {
+                    const url = 'job_detail.html?jobId=' + encodeURIComponent(jobId);
+                    window.location.href = url;
+                }
+            } else if (action === 'remove-saved-job') {
+                event.preventDefault();
+                const savedJobId = actionElement.dataset.savedJobId;
+                if (!savedJobId) {
+                    return;
+                }
+
+                // Remove from in-memory state and re-render
+                state.items = state.items.filter(function(entry) {
+                    return !entry.savedJob || entry.savedJob.id !== savedJobId;
+                });
+                state.expandedNotes.delete(savedJobId);
+
+                if (listContainer) {
+                    renderSavedJobsList(listContainer, state, false);
+                }
+                if (metaContainer) {
+                    renderSavedJobsMeta(metaContainer, state);
+                }
+
+                // Notify external listeners that saved jobs were updated
+                const updatedEvent = new CustomEvent('saved-jobs-updated', {
+                    detail: { removedSavedJobId: savedJobId }
+                });
+                window.dispatchEvent(updatedEvent);
+            } else if (action === 'toggle-notes') {
+                event.preventDefault();
+                const savedJobId = actionElement.dataset.savedJobId;
+                if (!savedJobId) {
+                    return;
+                }
+
+                if (state.expandedNotes.has(savedJobId)) {
+                    state.expandedNotes.delete(savedJobId);
+                } else {
+                    state.expandedNotes.add(savedJobId);
+                }
+
+                if (listContainer) {
+                    renderSavedJobsList(listContainer, state, false);
+                }
+            }
+        });
+
+        // Initial load
+        loadSavedJobs();
+    });
+    </script>
+</body>
+</html>

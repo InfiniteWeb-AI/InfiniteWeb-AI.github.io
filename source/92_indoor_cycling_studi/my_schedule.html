@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>MOXX Cycling Studio</title>
+
+  <!-- Typography -->
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Work+Sans:wght@300;400;500;600&amp;display=swap' rel='stylesheet'>
+
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='my_schedule.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='container header-container'>
+      <a href='index.html' class='site-logo' aria-label='MOXX Cycling home'>
+        <span class='site-logo-mark'>MC</span>
+        <span class='site-logo-text'>MOXX CYCLING</span>
+      </a>
+
+      <nav class='main-nav' aria-label='Primary navigation'>
+        <ul class='main-nav-list'>
+          <li class='main-nav-item'><a href='index.html'>Home</a></li>
+          <li class='main-nav-item'><a href='schedule.html'>Schedule</a></li>
+          <li class='main-nav-item'><a href='instructors.html'>Instructors</a></li>
+          <li class='main-nav-item'><a href='pricing.html'>Pricing</a></li>
+          <li class='main-nav-item'><a href='my_schedule.html'>My Schedule</a></li>
+          <li class='main-nav-item'><a href='profile.html'>Profile</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-main' role='main'>
+    <div class='my-schedule-page' data-component='page-init-controller' data-populate='my-schedule'>
+      <!-- My Schedule content is rendered via UI JavaScript -->
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='container footer-inner'>
+      <div class='footer-brand'>
+        <div class='footer-logo-mark'>MC</div>
+        <div class='footer-brand-text'>
+          <div class='footer-brand-name'>MOXX CYCLING</div>
+          <div class='footer-brand-tagline'>Indoor cycling studio</div>
+        </div>
+      </div>
+
+      <nav class='footer-nav' aria-label='Footer navigation'>
+        <ul class='footer-nav-list'>
+          <li class='footer-nav-item'><a href='about.html'>About Us</a></li>
+          <li class='footer-nav-item'><a href='studios.html'>Studios</a></li>
+          <li class='footer-nav-item'><a href='faq.html'>FAQ &amp; Policies</a></li>
+          <li class='footer-nav-item'><a href='contact.html'>Contact</a></li>
+          <li class='footer-nav-item'><a href='pricing.html'>Pricing</a></li>
+          <li class='footer-nav-item'><a href='account_billing.html'>Billing &amp; Memberships</a></li>
+          <li class='footer-nav-item'><a href='terms.html'>Terms of Service</a></li>
+          <li class='footer-nav-item'><a href='privacy.html'>Privacy Policy</a></li>
+        </ul>
+      </nav>
+    </div>
+
+    <div class='footer-bottom'>
+      <div class='container footer-bottom-inner'>
+        <p class='footer-copy'>&copy; <span id='year'>2026</span> MOXX Cycling. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Lightweight year sync without adding framework-specific JS
+    (function () {
+      var yEl = document.getElementById('year');
+      if (yEl) {
+        yEl.textContent = new Date().getFullYear();
+      }
+    })();
+  </script>
+
+  <script src='business_logic.js'></script>
+  <script>
+    (function () {
+      'use strict';
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function formatDateTimeRange(startIso, endIso) {
+        if (!startIso) {
+          return '';
+        }
+        var start = new Date(startIso);
+        if (isNaN(start.getTime())) {
+          return '';
+        }
+        var optsDate = { weekday: 'short', month: 'short', day: 'numeric' };
+        var optsTime = { hour: 'numeric', minute: '2-digit' };
+        var datePart = start.toLocaleDateString(undefined, optsDate);
+        var startTime = start.toLocaleTimeString(undefined, optsTime);
+        if (endIso) {
+          var end = new Date(endIso);
+          if (!isNaN(end.getTime())) {
+            var endTime = end.toLocaleTimeString(undefined, optsTime);
+            return datePart + ' • ' + startTime + ' – ' + endTime;
+          }
+        }
+        return datePart + ' • ' + startTime;
+      }
+
+      function formatPrice(amount, currency) {
+        if (amount === null || amount === undefined || isNaN(amount)) {
+          return '';
+        }
+        var curr = currency || 'USD';
+        try {
+          return new Intl.NumberFormat(undefined, {
+            style: 'currency',
+            currency: curr
+          }).format(amount);
+        } catch (e) {
+          return amount.toFixed(2) + ' ' + curr;
+        }
+      }
+
+      function bookingItemHtml(booking, listType) {
+        var start = booking.start_datetime || '';
+        var end = listType === 'upcoming' ? booking.end_datetime || '' : '';
+        var dateRange = formatDateTimeRange(start, end);
+        var priceText = formatPrice(booking.price_paid, booking.currency);
+        var bookingStatus = (booking.booking_status || '').toLowerCase();
+        var statusLabel = '';
+        if (bookingStatus === 'booked') {
+          statusLabel = 'Booked';
+        } else if (bookingStatus === 'canceled') {
+          statusLabel = 'Canceled';
+        } else if (bookingStatus === 'completed') {
+          statusLabel = 'Completed';
+        } else if (bookingStatus === 'no_show') {
+          statusLabel = 'No show';
+        }
+
+        var bikeHtml = '';
+        if (booking.bike_label) {
+          bikeHtml = '<span class="booking-meta-item booking-meta-label">Bike ' + escapeHtml(booking.bike_label) + '</span>';
+        }
+
+        var cancelTag = '';
+        if (listType === 'upcoming') {
+          var isCancelable = !!booking.cancelable;
+          cancelTag = '<span class="booking-meta-pill booking-meta-pill--' + (isCancelable ? 'cancelable' : 'non-cancelable') + '">' + (isCancelable ? 'Cancelable online' : 'Contact studio to change') + '</span>';
+        }
+
+        var ariaLabel = listType === 'upcoming' ? 'View upcoming class details' : 'View past class details';
+
+        return (
+          '<li class="booking-row booking-row--' + listType + '" ' +
+            'data-booking-id="' + escapeHtml(booking.booking_id || '') + '" ' +
+            'data-class-session-id="' + escapeHtml(booking.class_session_id || '') + '" ' +
+            'data-action="view-booking" tabindex="0" role="button" aria-label="' + escapeHtml(ariaLabel) + '">' +
+            '<div class="booking-row-main">' +
+              '<div class="booking-row-primary">' +
+                '<div class="booking-row-class-name">' + escapeHtml(booking.class_name || '') + '</div>' +
+                '<div class="booking-row-datetime">' + escapeHtml(dateRange) + '</div>' +
+              '</div>' +
+              '<div class="booking-row-secondary">' +
+                '<div class="booking-row-meta">' +
+                  '<span class="booking-meta-item">' + escapeHtml(booking.studio_name || '') + '</span>' +
+                  '<span class="booking-meta-separator">•</span>' +
+                  '<span class="booking-meta-item">' + escapeHtml(booking.instructor_name || '') + '</span>' +
+                  (bikeHtml ? '<span class="booking-meta-separator">•</span>' + bikeHtml : '') +
+                '</div>' +
+                '<div class="booking-row-status-price">' +
+                  (priceText ? '<span class="booking-price">' + escapeHtml(priceText) + '</span>' : '') +
+                  (statusLabel ? '<span class="booking-status booking-status--' + escapeHtml(bookingStatus) + '">' + escapeHtml(statusLabel) + '</span>' : '') +
+                  cancelTag +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+          '</li>'
+        );
+      }
+
+      function renderMySchedule(container, scheduleData, requestedTimeframe) {
+        var validTimeframes = ['upcoming', 'past', 'all'];
+
+        var effectiveTimeframe = requestedTimeframe;
+        if (scheduleData && typeof scheduleData.timeframe === 'string' && validTimeframes.indexOf(scheduleData.timeframe) !== -1) {
+          effectiveTimeframe = scheduleData.timeframe;
+        }
+        if (validTimeframes.indexOf(effectiveTimeframe) === -1) {
+          effectiveTimeframe = 'upcoming';
+        }
+
+        var upcoming = Array.isArray(scheduleData && scheduleData.upcoming_bookings) ? scheduleData.upcoming_bookings : [];
+        var past = Array.isArray(scheduleData && scheduleData.past_bookings) ? scheduleData.past_bookings : [];
+
+        var showUpcoming = effectiveTimeframe === 'upcoming' || effectiveTimeframe === 'all';
+        var showPast = effectiveTimeframe === 'past' || effectiveTimeframe === 'all';
+
+        var timeframeLabel = 'All rides';
+        if (effectiveTimeframe === 'upcoming') {
+          timeframeLabel = 'Upcoming rides';
+        } else if (effectiveTimeframe === 'past') {
+          timeframeLabel = 'Past rides';
+        }
+
+        var summaryTitle;
+        if (upcoming.length > 0) {
+          summaryTitle = 'You have ' + upcoming.length + ' upcoming ride' + (upcoming.length !== 1 ? 's' : '');
+        } else {
+          summaryTitle = 'No upcoming rides booked';
+        }
+
+        var summarySubtitle = '';
+        if (upcoming.length > 0) {
+          var next = upcoming[0];
+          var dateRange = formatDateTimeRange(next.start_datetime, next.end_datetime);
+          summarySubtitle = escapeHtml(next.class_name || '') + ' • ' + escapeHtml(dateRange) + ' • ' + escapeHtml(next.studio_name || '');
+        } else if (past.length > 0) {
+          summarySubtitle = 'You\'ve completed ' + past.length + ' ride' + (past.length !== 1 ? 's' : '') + '.';
+        } else {
+          summarySubtitle = 'Book your first ride to see it here.';
+        }
+
+        var upcomingSectionHtml = '';
+        if (showUpcoming) {
+          if (upcoming.length > 0) {
+            upcomingSectionHtml = (
+              '<section class="schedule-section schedule-section--upcoming" data-component="upcoming-section">' +
+                '<div class="container schedule-section-inner">' +
+                  '<header class="schedule-section-header">' +
+                    '<h2 class="schedule-section-title">Upcoming classes</h2>' +
+                  '</header>' +
+                  '<ul class="booking-list booking-list--upcoming" data-component="upcoming-bookings-list">' +
+                    upcoming.map(function (b) { return bookingItemHtml(b, 'upcoming'); }).join('') +
+                  '</ul>' +
+                '</div>' +
+              '</section>'
+            );
+          } else {
+            upcomingSectionHtml = (
+              '<section class="schedule-section schedule-section--upcoming" data-component="upcoming-section">' +
+                '<div class="container schedule-section-inner">' +
+                  '<header class="schedule-section-header">' +
+                    '<h2 class="schedule-section-title">Upcoming classes</h2>' +
+                  '</header>' +
+                  '<div class="schedule-empty-state schedule-empty-state--upcoming" data-component="upcoming-empty-state">' +
+                    '<p class="empty-state-message">You don\'t have any upcoming rides ' + (effectiveTimeframe === 'upcoming' ? 'yet.' : 'in this view.') + '</p>' +
+                    '<button type="button" class="btn btn-ghost-primary empty-state-cta" data-action="go-to-schedule">Go to schedule</button>' +
+                  '</div>' +
+                '</div>' +
+              '</section>'
+            );
+          }
+        }
+
+        var pastSectionHtml = '';
+        if (showPast) {
+          if (past.length > 0) {
+            pastSectionHtml = (
+              '<section class="schedule-section schedule-section--past" data-component="past-section">' +
+                '<div class="container schedule-section-inner">' +
+                  '<header class="schedule-section-header">' +
+                    '<h2 class="schedule-section-title">Past classes</h2>' +
+                  '</header>' +
+                  '<ul class="booking-list booking-list--past" data-component="past-bookings-list">' +
+                    past.map(function (b) { return bookingItemHtml(b, 'past'); }).join('') +
+                  '</ul>' +
+                '</div>' +
+              '</section>'
+            );
+          } else {
+            pastSectionHtml = (
+              '<section class="schedule-section schedule-section--past" data-component="past-section">' +
+                '<div class="container schedule-section-inner">' +
+                  '<header class="schedule-section-header">' +
+                    '<h2 class="schedule-section-title">Past classes</h2>' +
+                  '</header>' +
+                  '<div class="schedule-empty-state schedule-empty-state--past" data-component="past-empty-state">' +
+                    '<p class="empty-state-message">Once you complete rides, they\'ll appear here.</p>' +
+                  '</div>' +
+                '</div>' +
+              '</section>'
+            );
+          }
+        }
+
+        container.innerHTML = (
+          '<section class="schedule-summary-header" data-component="schedule-summary-header">' +
+            '<div class="container schedule-summary-header-inner">' +
+              '<div class="schedule-summary-label-col">' +
+                '<div class="schedule-summary-label">My Schedule</div>' +
+                '<div class="schedule-summary-timeframe-label">' + escapeHtml(timeframeLabel) + '</div>' +
+              '</div>' +
+              '<div class="schedule-summary-main-col">' +
+                '<h1 class="schedule-summary-title">' + escapeHtml(summaryTitle) + '</h1>' +
+                '<p class="schedule-summary-subtitle">' + escapeHtml(summarySubtitle) + '</p>' +
+                '<button type="button" class="btn btn-ghost-primary schedule-summary-cta" data-component="book-another-class-button" data-action="go-to-schedule">' +
+                  'Book another class' +
+                '</button>' +
+              '</div>' +
+            '</div>' +
+          '</section>' +
+
+          '<section class="timeframe-filter-bar" data-component="timeframe-filter-bar">' +
+            '<div class="container timeframe-filter-inner">' +
+              '<span class="timeframe-filter-label">View</span>' +
+              '<div class="timeframe-filter-controls" role="tablist" aria-label="Select schedule timeframe">' +
+                ['upcoming', 'past', 'all'].map(function (tf) {
+                  var label = tf === 'upcoming' ? 'Upcoming' : (tf === 'past' ? 'Past' : 'All');
+                  var isActive = effectiveTimeframe === tf;
+                  return (
+                    '<button type="button" class="timeframe-chip' + (isActive ? ' timeframe-chip--active' : '') + '" ' +
+                      'data-action="change-timeframe" data-timeframe="' + tf + '" role="tab" aria-selected="' + (isActive ? 'true' : 'false') + '">' +
+                      label +
+                    '</button>'
+                  );
+                }).join('') +
+              '</div>' +
+            '</div>' +
+          '</section>' +
+
+          upcomingSectionHtml +
+          pastSectionHtml
+        );
+
+        bindMyScheduleEvents(container);
+      }
+
+      function renderMyScheduleError(container, error) {
+        container.innerHTML = (
+          '<section class="schedule-section schedule-section--error" data-component="schedule-error">' +
+            '<div class="container schedule-section-inner">' +
+              '<header class="schedule-section-header">' +
+                '<h1 class="schedule-section-title">My Schedule</h1>' +
+              '</header>' +
+              '<div class="schedule-empty-state schedule-empty-state--error">' +
+                '<p class="empty-state-message">We couldn\'t load your schedule right now. Please try again in a moment.</p>' +
+                '<button type="button" class="btn btn-ghost-primary empty-state-cta" data-action="go-to-schedule">Go to schedule</button>' +
+              '</div>' +
+            '</div>' +
+          '</section>'
+        );
+        if (window && window.console && typeof window.console.error === 'function') {
+          console.error('Error loading schedule:', error);
+        }
+      }
+
+      function bindMyScheduleEvents(container) {
+        if (!container) {
+          return;
+        }
+
+        container.addEventListener('click', function (event) {
+          var target = event.target;
+          if (!target) {
+            return;
+          }
+          var actionEl = target.closest('[data-action]');
+          if (!actionEl || !container.contains(actionEl)) {
+            return;
+          }
+          var action = actionEl.getAttribute('data-action');
+          if (!action) {
+            return;
+          }
+
+          if (action === 'change-timeframe') {
+            var tf = actionEl.getAttribute('data-timeframe');
+            var allowed = ['upcoming', 'past', 'all'];
+            if (allowed.indexOf(tf) !== -1) {
+              var newUrl = 'my_schedule.html?timeframe=' + encodeURIComponent(tf);
+              window.location.href = newUrl;
+            }
+          } else if (action === 'view-booking') {
+            var classSessionId = actionEl.getAttribute('data-class-session-id');
+            if (classSessionId) {
+              var detailUrl = 'class_detail.html?classSessionId=' + encodeURIComponent(classSessionId);
+              window.location.href = detailUrl;
+            }
+          } else if (action === 'go-to-schedule') {
+            window.location.href = 'schedule.html';
+          }
+        });
+
+        container.addEventListener('keydown', function (event) {
+          var key = event.key || event.keyCode;
+          if (key === 'Enter' || key === 13 || key === ' ' || key === 32) {
+            var target = event.target;
+            if (!target) {
+              return;
+            }
+            var bookingEl = target.closest('[data-action="view-booking"]');
+            if (bookingEl && container.contains(bookingEl)) {
+              event.preventDefault();
+              bookingEl.click();
+            }
+          }
+        });
+      }
+
+      document.addEventListener('DOMContentLoaded', function () {
+        var urlParams = new URLSearchParams(window.location.search || '');
+        var timeframeParam = urlParams.get('timeframe');
+        var validTimeframes = ['upcoming', 'past', 'all'];
+        if (validTimeframes.indexOf(timeframeParam) === -1) {
+          timeframeParam = 'upcoming';
+        }
+
+        var populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function (element) {
+          var dataType = element.getAttribute('data-populate');
+          if (dataType === 'my-schedule') {
+            try {
+              var schedule = WebsiteSDK.getMySchedule(timeframeParam);
+              renderMySchedule(element, schedule, timeframeParam);
+            } catch (error) {
+              renderMyScheduleError(element, error);
+            }
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

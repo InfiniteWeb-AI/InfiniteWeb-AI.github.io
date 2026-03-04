@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta http-equiv='X-UA-Compatible' content='IE=edge'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Local Basketball League</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='youth_leagues.css'>
+</head>
+<body>
+  <header id='site-header'>
+    <nav class='main-nav' aria-label='Main navigation'>
+      <a href='index.html'>Home</a>
+      <a href='adult_leagues.html'>Adult Leagues</a>
+      <a href='youth_leagues.html'>Youth Leagues</a>
+      <a href='schedule.html'>Schedule</a>
+      <a href='playoffs.html'>Playoffs</a>
+      <a href='locations.html'>Locations</a>
+      <a href='sponsors.html'>Sponsors</a>
+      <a href='volunteer.html'>Volunteer</a>
+      <a href='contact.html'>Contact</a>
+    </nav>
+
+    <h1 id='site-title'>Local Basketball League</h1>
+
+    <div class='header-banner' aria-hidden='true'></div>
+  </header>
+
+  <main id='content' role='main'>
+    <section id='youth-leagues-page' data-component='youth-leagues-page-controller'>
+      <div class='page-heading-row'>
+        <h2>Youth Leagues</h2>
+        <a href='javascript:void(0)' data-action='back-to-main'>Back to main league page</a>
+      </div>
+
+      <div class='youth-decorative-band' aria-hidden='true'></div>
+
+      <p>
+        Find the right youth basketball division by age and see full-season fees. You can also ask about registration,
+        fees, or sibling discounts using the links below.
+      </p>
+
+      <p>Jump to a youth division:</p>
+      <ul id='youth-divisions-index'
+          data-component='youth-divisions-index-nav'
+          data-populate='youth-divisions-index'>
+      </ul>
+    </section>
+
+    <section aria-labelledby='youth-divisions-heading' data-component='youth-divisions-summary-section'>
+      <h3 id='youth-divisions-heading'>Youth divisions and season fees</h3>
+      <div id='youth-divisions-message' role='status' aria-live='polite'></div>
+      <div id='youth-divisions-list' data-populate='youth-divisions-summary'></div>
+    </section>
+
+    <p id='youth-faq-wrapper'>
+      <a href='javascript:void(0)' data-component='youth-faq-link' data-action='go-youth-faq'>Youth league FAQs</a>
+    </p>
+  </main>
+
+  <footer id='site-footer'>
+    <hr>
+    <nav class='footer-nav' aria-label='Footer navigation'>
+      <a href='about.html'>About</a>
+      <a href='faq.html'>FAQ</a>
+      <a href='adult_leagues.html'>Adult Leagues</a>
+      <a href='youth_leagues.html'>Youth Leagues</a>
+      <a href='schedule.html'>Schedule &amp; Standings</a>
+      <a href='playoffs.html'>Playoffs &amp; Championships</a>
+      <a href='locations.html'>Locations &amp; Facilities</a>
+      <a href='sponsors.html'>Sponsors &amp; Advertising</a>
+      <a href='volunteer.html'>Volunteer &amp; Get Involved</a>
+      <a href='contact.html'>Contact Us</a>
+    </nav>
+    <p class='footer-copy'>&copy; Local Basketball League.</p>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function () {
+    var urlParams = new URLSearchParams(window.location.search);
+    var preselectedDivisionId = urlParams.get('divisionId');
+
+    var youthSummaries = [];
+    var youthIndexDivisions = [];
+    var divisionDetailsCache = {};
+    var activeDivisionId = preselectedDivisionId || null;
+
+    var statusElement = document.getElementById('youth-divisions-message');
+
+    function safeGetYouthSummaries() {
+      try {
+        var data = WebsiteSDK.getYouthDivisionsSummary();
+        if (Array.isArray(data)) {
+          return data;
+        }
+      } catch (e) {
+        console.error('Error loading youth division summaries', e);
+      }
+      if (statusElement) {
+        statusElement.textContent = 'Youth divisions could not be loaded. Please try again later or use the contact form for questions.';
+      }
+      return [];
+    }
+
+    function safeGetYouthIndexDivisions() {
+      try {
+        var data = WebsiteSDK.getDivisionsByType('youth');
+        if (Array.isArray(data)) {
+          return data;
+        }
+      } catch (e) {
+        console.error('Error loading youth division index', e);
+      }
+      return [];
+    }
+
+    function renderYouthDivisionsIndex(container, divisions) {
+      container.innerHTML = '';
+      if (!divisions || !divisions.length) {
+        var liEmpty = document.createElement('li');
+        liEmpty.textContent = 'Youth divisions are not available right now.';
+        container.appendChild(liEmpty);
+        return;
+      }
+      divisions.forEach(function (div) {
+        if (div.division_type !== 'youth') {
+          return;
+        }
+        var li = document.createElement('li');
+        var link = document.createElement('a');
+        link.href = 'javascript:void(0)';
+        link.dataset.action = 'index-jump';
+        link.dataset.divisionId = div.division_id;
+        link.textContent = div.division_name || div.division_id;
+        li.appendChild(link);
+        container.appendChild(li);
+      });
+    }
+
+    function scrollDivisionIntoView(divisionId) {
+      if (!divisionId) {
+        return;
+      }
+      var target = document.getElementById('division-' + divisionId);
+      if (target && typeof target.scrollIntoView === 'function') {
+        try {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (e) {
+          target.scrollIntoView(true);
+        }
+      }
+    }
+
+    function setActiveDivision(divisionId) {
+      activeDivisionId = divisionId || null;
+      var rows = document.querySelectorAll('[data-component="youth-division-row"]');
+      rows.forEach(function (row) {
+        if (row.dataset.divisionId === divisionId) {
+          row.classList.add('active-division');
+        } else {
+          row.classList.remove('active-division');
+        }
+      });
+      try {
+        var url = new URL(window.location.href);
+        if (divisionId) {
+          url.searchParams.set('divisionId', divisionId);
+        } else {
+          url.searchParams.delete('divisionId');
+        }
+        history.replaceState(null, '', url.toString());
+      } catch (e) {
+        // Ignore URL update errors (older browsers)
+      }
+    }
+
+    function formatDayName(day) {
+      if (!day || typeof day !== 'string') {
+        return '';
+      }
+      return day.charAt(0).toUpperCase() + day.slice(1);
+    }
+
+    function renderDivisionDetails(container, detailsData) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+      if (!detailsData) {
+        var pEmpty = document.createElement('p');
+        pEmpty.textContent = 'No additional details are available for this division.';
+        container.appendChild(pEmpty);
+        return;
+      }
+
+      if (Array.isArray(detailsData.typical_game_days) && detailsData.typical_game_days.length) {
+        var pDays = document.createElement('p');
+        pDays.textContent = 'Typical game days: ' + detailsData.typical_game_days.map(formatDayName).join(', ');
+        container.appendChild(pDays);
+      }
+
+      if (detailsData.typical_game_time_start || detailsData.typical_game_time_end) {
+        var pTimes = document.createElement('p');
+        var timeText = 'Typical game times: ';
+        if (detailsData.typical_game_time_start && detailsData.typical_game_time_end) {
+          timeText += detailsData.typical_game_time_start + '–' + detailsData.typical_game_time_end;
+        } else if (detailsData.typical_game_time_start) {
+          timeText += 'from ' + detailsData.typical_game_time_start;
+        } else if (detailsData.typical_game_time_end) {
+          timeText += 'until ' + detailsData.typical_game_time_end;
+        }
+        pTimes.textContent = timeText;
+        container.appendChild(pTimes);
+      }
+
+      if (detailsData.default_gym_name) {
+        var pGym = document.createElement('p');
+        pGym.textContent = 'Default gym: ' + detailsData.default_gym_name;
+        container.appendChild(pGym);
+      }
+
+      if (detailsData.skill_level) {
+        var pSkill = document.createElement('p');
+        pSkill.textContent = 'Typical skill level: ' + detailsData.skill_level;
+        container.appendChild(pSkill);
+      }
+
+      if (typeof detailsData.youth_season_fee === 'number') {
+        var pFee = document.createElement('p');
+        pFee.textContent = 'Youth full-season fee for this division: $' + detailsData.youth_season_fee;
+        container.appendChild(pFee);
+      }
+
+      if (!container.children.length) {
+        var pFallback = document.createElement('p');
+        pFallback.textContent = 'No additional schedule or gym details are available for this division.';
+        container.appendChild(pFallback);
+      }
+    }
+
+    function onDivisionDetailsOpen(divisionId, detailsElement, fromPreselect) {
+      if (!divisionId || !detailsElement) {
+        return;
+      }
+      setActiveDivision(divisionId);
+
+      if (divisionDetailsCache[divisionId]) {
+        var cachedContainer = detailsElement.querySelector('[data-role="details-content"]');
+        renderDivisionDetails(cachedContainer, divisionDetailsCache[divisionId]);
+        return;
+      }
+
+      try {
+        var detailsData = WebsiteSDK.getDivisionDetails(divisionId);
+        divisionDetailsCache[divisionId] = detailsData;
+        var contentContainer = detailsElement.querySelector('[data-role="details-content"]');
+        renderDivisionDetails(contentContainer, detailsData);
+      } catch (e) {
+        console.error('Error loading division details for', divisionId, e);
+        var errorContainer = detailsElement.querySelector('[data-role="details-content"]');
+        if (errorContainer) {
+          errorContainer.textContent = 'Unable to load division details right now. Please check the schedule or contact us with questions.';
+        }
+      }
+
+      if (fromPreselect) {
+        scrollDivisionIntoView(divisionId);
+      }
+    }
+
+    function renderYouthDivisionsSummary(container, summaries, validIds, preselectedId) {
+      container.innerHTML = '';
+      if (!summaries || !summaries.length || !validIds || !validIds.size) {
+        if (statusElement) {
+          statusElement.textContent = 'No youth divisions are currently available.';
+        }
+        return;
+      }
+
+      var detailsToPreopen = null;
+
+      summaries.forEach(function (summary) {
+        if (!summary || !validIds.has(summary.division_id)) {
+          return;
+        }
+
+        var row = document.createElement('article');
+        row.dataset.component = 'youth-division-row';
+        row.dataset.divisionId = summary.division_id;
+        row.id = 'division-' + summary.division_id;
+
+        var titleP = document.createElement('p');
+        var nameStrong = document.createElement('strong');
+        nameStrong.textContent = summary.division_name || summary.division_id;
+        titleP.appendChild(nameStrong);
+
+        if (typeof summary.age_min === 'number' && typeof summary.age_max === 'number') {
+          titleP.appendChild(document.createTextNode(' (ages ' + summary.age_min + '-' + summary.age_max + ')'));
+        } else if (typeof summary.age_min === 'number') {
+          titleP.appendChild(document.createTextNode(' (ages ' + summary.age_min + '+)'));
+        } else if (typeof summary.age_max === 'number') {
+          titleP.appendChild(document.createTextNode(' (up to age ' + summary.age_max + ')'));
+        }
+
+        if (summary.is_coed) {
+          titleP.appendChild(document.createTextNode(' (coed)'));
+        }
+
+        var covers10to12 = typeof summary.age_min === 'number' && typeof summary.age_max === 'number' && summary.age_min <= 10 && summary.age_max >= 12;
+        if (covers10to12) {
+          var highlightSpan = document.createElement('span');
+          highlightSpan.className = 'age-10-12-indicator';
+          highlightSpan.textContent = ' - includes ages 10-12';
+          titleP.appendChild(highlightSpan);
+        }
+
+        row.appendChild(titleP);
+
+        var feeTable = document.createElement('table');
+        feeTable.dataset.component = 'youth-division-fee-and-discount';
+        var tbody = document.createElement('tbody');
+        var trFee = document.createElement('tr');
+        var thFee = document.createElement('th');
+        thFee.scope = 'row';
+        thFee.textContent = 'Full-season fee';
+        var tdFee = document.createElement('td');
+        if (typeof summary.season_fee === 'number') {
+          var currency = summary.fee_currency || 'USD';
+          tdFee.textContent = '$' + summary.season_fee + ' (' + currency + ')';
+        } else {
+          tdFee.textContent = 'See contact form for fee details.';
+        }
+        trFee.appendChild(thFee);
+        trFee.appendChild(tdFee);
+        tbody.appendChild(trFee);
+        feeTable.appendChild(tbody);
+        row.appendChild(feeTable);
+
+        if (summary.division_id === 'youth_10_12_coed') {
+          var siblingP = document.createElement('p');
+          var siblingLink = document.createElement('a');
+          siblingLink.href = 'javascript:void(0)';
+          siblingLink.dataset.action = 'ask-sibling-discount';
+          siblingLink.dataset.divisionId = summary.division_id;
+          siblingLink.textContent = 'Ask about sibling discount';
+          siblingP.appendChild(siblingLink);
+          row.appendChild(siblingP);
+        }
+
+        var scheduleP = document.createElement('p');
+        var scheduleLink = document.createElement('a');
+        scheduleLink.href = 'javascript:void(0)';
+        scheduleLink.dataset.component = 'youth-division-schedule-link';
+        scheduleLink.dataset.action = 'view-schedule';
+        scheduleLink.dataset.divisionId = summary.division_id;
+        scheduleLink.textContent = 'View schedule';
+        scheduleP.appendChild(scheduleLink);
+        row.appendChild(scheduleP);
+
+        var contactP = document.createElement('p');
+        contactP.dataset.component = 'youth-division-contact-actions';
+        var label = document.createElement('label');
+        label.textContent = 'Number of players: ';
+        var input = document.createElement('input');
+        input.type = 'number';
+        input.min = '1';
+        input.value = '1';
+        input.setAttribute('inputmode', 'numeric');
+        input.dataset.role = 'number-of-players';
+        input.dataset.action = 'change-number-of-players';
+        label.appendChild(input);
+        contactP.appendChild(label);
+        contactP.appendChild(document.createTextNode(' '));
+        var askBtn = document.createElement('button');
+        askBtn.type = 'button';
+        askBtn.dataset.action = 'ask-about-fees';
+        askBtn.dataset.divisionId = summary.division_id;
+        askBtn.textContent = 'Ask about this age group / fees';
+        contactP.appendChild(askBtn);
+        row.appendChild(contactP);
+
+        var details = document.createElement('details');
+        details.dataset.component = 'youth-division-details-panel';
+        details.dataset.divisionId = summary.division_id;
+        var summaryEl = document.createElement('summary');
+        summaryEl.textContent = 'More details about this division';
+        details.appendChild(summaryEl);
+        var detailsContent = document.createElement('div');
+        detailsContent.dataset.role = 'details-content';
+        var initialP = document.createElement('p');
+        initialP.textContent = 'Typical game days, times, and default gym will appear here when expanded.';
+        detailsContent.appendChild(initialP);
+        details.appendChild(detailsContent);
+        details.addEventListener('toggle', function () {
+          if (details.open) {
+            onDivisionDetailsOpen(summary.division_id, details, false);
+          }
+        });
+        row.appendChild(details);
+
+        if (preselectedId && summary.division_id === preselectedId) {
+          row.classList.add('active-division');
+          detailsToPreopen = details;
+        }
+
+        container.appendChild(row);
+      });
+
+      if (detailsToPreopen) {
+        detailsToPreopen.open = true;
+        var divId = detailsToPreopen.dataset.divisionId;
+        onDivisionDetailsOpen(divId, detailsToPreopen, true);
+      }
+    }
+
+    function initActionHandlers() {
+      var actionElements = document.querySelectorAll('[data-action]');
+      actionElements.forEach(function (el) {
+        var action = el.dataset.action;
+        if (action === 'back-to-main') {
+          el.addEventListener('click', function (event) {
+            event.preventDefault();
+            window.location.href = 'index.html';
+          });
+        } else if (action === 'index-jump') {
+          el.addEventListener('click', function (event) {
+            event.preventDefault();
+            var divisionId = el.dataset.divisionId;
+            if (!divisionId) {
+              return;
+            }
+            scrollDivisionIntoView(divisionId);
+            setActiveDivision(divisionId);
+            var detailsEl = document.querySelector('[data-component="youth-division-details-panel"][data-division-id="' + divisionId + '"]');
+            if (detailsEl && !detailsEl.open) {
+              detailsEl.open = true;
+              onDivisionDetailsOpen(divisionId, detailsEl, false);
+            }
+          });
+        } else if (action === 'ask-about-fees') {
+          el.addEventListener('click', function (event) {
+            event.preventDefault();
+            var divisionId = el.dataset.divisionId;
+            var numPlayers = 1;
+            var row = el.closest('[data-component="youth-division-row"]');
+            if (row) {
+              var input = row.querySelector('input[data-role="number-of-players"]');
+              if (input) {
+                var parsed = parseInt(input.value, 10);
+                if (!isNaN(parsed) && parsed > 0) {
+                  numPlayers = parsed;
+                }
+              }
+            }
+            var url = 'contact.html?reason=youth_league_info&divisionId=' + encodeURIComponent(divisionId) + '&numberOfPlayers=' + encodeURIComponent(numPlayers);
+            window.location.href = url;
+          });
+        } else if (action === 'ask-sibling-discount') {
+          el.addEventListener('click', function (event) {
+            event.preventDefault();
+            var url = 'contact.html?reason=registration_question&divisionId=youth_10_12_coed&numberOfPlayers=2';
+            window.location.href = url;
+          });
+        } else if (action === 'view-schedule') {
+          el.addEventListener('click', function (event) {
+            event.preventDefault();
+            var divisionId = el.dataset.divisionId;
+            if (!divisionId) {
+              return;
+            }
+            var url = 'schedule.html?divisionId=' + encodeURIComponent(divisionId);
+            window.location.href = url;
+          });
+        } else if (action === 'go-youth-faq') {
+          el.addEventListener('click', function (event) {
+            event.preventDefault();
+            window.location.href = 'faq.html?category=youth';
+          });
+        } else if (action === 'change-number-of-players') {
+          el.addEventListener('change', function () {
+            var value = parseInt(el.value, 10);
+            if (isNaN(value) || value < 1) {
+              el.value = '1';
+            }
+          });
+        }
+      });
+    }
+
+    function initPage() {
+      youthSummaries = safeGetYouthSummaries();
+      youthIndexDivisions = safeGetYouthIndexDivisions();
+
+      var validIds = new Set();
+      youthIndexDivisions.forEach(function (d) {
+        if (d && d.division_type === 'youth' && d.division_id) {
+          validIds.add(d.division_id);
+        }
+      });
+
+      var populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function (el) {
+        var type = el.dataset.populate;
+        if (type === 'youth-divisions-index') {
+          renderYouthDivisionsIndex(el, youthIndexDivisions);
+        } else if (type === 'youth-divisions-summary') {
+          renderYouthDivisionsSummary(el, youthSummaries, validIds, activeDivisionId);
+        }
+      });
+
+      initActionHandlers();
+    }
+
+    initPage();
+  });
+  </script>
+</body>
+</html>

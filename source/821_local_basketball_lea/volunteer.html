@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Basketball League</title>
+  
+  <link rel="stylesheet" href="volunteer.css">
+</head>
+<body>
+  <header id="site-header">
+    <nav class="main-nav" aria-label="Main navigation">
+      <a href="index.html">Home</a>
+      <a href="adult_leagues.html">Adult Leagues</a>
+      <a href="youth_leagues.html">Youth Leagues</a>
+      <a href="schedule.html">Schedule</a>
+      <a href="playoffs.html">Playoffs</a>
+      <a href="locations.html">Locations</a>
+      <a href="sponsors.html">Sponsors</a>
+      <a href="volunteer.html">Volunteer</a>
+      <a href="contact.html">Contact</a>
+    </nav>
+
+    <h1 id="site-title">Local Basketball League</h1>
+
+    <div class="header-banner" aria-hidden="true"></div>
+  </header>
+
+  <main id="content" role="main">
+    <h2 id="volunteer-page-title">Volunteer &amp; Get Involved</h2>
+    <p id="volunteer-page-intro">Browse current volunteer and officiating roles and let us know how you'd like to help.</p>
+
+    <div id="volunteer-status" data-component="page-status-messages" aria-live="polite"></div>
+
+    <p id="role-availability-note" data-component="role-availability-display"></p>
+
+    <div id="volunteer-role-list" data-component="volunteer-role-list" data-populate="volunteer_roles_summary"></div>
+
+    <section id="referee-cta" data-component="referee-cta-panel" aria-labelledby="referee-cta-heading" hidden>
+      <h3 id="referee-cta-heading">Referee youth games</h3>
+      <p id="referee-cta-summary"></p>
+      <p id="referee-cta-availability-text"></p>
+      <div>
+        <label for="referee-age-input">Your age:</label>
+        <input id="referee-age-input" name="age" type="number" min="0" data-action="referee-age-change">
+        <span id="referee-age-error" role="alert" style="display:none;"></span>
+      </div>
+      <div id="referee-availability-days-container"></div>
+      <p id="referee-time-window-note"></p>
+      <p id="referee-validation-message" role="alert" style="display:none;"></p>
+      <button type="button" id="referee-signup-button" data-action="submit-referee-signup" disabled>Sign up to referee youth games</button>
+    </section>
+  </main>
+
+  <footer id="site-footer">
+    <hr>
+    <nav class="footer-nav" aria-label="Footer navigation">
+      <a href="about.html">About</a>
+      <a href="faq.html">FAQ</a>
+      <a href="adult_leagues.html">Adult Leagues</a>
+      <a href="youth_leagues.html">Youth Leagues</a>
+      <a href="schedule.html">Schedule &amp; Standings</a>
+      <a href="playoffs.html">Playoffs &amp; Championships</a>
+      <a href="locations.html">Locations &amp; Facilities</a>
+      <a href="sponsors.html">Sponsors &amp; Advertising</a>
+      <a href="volunteer.html">Volunteer &amp; Get Involved</a>
+      <a href="contact.html">Contact Us</a>
+    </nav>
+    <p class="footer-copy">&copy; Local Basketball League.</p>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var urlParams = new URLSearchParams(window.location.search);
+    var focusedRoleId = urlParams.get('roleId');
+
+    var roles = [];
+    var rolesLoadError = false;
+    var refereeRole = null;
+    var refereeAge = null;
+    var refereeAvailabilityDays = [];
+    var refereeRequiresDaySelection = false;
+
+    var statusEl = document.querySelector('[data-component="page-status-messages"]');
+    var availabilityNoteEl = document.querySelector('[data-component="role-availability-display"]');
+    var roleListEl = document.querySelector('[data-component="volunteer-role-list"]');
+
+    var refereeCtaSection = document.getElementById('referee-cta');
+    var refereeSummaryEl = document.getElementById('referee-cta-summary');
+    var refereeAvailabilityTextEl = document.getElementById('referee-cta-availability-text');
+    var refereeAgeInput = document.getElementById('referee-age-input');
+    var refereeAgeError = document.getElementById('referee-age-error');
+    var refereeAvailabilityDaysContainer = document.getElementById('referee-availability-days-container');
+    var refereeTimeWindowNote = document.getElementById('referee-time-window-note');
+    var refereeValidationMessage = document.getElementById('referee-validation-message');
+    var refereeSignupButton = document.getElementById('referee-signup-button');
+
+    function loadRoles() {
+      var populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function(element) {
+        var dataType = element.dataset.populate;
+        if (dataType === 'volunteer_roles_summary') {
+          try {
+            roles = WebsiteSDK.getVolunteerRolesSummary();
+            rolesLoadError = false;
+          } catch (e) {
+            console.error('Error loading volunteer roles', e);
+            roles = [];
+            rolesLoadError = true;
+          }
+        }
+      });
+
+      if (!Array.isArray(roles)) {
+        roles = [];
+      }
+
+      refereeRole = null;
+      for (var i = 0; i < roles.length; i++) {
+        if (roles[i] && roles[i].role_id === 'referee') {
+          refereeRole = roles[i];
+          break;
+        }
+      }
+
+      if (focusedRoleId) {
+        var hasMatch = false;
+        for (var j = 0; j < roles.length; j++) {
+          if (roles[j] && roles[j].role_id === focusedRoleId) {
+            hasMatch = true;
+            break;
+          }
+        }
+        if (!hasMatch) {
+          focusedRoleId = null;
+        }
+      }
+
+      renderAll();
+
+      if (focusedRoleId) {
+        scrollRoleIntoView(focusedRoleId);
+        if (focusedRoleId === 'referee') {
+          scrollRefereeCtaIntoView();
+        }
+      }
+    }
+
+    function renderAll() {
+      renderStatus(statusEl, roles, rolesLoadError);
+      renderAvailabilityNote(availabilityNoteEl, roles, rolesLoadError);
+      renderRoleList(roleListEl, roles, focusedRoleId, rolesLoadError);
+      renderRefereeCta();
+      updateRefereeSignupButtonState();
+    }
+
+    function renderStatus(container, rolesData, hasError) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+      if (hasError) {
+        container.style.color = 'red';
+        container.textContent = 'We could not load volunteer roles right now. Please try again later.';
+        return;
+      }
+      container.removeAttribute('style');
+      if (!rolesData || rolesData.length === 0) {
+        container.textContent = 'There are no volunteer roles available right now. Please check back soon.';
+      }
+    }
+
+    function renderAvailabilityNote(container, rolesData, hasError) {
+      if (!container) {
+        return;
+      }
+      container.textContent = '';
+      if (hasError) {
+        return;
+      }
+      if (!rolesData || rolesData.length === 0) {
+        return;
+      }
+      var names = [];
+      for (var i = 0; i < rolesData.length; i++) {
+        if (rolesData[i] && rolesData[i].name) {
+          names.push(rolesData[i].name);
+        }
+      }
+      if (names.length > 0) {
+        container.textContent = 'Currently open roles: ' + names.join(', ') + '.';
+      }
+    }
+
+    function renderRoleList(container, rolesData, focusedId, hasError) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+      if (hasError) {
+        return;
+      }
+      if (!rolesData || rolesData.length === 0) {
+        return;
+      }
+
+      for (var i = 0; i < rolesData.length; i++) {
+        var role = rolesData[i];
+        if (!role) {
+          continue;
+        }
+
+        var wrapper = document.createElement('div');
+        wrapper.setAttribute('data-role-id', role.role_id || '');
+
+        var headerLine = document.createElement('div');
+        var nameStrong = document.createElement('strong');
+        nameStrong.textContent = role.name || '';
+        headerLine.appendChild(nameStrong);
+
+        if (role.role_id && role.role_id === focusedId) {
+          var selectedSpan = document.createElement('span');
+          selectedSpan.textContent = ' (selected)';
+          headerLine.appendChild(selectedSpan);
+        }
+
+        var spaceText = document.createTextNode(' ');
+        headerLine.appendChild(spaceText);
+
+        var viewButton = document.createElement('button');
+        viewButton.type = 'button';
+        viewButton.textContent = 'View details';
+        viewButton.setAttribute('data-action', 'select-role');
+        if (role.role_id) {
+          viewButton.setAttribute('data-role-id', role.role_id);
+        }
+        headerLine.appendChild(viewButton);
+
+        if (role.role_id === 'referee') {
+          var spaceText2 = document.createTextNode(' ');
+          headerLine.appendChild(spaceText2);
+          var learnMoreLink = document.createElement('a');
+          learnMoreLink.href = 'javascript:void(0)';
+          learnMoreLink.setAttribute('data-action', 'focus-referee');
+          learnMoreLink.textContent = 'Learn more about refereeing';
+          headerLine.appendChild(learnMoreLink);
+        }
+
+        wrapper.appendChild(headerLine);
+
+        var detailsDiv = document.createElement('div');
+        if (!role.role_id || role.role_id !== focusedId) {
+          detailsDiv.style.display = 'none';
+        }
+
+        if (role.description) {
+          var descP = document.createElement('p');
+          descP.textContent = role.description;
+          detailsDiv.appendChild(descP);
+        }
+
+        if (typeof role.min_age === 'number') {
+          var ageP = document.createElement('p');
+          ageP.textContent = 'Minimum age: ' + role.min_age + ' years.';
+          detailsDiv.appendChild(ageP);
+        }
+
+        if (role.availability_requirements) {
+          var availP = document.createElement('p');
+          availP.textContent = 'Availability: ' + role.availability_requirements;
+          detailsDiv.appendChild(availP);
+        }
+
+        var daysText = '';
+        if (Array.isArray(role.typical_days) && role.typical_days.length > 0) {
+          var formattedDays = [];
+          for (var d = 0; d < role.typical_days.length; d++) {
+            if (role.typical_days[d]) {
+              formattedDays.push(formatDayLabel(role.typical_days[d]));
+            }
+          }
+          if (formattedDays.length > 0) {
+            daysText = 'Typical days: ' + formattedDays.join(', ') + '.';
+          }
+        }
+        var timeText = '';
+        if (role.typical_time_window) {
+          timeText = 'Typical time window: ' + role.typical_time_window + '.';
+        }
+        if (daysText || timeText) {
+          var scheduleP = document.createElement('p');
+          scheduleP.textContent = (daysText + ' ' + timeText).trim();
+          detailsDiv.appendChild(scheduleP);
+        }
+
+        if (typeof role.paid === 'boolean' || typeof role.pay_per_game === 'number') {
+          var payParts = [];
+          if (role.paid === true) {
+            if (typeof role.pay_per_game === 'number') {
+              payParts.push('Paid role, about $' + role.pay_per_game + ' per game.');
+            } else {
+              payParts.push('Paid role.');
+            }
+          } else if (role.paid === false) {
+            payParts.push('Volunteer (unpaid) role.');
+          }
+          if (payParts.length > 0) {
+            var payP = document.createElement('p');
+            payP.textContent = payParts.join(' ');
+            detailsDiv.appendChild(payP);
+          }
+        }
+
+        var interestBtn = document.createElement('button');
+        interestBtn.type = 'button';
+        interestBtn.textContent = "I'm interested";
+        interestBtn.setAttribute('data-action', 'interested-role');
+        if (role.role_id) {
+          interestBtn.setAttribute('data-role-id', role.role_id);
+        }
+        detailsDiv.appendChild(interestBtn);
+
+        wrapper.appendChild(detailsDiv);
+        container.appendChild(wrapper);
+      }
+    }
+
+    function renderRefereeCta() {
+      if (!refereeCtaSection) {
+        return;
+      }
+      if (rolesLoadError || !refereeRole || focusedRoleId !== 'referee') {
+        refereeCtaSection.hidden = true;
+        return;
+      }
+
+      refereeCtaSection.hidden = false;
+
+      if (refereeSummaryEl) {
+        var parts = [];
+        if (typeof refereeRole.min_age === 'number') {
+          parts.push('Minimum age ' + refereeRole.min_age + '+.');
+        }
+        if (typeof refereeRole.paid === 'boolean') {
+          if (refereeRole.paid) {
+            if (typeof refereeRole.pay_per_game === 'number') {
+              parts.push('Paid role, about $' + refereeRole.pay_per_game + ' per game.');
+            } else {
+              parts.push('Paid role.');
+            }
+          } else {
+            parts.push('Volunteer (unpaid) role.');
+          }
+        }
+        refereeSummaryEl.textContent = parts.join(' ');
+      }
+
+      if (refereeAvailabilityTextEl) {
+        var text = '';
+        if (Array.isArray(refereeRole.typical_days) && refereeRole.typical_days.length > 0) {
+          var formattedDays = [];
+          for (var i = 0; i < refereeRole.typical_days.length; i++) {
+            if (refereeRole.typical_days[i]) {
+              formattedDays.push(formatDayLabel(refereeRole.typical_days[i]));
+            }
+          }
+          if (formattedDays.length > 0) {
+            text = 'We typically schedule referees on: ' + formattedDays.join(', ') + '.';
+          }
+        }
+        refereeAvailabilityTextEl.textContent = text;
+      }
+
+      if (refereeTimeWindowNote) {
+        if (refereeRole.typical_time_window) {
+          refereeTimeWindowNote.textContent = 'Typical game time window for referees: ' + refereeRole.typical_time_window + '.';
+        } else {
+          refereeTimeWindowNote.textContent = '';
+        }
+      }
+
+      if (refereeAvailabilityDaysContainer) {
+        refereeAvailabilityDaysContainer.innerHTML = '';
+        refereeRequiresDaySelection = false;
+        if (Array.isArray(refereeRole.typical_days) && refereeRole.typical_days.length > 0) {
+          refereeRequiresDaySelection = true;
+          var daysLabel = document.createElement('p');
+          daysLabel.textContent = 'Days you can usually referee:';
+          refereeAvailabilityDaysContainer.appendChild(daysLabel);
+
+          for (var j = 0; j < refereeRole.typical_days.length; j++) {
+            var day = refereeRole.typical_days[j];
+            if (!day) {
+              continue;
+            }
+            var label = document.createElement('label');
+            var checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.setAttribute('data-action', 'referee-availability-day-toggle');
+            checkbox.setAttribute('data-day', day);
+            if (refereeAvailabilityDays.indexOf(day) !== -1) {
+              checkbox.checked = true;
+            }
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(' ' + formatDayLabel(day)));
+            var br = document.createElement('br');
+            refereeAvailabilityDaysContainer.appendChild(label);
+            refereeAvailabilityDaysContainer.appendChild(br);
+          }
+        } else {
+          var note = document.createElement('p');
+          note.textContent = 'If you sign up, you can share your general availability in your message on the next page.';
+          refereeAvailabilityDaysContainer.appendChild(note);
+        }
+      }
+    }
+
+    function updateRefereeSignupButtonState() {
+      if (!refereeCtaSection || refereeCtaSection.hidden || !refereeSignupButton) {
+        return;
+      }
+
+      var ageValid = false;
+      var ageNumeric = null;
+      if (refereeAge !== null && typeof refereeAge === 'number') {
+        ageNumeric = refereeAge;
+      } else if (refereeAgeInput && refereeAgeInput.value !== '') {
+        var parsed = parseInt(refereeAgeInput.value, 10);
+        if (!isNaN(parsed)) {
+          ageNumeric = parsed;
+        }
+      }
+
+      if (ageNumeric !== null && ageNumeric > 0) {
+        if (refereeRole && typeof refereeRole.min_age === 'number') {
+          ageValid = ageNumeric >= refereeRole.min_age;
+        } else {
+          ageValid = true;
+        }
+      } else {
+        ageValid = false;
+      }
+
+      var daysValid = true;
+      if (refereeRequiresDaySelection) {
+        daysValid = refereeAvailabilityDays.length > 0;
+      }
+
+      var canSubmit = ageValid && daysValid;
+      refereeSignupButton.disabled = !canSubmit;
+
+      if (refereeAgeError) {
+        refereeAgeError.style.display = 'none';
+        refereeAgeError.textContent = '';
+      }
+      if (refereeValidationMessage) {
+        refereeValidationMessage.style.display = 'none';
+        refereeValidationMessage.textContent = '';
+      }
+
+      if (!ageValid && refereeAgeInput && refereeAgeInput.value !== '') {
+        if (refereeAgeError) {
+          refereeAgeError.style.display = 'inline';
+          if (refereeRole && typeof refereeRole.min_age === 'number') {
+            refereeAgeError.textContent = ' You must be at least ' + refereeRole.min_age + ' years old to referee.';
+          } else {
+            refereeAgeError.textContent = ' Please enter a valid age.';
+          }
+        }
+      } else if (ageValid && !daysValid && refereeRequiresDaySelection) {
+        if (refereeValidationMessage) {
+          refereeValidationMessage.style.display = 'block';
+          refereeValidationMessage.textContent = 'Select at least one day you can usually referee.';
+        }
+      }
+    }
+
+    function formatDayLabel(day) {
+      if (!day || typeof day !== 'string') {
+        return '';
+      }
+      return day.charAt(0).toUpperCase() + day.slice(1);
+    }
+
+    function handleSelectRole(roleId) {
+      if (!roleId) {
+        return;
+      }
+      focusedRoleId = roleId;
+      syncRoleIdInUrl(roleId, true);
+      renderRoleList(roleListEl, roles, focusedRoleId, rolesLoadError);
+      renderRefereeCta();
+      updateRefereeSignupButtonState();
+      if (roleId === 'referee') {
+        scrollRefereeCtaIntoView();
+      } else {
+        scrollRoleIntoView(roleId);
+      }
+    }
+
+    function handleFocusReferee() {
+      handleSelectRole('referee');
+    }
+
+    function handleInterestedRole(roleId) {
+      if (!roleId) {
+        return;
+      }
+      var params = new URLSearchParams();
+      params.set('reason', 'volunteer_referee');
+      params.set('volunteerRoleId', roleId);
+      var target = 'contact.html?' + params.toString();
+      window.location.href = target;
+    }
+
+    function handleRefereeAgeChange() {
+      if (!refereeAgeInput) {
+        return;
+      }
+      var value = refereeAgeInput.value;
+      var parsed = parseInt(value, 10);
+      if (!isNaN(parsed)) {
+        refereeAge = parsed;
+      } else {
+        refereeAge = null;
+      }
+      updateRefereeSignupButtonState();
+    }
+
+    function handleRefereeAvailabilityToggle(target) {
+      if (!target) {
+        return;
+      }
+      var day = target.getAttribute('data-day');
+      if (!day) {
+        return;
+      }
+      var idx = refereeAvailabilityDays.indexOf(day);
+      if (target.checked) {
+        if (idx === -1) {
+          refereeAvailabilityDays.push(day);
+        }
+      } else {
+        if (idx !== -1) {
+          refereeAvailabilityDays.splice(idx, 1);
+        }
+      }
+      updateRefereeSignupButtonState();
+    }
+
+    function handleSubmitRefereeSignup() {
+      if (!refereeRole || !refereeSignupButton || refereeSignupButton.disabled) {
+        return;
+      }
+      var params = new URLSearchParams();
+      params.set('reason', 'volunteer_referee');
+      var roleId = refereeRole.role_id || 'referee';
+      params.set('volunteerRoleId', roleId);
+
+      var ageNumeric = null;
+      if (refereeAge !== null && typeof refereeAge === 'number') {
+        ageNumeric = refereeAge;
+      } else if (refereeAgeInput && refereeAgeInput.value !== '') {
+        var parsed = parseInt(refereeAgeInput.value, 10);
+        if (!isNaN(parsed)) {
+          ageNumeric = parsed;
+        }
+      }
+      if (ageNumeric !== null && ageNumeric > 0) {
+        params.set('age', String(ageNumeric));
+      }
+
+      if (refereeRequiresDaySelection && refereeAvailabilityDays.length > 0) {
+        params.set('availabilityDays', refereeAvailabilityDays.join(','));
+      }
+
+      if (refereeRole.typical_time_window) {
+        params.set('availabilityTimeWindow', refereeRole.typical_time_window);
+      }
+
+      var target = 'contact.html?' + params.toString();
+      window.location.href = target;
+    }
+
+    function syncRoleIdInUrl(roleId, push) {
+      var currentUrl = window.location.href;
+      var url = new URL(currentUrl);
+      if (roleId) {
+        url.searchParams.set('roleId', roleId);
+      } else {
+        url.searchParams.delete('roleId');
+      }
+      var newUrl = url.toString();
+      if (push) {
+        window.history.pushState({ roleId: roleId }, '', newUrl);
+      } else {
+        window.history.replaceState({ roleId: roleId }, '', newUrl);
+      }
+    }
+
+    function scrollRoleIntoView(roleId) {
+      if (!roleId) {
+        return;
+      }
+      var selector = '[data-role-id="' + roleId + '"]';
+      var el = document.querySelector(selector);
+      if (el && typeof el.scrollIntoView === 'function') {
+        try {
+          el.scrollIntoView();
+        } catch (e) {
+          el.scrollTop = 0;
+        }
+      }
+    }
+
+    function scrollRefereeCtaIntoView() {
+      if (!refereeCtaSection || refereeCtaSection.hidden) {
+        return;
+      }
+      if (typeof refereeCtaSection.scrollIntoView === 'function') {
+        try {
+          refereeCtaSection.scrollIntoView();
+        } catch (e) {
+          refereeCtaSection.scrollTop = 0;
+        }
+      }
+    }
+
+    document.addEventListener('click', function(event) {
+      var target = event.target;
+      if (!target || !target.dataset) {
+        return;
+      }
+      var action = target.dataset.action;
+      if (!action) {
+        return;
+      }
+      if (action === 'select-role') {
+        var roleId = target.getAttribute('data-role-id');
+        handleSelectRole(roleId);
+      } else if (action === 'focus-referee') {
+        handleFocusReferee();
+      } else if (action === 'interested-role') {
+        var interestedRoleId = target.getAttribute('data-role-id');
+        handleInterestedRole(interestedRoleId);
+      } else if (action === 'submit-referee-signup') {
+        handleSubmitRefereeSignup();
+      }
+    });
+
+    document.addEventListener('change', function(event) {
+      var target = event.target;
+      if (!target || !target.dataset) {
+        return;
+      }
+      var action = target.dataset.action;
+      if (!action) {
+        return;
+      }
+      if (action === 'referee-availability-day-toggle') {
+        handleRefereeAvailabilityToggle(target);
+      }
+    });
+
+    if (refereeAgeInput) {
+      refereeAgeInput.addEventListener('input', function() {
+        handleRefereeAgeChange();
+      });
+    }
+
+    window.addEventListener('popstate', function() {
+      var params = new URLSearchParams(window.location.search);
+      var roleId = params.get('roleId');
+      focusedRoleId = roleId;
+      renderRoleList(roleListEl, roles, focusedRoleId, rolesLoadError);
+      renderRefereeCta();
+      updateRefereeSignupButtonState();
+      if (roleId) {
+        scrollRoleIntoView(roleId);
+        if (roleId === 'referee') {
+          scrollRefereeCtaIntoView();
+        }
+      }
+    });
+
+    loadRoles();
+  });
+  </script>
+</body>
+</html>

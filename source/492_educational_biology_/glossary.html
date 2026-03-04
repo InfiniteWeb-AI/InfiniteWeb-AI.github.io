@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Aquatic Insects Educational Site</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='glossary.css'>
+</head>
+<body>
+  <header class='site-header' role='banner'>
+    <div class='site-header-inner'>
+      <div class='site-identity'>
+        <h1 class='site-title'>Aquatic Insects</h1>
+      </div>
+      <nav class='site-nav' aria-label='Primary navigation'>
+        <a href='index.html' title='Homepage and overview'>Home</a>
+        <a href='species.html' title='Browse and filter aquatic insect species'>Species</a>
+        <a href='compare.html' title='Compare insect orders and their life cycles'>Compare</a>
+        <a href='quizzes.html' title='Browse quizzes and build custom quizzes'>Quizzes</a>
+        <a href='lesson_builder.html' title='Create lesson plans and manage reading paths'>Lesson Builder</a>
+        <a href='articles.html' title='Browse learning articles and resources'>Articles</a>
+        <a href='maps.html' title='Explore species distribution maps'>Maps</a>
+        <a href='glossary.html' title='Search and filter glossary terms'>Glossary</a>
+        <a href='taxonomy.html' title='Browse insect orders and build metamorphosis charts'>Taxonomy</a>
+        <a href='study_list.html' title='View and manage your species study list'>My Study List</a>
+        <a href='collections.html' title='View and manage your species collections'>Collections</a>
+        <a href='map_notes.html' title='Access your saved distribution maps'>Map Notes</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-content' role='main'>
+    <section data-component='glossary-page-controller'>
+      <h1>Glossary</h1>
+      <p>Search aquatic insect terms, filter by category, and build a temporary list of terms for practice.</p>
+    </section>
+
+    <section data-component='glossary-search-form'>
+      <form id='glossarySearchForm'>
+        <label for='glossarySearchInput'>Search terms</label>
+        <input type='search' id='glossarySearchInput' name='textQuery'>
+        <button type='submit' data-action='submit-search'>Search</button>
+      </form>
+    </section>
+
+    <section data-component='glossary-category-filter'>
+      <label for='glossaryCategorySelect'>Category</label>
+      <select id='glossaryCategorySelect' name='category'>
+        <option value=''>All categories</option>
+        <option value='adaptations'>adaptations</option>
+        <option value='morphology'>morphology</option>
+        <option value='behavior'>behavior</option>
+        <option value='habitat'>habitat</option>
+        <option value='taxonomy'>taxonomy</option>
+        <option value='sampling_methods'>sampling_methods</option>
+        <option value='other'>other</option>
+      </select>
+    </section>
+
+    <section data-component='glossary-results-list' aria-label='Glossary search results'>
+      <h2>Results</h2>
+      <p data-populate='glossary-results-status'></p>
+      <div data-populate='glossary-results'></div>
+    </section>
+
+    <section data-component='glossary-selection-summary' aria-live='polite'>
+      <p data-populate='glossary-selection-summary-text'>No terms selected yet.</p>
+      <button type='button' data-action='toggle-selection-panel' aria-expanded='false' aria-controls='glossarySelectionDetailPanel'>Show selected terms</button>
+    </section>
+
+    <section id='glossarySelectionDetailPanel' data-component='glossary-selection-detail-panel' aria-label='Selected glossary terms' hidden>
+      <h2>Selected terms</h2>
+      <div data-populate='glossary-selection-details'></div>
+    </section>
+
+    <section data-component='glossary-selection-toolbar'>
+      <button type='button' data-action='clear-selection'>Clear selection</button>
+      <button type='button' data-action='create-practice-list'>Create practice list</button>
+      <a href='javascript:void(0)' data-action='go-my-glossary-lists'>My glossary lists</a>
+    </section>
+  </main>
+
+  <footer class='site-footer' role='contentinfo'>
+    <nav class='footer-nav' aria-label='Footer navigation'>
+      <a href='about.html' title='About this educational biology website'>About</a>
+    </nav>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      let textQuery = urlParams.get('textQuery') || '';
+      let category = urlParams.get('category') || '';
+
+      let currentSelection = null; // GlossarySelection
+      let selectedTermsMap = new Map(); // id -> GlossaryTerm
+      let searchResults = []; // Array of GlossaryTerm
+
+      const searchForm = document.getElementById('glossarySearchForm');
+      const searchInput = document.getElementById('glossarySearchInput');
+      const categorySelect = document.getElementById('glossaryCategorySelect');
+
+      const resultsContainer = document.querySelector('[data-populate="glossary-results"]');
+      const resultsStatus = document.querySelector('[data-populate="glossary-results-status"]');
+      const summaryText = document.querySelector('[data-populate="glossary-selection-summary-text"]');
+      const selectionPanel = document.querySelector('[data-component="glossary-selection-detail-panel"]');
+      const selectionDetailsContainer = selectionPanel ? selectionPanel.querySelector('[data-populate="glossary-selection-details"]') : null;
+      const toggleSelectionButton = document.querySelector('[data-action="toggle-selection-panel"]');
+      const clearSelectionButton = document.querySelector('[data-action="clear-selection"]');
+      const createPracticeButton = document.querySelector('[data-action="create-practice-list"]');
+      const myListsLink = document.querySelector('[data-action="go-my-glossary-lists"]');
+
+      function applyInitialControlValues() {
+        if (searchInput) {
+          searchInput.value = textQuery;
+        }
+        if (categorySelect) {
+          const allowedValues = ['', 'adaptations', 'morphology', 'behavior', 'habitat', 'taxonomy', 'sampling_methods', 'other'];
+          if (!allowedValues.includes(category)) {
+            category = '';
+          }
+          categorySelect.value = category;
+        }
+      }
+
+      function updateUrlParams(push) {
+        const params = new URLSearchParams(window.location.search);
+        if (textQuery) {
+          params.set('textQuery', textQuery);
+        } else {
+          params.delete('textQuery');
+        }
+        if (category) {
+          params.set('category', category);
+        } else {
+          params.delete('category');
+        }
+        const search = params.toString();
+        const newUrl = search ? `${window.location.pathname}?${search}` : window.location.pathname;
+        const state = {};
+        if (push) {
+          window.history.pushState(state, '', newUrl);
+        } else {
+          window.history.replaceState(state, '', newUrl);
+        }
+      }
+
+      function renderResults(container, terms) {
+        if (!container) return;
+        container.innerHTML = '';
+        if (!Array.isArray(terms) || terms.length === 0) {
+          const p = document.createElement('p');
+          p.textContent = 'No terms to display.';
+          container.appendChild(p);
+          return;
+        }
+        const list = document.createElement('ul');
+        terms.forEach(term => {
+          const li = document.createElement('li');
+
+          const termTitle = document.createElement('strong');
+          termTitle.textContent = term.term;
+          li.appendChild(termTitle);
+
+          const categorySpan = document.createElement('span');
+          categorySpan.textContent = ` — ${term.category}`;
+          li.appendChild(categorySpan);
+
+          const definitionDiv = document.createElement('div');
+          definitionDiv.textContent = term.definition;
+          li.appendChild(definitionDiv);
+
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.dataset.action = 'toggle-selection';
+          button.dataset.termId = term.id;
+          const isSelected = selectedTermsMap.has(term.id);
+          button.textContent = isSelected ? 'Remove from list' : 'Add to list';
+          li.appendChild(button);
+
+          list.appendChild(li);
+        });
+        container.appendChild(list);
+      }
+
+      function renderSelectionSummary() {
+        if (!summaryText) return;
+        const count = currentSelection && Array.isArray(currentSelection.selectedTermIds)
+          ? currentSelection.selectedTermIds.length
+          : 0;
+        if (count === 0) {
+          summaryText.textContent = 'No terms selected yet.';
+        } else if (count === 1) {
+          summaryText.textContent = 'You have 1 selected term.';
+        } else {
+          summaryText.textContent = `You have ${count} selected terms.`;
+        }
+        if (createPracticeButton) {
+          const disabled = !currentSelection || !currentSelection.id || count === 0;
+          createPracticeButton.disabled = disabled;
+        }
+        if (clearSelectionButton) {
+          clearSelectionButton.disabled = count === 0;
+        }
+      }
+
+      function renderSelectionDetails(container, termsMap) {
+        if (!container) return;
+        container.innerHTML = '';
+        const terms = Array.from(termsMap.values());
+        if (terms.length === 0) {
+          const p = document.createElement('p');
+          p.textContent = 'No terms in your selection.';
+          container.appendChild(p);
+          return;
+        }
+        terms.sort((a, b) => {
+          const aTerm = a.term || '';
+          const bTerm = b.term || '';
+          return aTerm.localeCompare(bTerm);
+        });
+        const list = document.createElement('ul');
+        terms.forEach(term => {
+          const li = document.createElement('li');
+
+          const termTitle = document.createElement('strong');
+          termTitle.textContent = term.term;
+          li.appendChild(termTitle);
+
+          const categorySpan = document.createElement('span');
+          categorySpan.textContent = ` — ${term.category}`;
+          li.appendChild(categorySpan);
+
+          const definitionDiv = document.createElement('div');
+          definitionDiv.textContent = term.definition;
+          li.appendChild(definitionDiv);
+
+          const removeBtn = document.createElement('button');
+          removeBtn.type = 'button';
+          removeBtn.dataset.action = 'remove-from-selection';
+          removeBtn.dataset.termId = term.id;
+          removeBtn.textContent = 'Remove';
+          li.appendChild(removeBtn);
+
+          list.appendChild(li);
+        });
+        container.appendChild(list);
+      }
+
+      function runSearch() {
+        if (resultsStatus) {
+          resultsStatus.textContent = 'Loading terms...';
+        }
+        try {
+          const terms = WebsiteSDK.searchGlossaryTerms(textQuery || undefined, category || undefined);
+          searchResults = Array.isArray(terms) ? terms : [];
+          renderResults(resultsContainer, searchResults);
+          if (resultsStatus) {
+            if (searchResults.length === 0) {
+              resultsStatus.textContent = 'No terms match your filters.';
+            } else if (searchResults.length === 1) {
+              resultsStatus.textContent = '1 term found.';
+            } else {
+              resultsStatus.textContent = `${searchResults.length} terms found.`;
+            }
+          }
+        } catch (error) {
+          if (resultsStatus) {
+            resultsStatus.textContent = 'There was a problem loading glossary terms.';
+          }
+        }
+      }
+
+      function syncSelectionFromInitial(selectionData) {
+        currentSelection = selectionData && selectionData.selection ? selectionData.selection : null;
+        selectedTermsMap = new Map();
+        if (selectionData && Array.isArray(selectionData.terms)) {
+          selectionData.terms.forEach(term => {
+            if (term && term.id) {
+              selectedTermsMap.set(term.id, term);
+            }
+          });
+        }
+      }
+
+      function addTermToSelection(termId) {
+        if (!termId) return;
+        try {
+          const result = WebsiteSDK.addTermToGlossarySelection(termId);
+          if (!result || !result.selection) {
+            return;
+          }
+          currentSelection = result.selection;
+          let term = searchResults.find(t => t.id === termId);
+          if (!term && selectedTermsMap.has(termId)) {
+            term = selectedTermsMap.get(termId);
+          }
+          if (term) {
+            selectedTermsMap.set(termId, term);
+          }
+          renderResults(resultsContainer, searchResults);
+          renderSelectionSummary();
+          renderSelectionDetails(selectionDetailsContainer, selectedTermsMap);
+        } catch (error) {
+          // Silent failure with minimal user impact
+        }
+      }
+
+      function removeTermFromSelection(termId) {
+        if (!termId) return;
+        try {
+          const result = WebsiteSDK.removeTermFromGlossarySelection(termId);
+          if (!result || !result.selection) {
+            return;
+          }
+          currentSelection = result.selection;
+          selectedTermsMap.delete(termId);
+          renderResults(resultsContainer, searchResults);
+          renderSelectionSummary();
+          renderSelectionDetails(selectionDetailsContainer, selectedTermsMap);
+        } catch (error) {
+          // Silent failure with minimal user impact
+        }
+      }
+
+      function clearSelection() {
+        try {
+          const response = WebsiteSDK.clearGlossarySelection();
+          if (!response || !response.success) {
+            return;
+          }
+          try {
+            const selectionData = WebsiteSDK.getOrCreateCurrentGlossarySelection();
+            syncSelectionFromInitial(selectionData);
+          } catch (e) {
+            currentSelection = null;
+            selectedTermsMap = new Map();
+          }
+          renderResults(resultsContainer, searchResults);
+          renderSelectionSummary();
+          renderSelectionDetails(selectionDetailsContainer, selectedTermsMap);
+        } catch (error) {
+          // Silent failure
+        }
+      }
+
+      if (searchForm) {
+        searchForm.addEventListener('submit', event => {
+          event.preventDefault();
+          textQuery = searchInput ? searchInput.value.trim() : '';
+          category = categorySelect ? categorySelect.value : '';
+          updateUrlParams(true);
+          runSearch();
+        });
+      }
+
+      if (categorySelect) {
+        categorySelect.addEventListener('change', () => {
+          category = categorySelect.value;
+          textQuery = searchInput ? searchInput.value.trim() : '';
+          updateUrlParams(true);
+          runSearch();
+        });
+      }
+
+      if (resultsContainer) {
+        resultsContainer.addEventListener('click', event => {
+          const target = event.target;
+          if (!(target instanceof HTMLElement)) return;
+          const action = target.dataset.action;
+          if (action === 'toggle-selection') {
+            const termId = target.dataset.termId;
+            if (!termId) return;
+            if (selectedTermsMap.has(termId)) {
+              removeTermFromSelection(termId);
+            } else {
+              addTermToSelection(termId);
+            }
+          }
+        });
+      }
+
+      if (selectionDetailsContainer) {
+        selectionDetailsContainer.addEventListener('click', event => {
+          const target = event.target;
+          if (!(target instanceof HTMLElement)) return;
+          const action = target.dataset.action;
+          if (action === 'remove-from-selection') {
+            const termId = target.dataset.termId;
+            if (!termId) return;
+            removeTermFromSelection(termId);
+          }
+        });
+      }
+
+      if (toggleSelectionButton && selectionPanel) {
+        toggleSelectionButton.addEventListener('click', () => {
+          const isHidden = selectionPanel.hasAttribute('hidden');
+          if (isHidden) {
+            selectionPanel.removeAttribute('hidden');
+          } else {
+            selectionPanel.setAttribute('hidden', '');
+          }
+          toggleSelectionButton.setAttribute('aria-expanded', String(isHidden));
+          toggleSelectionButton.textContent = isHidden ? 'Hide selected terms' : 'Show selected terms';
+        });
+      }
+
+      if (clearSelectionButton) {
+        clearSelectionButton.addEventListener('click', () => {
+          clearSelection();
+        });
+      }
+
+      if (createPracticeButton) {
+        createPracticeButton.addEventListener('click', () => {
+          const hasSelection = currentSelection && currentSelection.id && Array.isArray(currentSelection.selectedTermIds) && currentSelection.selectedTermIds.length > 0;
+          if (!hasSelection) {
+            return;
+          }
+          const params = new URLSearchParams();
+          params.set('selectionId', currentSelection.id);
+          window.location.href = `glossary_lists.html?${params.toString()}`;
+        });
+      }
+
+      if (myListsLink) {
+        myListsLink.addEventListener('click', event => {
+          event.preventDefault();
+          window.location.href = 'glossary_lists.html';
+        });
+      }
+
+      window.addEventListener('popstate', () => {
+        const params = new URLSearchParams(window.location.search);
+        textQuery = params.get('textQuery') || '';
+        category = params.get('category') || '';
+        applyInitialControlValues();
+        runSearch();
+      });
+
+      applyInitialControlValues();
+
+      try {
+        const selectionData = WebsiteSDK.getOrCreateCurrentGlossarySelection();
+        syncSelectionFromInitial(selectionData);
+      } catch (error) {
+        currentSelection = null;
+        selectedTermsMap = new Map();
+      }
+
+      renderSelectionSummary();
+      renderSelectionDetails(selectionDetailsContainer, selectedTermsMap);
+      runSearch();
+    });
+  </script>
+</body>
+</html>

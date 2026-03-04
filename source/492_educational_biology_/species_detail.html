@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Aquatic Insects Educational Site</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='species_detail.css'>
+</head>
+<body>
+  <header class='site-header' role='banner'>
+    <div class='site-header-inner'>
+      <div class='site-identity'>
+        <h1 class='site-title'>Aquatic Insects</h1>
+      </div>
+      <nav class='site-nav' aria-label='Primary navigation'>
+        <a href='index.html' title='Homepage and overview'>Home</a>
+        <a href='species.html' title='Browse and filter aquatic insect species'>Species</a>
+        <a href='compare.html' title='Compare insect orders and their life cycles'>Compare</a>
+        <a href='quizzes.html' title='Browse quizzes and build custom quizzes'>Quizzes</a>
+        <a href='lesson_builder.html' title='Create lesson plans and manage reading paths'>Lesson Builder</a>
+        <a href='articles.html' title='Browse learning articles and resources'>Articles</a>
+        <a href='maps.html' title='Explore species distribution maps'>Maps</a>
+        <a href='glossary.html' title='Search and filter glossary terms'>Glossary</a>
+        <a href='taxonomy.html' title='Browse insect orders and build metamorphosis charts'>Taxonomy</a>
+        <a href='study_list.html' title='View and manage your species study list'>My Study List</a>
+        <a href='collections.html' title='View and manage your species collections'>Collections</a>
+        <a href='map_notes.html' title='Access your saved distribution maps'>Map Notes</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-content' role='main'>
+    <div data-component='species-detail-page-controller'>
+      <section data-component='status-messages' data-populate='status-messages' aria-live='polite'></section>
+
+      <section data-component='species-detail-content' aria-live='polite' aria-busy='true'>
+        <section data-component='species-header' data-populate='species-header'></section>
+
+        <section data-component='species-summary-panel' data-populate='species-summary'></section>
+
+        <p data-component='pollution-tolerance-indicator' data-populate='pollution-tolerance'></p>
+
+        <section data-component='species-photo-gallery' data-populate='photo-gallery'></section>
+
+        <p data-component='distribution-map-link'>
+          <a href='javascript:void(0)' data-action='view-distribution-map' data-populate='distribution-link'>View distribution map</a>
+        </p>
+
+        <section data-component='study-list-actions'>
+          <button type='button' data-action='add-to-study-list'>Add to Study List</button>
+          <span data-populate='study-list-status'></span>
+        </section>
+
+        <section data-component='collection-actions'>
+          <button type='button' data-action='toggle-collection-panel'>Add to Collection</button>
+          <div data-component='collection-panel' hidden>
+            <p>Choose how to add this species to a collection.</p>
+
+            <section>
+              <h2>Create new collection</h2>
+              <form data-action='create-new-collection'>
+                <div>
+                  <label for='newCollectionName'>Collection name</label>
+                  <input id='newCollectionName' name='name' type='text' required>
+                </div>
+                <div>
+                  <label for='newCollectionDescription'>Description (optional)</label>
+                  <textarea id='newCollectionDescription' name='description'></textarea>
+                </div>
+                <button type='submit'>Create and add</button>
+                <span data-populate='new-collection-status'></span>
+              </form>
+            </section>
+
+            <section>
+              <h2>Use existing collection</h2>
+              <form data-action='add-to-existing-collection'>
+                <div>
+                  <label for='existingCollectionSelect'>Select collection</label>
+                  <select id='existingCollectionSelect' name='collectionId' required>
+                    <option value=''>Select a collection</option>
+                  </select>
+                </div>
+                <button type='submit'>Add to selected collection</button>
+                <span data-populate='existing-collection-status'></span>
+              </form>
+            </section>
+          </div>
+        </section>
+
+        <nav data-component='species-navigation-controls' data-populate='species-navigation' aria-label='Species navigation'></nav>
+      </section>
+    </div>
+  </main>
+
+  <footer class='site-footer' role='contentinfo'>
+    <nav class='footer-nav' aria-label='Footer navigation'>
+      <a href='about.html' title='About this educational biology website'>About</a>
+    </nav>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const uiState = {
+        speciesId: '',
+        collectionIdFromUrl: '',
+        species: null,
+        photos: [],
+        navigation: {},
+        distributionMapId: '',
+        isLoadingSpecies: false,
+        speciesError: '',
+        statusMessages: [],
+        studyListResult: null,
+        collectionResults: {
+          newCollection: null,
+          existingCollection: null
+        }
+      };
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/\"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function escapeAttribute(value) {
+        return escapeHtml(value);
+      }
+
+      function formatEnum(value) {
+        if (!value) {
+          return '';
+        }
+        return String(value).replace(/_/g, ' ');
+      }
+
+      function addStatusMessage(type, text) {
+        const id = String(Date.now()) + '_' + String(Math.random());
+        uiState.statusMessages.push({ id: id, type: type, text: text });
+        renderAll();
+      }
+
+      function removeStatusMessage(id) {
+        uiState.statusMessages = uiState.statusMessages.filter(function(msg) {
+          return msg.id !== id;
+        });
+        renderAll();
+      }
+
+      const urlParams = new URLSearchParams(window.location.search);
+      uiState.speciesId = urlParams.get('speciesId') || '';
+      uiState.collectionIdFromUrl = urlParams.get('collectionId') || '';
+
+      const populateElements = Array.from(document.querySelectorAll('[data-populate]'));
+
+      function renderStatusMessages(container) {
+        container.innerHTML = '';
+        if (!uiState.statusMessages.length) {
+          return;
+        }
+        const html = uiState.statusMessages.map(function(msg) {
+          var prefix = '';
+          if (msg.type === 'error') {
+            prefix = 'Error: ';
+          } else if (msg.type === 'success') {
+            prefix = 'Success: ';
+          }
+          return `<p data-message-id="${escapeAttribute(msg.id)}">${prefix}${escapeHtml(msg.text)} <button type="button" data-action="dismiss-status" data-message-id="${escapeAttribute(msg.id)}">Dismiss</button></p>`;
+        }).join('');
+        container.innerHTML = html;
+      }
+
+      function renderSpeciesHeader(container) {
+        if (uiState.isLoadingSpecies && !uiState.species && !uiState.speciesError) {
+          container.textContent = 'Loading species details...';
+          return;
+        }
+        if (!uiState.species || uiState.speciesError) {
+          container.textContent = '';
+          return;
+        }
+        const s = uiState.species;
+        const order = s.order || {};
+        const difficulty = s.difficulty ? s.difficulty.charAt(0).toUpperCase() + s.difficulty.slice(1) : '';
+        const orderLine = order.scientificName ? `<p>Order: ${escapeHtml(order.scientificName)}${order.commonName ? ` (${escapeHtml(order.commonName)})` : ''}${order.metamorphosisType ? ` · Metamorphosis: ${escapeHtml(order.metamorphosisType)}` : ''}</p>` : '';
+        container.innerHTML = `
+<h1>${escapeHtml(s.scientificName || '')}</h1>
+${s.commonName ? `<p>${escapeHtml(s.commonName)}</p>` : ''}
+<p>${difficulty ? `Difficulty: ${escapeHtml(difficulty)}` : ''}${s.taxonGroup ? `${difficulty ? ' · ' : ''}Group: ${escapeHtml(formatEnum(s.taxonGroup))}` : ''}</p>
+${orderLine}
+`;
+      }
+
+      function renderSpeciesSummary(container) {
+        container.innerHTML = '';
+        if (uiState.isLoadingSpecies && !uiState.species && !uiState.speciesError) {
+          container.textContent = 'Loading description...';
+          return;
+        }
+        if (!uiState.species || uiState.speciesError) {
+          return;
+        }
+        const s = uiState.species;
+        const parts = [];
+        if (s.description) {
+          parts.push(`<p>${escapeHtml(s.description)}</p>`);
+        }
+        if (Array.isArray(s.habitats) && s.habitats.length) {
+          const habitatsText = s.habitats.map(function(h) { return formatEnum(h); }).join(', ');
+          parts.push(`<p><strong>Habitats:</strong> ${escapeHtml(habitatsText)}</p>`);
+        }
+        if (Array.isArray(s.regions) && s.regions.length) {
+          const regionsText = s.regions.map(function(r) { return formatEnum(r); }).join(', ');
+          parts.push(`<p><strong>Regions:</strong> ${escapeHtml(regionsText)}</p>`);
+        }
+        if (s.distributionSummary) {
+          parts.push(`<p><strong>Distribution:</strong> ${escapeHtml(s.distributionSummary)}</p>`);
+        }
+        container.innerHTML = parts.join('');
+      }
+
+      function renderPollutionTolerance(container) {
+        container.textContent = '';
+        if (!uiState.species || uiState.speciesError) {
+          return;
+        }
+        const score = uiState.species.pollutionToleranceScore;
+        if (score === null || score === undefined || score === '') {
+          return;
+        }
+        let category = '';
+        if (score <= 3) {
+          category = 'very sensitive to pollution';
+        } else if (score <= 6) {
+          category = 'moderately tolerant of pollution';
+        } else {
+          category = 'highly tolerant of pollution';
+        }
+        container.textContent = 'Pollution tolerance score: ' + String(score) + ' (' + category + ')';
+      }
+
+      function renderPhotoGallery(container) {
+        container.innerHTML = '';
+        if (uiState.isLoadingSpecies && !uiState.species && !uiState.speciesError) {
+          container.textContent = 'Loading photos...';
+          return;
+        }
+        if (!uiState.photos || !uiState.photos.length) {
+          if (uiState.species && !uiState.speciesError) {
+            container.textContent = 'No photos available for this species.';
+          }
+          return;
+        }
+        const speciesName = uiState.species ? uiState.species.scientificName || '' : 'Species photo';
+        const photos = uiState.photos.slice();
+        photos.sort(function(a, b) {
+          const aPrimary = a && a.isPrimary ? 1 : 0;
+          const bPrimary = b && b.isPrimary ? 1 : 0;
+          return bPrimary - aPrimary;
+        });
+        const html = photos.map(function(photo) {
+          const caption = photo.caption || '';
+          const credit = photo.credit || '';
+          const altText = caption || speciesName || 'Species photo';
+          const figcaption = caption ? `<figcaption>${escapeHtml(caption)}${credit ? ` — ${escapeHtml(credit)}` : ''}</figcaption>` : '';
+          return `
+<figure>
+  <img src="${escapeAttribute(photo.imageUrl || '')}" alt="${escapeAttribute(altText)}">
+  ${figcaption}
+</figure>`;
+        }).join('');
+        container.innerHTML = html;
+      }
+
+      function renderDistributionLink(container) {
+        if (uiState.isLoadingSpecies && !uiState.species && !uiState.speciesError) {
+          container.textContent = 'Loading distribution map link...';
+          container.removeAttribute('aria-disabled');
+          return;
+        }
+        if (!uiState.species || uiState.speciesError) {
+          container.textContent = '';
+          container.setAttribute('aria-disabled', 'true');
+          return;
+        }
+        container.textContent = 'View distribution map';
+        container.removeAttribute('aria-disabled');
+      }
+
+      function renderStudyListStatus(container) {
+        container.textContent = '';
+        if (!uiState.studyListResult) {
+          return;
+        }
+        if (uiState.studyListResult.message) {
+          let text = uiState.studyListResult.message;
+          if (typeof uiState.studyListResult.studyListItemCount === 'number') {
+            text += ' (' + String(uiState.studyListResult.studyListItemCount) + ' species in study list)';
+          }
+          container.textContent = text;
+        }
+      }
+
+      function renderNewCollectionStatus(container) {
+        container.textContent = '';
+        const result = uiState.collectionResults.newCollection;
+        if (!result) {
+          return;
+        }
+        if (result.message) {
+          container.textContent = result.message;
+        }
+      }
+
+      function renderExistingCollectionStatus(container) {
+        container.textContent = '';
+        const result = uiState.collectionResults.existingCollection;
+        if (!result) {
+          return;
+        }
+        if (result.message) {
+          container.textContent = result.message;
+        }
+      }
+
+      function renderSpeciesNavigation(container) {
+        container.innerHTML = '';
+        if (!uiState.species || uiState.speciesError) {
+          return;
+        }
+        const previousId = uiState.navigation && uiState.navigation.previousSpeciesId ? uiState.navigation.previousSpeciesId : '';
+        const nextId = uiState.navigation && uiState.navigation.nextSpeciesId ? uiState.navigation.nextSpeciesId : '';
+        const prevDisabled = previousId ? '' : ' disabled';
+        const nextDisabled = nextId ? '' : ' disabled';
+        const html = `
+<button type="button" data-action="previous-species"${prevDisabled}>Previous species</button>
+<button type="button" data-action="next-species"${nextDisabled}>Next species</button>
+`;
+        container.innerHTML = html;
+      }
+
+      function renderAll() {
+        populateElements.forEach(function(element) {
+          const dataType = element.dataset.populate;
+          if (dataType === 'status-messages') {
+            renderStatusMessages(element);
+          } else if (dataType === 'species-header') {
+            renderSpeciesHeader(element);
+          } else if (dataType === 'species-summary') {
+            renderSpeciesSummary(element);
+          } else if (dataType === 'pollution-tolerance') {
+            renderPollutionTolerance(element);
+          } else if (dataType === 'photo-gallery') {
+            renderPhotoGallery(element);
+          } else if (dataType === 'distribution-link') {
+            renderDistributionLink(element);
+          } else if (dataType === 'study-list-status') {
+            renderStudyListStatus(element);
+          } else if (dataType === 'new-collection-status') {
+            renderNewCollectionStatus(element);
+          } else if (dataType === 'existing-collection-status') {
+            renderExistingCollectionStatus(element);
+          } else if (dataType === 'species-navigation') {
+            renderSpeciesNavigation(element);
+          }
+        });
+        const detailContent = document.querySelector('[data-component="species-detail-content"]');
+        if (detailContent) {
+          detailContent.setAttribute('aria-busy', uiState.isLoadingSpecies ? 'true' : 'false');
+          if (uiState.speciesError || !uiState.speciesId) {
+            detailContent.hidden = true;
+          } else {
+            detailContent.hidden = false;
+          }
+        }
+      }
+
+      function populateExistingCollectionsSelect() {
+        const select = document.getElementById('existingCollectionSelect');
+        if (!select) {
+          return;
+        }
+        while (select.options.length > 1) {
+          select.remove(1);
+        }
+        let collections = [];
+        try {
+          const stored = localStorage.getItem('species_collections');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              collections = parsed;
+            }
+          }
+        } catch (e) {
+        }
+        collections.forEach(function(col) {
+          if (!col || !col.id) {
+            return;
+          }
+          const option = document.createElement('option');
+          option.value = col.id;
+          option.textContent = col.name || col.id;
+          if (uiState.collectionIdFromUrl && uiState.collectionIdFromUrl === col.id) {
+            option.selected = true;
+          }
+          select.appendChild(option);
+        });
+      }
+
+      function ensureSpeciesLoaded() {
+        if (!uiState.speciesId) {
+          uiState.speciesError = 'No species selected.';
+          addStatusMessage('error', 'No species selected. Open this page using a species link from within the site.');
+          renderAll();
+          return;
+        }
+        uiState.isLoadingSpecies = true;
+        renderAll();
+        try {
+          const response = WebsiteSDK.getSpeciesDetailsWithPhotos(uiState.speciesId);
+          uiState.species = response && response.species ? response.species : null;
+          uiState.photos = response && Array.isArray(response.photos) ? response.photos : [];
+          uiState.navigation = response && response.navigation ? response.navigation : {};
+          uiState.distributionMapId = response && response.distributionMapId ? response.distributionMapId : '';
+          uiState.isLoadingSpecies = false;
+          if (!uiState.species) {
+            uiState.speciesError = 'Species not found.';
+            addStatusMessage('error', 'Species not found.');
+          }
+        } catch (e) {
+          uiState.isLoadingSpecies = false;
+          uiState.speciesError = 'Unable to load species details.';
+          addStatusMessage('error', 'Unable to load species details.');
+        }
+        renderAll();
+      }
+
+      function handleAddToStudyList(event) {
+        if (event) {
+          event.preventDefault();
+        }
+        if (!uiState.speciesId || uiState.isLoadingSpecies || uiState.speciesError) {
+          return;
+        }
+        const button = event && event.target ? event.target : null;
+        if (button) {
+          button.disabled = true;
+        }
+        try {
+          const result = WebsiteSDK.addSpeciesToStudyList(uiState.speciesId);
+          uiState.studyListResult = result || null;
+          if (result && typeof result.success === 'boolean') {
+            if (result.success) {
+              addStatusMessage('success', result.message || 'Species added to study list.');
+            } else {
+              addStatusMessage('error', result.message || 'Could not add species to study list.');
+            }
+          } else {
+            addStatusMessage('error', 'Unexpected response when adding to study list.');
+          }
+        } catch (e) {
+          addStatusMessage('error', 'Error adding species to study list.');
+        }
+        if (button) {
+          button.disabled = false;
+        }
+        renderAll();
+      }
+
+      function handleToggleCollectionPanel(event) {
+        if (event) {
+          event.preventDefault();
+        }
+        const panel = document.querySelector('[data-component="collection-panel"]');
+        if (!panel) {
+          return;
+        }
+        if (panel.hasAttribute('hidden')) {
+          panel.removeAttribute('hidden');
+        } else {
+          panel.setAttribute('hidden', 'hidden');
+        }
+      }
+
+      function saveCollectionToLocalStorage(collection) {
+        if (!collection || !collection.id) {
+          return;
+        }
+        let collections = [];
+        try {
+          const stored = localStorage.getItem('species_collections');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              collections = parsed;
+            }
+          }
+        } catch (e) {
+        }
+        const existingIndex = collections.findIndex(function(c) { return c && c.id === collection.id; });
+        if (existingIndex >= 0) {
+          collections[existingIndex] = collection;
+        } else {
+          collections.push(collection);
+        }
+        try {
+          localStorage.setItem('species_collections', JSON.stringify(collections));
+        } catch (e) {
+        }
+      }
+
+      function handleCreateNewCollection(event) {
+        event.preventDefault();
+        if (!uiState.speciesId || uiState.isLoadingSpecies || uiState.speciesError) {
+          return;
+        }
+        const form = event.target;
+        const nameInput = form.querySelector('#newCollectionName');
+        const descriptionInput = form.querySelector('#newCollectionDescription');
+        const name = nameInput ? nameInput.value.trim() : '';
+        const description = descriptionInput ? descriptionInput.value.trim() : '';
+        if (!name) {
+          addStatusMessage('error', 'Collection name is required.');
+          return;
+        }
+        try {
+          const createResult = WebsiteSDK.createSpeciesCollection(name, description);
+          const collection = createResult && createResult.collection ? createResult.collection : null;
+          if (!collection || !collection.id) {
+            uiState.collectionResults.newCollection = { success: false, message: 'Could not create collection.' };
+            addStatusMessage('error', 'Could not create collection.');
+            renderAll();
+            return;
+          }
+          saveCollectionToLocalStorage(collection);
+          populateExistingCollectionsSelect();
+          const addResult = WebsiteSDK.addSpeciesToCollection(collection.id, uiState.speciesId);
+          uiState.collectionResults.newCollection = addResult || null;
+          if (addResult && typeof addResult.success === 'boolean') {
+            if (addResult.success) {
+              addStatusMessage('success', addResult.message || 'Species added to new collection.');
+            } else {
+              addStatusMessage('error', addResult.message || 'Could not add species to new collection.');
+            }
+          } else {
+            addStatusMessage('error', 'Unexpected response when adding species to new collection.');
+          }
+        } catch (e) {
+          uiState.collectionResults.newCollection = { success: false, message: 'Error creating collection or adding species.' };
+          addStatusMessage('error', 'Error creating collection or adding species.');
+        }
+        renderAll();
+      }
+
+      function handleAddToExistingCollection(event) {
+        event.preventDefault();
+        if (!uiState.speciesId || uiState.isLoadingSpecies || uiState.speciesError) {
+          return;
+        }
+        const form = event.target;
+        const select = form.querySelector('#existingCollectionSelect');
+        const collectionId = select ? select.value : '';
+        if (!collectionId) {
+          addStatusMessage('error', 'Please select a collection.');
+          return;
+        }
+        try {
+          const result = WebsiteSDK.addSpeciesToCollection(collectionId, uiState.speciesId);
+          uiState.collectionResults.existingCollection = result || null;
+          if (result && typeof result.success === 'boolean') {
+            if (result.success) {
+              addStatusMessage('success', result.message || 'Species added to collection.');
+            } else {
+              addStatusMessage('error', result.message || 'Could not add species to collection.');
+            }
+          } else {
+            addStatusMessage('error', 'Unexpected response when adding species to collection.');
+          }
+        } catch (e) {
+          uiState.collectionResults.existingCollection = { success: false, message: 'Error adding species to collection.' };
+          addStatusMessage('error', 'Error adding species to collection.');
+        }
+        renderAll();
+      }
+
+      function handleViewDistributionMap(event) {
+        event.preventDefault();
+        const link = event.target;
+        if (link.getAttribute('aria-disabled') === 'true') {
+          return;
+        }
+        if (!uiState.speciesId || uiState.isLoadingSpecies || uiState.speciesError) {
+          return;
+        }
+        if (uiState.distributionMapId) {
+          const targetUrl = 'map_detail.html?distributionMapId=' + encodeURIComponent(uiState.distributionMapId);
+          window.location.href = targetUrl;
+          return;
+        }
+        try {
+          const response = WebsiteSDK.getDistributionMapForSpecies(uiState.speciesId);
+          const map = response && response.distributionMap ? response.distributionMap : null;
+          if (map && map.id) {
+            uiState.distributionMapId = map.id;
+            const targetUrl = 'map_detail.html?distributionMapId=' + encodeURIComponent(uiState.distributionMapId);
+            window.location.href = targetUrl;
+          } else {
+            addStatusMessage('error', 'No distribution map is available for this species.');
+            link.setAttribute('aria-disabled', 'true');
+          }
+        } catch (e) {
+          addStatusMessage('error', 'Unable to load distribution map.');
+          link.setAttribute('aria-disabled', 'true');
+        }
+        renderAll();
+      }
+
+      function handlePreviousSpecies(event) {
+        event.preventDefault();
+        const previousId = uiState.navigation && uiState.navigation.previousSpeciesId ? uiState.navigation.previousSpeciesId : '';
+        if (!previousId) {
+          return;
+        }
+        const targetUrl = 'species_detail.html?speciesId=' + encodeURIComponent(previousId);
+        window.location.href = targetUrl;
+      }
+
+      function handleNextSpecies(event) {
+        event.preventDefault();
+        const nextId = uiState.navigation && uiState.navigation.nextSpeciesId ? uiState.navigation.nextSpeciesId : '';
+        if (!nextId) {
+          return;
+        }
+        const targetUrl = 'species_detail.html?speciesId=' + encodeURIComponent(nextId);
+        window.location.href = targetUrl;
+      }
+
+      document.addEventListener('click', function(event) {
+        const actionElement = event.target.closest('[data-action]');
+        if (!actionElement) {
+          return;
+        }
+        const action = actionElement.dataset.action;
+        if (action === 'add-to-study-list') {
+          handleAddToStudyList(event);
+        } else if (action === 'toggle-collection-panel') {
+          handleToggleCollectionPanel(event);
+        } else if (action === 'view-distribution-map') {
+          handleViewDistributionMap(event);
+        } else if (action === 'previous-species') {
+          handlePreviousSpecies(event);
+        } else if (action === 'next-species') {
+          handleNextSpecies(event);
+        } else if (action === 'dismiss-status') {
+          event.preventDefault();
+          const messageId = actionElement.getAttribute('data-message-id') || '';
+          if (messageId) {
+            removeStatusMessage(messageId);
+          }
+        }
+      });
+
+      document.addEventListener('submit', function(event) {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement)) {
+          return;
+        }
+        const action = form.dataset.action;
+        if (action === 'create-new-collection') {
+          handleCreateNewCollection(event);
+        } else if (action === 'add-to-existing-collection') {
+          handleAddToExistingCollection(event);
+        }
+      });
+
+      populateExistingCollectionsSelect();
+      renderAll();
+      ensureSpeciesLoaded();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Aquatic Insects Educational Site</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='maps.css'>
+</head>
+<body>
+  <header class='site-header' role='banner'>
+    <div class='site-header-inner'>
+      <div class='site-identity'>
+        <h1 class='site-title'>Aquatic Insects</h1>
+      </div>
+      <nav class='site-nav' aria-label='Primary navigation'>
+        <a href='index.html' title='Homepage and overview'>Home</a>
+        <a href='species.html' title='Browse and filter aquatic insect species'>Species</a>
+        <a href='compare.html' title='Compare insect orders and their life cycles'>Compare</a>
+        <a href='quizzes.html' title='Browse quizzes and build custom quizzes'>Quizzes</a>
+        <a href='lesson_builder.html' title='Create lesson plans and manage reading paths'>Lesson Builder</a>
+        <a href='articles.html' title='Browse learning articles and resources'>Articles</a>
+        <a href='maps.html' title='Explore species distribution maps'>Maps</a>
+        <a href='glossary.html' title='Search and filter glossary terms'>Glossary</a>
+        <a href='taxonomy.html' title='Browse insect orders and build metamorphosis charts'>Taxonomy</a>
+        <a href='study_list.html' title='View and manage your species study list'>My Study List</a>
+        <a href='collections.html' title='View and manage your species collections'>Collections</a>
+        <a href='map_notes.html' title='Access your saved distribution maps'>Map Notes</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-content' role='main'>
+    <h1>Distribution Maps</h1>
+    <p>Browse and filter species distribution maps by taxonomic group and geographic region, then open detailed views for individual aquatic insects.</p>
+
+    <section aria-label='Distribution map filters' style='margin-top: 24px;'>
+      <form id='mapsFilterForm' data-component='maps-filter-form'>
+        <div style='margin-bottom: 12px;'>
+          <label for='taxonGroupSelect'>Taxonomic group</label><br>
+          <select id='taxonGroupSelect' name='taxonGroup' data-populate='taxon-groups'>
+            <option value=''>Select a taxonomic group</option>
+          </select>
+        </div>
+        <div style='margin-bottom: 12px;'>
+          <label for='regionsSelect'>Regions</label><br>
+          <select id='regionsSelect' name='regions' multiple size='5' data-populate='regions' aria-describedby='regionsHelp'>
+          </select>
+          <p id='regionsHelp' style='margin-top: 4px;'>Select one or more geographic regions.</p>
+        </div>
+        <div style='margin-top: 12px;'>
+          <button type='submit' data-action='submit-filters'>Search</button>
+        </div>
+      </form>
+    </section>
+
+    <section aria-label='Search summary' style='margin-top: 24px;'>
+      <p data-component='results-summary-bar' data-populate='results-summary'>No search has been run yet. Select a taxonomic group and one or more regions, then use Search.</p>
+    </section>
+
+    <section aria-label='Distribution map results' style='margin-top: 24px;'>
+      <div data-component='distribution-results-list' aria-live='polite'></div>
+      <div data-component='results-empty-state' hidden>
+        <p>No results to display yet. Select a taxonomic group and one or more regions, then run a search.</p>
+      </div>
+    </section>
+
+    <section aria-label='Multi-region legend' style='margin-top: 32px;'>
+      <h2>Legend for multi-region distribution maps</h2>
+      <div data-component='multi-region-legend' data-populate='multi-region-legend'>
+        <p>After you run a search, this section explains how species with distributions spanning multiple regions are highlighted.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class='site-footer' role='contentinfo'>
+    <nav class='footer-nav' aria-label='Footer navigation'>
+      <a href='about.html' title='About this educational biology website'>About</a>
+    </nav>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    'use strict';
+
+    var form = document.getElementById('mapsFilterForm');
+    var taxonSelect = document.getElementById('taxonGroupSelect');
+    var regionsSelect = document.getElementById('regionsSelect');
+    var summaryContainer = document.querySelector('[data-component="results-summary-bar"]');
+    var resultsContainer = document.querySelector('[data-component="distribution-results-list"]');
+    var emptyStateContainer = document.querySelector('[data-component="results-empty-state"]');
+    var legendContainer = document.querySelector('[data-component="multi-region-legend"]');
+
+    if (!form || !taxonSelect || !regionsSelect || !summaryContainer || !resultsContainer || !emptyStateContainer || !legendContainer) {
+      return;
+    }
+
+    var state = {
+      filterOptions: null,
+      selectedTaxonGroup: '',
+      selectedRegions: [],
+      lastSearchResponse: null
+    };
+
+    function renderTaxonOptions(container, taxonGroups) {
+      container.innerHTML = '';
+      var defaultOption = document.createElement('option');
+      defaultOption.value = '';
+      defaultOption.textContent = 'Select a taxonomic group';
+      container.appendChild(defaultOption);
+
+      (taxonGroups || []).forEach(function(group) {
+        var opt = document.createElement('option');
+        opt.value = group.value || '';
+        opt.textContent = group.label || group.value || '';
+        container.appendChild(opt);
+      });
+    }
+
+    function renderRegionOptions(container, regions) {
+      container.innerHTML = '';
+      (regions || []).forEach(function(region) {
+        var opt = document.createElement('option');
+        opt.value = region.value || '';
+        opt.textContent = region.label || region.value || '';
+        container.appendChild(opt);
+      });
+    }
+
+    function findTaxonLabel(value) {
+      if (!state.filterOptions || !state.filterOptions.taxonGroups) {
+        return value || '';
+      }
+      var match = state.filterOptions.taxonGroups.find(function(group) { return group.value === value; });
+      return match ? (match.label || match.value) : (value || '');
+    }
+
+    function findRegionLabel(value) {
+      if (!state.filterOptions || !state.filterOptions.regions) {
+        return value || '';
+      }
+      var match = state.filterOptions.regions.find(function(region) { return region.value === value; });
+      return match ? (match.label || match.value) : (value || '');
+    }
+
+    function getSelectedRegionsFromControl() {
+      var selected = [];
+      Array.prototype.forEach.call(regionsSelect.options, function(opt) {
+        if (opt.selected && opt.value) {
+          selected.push(opt.value);
+        }
+      });
+      return selected;
+    }
+
+    function renderSummary(container, response, selectedTaxonGroup, selectedRegions) {
+      var hasResults = response && typeof response.totalCount === 'number';
+      if (!hasResults) {
+        container.textContent = 'No search has been run yet. Select a taxonomic group and one or more regions, then use Search.';
+        return;
+      }
+
+      var total = response.totalCount;
+      var parts = [];
+      parts.push('Showing ' + total + (total === 1 ? ' distribution map' : ' distribution maps'));
+
+      if (selectedTaxonGroup) {
+        parts.push('for ' + findTaxonLabel(selectedTaxonGroup));
+      }
+
+      if (selectedRegions && selectedRegions.length > 0) {
+        var regionLabels = selectedRegions.map(function(r) { return findRegionLabel(r); });
+        parts.push('in ' + regionLabels.join(', '));
+      }
+
+      container.textContent = parts.join(' ');
+    }
+
+    function renderEmptyState(container, hasSearch, selectedTaxonGroup, selectedRegions) {
+      container.innerHTML = '';
+      var message = document.createElement('p');
+
+      if (!hasSearch) {
+        message.textContent = 'No search has been run yet. Select a taxonomic group and one or more regions, then use Search.';
+      } else {
+        var text = 'No distribution maps were found';
+        if (selectedTaxonGroup) {
+          text += ' for ' + findTaxonLabel(selectedTaxonGroup);
+        }
+        if (selectedRegions && selectedRegions.length > 0) {
+          var regionLabels = selectedRegions.map(function(r) { return findRegionLabel(r); });
+          text += ' in ' + regionLabels.join(', ');
+        }
+        text += '. Try adjusting the taxonomic group or choosing different regions.';
+        message.textContent = text;
+      }
+
+      container.appendChild(message);
+      container.hidden = false;
+    }
+
+    function renderLegend(container, selectedRegions) {
+      container.innerHTML = '';
+
+      var p1 = document.createElement('p');
+      p1.textContent = 'Entries marked as multi-region indicate species whose distribution spans more than one region.';
+      container.appendChild(p1);
+
+      var p2 = document.createElement('p');
+      p2.textContent = 'Entries marked as covering all selected regions indicate species whose distribution includes every region you have selected.';
+      container.appendChild(p2);
+
+      if (selectedRegions && selectedRegions.length > 0) {
+        var p3 = document.createElement('p');
+        var regionLabels = selectedRegions.map(function(r) { return findRegionLabel(r); });
+        p3.textContent = 'Current selected regions: ' + regionLabels.join(', ') + '.';
+        container.appendChild(p3);
+      }
+    }
+
+    function renderResults(container, results, selectedRegions) {
+      container.innerHTML = '';
+
+      (results || []).forEach(function(item) {
+        var article = document.createElement('article');
+        article.setAttribute('tabindex', '0');
+        article.dataset.action = 'open-map-detail';
+        article.dataset.mapId = item.distributionMapId || '';
+
+        var title = document.createElement('h3');
+        var nameText = item.scientificName || '';
+        if (item.commonName) {
+          nameText += ' (' + item.commonName + ')';
+        }
+        title.textContent = nameText;
+        article.appendChild(title);
+
+        var regionTags = Array.isArray(item.regionTags) ? item.regionTags : [];
+        var regionsLine = document.createElement('p');
+        if (regionTags.length > 0) {
+          var regionLabels = regionTags.map(function(r) { return findRegionLabel(r); });
+          regionsLine.textContent = 'Regions: ' + regionLabels.join(', ');
+        } else {
+          regionsLine.textContent = 'Regions: not specified';
+        }
+        article.appendChild(regionsLine);
+
+        var multiRegion = regionTags.length > 1;
+        var coversAll = selectedRegions && selectedRegions.length > 0 && selectedRegions.every(function(r) { return regionTags.indexOf(r) !== -1; });
+
+        if (multiRegion || coversAll) {
+          var indicator = document.createElement('p');
+          var indicators = [];
+          if (multiRegion) {
+            article.dataset.multiRegion = 'true';
+            indicators.push('multi-region distribution');
+          }
+          if (coversAll) {
+            article.dataset.coversAllSelected = 'true';
+            indicators.push('covers all selected regions');
+          }
+          indicator.textContent = 'Highlights: ' + indicators.join('; ');
+          article.appendChild(indicator);
+        }
+
+        var hint = document.createElement('p');
+        hint.textContent = 'Activate this row to open the detailed distribution map.';
+        article.appendChild(hint);
+
+        container.appendChild(article);
+      });
+    }
+
+    function updateUrlFromFilters(taxonGroup, regions) {
+      var url = new URL(window.location.href);
+      var params = url.searchParams;
+
+      if (taxonGroup) {
+        params.set('taxonGroup', taxonGroup);
+      } else {
+        params.delete('taxonGroup');
+      }
+
+      if (regions && regions.length > 0) {
+        params.set('regions', regions.join(','));
+      } else {
+        params.delete('regions');
+      }
+
+      url.search = params.toString();
+      var newUrl = url.pathname + (url.search ? '?' + url.searchParams.toString() : '');
+      window.history.pushState({ taxonGroup: taxonGroup, regions: regions }, '', newUrl);
+    }
+
+    function applyFiltersFromUrlAndMaybeSearch() {
+      var params = new URLSearchParams(window.location.search);
+      var urlTaxonGroup = params.get('taxonGroup') || '';
+      var urlRegionsRaw = params.get('regions') || '';
+
+      var normalizedTaxon = '';
+      if (urlTaxonGroup && state.filterOptions && Array.isArray(state.filterOptions.taxonGroups)) {
+        var exists = state.filterOptions.taxonGroups.some(function(group) { return group.value === urlTaxonGroup; });
+        if (exists) {
+          normalizedTaxon = urlTaxonGroup;
+        }
+      }
+
+      if (normalizedTaxon) {
+        taxonSelect.value = normalizedTaxon;
+      } else {
+        taxonSelect.value = '';
+      }
+
+      var selectedRegionValues = [];
+      if (urlRegionsRaw && state.filterOptions && Array.isArray(state.filterOptions.regions)) {
+        var requested = urlRegionsRaw.split(',').map(function(v) { return v.trim(); }).filter(function(v) { return v.length > 0; });
+        var allowedValues = state.filterOptions.regions.map(function(r) { return r.value; });
+        selectedRegionValues = requested.filter(function(v) { return allowedValues.indexOf(v) !== -1; });
+      }
+
+      Array.prototype.forEach.call(regionsSelect.options, function(opt) {
+        opt.selected = selectedRegionValues.indexOf(opt.value) !== -1;
+      });
+
+      state.selectedTaxonGroup = normalizedTaxon;
+      state.selectedRegions = selectedRegionValues;
+
+      if (state.selectedTaxonGroup && state.selectedRegions.length > 0) {
+        performSearch(state.selectedTaxonGroup, state.selectedRegions, true);
+      } else {
+        state.lastSearchResponse = null;
+        summaryContainer.textContent = 'No search has been run yet. Select a taxonomic group and one or more regions, then use Search.';
+        resultsContainer.innerHTML = '';
+        resultsContainer.hidden = true;
+        renderEmptyState(emptyStateContainer, false, state.selectedTaxonGroup, state.selectedRegions);
+        renderLegend(legendContainer, state.selectedRegions);
+      }
+    }
+
+    function performSearch(taxonGroup, regions, fromUrlInit) {
+      var response = null;
+      try {
+        response = WebsiteSDK.searchDistributionMapsByTaxonAndRegion(taxonGroup, regions);
+      } catch (e) {
+        resultsContainer.innerHTML = '';
+        resultsContainer.hidden = true;
+        emptyStateContainer.innerHTML = '';
+        var errorP = document.createElement('p');
+        errorP.textContent = 'An error occurred while searching for distribution maps. Please try again.';
+        emptyStateContainer.appendChild(errorP);
+        emptyStateContainer.hidden = false;
+        return;
+      }
+
+      state.lastSearchResponse = response;
+      state.selectedTaxonGroup = taxonGroup;
+      state.selectedRegions = regions.slice();
+
+      renderSummary(summaryContainer, response, taxonGroup, regions);
+
+      if (response && Array.isArray(response.results) && response.results.length > 0) {
+        renderResults(resultsContainer, response.results, regions);
+        resultsContainer.hidden = false;
+        emptyStateContainer.hidden = true;
+      } else {
+        resultsContainer.innerHTML = '';
+        resultsContainer.hidden = true;
+        renderEmptyState(emptyStateContainer, true, taxonGroup, regions);
+      }
+
+      renderLegend(legendContainer, regions);
+
+      if (!fromUrlInit) {
+        updateUrlFromFilters(taxonGroup, regions);
+      }
+    }
+
+    function initFilterOptionsAndState() {
+      var options = null;
+      try {
+        options = WebsiteSDK.getDistributionMapFilterOptions();
+      } catch (e) {
+        summaryContainer.textContent = 'Unable to load filter options for distribution maps.';
+        return;
+      }
+
+      state.filterOptions = options || { taxonGroups: [], regions: [] };
+
+      renderTaxonOptions(taxonSelect, state.filterOptions.taxonGroups || []);
+      renderRegionOptions(regionsSelect, state.filterOptions.regions || []);
+
+      applyFiltersFromUrlAndMaybeSearch();
+    }
+
+    form.addEventListener('submit', function(evt) {
+      evt.preventDefault();
+      var selectedTaxon = taxonSelect.value || '';
+      var selectedRegions = getSelectedRegionsFromControl();
+
+      state.selectedTaxonGroup = selectedTaxon;
+      state.selectedRegions = selectedRegions;
+
+      if (selectedTaxon && selectedRegions.length > 0) {
+        performSearch(selectedTaxon, selectedRegions, false);
+      } else {
+        state.lastSearchResponse = null;
+        resultsContainer.innerHTML = '';
+        resultsContainer.hidden = true;
+        renderSummary(summaryContainer, null, selectedTaxon, selectedRegions);
+        renderEmptyState(emptyStateContainer, false, selectedTaxon, selectedRegions);
+        renderLegend(legendContainer, selectedRegions);
+      }
+    });
+
+    var actionElements = document.querySelectorAll('[data-action="submit-filters"]');
+    actionElements.forEach(function(el) {
+      el.addEventListener('click', function() {
+        form.requestSubmit();
+      });
+    });
+
+    resultsContainer.addEventListener('click', function(evt) {
+      var target = evt.target;
+      while (target && target !== resultsContainer) {
+        if (target.dataset && target.dataset.action === 'open-map-detail') {
+          var mapId = target.dataset.mapId;
+          if (mapId) {
+            window.location.href = 'map_detail.html?distributionMapId=' + encodeURIComponent(mapId);
+          }
+          break;
+        }
+        target = target.parentNode;
+      }
+    });
+
+    resultsContainer.addEventListener('keydown', function(evt) {
+      if (evt.key === 'Enter' || evt.key === ' ') {
+        var target = evt.target;
+        if (target && target.dataset && target.dataset.action === 'open-map-detail') {
+          evt.preventDefault();
+          var mapId = target.dataset.mapId;
+          if (mapId) {
+            window.location.href = 'map_detail.html?distributionMapId=' + encodeURIComponent(mapId);
+          }
+        }
+      }
+    });
+
+    window.addEventListener('popstate', function() {
+      if (!state.filterOptions) {
+        return;
+      }
+      applyFiltersFromUrlAndMaybeSearch();
+    });
+
+    initFilterOptionsAndState();
+  });
+  </script>
+</body>
+</html>

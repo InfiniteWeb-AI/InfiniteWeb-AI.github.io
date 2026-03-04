@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Algorithm Configuration</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Configure a specific analysis algorithm, manage its configurations, and assign configurations to projects.">
+    
+    <link rel="stylesheet" href="algorithm_detail.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <div class="site-branding">
+                <span class="site-title">Digital Pathology Image Analysis</span>
+            </div>
+            <nav class="site-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html">Dashboard</a></li>
+                    <li><a href="projects.html">Projects</a></li>
+                    <li><a href="slide_library.html">Slide Library</a></li>
+                    <li><a href="analytics_biomarker_browser.html">Analytics</a></li>
+                    <li><a href="collections.html">Collections</a></li>
+                    <li><a href="cohorts.html">Cohorts</a></li>
+                    <li><a href="algorithms.html">Algorithms</a></li>
+                    <li><a href="qc_dashboard.html">QC</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id="content" class="site-content" role="main">
+        <!-- Status notification panel -->
+        <div id="statusPanel" data-component="status-notification-panel" aria-live="polite"></div>
+
+        <!-- Algorithm header -->
+        <section data-component="algorithm-header" style="margin-top:16px; margin-bottom:8px;">
+            <div data-populate="algorithm-header"></div>
+        </section>
+
+        <!-- Configuration actions toolbar -->
+        <section data-component="configuration-actions-toolbar" style="margin-bottom:8px;">
+            <div data-populate="configuration-actions"></div>
+        </section>
+
+        <!-- Configuration selector list -->
+        <section data-component="configuration-selector-list" style="margin-bottom:32px;">
+            <h2 style="margin-top:0;">Configurations</h2>
+            <div data-populate="configuration-list"></div>
+        </section>
+
+        <!-- Configuration detail form (dominant central block) -->
+        <section data-component="configuration-detail-form" style="margin-bottom:40px;">
+            <h2 style="margin-top:0;">Configuration details</h2>
+            <div data-populate="configuration-form"></div>
+        </section>
+
+        <!-- Project assignment form -->
+        <section data-component="project-assignment-form" style="margin-bottom:24px;">
+            <h2 style="margin-top:0;">Assign configuration to projects</h2>
+            <form id="assignmentForm">
+                <div style="margin-bottom:8px;">
+                    <label for="projectAssignmentSelect">Project</label><br>
+                    <select id="projectAssignmentSelect" name="projectId" required data-populate="project-options">
+                        <option value="">Select project</option>
+                    </select>
+                </div>
+                <button type="submit" data-action="submit-assignment">Assign to project</button>
+                <div id="assignmentInlineMessage" aria-live="polite" style="margin-top:4px;"></div>
+            </form>
+        </section>
+
+        <!-- Projects using this configuration -->
+        <section data-component="projects-using-configuration-list" style="margin-bottom:32px;">
+            <h2 style="margin-top:0;">Projects using this configuration</h2>
+            <div data-populate="projects-using-list"></div>
+            <div style="margin-top:8px;">
+                <button type="button" data-action="view-projects-overview">View projects</button>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="about.html">About</a></li>
+                    <li><a href="help.html">Help &amp; User Guide</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">Digital pathology image analysis platform</p>
+        </div>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var state = {
+            algorithmId: null,
+            configurationId: null,
+            algorithm: null,
+            defaultConfiguration: null,
+            configurations: [],
+            activeConfig: null,
+            formMode: 'edit', // 'edit' or 'create'
+            editConfig: null,
+            draftConfig: null,
+            projectsUsing: [],
+            notification: null
+        };
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function getUrlParams() {
+            var params = new URLSearchParams(window.location.search);
+            return {
+                algorithmId: params.get('algorithmId'),
+                configurationId: params.get('configurationId')
+            };
+        }
+
+        function updateUrlConfigurationId(id, options) {
+            var opts = options || {};
+            var url = new URL(window.location.href);
+            if (id) {
+                url.searchParams.set('configurationId', id);
+            } else {
+                url.searchParams.delete('configurationId');
+            }
+            var method = opts.replace ? 'replaceState' : 'pushState';
+            try {
+                window.history[method]({}, '', url.toString());
+            } catch (e) {
+                window.location.search = url.search;
+            }
+        }
+
+        function showNotification(type, message) {
+            state.notification = {
+                id: Date.now().toString(),
+                type: type,
+                message: message
+            };
+            var panel = document.getElementById('statusPanel');
+            if (panel) {
+                renderStatusPanel(panel, state.notification);
+            }
+        }
+
+        function clearNotification() {
+            state.notification = null;
+            var panel = document.getElementById('statusPanel');
+            if (panel) {
+                renderStatusPanel(panel, null);
+            }
+        }
+
+        function renderStatusPanel(container, notification) {
+            if (!notification) {
+                container.innerHTML = '';
+                return;
+            }
+            var typeLabel = notification.type === 'error' ? 'Error' : 'Status';
+            container.innerHTML = '\n                <div class="notification notification-' + escapeHtml(notification.type) + '">\n                    <span><strong>' + escapeHtml(typeLabel) + ':</strong> ' + escapeHtml(notification.message) + '</span>\n                    <button type="button" data-action="dismiss-notification" style="margin-left:8px;">Dismiss</button>\n                </div>\n            ';
+        }
+
+        function determineActiveConfiguration(requestedId) {
+            var configs = state.configurations || [];
+            var chosen = null;
+            if (requestedId) {
+                for (var i = 0; i < configs.length; i += 1) {
+                    if (configs[i].id === requestedId) {
+                        chosen = configs[i];
+                        break;
+                    }
+                }
+            }
+            if (!chosen && state.defaultConfiguration) {
+                chosen = state.defaultConfiguration;
+            }
+            if (!chosen && configs.length > 0) {
+                chosen = configs[0];
+            }
+            state.activeConfig = chosen;
+            state.configurationId = chosen ? chosen.id : null;
+            return chosen;
+        }
+
+        function setFormMode(mode) {
+            state.formMode = mode;
+            if (mode === 'edit') {
+                if (state.activeConfig) {
+                    state.editConfig = {
+                        id: state.activeConfig.id,
+                        algorithmId: state.activeConfig.algorithmId,
+                        name: state.activeConfig.name,
+                        minNucleusSizeUm2: state.activeConfig.minNucleusSizeUm2,
+                        intensityThreshold: state.activeConfig.intensityThreshold,
+                        parametersJson: state.activeConfig.parametersJson
+                    };
+                    state.draftConfig = null;
+                } else {
+                    state.editConfig = null;
+                }
+            } else if (mode === 'create') {
+                if (state.activeConfig) {
+                    state.draftConfig = {
+                        algorithmId: state.activeConfig.algorithmId,
+                        name: '',
+                        minNucleusSizeUm2: state.activeConfig.minNucleusSizeUm2,
+                        intensityThreshold: state.activeConfig.intensityThreshold,
+                        parametersJson: state.activeConfig.parametersJson
+                    };
+                } else {
+                    state.draftConfig = {
+                        algorithmId: state.algorithmId,
+                        name: '',
+                        minNucleusSizeUm2: null,
+                        intensityThreshold: null,
+                        parametersJson: ''
+                    };
+                }
+                state.editConfig = null;
+            }
+        }
+
+        function renderAlgorithmHeader(container, algorithm, algorithmIdPresent) {
+            if (!algorithmIdPresent) {
+                container.innerHTML = '\n                    <h1>Algorithm configuration</h1>\n                    <p>No algorithm is selected. Provide an <code>algorithmId</code> in the URL to manage configurations.</p>\n                ';
+                return;
+            }
+            if (!algorithm) {
+                container.innerHTML = '\n                    <h1>Algorithm configuration</h1>\n                    <p>Algorithm details could not be loaded.</p>\n                ';
+                return;
+            }
+            var metaParts = [];
+            if (algorithm.version) {
+                metaParts.push('Version: ' + escapeHtml(algorithm.version));
+            }
+            if (algorithm.algorithmType) {
+                metaParts.push('Type: ' + escapeHtml(algorithm.algorithmType));
+            }
+            if (algorithm.organScope) {
+                metaParts.push('Organ scope: ' + escapeHtml(algorithm.organScope));
+            }
+            var metaLine = metaParts.join(' | ');
+            container.innerHTML = '\n                <h1>' + escapeHtml(algorithm.name || 'Algorithm configuration') + '</h1>\n                ' + (metaLine ? '<p>' + metaLine + '</p>' : '') + '\n                ' + (algorithm.description ? '<p>' + escapeHtml(algorithm.description) + '</p>' : '') + '\n                <p>This page manages configurations for this algorithm.</p>\n            ';
+        }
+
+        function renderConfigurationActions(container, activeConfig, algorithmLoaded) {
+            if (!algorithmLoaded) {
+                container.innerHTML = '<p>Load an algorithm to manage configurations.</p>';
+                return;
+            }
+            var disabledAttr = activeConfig ? '' : ' disabled';
+            container.innerHTML = '\n                <button type="button" data-action="create-from-current"' + disabledAttr + '>Create configuration from current</button>\n                <button type="button" data-action="reset-config-form">Reset changes</button>\n            ';
+        }
+
+        function renderConfigurationList(container, configurations, activeId, algorithmLoaded) {
+            if (!algorithmLoaded) {
+                container.innerHTML = '<p>No algorithm loaded.</p>';
+                return;
+            }
+            if (!configurations || configurations.length === 0) {
+                container.innerHTML = '<p>No configurations are defined for this algorithm.</p>';
+                return;
+            }
+            var html = '<ul style="list-style:none; padding-left:0; margin-top:0;">';
+            for (var i = 0; i < configurations.length; i += 1) {
+                var cfg = configurations[i];
+                var isActive = activeId && cfg.id === activeId;
+                var label = escapeHtml(cfg.name || cfg.id);
+                if (cfg.isDefault) {
+                    label += ' (default)';
+                }
+                html += '\n                    <li style="margin-bottom:4px;">\n                        <button type="button" data-action="select-configuration" data-config-id="' + escapeHtml(cfg.id) + '"' + (isActive ? ' aria-current="true"' : '') + '>\n                            ' + label + '\n                        </button>\n                    </li>\n                ';
+            }
+            html += '</ul>';
+            container.innerHTML = html;
+        }
+
+        function renderConfigurationForm(container, stateObj) {
+            var algorithmLoaded = !!stateObj.algorithm;
+            if (!algorithmLoaded) {
+                container.innerHTML = '<p>Configuration editing is available after an algorithm is loaded.</p>';
+                return;
+            }
+            var mode = stateObj.formMode;
+            var configRef = null;
+            if (mode === 'edit') {
+                configRef = stateObj.editConfig;
+            } else if (mode === 'create') {
+                configRef = stateObj.draftConfig;
+            }
+            if (!configRef) {
+                container.innerHTML = '<p>No configuration is selected.</p>';
+                return;
+            }
+            var title = mode === 'create' ? 'Create new configuration' : 'Edit configuration';
+            var hint = '';
+            if (mode === 'create' && stateObj.activeConfig && stateObj.activeConfig.name) {
+                hint = 'Based on: ' + escapeHtml(stateObj.activeConfig.name);
+            } else if (mode === 'create') {
+                hint = 'Provide a name and parameters for the new configuration.';
+            }
+            var nameValue = configRef.name || '';
+            var minVal = configRef.minNucleusSizeUm2 !== undefined && configRef.minNucleusSizeUm2 !== null ? String(configRef.minNucleusSizeUm2) : '';
+            var thrVal = configRef.intensityThreshold !== undefined && configRef.intensityThreshold !== null ? String(configRef.intensityThreshold) : '';
+            var paramsVal = configRef.parametersJson || '';
+
+            container.innerHTML = '\n                <h3 style="margin-top:0;">' + escapeHtml(title) + '</h3>\n                ' + (hint ? '<p>' + escapeHtml(hint) + '</p>' : '') + '\n                <form id="configurationForm" data-mode="' + escapeHtml(mode) + '">\n                    <div style="margin-bottom:8px;">\n                        <label for="configNameInput">Name<span aria-hidden="true">*</span></label><br>\n                        <input id="configNameInput" name="name" type="text" required value="' + escapeHtml(nameValue) + '">\n                    </div>\n                    <div style="margin-bottom:8px;">\n                        <label for="minNucleusSizeInput">Minimum nucleus size (\u00b5m\u00b2)</label><br>\n                        <input id="minNucleusSizeInput" name="minNucleusSizeUm2" type="number" step="0.01" value="' + escapeHtml(minVal) + '">\n                    </div>\n                    <div style="margin-bottom:8px;">\n                        <label for="intensityThresholdInput">Intensity threshold (0-1)</label><br>\n                        <input id="intensityThresholdInput" name="intensityThreshold" type="number" min="0" max="1" step="0.01" value="' + escapeHtml(thrVal) + '">\n                    </div>\n                    <div style="margin-bottom:8px;">\n                        <label for="parametersJsonInput">Additional parameters (JSON)</label><br>\n                        <textarea id="parametersJsonInput" name="parametersJson" rows="6">' + escapeHtml(paramsVal) + '</textarea>\n                    </div>\n                    <div style="margin-bottom:8px;">\n                        <button type="submit" data-action="submit-configuration">Save configuration</button>\n                        <span id="configurationInlineMessage" aria-live="polite" style="margin-left:8px;"></span>\n                    </div>\n                </form>\n            ';
+        }
+
+        function renderProjectsUsingList(container, projects, activeConfig, algorithmLoaded) {
+            if (!algorithmLoaded) {
+                container.innerHTML = '<p>Project usage is available after an algorithm is loaded.</p>';
+                return;
+            }
+            if (!activeConfig) {
+                container.innerHTML = '<p>No configuration is selected.</p>';
+                return;
+            }
+            if (!projects || projects.length === 0) {
+                container.innerHTML = '<p>No projects are currently using this configuration.</p>';
+                return;
+            }
+            var html = '<ul style="list-style:none; padding-left:0; margin-top:0;">';
+            for (var i = 0; i < projects.length; i += 1) {
+                var project = projects[i];
+                var label = escapeHtml(project.name || project.id);
+                var metaParts = [];
+                if (project.type) {
+                    metaParts.push(escapeHtml(project.type));
+                }
+                if (project.organFocus) {
+                    metaParts.push(escapeHtml(project.organFocus));
+                }
+                var meta = metaParts.join(' | ');
+                html += '\n                    <li style="margin-bottom:4px;">\n                        <button type="button" data-action="open-project-detail" data-project-id="' + escapeHtml(project.id) + '">\n                            ' + label + (meta ? ' - ' + meta : '') + '\n                        </button>\n                    </li>\n                ';
+            }
+            html += '</ul>';
+            container.innerHTML = html;
+        }
+
+        function populateProjectOptions(container) {
+            var select = container;
+            if (!select) {
+                return;
+            }
+            var existingFirst = select.querySelector('option');
+            select.innerHTML = '';
+            var placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Select project';
+            select.appendChild(placeholder);
+            var raw = localStorage.getItem('projects') || '[]';
+            var projects;
+            try {
+                projects = JSON.parse(raw);
+            } catch (e) {
+                projects = [];
+            }
+            if (!projects || projects.length === 0) {
+                return;
+            }
+            for (var i = 0; i < projects.length; i += 1) {
+                var project = projects[i];
+                if (!project || !project.id) {
+                    continue;
+                }
+                var option = document.createElement('option');
+                option.value = project.id;
+                option.textContent = project.name || project.id;
+                select.appendChild(option);
+            }
+        }
+
+        function refreshMainRender() {
+            var headerContainer = document.querySelector('[data-populate="algorithm-header"]');
+            if (headerContainer) {
+                renderAlgorithmHeader(headerContainer, state.algorithm, !!state.algorithmId);
+            }
+            var actionsContainer = document.querySelector('[data-populate="configuration-actions"]');
+            if (actionsContainer) {
+                renderConfigurationActions(actionsContainer, state.activeConfig, !!state.algorithm);
+            }
+            var listContainer = document.querySelector('[data-populate="configuration-list"]');
+            if (listContainer) {
+                renderConfigurationList(listContainer, state.configurations, state.activeConfig ? state.activeConfig.id : null, !!state.algorithm);
+            }
+            var formContainer = document.querySelector('[data-populate="configuration-form"]');
+            if (formContainer) {
+                renderConfigurationForm(formContainer, state);
+            }
+            var projectsContainer = document.querySelector('[data-populate="projects-using-list"]');
+            if (projectsContainer) {
+                renderProjectsUsingList(projectsContainer, state.projectsUsing, state.activeConfig, !!state.algorithm);
+            }
+        }
+
+        function loadAlgorithmDetail() {
+            if (!state.algorithmId) {
+                refreshMainRender();
+                return;
+            }
+            try {
+                var result = WebsiteSDK.getAlgorithmDetail(state.algorithmId);
+                if (!result || !result.algorithm) {
+                    showNotification('error', 'An error occurred while loading algorithm data.');
+                    state.algorithm = null;
+                    state.defaultConfiguration = null;
+                    state.configurations = [];
+                    state.activeConfig = null;
+                    refreshMainRender();
+                    return;
+                }
+                state.algorithm = result.algorithm;
+                state.defaultConfiguration = result.defaultConfiguration || null;
+                state.configurations = result.configurations || [];
+                var initialConfigId = state.configurationId;
+                var chosen = determineActiveConfiguration(initialConfigId);
+                if (chosen && (!initialConfigId || initialConfigId !== chosen.id)) {
+                    updateUrlConfigurationId(chosen.id, { replace: true });
+                }
+                if (state.activeConfig) {
+                    setFormMode('edit');
+                } else {
+                    setFormMode('edit');
+                }
+                refreshMainRender();
+                if (state.activeConfig) {
+                    loadProjectsUsingConfiguration(state.activeConfig.id);
+                }
+            } catch (e) {
+                showNotification('error', 'An error occurred while loading algorithm data.');
+                state.algorithm = null;
+                state.defaultConfiguration = null;
+                state.configurations = [];
+                state.activeConfig = null;
+                refreshMainRender();
+            }
+        }
+
+        function loadProjectsUsingConfiguration(configurationId) {
+            if (!configurationId) {
+                state.projectsUsing = [];
+                var projectsContainer = document.querySelector('[data-populate="projects-using-list"]');
+                if (projectsContainer) {
+                    renderProjectsUsingList(projectsContainer, state.projectsUsing, state.activeConfig, !!state.algorithm);
+                }
+                return;
+            }
+            try {
+                var projects = WebsiteSDK.getProjectsUsingAlgorithmConfiguration(configurationId);
+                state.projectsUsing = projects || [];
+            } catch (e) {
+                state.projectsUsing = [];
+                showNotification('error', 'An error occurred while loading projects.');
+            }
+            var projectsContainer = document.querySelector('[data-populate="projects-using-list"]');
+            if (projectsContainer) {
+                renderProjectsUsingList(projectsContainer, state.projectsUsing, state.activeConfig, !!state.algorithm);
+            }
+        }
+
+        function handleConfigurationFormInput(target) {
+            var name = target.name;
+            if (!name) {
+                return;
+            }
+            var mode = state.formMode;
+            var obj = mode === 'create' ? state.draftConfig : state.editConfig;
+            if (!obj) {
+                return;
+            }
+            var value = target.value;
+            if (name === 'name') {
+                obj.name = value;
+            } else if (name === 'minNucleusSizeUm2') {
+                if (value === '') {
+                    obj.minNucleusSizeUm2 = null;
+                } else {
+                    var parsedMin = parseFloat(value);
+                    obj.minNucleusSizeUm2 = isNaN(parsedMin) ? null : parsedMin;
+                }
+            } else if (name === 'intensityThreshold') {
+                if (value === '') {
+                    obj.intensityThreshold = null;
+                } else {
+                    var parsedThr = parseFloat(value);
+                    obj.intensityThreshold = isNaN(parsedThr) ? null : parsedThr;
+                }
+            } else if (name === 'parametersJson') {
+                obj.parametersJson = value;
+            }
+        }
+
+        function handleConfigurationFormSubmit(form) {
+            if (!state.algorithm) {
+                showNotification('error', 'An error occurred while saving the configuration.');
+                return;
+            }
+            var mode = state.formMode;
+            var obj = mode === 'create' ? state.draftConfig : state.editConfig;
+            var inlineMsgEl = document.getElementById('configurationInlineMessage');
+            if (inlineMsgEl) {
+                inlineMsgEl.textContent = '';
+            }
+            if (!obj || !obj.name || obj.name.trim() === '') {
+                if (inlineMsgEl) {
+                    inlineMsgEl.textContent = 'Name is required.';
+                }
+                return;
+            }
+            var minValue = obj.minNucleusSizeUm2;
+            var thrValue = obj.intensityThreshold;
+            var paramsValue = obj.parametersJson;
+            if (mode === 'create') {
+                try {
+                    var createResult = WebsiteSDK.createAlgorithmConfiguration(state.algorithmId, obj.name.trim(), minValue, thrValue, paramsValue);
+                    if (!createResult || !createResult.success || !createResult.configuration) {
+                        showNotification('error', 'An error occurred while creating the configuration.');
+                        return;
+                    }
+                    var newConfig = createResult.configuration;
+                    state.configurations.push(newConfig);
+                    state.activeConfig = newConfig;
+                    state.configurationId = newConfig.id;
+                    setFormMode('edit');
+                    updateUrlConfigurationId(newConfig.id, { replace: false });
+                    refreshMainRender();
+                    loadProjectsUsingConfiguration(newConfig.id);
+                    showNotification('success', 'Configuration created.');
+                } catch (e) {
+                    showNotification('error', 'An error occurred while creating the configuration.');
+                }
+            } else {
+                if (!state.activeConfig) {
+                    showNotification('error', 'An error occurred while updating the configuration.');
+                    return;
+                }
+                try {
+                    var updateResult = WebsiteSDK.updateAlgorithmConfiguration(state.activeConfig.id, obj.name.trim(), minValue, thrValue, paramsValue);
+                    if (!updateResult || !updateResult.success || !updateResult.configuration) {
+                        showNotification('error', 'An error occurred while updating the configuration.');
+                        return;
+                    }
+                    var updated = updateResult.configuration;
+                    var list = state.configurations;
+                    for (var i = 0; i < list.length; i += 1) {
+                        if (list[i].id === updated.id) {
+                            list[i] = updated;
+                            break;
+                        }
+                    }
+                    state.activeConfig = updated;
+                    setFormMode('edit');
+                    refreshMainRender();
+                    showNotification('success', 'Configuration updated.');
+                } catch (e2) {
+                    showNotification('error', 'An error occurred while updating the configuration.');
+                }
+            }
+        }
+
+        function resetConfigurationForm() {
+            if (!state.algorithm) {
+                return;
+            }
+            if (state.formMode === 'create') {
+                setFormMode('create');
+            } else {
+                setFormMode('edit');
+            }
+            var formContainer = document.querySelector('[data-populate="configuration-form"]');
+            if (formContainer) {
+                renderConfigurationForm(formContainer, state);
+            }
+            var inlineMsgEl = document.getElementById('configurationInlineMessage');
+            if (inlineMsgEl) {
+                inlineMsgEl.textContent = '';
+            }
+        }
+
+        function handleAssignmentSubmit(form) {
+            if (!state.activeConfig) {
+                showNotification('error', 'An error occurred while assigning the configuration.');
+                return;
+            }
+            var select = form.querySelector('select[name="projectId"]');
+            var inlineMsgEl = document.getElementById('assignmentInlineMessage');
+            if (inlineMsgEl) {
+                inlineMsgEl.textContent = '';
+            }
+            if (!select || !select.value) {
+                if (inlineMsgEl) {
+                    inlineMsgEl.textContent = 'Select a project.';
+                }
+                return;
+            }
+            var projectId = select.value;
+            try {
+                var result = WebsiteSDK.assignAlgorithmConfigToProject(state.activeConfig.id, projectId);
+                if (!result || !result.success || !result.projectAlgorithmConfig) {
+                    showNotification('error', 'An error occurred while assigning the configuration.');
+                    return;
+                }
+                if (inlineMsgEl) {
+                    inlineMsgEl.textContent = 'Assigned.';
+                }
+                showNotification('success', 'Configuration assigned to project.');
+                loadProjectsUsingConfiguration(state.activeConfig.id);
+            } catch (e) {
+                showNotification('error', 'An error occurred while assigning the configuration.');
+            }
+        }
+
+        document.addEventListener('click', function(event) {
+            var target = event.target;
+            if (!target) {
+                return;
+            }
+            var actionEl = target.closest('[data-action]');
+            if (!actionEl) {
+                return;
+            }
+            var action = actionEl.getAttribute('data-action');
+            if (!action) {
+                return;
+            }
+            if (action === 'dismiss-notification') {
+                clearNotification();
+            } else if (action === 'select-configuration') {
+                var configId = actionEl.getAttribute('data-config-id');
+                if (!configId || !state.configurations) {
+                    return;
+                }
+                var chosen = null;
+                for (var i = 0; i < state.configurations.length; i += 1) {
+                    if (state.configurations[i].id === configId) {
+                        chosen = state.configurations[i];
+                        break;
+                    }
+                }
+                if (!chosen) {
+                    return;
+                }
+                state.activeConfig = chosen;
+                state.configurationId = chosen.id;
+                setFormMode('edit');
+                updateUrlConfigurationId(chosen.id, { replace: false });
+                refreshMainRender();
+                loadProjectsUsingConfiguration(chosen.id);
+            } else if (action === 'create-from-current') {
+                if (!state.algorithm || !state.activeConfig) {
+                    showNotification('error', 'An error occurred while preparing the new configuration.');
+                    return;
+                }
+                setFormMode('create');
+                var formContainer = document.querySelector('[data-populate="configuration-form"]');
+                if (formContainer) {
+                    renderConfigurationForm(formContainer, state);
+                }
+            } else if (action === 'reset-config-form') {
+                resetConfigurationForm();
+            } else if (action === 'submit-configuration') {
+                var form = actionEl.closest('form');
+                if (form && form.id === 'configurationForm') {
+                    event.preventDefault();
+                    handleConfigurationFormSubmit(form);
+                }
+            } else if (action === 'submit-assignment') {
+                var assignForm = actionEl.closest('form');
+                if (assignForm && assignForm.id === 'assignmentForm') {
+                    event.preventDefault();
+                    handleAssignmentSubmit(assignForm);
+                }
+            } else if (action === 'open-project-detail') {
+                var projectIdAttr = actionEl.getAttribute('data-project-id');
+                if (projectIdAttr) {
+                    window.location.href = 'project_detail.html?projectId=' + encodeURIComponent(projectIdAttr);
+                }
+            } else if (action === 'view-projects-overview') {
+                var searchTerm = '';
+                if (state.algorithm && state.algorithm.name) {
+                    searchTerm = state.algorithm.name;
+                }
+                var url = 'projects.html';
+                if (searchTerm) {
+                    url += '?search=' + encodeURIComponent(searchTerm);
+                }
+                window.location.href = url;
+            }
+        });
+
+        document.addEventListener('input', function(event) {
+            var target = event.target;
+            if (!target) {
+                return;
+            }
+            var form = target.closest('#configurationForm');
+            if (!form) {
+                return;
+            }
+            handleConfigurationFormInput(target);
+        });
+
+        document.addEventListener('submit', function(event) {
+            var form = event.target;
+            if (!form) {
+                return;
+            }
+            if (form.id === 'configurationForm') {
+                event.preventDefault();
+                handleConfigurationFormSubmit(form);
+            } else if (form.id === 'assignmentForm') {
+                event.preventDefault();
+                handleAssignmentSubmit(form);
+            }
+        });
+
+        window.addEventListener('popstate', function() {
+            var params = getUrlParams();
+            var newConfigId = params.configurationId;
+            if (newConfigId === state.configurationId && state.algorithmId === params.algorithmId) {
+                return;
+            }
+            state.configurationId = newConfigId;
+            if (params.algorithmId && params.algorithmId === state.algorithmId) {
+                determineActiveConfiguration(newConfigId);
+                setFormMode('edit');
+                refreshMainRender();
+                if (state.activeConfig) {
+                    loadProjectsUsingConfiguration(state.activeConfig.id);
+                }
+            }
+        });
+
+        var projectSelect = document.getElementById('projectAssignmentSelect');
+        if (projectSelect) {
+            populateProjectOptions(projectSelect);
+        }
+
+        var initialParams = getUrlParams();
+        state.algorithmId = initialParams.algorithmId;
+        state.configurationId = initialParams.configurationId;
+
+        loadAlgorithmDetail();
+    });
+    </script>
+</body>
+</html>

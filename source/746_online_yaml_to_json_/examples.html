@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>YAML to JSON Converter</title>
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap' rel='stylesheet'>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='examples.css'>
+</head>
+<body>
+  <div class='page'>
+    <header class='site-header'>
+      <div class='shell header-inner'>
+        <a href='index.html' class='brand' aria-label='YAML to JSON Converter Home'>
+          <span class='brand-mark' aria-hidden='true'></span>
+          <span class='brand-text'>Lumotools</span>
+        </a>
+        <nav class='primary-nav' aria-label='Primary' data-component='examples-header-navigation'>
+          <ul class='nav-list'>
+            <li class='nav-item'>
+              <a href='index.html' class='nav-link' title='Main YAML to JSON converter homepage'>Home</a>
+            </li>
+            <li class='nav-item'>
+              <a href='examples.html' class='nav-link is-current' aria-current='page' title='Browse YAML examples like shopping lists, profiles, and server configs'>Examples</a>
+            </li>
+            <li class='nav-item'>
+              <a href='history.html' class='nav-link' title='View and reopen past YAML to JSON conversions'>History</a>
+            </li>
+            <li class='nav-item'>
+              <a href='settings.html' class='nav-link' title='Configure formatting, behavior, and theme for conversions'>Settings</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id='content' class='site-main shell' role='main'>
+      <section class='examples-page' data-component='examples-page-controller'>
+        <header class='examples-page-header'>
+          <h1 class='examples-page-title'>Examples</h1>
+        </header>
+
+        <div class='examples-layout'>
+          <!-- Left: Filter panel -->
+          <section class='examples-filters-panel card'>
+            <header class='card-header'>
+              <h2 class='card-title'>Filter examples</h2>
+            </header>
+            <div class='card-body'>
+              <div class='form-field'>
+                <label for='categoryFilter' class='field-label'>Category</label>
+                <select id='categoryFilter'
+                        name='category'
+                        class='field-select'
+                        data-component='category-filter-dropdown'
+                        data-populate='example-categories'
+                        data-action='change-category'>
+                  <!-- Options populated by JavaScript -->
+                </select>
+                <p class='field-description' data-populate='category-description'></p>
+              </div>
+            </div>
+          </section>
+
+          <!-- Right: Examples results panel -->
+          <section class='examples-results-panel card'>
+            <header class='card-header'>
+              <h2 class='card-title'>Example gallery</h2>
+            </header>
+            <div class='card-body'>
+              <div class='filter-summary-bar'
+                   data-component='filter-summary-bar'
+                   data-populate='filter-summary'
+                   aria-live='polite'>
+                <!-- Summary rendered by JavaScript -->
+              </div>
+
+              <div class='examples-error-panel'
+                   data-component='examples-error-panel'
+                   role='alert'
+                   hidden>
+                <!-- Error content rendered by JavaScript -->
+              </div>
+
+              <div class='examples-loading'
+                   data-component='examples-loading-indicator'
+                   hidden>
+                <div class='loading-indicator'>
+                  <span class='spinner' aria-hidden='true'></span>
+                  <p class='loading-text'>Loading examples...</p>
+                </div>
+              </div>
+
+              <div class='empty-state'
+                   data-component='empty-state-message'
+                   data-populate='empty-state'
+                   hidden>
+                <!-- Empty state rendered by JavaScript -->
+              </div>
+
+              <div class='examples-grid'
+                   data-component='examples-grid'
+                   data-populate='examples-list'>
+                <!-- Example cards rendered by JavaScript -->
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer class='site-footer'>
+      <div class='shell footer-inner'>
+        <div class='footer-left'>
+          <span class='footer-brand'>Lumotools</span>
+          <span class='footer-meta'>&copy; 2024 All rights reserved.</span>
+        </div>
+        <nav class='footer-nav' aria-label='Footer'>
+          <ul class='footer-nav-list'>
+            <li class='footer-nav-item'>
+              <a href='help.html' class='footer-link' title='How-to guides and documentation for using the converter'>Help</a>
+            </li>
+            <li class='footer-nav-item'>
+              <a href='about.html' class='footer-link' title='Information about the YAML to JSON converter tool'>About</a>
+            </li>
+            <li class='footer-nav-item'>
+              <a href='privacy.html' class='footer-link' title='Privacy policy for data and content handling'>Privacy</a>
+            </li>
+            <li class='footer-nav-item'>
+              <a href='terms.html' class='footer-link' title='Terms of use for the YAML to JSON converter'>Terms</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </footer>
+  </div>
+
+  <script src='business_logic.js'></script>
+  <script>
+    (function() {
+      'use strict';
+
+      var pageState = {
+        categories: [],
+        examples: [],
+        activeCategory: null,
+        isLoading: false,
+        lastError: null
+      };
+
+      var controllerEl;
+      var categorySelectEl;
+      var categoryDescriptionEl;
+      var examplesGridEl;
+      var filterSummaryEl;
+      var emptyStateEl;
+      var loadingIndicatorEl;
+      var errorPanelEl;
+
+      function escapeHtml(str) {
+        if (str == null) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function getCategoryFromUrl(validCategories) {
+        var params = new URLSearchParams(window.location.search);
+        var catFromUrl = params.get('category');
+        if (!catFromUrl) {
+          return null;
+        }
+        var exists = validCategories.some(function(cat) { return cat.value === catFromUrl; });
+        return exists ? catFromUrl : null;
+      }
+
+      function updateUrlCategory(categoryValue, replace) {
+        var url = new URL(window.location.href);
+        if (categoryValue) {
+          url.searchParams.set('category', categoryValue);
+        } else {
+          url.searchParams.delete('category');
+        }
+        if (replace) {
+          window.history.replaceState({}, '', url.toString());
+        } else {
+          window.history.pushState({}, '', url.toString());
+        }
+      }
+
+      function setLoading(isLoading) {
+        pageState.isLoading = isLoading;
+        if (!loadingIndicatorEl) return;
+        if (isLoading) {
+          loadingIndicatorEl.removeAttribute('hidden');
+          loadingIndicatorEl.setAttribute('aria-busy', 'true');
+        } else {
+          loadingIndicatorEl.setAttribute('hidden', 'true');
+          loadingIndicatorEl.removeAttribute('aria-busy');
+        }
+      }
+
+      function clearError() {
+        pageState.lastError = null;
+        if (!errorPanelEl) return;
+        errorPanelEl.setAttribute('hidden', 'true');
+        errorPanelEl.innerHTML = '';
+      }
+
+      function renderError(message) {
+        pageState.lastError = message;
+        if (!errorPanelEl) return;
+        errorPanelEl.removeAttribute('hidden');
+        errorPanelEl.innerHTML =
+          '<div class="examples-error-card">' +
+            '<div class="error-content">' +
+              '<p class="error-title">Unable to load examples</p>' +
+              '<p class="error-message">' + escapeHtml(message) + '</p>' +
+            '</div>' +
+            '<div class="error-actions">' +
+              '<button type="button" class="btn btn-secondary" data-action="retry-load-examples">Retry</button>' +
+            '</div>' +
+          '</div>';
+      }
+
+      function renderCategories(container, categories, activeCategory) {
+        container.innerHTML = '';
+        var allOption = document.createElement('option');
+        allOption.value = '';
+        allOption.textContent = 'All categories';
+        container.appendChild(allOption);
+
+        categories.forEach(function(cat) {
+          var opt = document.createElement('option');
+          opt.value = cat.value;
+          var label = cat.label || cat.value;
+          var count = typeof cat.example_count === 'number' ? ' (' + cat.example_count + ')' : '';
+          opt.textContent = label + count;
+          container.appendChild(opt);
+        });
+
+        container.value = activeCategory || '';
+
+        if (categoryDescriptionEl) {
+          var selectedCat = categories.find(function(cat) { return cat.value === activeCategory; });
+          if (selectedCat) {
+            categoryDescriptionEl.textContent = selectedCat.description || '';
+          } else {
+            categoryDescriptionEl.textContent = 'Browse all available YAML examples.';
+          }
+        }
+      }
+
+      function renderExamples(container, examples) {
+        container.innerHTML = '';
+        examples.forEach(function(example) {
+          var card = document.createElement('article');
+          card.className = 'example-card';
+          card.tabIndex = 0;
+          card.setAttribute('role', 'button');
+          card.setAttribute('data-component', 'example-card');
+          card.setAttribute('data-example-id', example.id);
+          card.setAttribute('data-action', 'open-example');
+          card.innerHTML =
+            '<header class="example-card-header">' +
+              '<h3 class="example-card-title">' + escapeHtml(example.title) + '</h3>' +
+            '</header>' +
+            '<p class="example-card-description">' +
+              escapeHtml(example.description || '') +
+            '</p>' +
+            '<div class="example-card-meta">' +
+              '<span class="example-card-category-tag">' + escapeHtml(example.category) + '</span>' +
+              (example.is_featured ? '<span class="example-card-badge">Featured</span>' : '') +
+            '</div>' +
+            '<div class="example-card-actions">' +
+              '<button type="button" class="btn btn-primary" data-action="open-example" data-example-id="' + escapeHtml(example.id) + '">' +
+                '<span class="btn-label">Open in converter</span>' +
+              '</button>' +
+            '</div>';
+          container.appendChild(card);
+        });
+      }
+
+      function renderSummary(container, categories, activeCategory, examplesCount) {
+        var totalText = examplesCount === 1 ? '1 example' : examplesCount + ' examples';
+        var categoryLabel = 'All categories';
+        if (activeCategory) {
+          var found = categories.find(function(cat) { return cat.value === activeCategory; });
+          if (found) {
+            categoryLabel = found.label || found.value;
+          } else {
+            categoryLabel = activeCategory;
+          }
+        }
+        container.innerHTML =
+          '<div class="filter-summary-inner">' +
+            '<span class="filter-summary-indicator" aria-hidden="true"></span>' +
+            '<span class="filter-summary-text">' +
+              'Showing <strong>' + escapeHtml(totalText) + '</strong>' +
+              (activeCategory ? ' in <strong>' + escapeHtml(categoryLabel) + '</strong>' : '') +
+            '</span>' +
+          '</div>';
+      }
+
+      function renderEmptyState(container, categories, activeCategory) {
+        var hasFilter = !!activeCategory;
+        var label = hasFilter ? 'No examples found for this category' : 'No examples available';
+        var helpText = hasFilter
+          ? 'Try selecting a different category in the filter to see other examples.'
+          : 'Examples will appear here once they are available.';
+        container.innerHTML =
+          '<div class="empty-state-card">' +
+            '<p class="empty-state-title">' + escapeHtml(label) + '</p>' +
+            '<p class="empty-state-body">' + escapeHtml(helpText) + '</p>' +
+          '</div>';
+      }
+
+      function applyExamplesResponse(response) {
+        pageState.examples = response && Array.isArray(response.examples) ? response.examples : [];
+        var examplesCount = pageState.examples.length;
+
+        clearError();
+        setLoading(false);
+
+        if (filterSummaryEl) {
+          renderSummary(filterSummaryEl, pageState.categories, pageState.activeCategory, examplesCount);
+        }
+
+        if (!examplesGridEl || !emptyStateEl) {
+          return;
+        }
+
+        if (examplesCount === 0) {
+          examplesGridEl.innerHTML = '';
+          examplesGridEl.setAttribute('hidden', 'true');
+          emptyStateEl.removeAttribute('hidden');
+          renderEmptyState(emptyStateEl, pageState.categories, pageState.activeCategory);
+        } else {
+          emptyStateEl.setAttribute('hidden', 'true');
+          examplesGridEl.removeAttribute('hidden');
+          renderExamples(examplesGridEl, pageState.examples);
+        }
+      }
+
+      function loadExamplesForCategory(categoryValue, options) {
+        var opts = options || {};
+        var useHistoryReplace = !!opts.replaceHistory;
+
+        setLoading(true);
+        clearError();
+
+        if (typeof categoryValue === 'string') {
+          pageState.activeCategory = categoryValue || null;
+        } else {
+          pageState.activeCategory = null;
+        }
+
+        if (!opts.skipUrlUpdate) {
+          updateUrlCategory(pageState.activeCategory, useHistoryReplace);
+        }
+
+        try {
+          var response;
+          if (pageState.activeCategory) {
+            response = WebsiteSDK.getExamplesForDisplay(pageState.activeCategory);
+          } else {
+            response = WebsiteSDK.getExamplesForDisplay();
+          }
+          applyExamplesResponse(response || { category_filter_applied: pageState.activeCategory, examples: [] });
+        } catch (err) {
+          setLoading(false);
+          renderError('There was a problem retrieving the examples. Please try again.');
+          if (examplesGridEl) {
+            examplesGridEl.innerHTML = '';
+            examplesGridEl.setAttribute('hidden', 'true');
+          }
+          if (emptyStateEl) {
+            emptyStateEl.setAttribute('hidden', 'true');
+          }
+        }
+      }
+
+      function initializeFromUrlAndSdk() {
+        if (!categorySelectEl || !examplesGridEl || !filterSummaryEl) {
+          return;
+        }
+
+        setLoading(true);
+        clearError();
+
+        try {
+          var categoriesResponse = WebsiteSDK.getExampleCategoryFilterOptions();
+          var categories = categoriesResponse && Array.isArray(categoriesResponse.categories)
+            ? categoriesResponse.categories
+            : [];
+          pageState.categories = categories;
+
+          var categoryFromUrl = getCategoryFromUrl(categories);
+          pageState.activeCategory = categoryFromUrl;
+
+          renderCategories(categorySelectEl, categories, pageState.activeCategory);
+
+          loadExamplesForCategory(pageState.activeCategory, { replaceHistory: true, skipUrlUpdate: true });
+        } catch (err) {
+          setLoading(false);
+          renderError('There was a problem loading categories and examples. Please refresh the page.');
+        }
+      }
+
+      function handleCategoryChange(event) {
+        var selectedValue = event.target.value || '';
+        var normalized = selectedValue.trim() === '' ? null : selectedValue.trim();
+        loadExamplesForCategory(normalized, { replaceHistory: false, skipUrlUpdate: false });
+      }
+
+      function handleOpenExample(exampleId) {
+        if (!exampleId) return;
+        var targetUrl = 'index.html?exampleId=' + encodeURIComponent(exampleId);
+        window.location.href = targetUrl;
+      }
+
+      function handleRetryClick() {
+        initializeFromUrlAndSdk();
+      }
+
+      function handleClick(event) {
+        var actionEl = event.target.closest('[data-action]');
+        if (!actionEl) return;
+        var action = actionEl.dataset.action;
+
+        if (action === 'open-example') {
+          var exampleId = actionEl.dataset.exampleId || actionEl.getAttribute('data-example-id');
+          if (!exampleId) {
+            var parentWithId = actionEl.closest('[data-example-id]');
+            if (parentWithId) {
+              exampleId = parentWithId.getAttribute('data-example-id');
+            }
+          }
+          handleOpenExample(exampleId);
+          event.preventDefault();
+          return;
+        }
+
+        if (action === 'retry-load-examples') {
+          handleRetryClick();
+          event.preventDefault();
+          return;
+        }
+      }
+
+      function handleKeyDown(event) {
+        var target = event.target;
+        if (!target) return;
+        if (target.getAttribute('data-action') !== 'open-example') return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          var exampleId = target.dataset.exampleId || target.getAttribute('data-example-id');
+          handleOpenExample(exampleId);
+          event.preventDefault();
+        }
+      }
+
+      function handlePopState() {
+        if (!pageState.categories || pageState.categories.length === 0) {
+          return;
+        }
+        var categoryFromUrl = getCategoryFromUrl(pageState.categories);
+        if (categoryFromUrl === pageState.activeCategory) {
+          return;
+        }
+        pageState.activeCategory = categoryFromUrl;
+        if (categorySelectEl) {
+          categorySelectEl.value = categoryFromUrl || '';
+        }
+        loadExamplesForCategory(pageState.activeCategory, { replaceHistory: true, skipUrlUpdate: true });
+      }
+
+      function initDomReferences() {
+        controllerEl = document.querySelector('[data-component="examples-page-controller"]');
+        if (!controllerEl) return;
+
+        categorySelectEl = controllerEl.querySelector('[data-populate="example-categories"]');
+        categoryDescriptionEl = controllerEl.querySelector('[data-populate="category-description"]');
+        examplesGridEl = controllerEl.querySelector('[data-populate="examples-list"]');
+        filterSummaryEl = controllerEl.querySelector('[data-populate="filter-summary"]');
+        emptyStateEl = controllerEl.querySelector('[data-populate="empty-state"]');
+        loadingIndicatorEl = controllerEl.querySelector('[data-component="examples-loading-indicator"]');
+        errorPanelEl = controllerEl.querySelector('[data-component="examples-error-panel"]');
+
+        if (categorySelectEl) {
+          categorySelectEl.addEventListener('change', handleCategoryChange);
+        }
+        if (controllerEl) {
+          controllerEl.addEventListener('click', handleClick);
+          controllerEl.addEventListener('keydown', handleKeyDown);
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        initDomReferences();
+        if (!controllerEl) return;
+        window.addEventListener('popstate', handlePopState);
+        initializeFromUrlAndSdk();
+      });
+
+    })();
+  </script>
+</body>
+</html>

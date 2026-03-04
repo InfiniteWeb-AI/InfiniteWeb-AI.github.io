@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Basketball League</title>
+  
+  <link rel="stylesheet" href="locations.css">
+</head>
+<body>
+  <header id="site-header">
+    <nav class="main-nav" aria-label="Main navigation">
+      <a href="index.html">Home</a>
+      <a href="adult_leagues.html">Adult Leagues</a>
+      <a href="youth_leagues.html">Youth Leagues</a>
+      <a href="schedule.html">Schedule</a>
+      <a href="playoffs.html">Playoffs</a>
+      <a href="locations.html">Locations</a>
+      <a href="sponsors.html">Sponsors</a>
+      <a href="volunteer.html">Volunteer</a>
+      <a href="contact.html">Contact</a>
+    </nav>
+
+    <h1 id="site-title">Local Basketball League</h1>
+
+    <div class="header-banner" aria-hidden="true"></div>
+  </header>
+
+  <main id="content" role="main">
+    <section id="locations-page" aria-labelledby="locations-title">
+      <div class="page-header-row">
+        <h2 id="locations-title">Locations &amp; Facilities</h2>
+        <a href="schedule.html" class="back-link">Back to schedules</a>
+      </div>
+      <hr>
+      <p>Browse gym locations to see addresses, courts, and which divisions typically play at each facility.</p>
+      <p>Select a gym or court to jump to division schedules or open a pre-filled contact form for facility issues or lost &amp; found.</p>
+
+      <section aria-label="Gym locations list">
+        <p><strong>Gyms:</strong></p>
+        <ul id="gym-list" data-populate="gym-list" data-component="gym-list"></ul>
+      </section>
+
+      <section id="gym-detail-panel" data-component="gym-detail-panel" aria-live="polite" aria-label="Selected gym details">
+        <!-- Selected gym details will be rendered here -->
+      </section>
+
+      <section id="facility-shortcuts" aria-label="Facility issue and lost and found shortcuts">
+        <p>
+          <label for="incident-date-input">Incident date:</label>
+          <input type="date" id="incident-date-input" name="incident_date" data-component="facility-incident-date-selector" data-action="change-incident-date">
+        </p>
+        <p>
+          Report a facility issue for this gym:
+          <button type="button" data-component="facility-issue-shortcut" data-action="navigate-facility-issue">Open facility issue form</button>
+        </p>
+        <p>
+          Lost something at this gym?
+          <a href="javascript:void(0)" data-component="lost-and-found-link" data-action="navigate-lost-and-found">Contact lost &amp; found for this location</a>
+        </p>
+      </section>
+    </section>
+  </main>
+
+  <footer id="site-footer">
+    <hr>
+    <nav class="footer-nav" aria-label="Footer navigation">
+      <a href="about.html">About</a>
+      <a href="faq.html">FAQ</a>
+      <a href="adult_leagues.html">Adult Leagues</a>
+      <a href="youth_leagues.html">Youth Leagues</a>
+      <a href="schedule.html">Schedule &amp; Standings</a>
+      <a href="playoffs.html">Playoffs &amp; Championships</a>
+      <a href="locations.html">Locations &amp; Facilities</a>
+      <a href="sponsors.html">Sponsors &amp; Advertising</a>
+      <a href="volunteer.html">Volunteer &amp; Get Involved</a>
+      <a href="contact.html">Contact Us</a>
+    </nav>
+    <p class="footer-copy">&copy; Local Basketball League.</p>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      'use strict';
+
+      var gyms = [];
+      var selectedGymId = null;
+      var selectedCourtId = null;
+      var detailedGyms = {};
+      var incidentDate = null;
+
+      var gymListContainer = null;
+      var gymDetailContainer = document.getElementById('gym-detail-panel');
+      var incidentDateInput = document.getElementById('incident-date-input');
+
+      function padNumber(num) {
+        return num < 10 ? '0' + num : String(num);
+      }
+
+      function initIncidentDate() {
+        if (!incidentDateInput) {
+          return;
+        }
+        var today = new Date();
+        var value = today.getFullYear() + '-' + padNumber(today.getMonth() + 1) + '-' + padNumber(today.getDate());
+        incidentDateInput.value = value;
+        incidentDate = value;
+      }
+
+      function findGymIndexById(gymId) {
+        var i;
+        for (i = 0; i < gyms.length; i += 1) {
+          if (gyms[i] && gyms[i].gym_id === gymId) {
+            return i;
+          }
+        }
+        return -1;
+      }
+
+      function findGymById(gymId) {
+        var idx = findGymIndexById(gymId);
+        if (idx === -1) {
+          return null;
+        }
+        return gyms[idx];
+      }
+
+      function findGymByCourtId(courtId) {
+        if (!courtId) {
+          return null;
+        }
+        var i;
+        for (i = 0; i < gyms.length; i += 1) {
+          var gym = gyms[i];
+          if (!gym || !gym.courts) {
+            continue;
+          }
+          var j;
+          for (j = 0; j < gym.courts.length; j += 1) {
+            var court = gym.courts[j];
+            if (court && court.court_id === courtId) {
+              return { gym: gym, court: court };
+            }
+          }
+        }
+        return null;
+      }
+
+      function formatGameDays(days) {
+        if (!days || !days.length) {
+          return '';
+        }
+        var labels = {
+          monday: 'Monday',
+          tuesday: 'Tuesday',
+          wednesday: 'Wednesday',
+          thursday: 'Thursday',
+          friday: 'Friday',
+          saturday: 'Saturday',
+          sunday: 'Sunday'
+        };
+        var result = [];
+        var i;
+        for (i = 0; i < days.length; i += 1) {
+          var raw = days[i];
+          if (typeof raw !== 'string') {
+            continue;
+          }
+          var key = raw.toLowerCase();
+          result.push(labels[key] || raw);
+        }
+        return result.join(', ');
+      }
+
+      function formatGameTimeRange(start, end) {
+        if (!start && !end) {
+          return '';
+        }
+        if (start && end) {
+          return start + '-' + end;
+        }
+        return start || end || '';
+      }
+
+      function ensureGymDetails(gymId) {
+        if (!gymId || detailedGyms[gymId]) {
+          return;
+        }
+        try {
+          var details = WebsiteSDK.getGymDetails(gymId);
+          if (!details || !details.gym_id) {
+            return;
+          }
+          var idx = findGymIndexById(gymId);
+          if (idx !== -1) {
+            gyms[idx] = Object.assign({}, gyms[idx], details);
+          }
+          detailedGyms[gymId] = true;
+        } catch (e) {
+          console.error('Error loading gym details', e);
+        }
+      }
+
+      function renderGymList(container) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+
+        if (!gyms || gyms.length === 0) {
+          var emptyItem = document.createElement('li');
+          emptyItem.textContent = 'No gym locations are currently available.';
+          container.appendChild(emptyItem);
+          return;
+        }
+
+        var i;
+        for (i = 0; i < gyms.length; i += 1) {
+          var gym = gyms[i];
+          if (!gym) {
+            continue;
+          }
+          var li = document.createElement('li');
+          if (gym.gym_id === selectedGymId) {
+            li.className = 'selected-gym';
+          }
+
+          var link = document.createElement('a');
+          link.href = 'javascript:void(0)';
+          link.setAttribute('data-action', 'select-gym');
+          link.setAttribute('data-gym-id', gym.gym_id);
+          link.textContent = gym.gym_name || gym.gym_id;
+          li.appendChild(link);
+
+          var addrParts = [];
+          if (gym.address_line1) {
+            addrParts.push(gym.address_line1);
+          }
+          if (gym.city) {
+            addrParts.push(gym.city);
+          }
+          if (gym.state) {
+            addrParts.push(gym.state);
+          }
+          if (gym.postal_code) {
+            addrParts.push(gym.postal_code);
+          }
+          if (addrParts.length > 0) {
+            var small = document.createElement('span');
+            small.textContent = ' - ' + addrParts.join(', ');
+            li.appendChild(small);
+          }
+
+          container.appendChild(li);
+        }
+      }
+
+      function renderSelectedGymDetails(container) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+
+        if (!selectedGymId) {
+          var prompt = document.createElement('p');
+          prompt.textContent = 'Select a gym from the list above to view details.';
+          container.appendChild(prompt);
+          return;
+        }
+
+        ensureGymDetails(selectedGymId);
+        var gym = findGymById(selectedGymId);
+        if (!gym) {
+          var missing = document.createElement('p');
+          missing.textContent = 'The selected gym could not be found.';
+          container.appendChild(missing);
+          return;
+        }
+
+        var nameEl = document.createElement('h3');
+        nameEl.textContent = gym.gym_name || gym.gym_id;
+        container.appendChild(nameEl);
+
+        if (gym.address_line1 || gym.address_line2) {
+          var addressLine = document.createElement('p');
+          var parts = [];
+          if (gym.address_line1) {
+            parts.push(gym.address_line1);
+          }
+          if (gym.address_line2) {
+            parts.push(gym.address_line2);
+          }
+          addressLine.textContent = parts.join(' ');
+          container.appendChild(addressLine);
+        }
+
+        if (gym.city || gym.state || gym.postal_code) {
+          var cityLine = document.createElement('p');
+          var cityParts = [];
+          if (gym.city) {
+            cityParts.push(gym.city);
+          }
+          if (gym.state) {
+            cityParts.push(gym.state);
+          }
+          if (gym.postal_code) {
+            cityParts.push(gym.postal_code);
+          }
+          cityLine.textContent = cityParts.join(', ');
+          container.appendChild(cityLine);
+        }
+
+        if (gym.description) {
+          var desc = document.createElement('p');
+          desc.textContent = gym.description;
+          container.appendChild(desc);
+        }
+
+        var courtsLabel = document.createElement('p');
+        courtsLabel.innerHTML = '<strong>Courts at this facility:</strong>';
+        container.appendChild(courtsLabel);
+
+        var courts = gym.courts || [];
+        if (courts.length === 0) {
+          var noCourts = document.createElement('p');
+          noCourts.textContent = 'Court details are not available for this gym.';
+          container.appendChild(noCourts);
+        } else {
+          var courtsList = document.createElement('ul');
+          courtsList.setAttribute('data-component', 'courts-list');
+          var i;
+          for (i = 0; i < courts.length; i += 1) {
+            var court = courts[i];
+            if (!court) {
+              continue;
+            }
+            var courtItem = document.createElement('li');
+            if (court.court_id === selectedCourtId) {
+              courtItem.className = 'selected-court';
+            }
+            var courtLink = document.createElement('a');
+            courtLink.href = 'javascript:void(0)';
+            courtLink.setAttribute('data-action', 'select-court');
+            courtLink.setAttribute('data-court-id', court.court_id);
+            var label = court.court_name || court.court_id;
+            if (court.is_main_court) {
+              label += ' (main court)';
+            }
+            courtLink.textContent = label;
+            courtItem.appendChild(courtLink);
+            courtsList.appendChild(courtItem);
+          }
+          container.appendChild(courtsList);
+        }
+
+        var divisionsLabel = document.createElement('p');
+        divisionsLabel.innerHTML = '<strong>Divisions that play here:</strong>';
+        container.appendChild(divisionsLabel);
+
+        var typicalDivisions = gym.typical_divisions || [];
+        if (typicalDivisions.length === 0) {
+          var noDivisions = document.createElement('p');
+          noDivisions.textContent = 'No typical divisions are listed for this gym.';
+          container.appendChild(noDivisions);
+        } else {
+          var divList = document.createElement('ul');
+          divList.setAttribute('data-component', 'divisions-at-gym-list');
+          var j;
+          for (j = 0; j < typicalDivisions.length; j += 1) {
+            var div = typicalDivisions[j];
+            if (!div) {
+              continue;
+            }
+            var divItem = document.createElement('li');
+            var divLink = document.createElement('a');
+            divLink.href = 'javascript:void(0)';
+            divLink.setAttribute('data-action', 'navigate-division-schedule');
+            divLink.setAttribute('data-division-id', div.division_id);
+            divLink.textContent = div.division_name || div.division_id;
+            divItem.appendChild(divLink);
+
+            var detailsParts = [];
+            if (div.division_type) {
+              detailsParts.push(div.division_type);
+            }
+            var daysText = formatGameDays(div.typical_game_days);
+            if (daysText) {
+              detailsParts.push(daysText);
+            }
+            var timeText = formatGameTimeRange(div.typical_game_time_start, div.typical_game_time_end);
+            if (timeText) {
+              detailsParts.push(timeText);
+            }
+            if (detailsParts.length > 0) {
+              var infoSpan = document.createElement('span');
+              infoSpan.textContent = ' (' + detailsParts.join(' | ') + ')';
+              divItem.appendChild(infoSpan);
+            }
+
+            divList.appendChild(divItem);
+          }
+          container.appendChild(divList);
+        }
+      }
+
+      function scrollSelectedGymIntoView() {
+        if (!selectedGymId) {
+          return;
+        }
+        var selector = 'a[data-action="select-gym"][data-gym-id="' + selectedGymId + '"]';
+        var link = document.querySelector(selector);
+        if (link && link.scrollIntoView) {
+          try {
+            link.scrollIntoView({ block: 'start' });
+          } catch (e) {
+            link.scrollIntoView(true);
+          }
+        }
+      }
+
+      function updateUrlFromState() {
+        try {
+          var params = new URLSearchParams(window.location.search);
+          if (selectedGymId) {
+            params.set('gymId', selectedGymId);
+          } else {
+            params.delete('gymId');
+          }
+          if (selectedCourtId) {
+            params.set('courtId', selectedCourtId);
+          } else {
+            params.delete('courtId');
+          }
+          var newQuery = params.toString();
+          var newUrl = window.location.pathname + (newQuery ? '?' + newQuery : '');
+          if (window.history && window.history.replaceState) {
+            window.history.replaceState({ gymId: selectedGymId, courtId: selectedCourtId }, '', newUrl);
+          } else {
+            window.location.search = newQuery;
+          }
+        } catch (e) {
+          console.error('Unable to update URL parameters', e);
+        }
+      }
+
+      function applySelectionFromUrl(options) {
+        if (!gyms || gyms.length === 0) {
+          return;
+        }
+        var opts = options || {};
+        var params = new URLSearchParams(window.location.search);
+        var urlGymId = params.get('gymId');
+        var urlCourtId = params.get('courtId');
+        var resolvedGymId = null;
+        var resolvedCourtId = null;
+
+        if (urlGymId) {
+          var urlGym = findGymById(urlGymId);
+          if (urlGym) {
+            resolvedGymId = urlGymId;
+            if (urlCourtId) {
+              var k;
+              var courts = urlGym.courts || [];
+              for (k = 0; k < courts.length; k += 1) {
+                if (courts[k] && courts[k].court_id === urlCourtId) {
+                  resolvedCourtId = urlCourtId;
+                  break;
+                }
+              }
+              if (!resolvedCourtId) {
+                var match = findGymByCourtId(urlCourtId);
+                if (match && match.gym && match.court) {
+                  resolvedGymId = match.gym.gym_id;
+                  resolvedCourtId = urlCourtId;
+                }
+              }
+            }
+          } else if (urlCourtId) {
+            var fallbackMatch = findGymByCourtId(urlCourtId);
+            if (fallbackMatch && fallbackMatch.gym && fallbackMatch.court) {
+              resolvedGymId = fallbackMatch.gym.gym_id;
+              resolvedCourtId = urlCourtId;
+            }
+          }
+        } else if (urlCourtId) {
+          var courtMatch = findGymByCourtId(urlCourtId);
+          if (courtMatch && courtMatch.gym && courtMatch.court) {
+            resolvedGymId = courtMatch.gym.gym_id;
+            resolvedCourtId = urlCourtId;
+          }
+        }
+
+        if (!resolvedGymId && gyms.length > 0) {
+          resolvedGymId = gyms[0].gym_id;
+        }
+
+        selectedGymId = resolvedGymId;
+        selectedCourtId = resolvedCourtId;
+
+        if (selectedGymId) {
+          ensureGymDetails(selectedGymId);
+        }
+
+        if (gymListContainer) {
+          renderGymList(gymListContainer);
+        }
+        renderSelectedGymDetails(gymDetailContainer);
+
+        if (opts.scrollIntoView && selectedGymId) {
+          scrollSelectedGymIntoView();
+        }
+
+        if (opts.updateUrl) {
+          updateUrlFromState();
+        }
+      }
+
+      function handleGymsLoaded(container) {
+        try {
+          gyms = WebsiteSDK.getGymLocationsSummary() || [];
+        } catch (e) {
+          console.error('Error loading gym locations summary', e);
+          gyms = [];
+        }
+        renderGymList(container);
+        applySelectionFromUrl({ scrollIntoView: true, updateUrl: false });
+      }
+
+      var populateElements = document.querySelectorAll('[data-populate]');
+      Array.prototype.forEach.call(populateElements, function(element) {
+        var type = element.getAttribute('data-populate');
+        if (type === 'gym-list') {
+          gymListContainer = element;
+          handleGymsLoaded(element);
+        }
+      });
+
+      initIncidentDate();
+
+      document.addEventListener('click', function(event) {
+        var target = event.target;
+        var actionElement = target.closest ? target.closest('[data-action]') : null;
+        if (!actionElement) {
+          return;
+        }
+        var action = actionElement.getAttribute('data-action');
+
+        if (action === 'select-gym') {
+          var gymId = actionElement.getAttribute('data-gym-id');
+          if (gymId) {
+            selectedGymId = gymId;
+            selectedCourtId = null;
+            ensureGymDetails(selectedGymId);
+            if (gymListContainer) {
+              renderGymList(gymListContainer);
+            }
+            renderSelectedGymDetails(gymDetailContainer);
+            updateUrlFromState();
+            scrollSelectedGymIntoView();
+          }
+        } else if (action === 'select-court') {
+          var courtId = actionElement.getAttribute('data-court-id');
+          if (courtId) {
+            selectedCourtId = courtId;
+            renderSelectedGymDetails(gymDetailContainer);
+            updateUrlFromState();
+          }
+        } else if (action === 'navigate-division-schedule') {
+          var divisionId = actionElement.getAttribute('data-division-id');
+          if (divisionId) {
+            var params = new URLSearchParams();
+            params.set('divisionId', divisionId);
+            window.location.href = 'schedule.html?' + params.toString();
+          }
+        } else if (action === 'navigate-facility-issue') {
+          if (!selectedGymId) {
+            window.alert('Please select a gym first.');
+            return;
+          }
+          var contactParams = new URLSearchParams();
+          contactParams.set('reason', 'facility_issue');
+          contactParams.set('gymId', selectedGymId);
+          if (selectedCourtId) {
+            contactParams.set('gymCourtId', selectedCourtId);
+          }
+          if (incidentDate) {
+            contactParams.set('dateOfIncident', incidentDate);
+          }
+          contactParams.set('gameStartTime', '20:00');
+          window.location.href = 'contact.html?' + contactParams.toString();
+        } else if (action === 'navigate-lost-and-found') {
+          if (!selectedGymId) {
+            window.alert('Please select a gym first.');
+            return;
+          }
+          var lfParams = new URLSearchParams();
+          lfParams.set('reason', 'lost_and_found');
+          lfParams.set('gymId', selectedGymId);
+          if (selectedCourtId) {
+            lfParams.set('gymCourtId', selectedCourtId);
+          }
+          window.location.href = 'contact.html?' + lfParams.toString();
+        }
+      });
+
+      document.addEventListener('change', function(event) {
+        var target = event.target;
+        var action = target.getAttribute('data-action');
+        if (action === 'change-incident-date') {
+          incidentDate = target.value || null;
+        }
+      });
+
+      window.addEventListener('popstate', function() {
+        if (!gyms || gyms.length === 0) {
+          return;
+        }
+        applySelectionFromUrl({ scrollIntoView: true, updateUrl: false });
+      });
+    });
+  </script>
+</body>
+</html>

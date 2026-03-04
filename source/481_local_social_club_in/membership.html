@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Membership Plans - Local Social Club</title>
+  <meta name="description" content="Browse and compare membership plans, filter by amenities and price, sort results, and open a specific plan’s detail page.">
+  
+  <link rel="stylesheet" href="membership.css">
+</head>
+<body>
+  <div class="page">
+    <header class="site-header">
+      <div class="card header-banner">
+        <h1 class="site-title">Local Social Club</h1>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar sidebar-left">
+        <div class="card nav-card">
+          <nav class="primary-nav" aria-label="Main navigation">
+            <ul>
+              <li><a href="index.html">Home</a></li>
+              <li><a href="classes.html">Classes &amp; Activities</a></li>
+              <li><a href="workshops.html">Workshops &amp; Classes</a></li>
+              <li><a href="clubs.html">Clubs &amp; Groups</a></li>
+              <li><a href="membership.html">Membership</a></li>
+              <li><a href="volunteer.html">Volunteer</a></li>
+              <li><a href="rooms.html">Facilities &amp; Room Booking</a></li>
+              <li><a href="news.html?categoryId=all">News</a></li>
+              <li><a href="forums.html">Community</a></li>
+              <li><a href="newsletter.html">Newsletter</a></li>
+            </ul>
+          </nav>
+        </div>
+
+        <!-- Filter sidebar / membership-filter-loader -->
+        <div class="card filter-card" data-component="filter-sidebar" data-populate="membership-filters">
+          <h2 class="card-title">Filter Memberships</h2>
+          <p>Loading filter options...</p>
+        </div>
+      </aside>
+
+      <main id="content" class="content-column" role="main">
+        <!-- membership-page-init -->
+        <section class="card membership-intro-card" data-component="membership-page-init">
+          <h2 class="card-title">Membership Plans</h2>
+          <p>Browse our available membership plans, adjust the filters, and click a plan to view full details and join.</p>
+        </section>
+
+        <!-- results-summary -->
+        <section class="card results-summary-card" data-component="results-summary">
+          <p>Loading membership plans...</p>
+        </section>
+
+        <!-- sort-control -->
+        <section class="card sort-control-card" data-component="sort-control">
+          <p>Loading sort options...</p>
+        </section>
+
+        <!-- active-filter-summary -->
+        <section class="card active-filter-summary-card" data-component="active-filter-summary">
+          <p>Loading filter summary...</p>
+        </section>
+
+        <!-- membership list loader / error / empty / list -->
+        <section class="card membership-list-loader-card" data-component="membership-plan-list-loader">
+          <p>Loading membership plans...</p>
+        </section>
+
+        <section class="card membership-error-card" data-component="error-state-handler" hidden>
+          <h2 class="card-title">Problem loading membership plans</h2>
+          <p>There was a problem loading the membership plans. Please try again.</p>
+          <p><a href="javascript:void(0)" data-action="retry-load-plans">Try again</a></p>
+        </section>
+
+        <section class="card membership-empty-card" data-component="empty-state-message" hidden>
+          <h2 class="card-title">No membership plans found</h2>
+          <p>No membership plans match your current filters.</p>
+          <p><a href="javascript:void(0)" data-action="clear-all-filters">Clear all filters and show all plans</a></p>
+        </section>
+
+        <section class="card membership-list-card" data-component="membership-plan-list" data-populate="membership-plans" hidden>
+          <!-- Membership plan cards will be injected here -->
+        </section>
+
+        <!-- pagination-controls -->
+        <section class="card pagination-card" data-component="pagination-controls" hidden>
+          <!-- Pagination controls will be rendered here -->
+        </section>
+      </main>
+
+      <aside class="sidebar sidebar-right">
+        <!-- Right sidebar intentionally left minimal/empty for this page -->
+      </aside>
+    </div>
+
+    <footer class="site-footer">
+      <div class="card footer-card">
+        <nav class="footer-nav" aria-label="Footer navigation">
+          <ul>
+            <li><a href="index.html">Home</a></li>
+            <li><a href="membership.html">Membership Info</a></li>
+            <li><a href="rooms.html">Room Use &amp; Booking</a></li>
+            <li><a href="volunteer.html">Volunteer Info</a></li>
+            <li><a href="news.html?categoryId=all">News Archive</a></li>
+            <li><a href="newsletter.html">Email Preferences</a></li>
+          </ul>
+        </nav>
+        <p class="footer-meta">&copy; <span class="footer-year">2024</span> Local Social Club. All rights reserved.</p>
+      </div>
+    </footer>
+  </div>
+
+  <script src="business_logic.js"></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Map data-populate elements
+    const populateElements = document.querySelectorAll('[data-populate]');
+    let filterSidebarContainer = null;
+    let membershipListContainer = null;
+
+    populateElements.forEach(function(element) {
+      const dataType = element.dataset.populate;
+      if (dataType === 'membership-filters') {
+        filterSidebarContainer = element;
+      } else if (dataType === 'membership-plans') {
+        membershipListContainer = element;
+      }
+    });
+
+    const resultsSummaryContainer = document.querySelector('[data-component="results-summary"]');
+    const sortControlContainer = document.querySelector('[data-component="sort-control"]');
+    const activeFilterSummaryContainer = document.querySelector('[data-component="active-filter-summary"]');
+    const listLoaderCard = document.querySelector('[data-component="membership-plan-list-loader"]');
+    const listErrorCard = document.querySelector('[data-component="error-state-handler"]');
+    const listEmptyCard = document.querySelector('[data-component="empty-state-message"]');
+    const paginationContainer = document.querySelector('[data-component="pagination-controls"]');
+
+    let filterOptions = null;
+    let currentState = null;
+
+    function escapeHtml(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function getDefaultSortValue() {
+      if (filterOptions && Array.isArray(filterOptions.sort_options) && filterOptions.sort_options.length > 0) {
+        return filterOptions.sort_options[0].value || 'price_monthly_asc';
+      }
+      return 'price_monthly_asc';
+    }
+
+    function getSuggestedMin() {
+      if (filterOptions && filterOptions.price_range_suggestions && typeof filterOptions.price_range_suggestions.min === 'number') {
+        return filterOptions.price_range_suggestions.min;
+      }
+      return null;
+    }
+
+    function getSuggestedMax() {
+      if (filterOptions && filterOptions.price_range_suggestions && typeof filterOptions.price_range_suggestions.max === 'number') {
+        return filterOptions.price_range_suggestions.max;
+      }
+      return null;
+    }
+
+    function getPriceStep() {
+      if (filterOptions && filterOptions.price_range_suggestions && typeof filterOptions.price_range_suggestions.step === 'number') {
+        return filterOptions.price_range_suggestions.step;
+      }
+      return 1;
+    }
+
+    function parseUrlState() {
+      const params = new URLSearchParams(window.location.search);
+      const state = {
+        amenityKeys: [],
+        minMonthlyPrice: null,
+        maxMonthlyPrice: null,
+        sortBy: getDefaultSortValue(),
+        page: 1,
+        pageSize: 10,
+        total: 0
+      };
+
+      // amenities: comma-separated list
+      const amenitiesParam = params.get('amenities');
+      if (amenitiesParam) {
+        let keys = amenitiesParam.split(',').map(function(k) { return k.trim(); }).filter(function(k) { return k.length > 0; });
+        if (filterOptions && Array.isArray(filterOptions.amenities) && filterOptions.amenities.length > 0) {
+          const validKeys = new Set(filterOptions.amenities.map(function(a) { return a.key; }));
+          keys = keys.filter(function(k) { return validKeys.has(k); });
+        }
+        state.amenityKeys = keys;
+      }
+
+      // price range
+      const minParam = params.get('minMonthlyPrice');
+      const maxParam = params.get('maxMonthlyPrice');
+      if (minParam !== null) {
+        const num = parseFloat(minParam);
+        if (!isNaN(num)) {
+          state.minMonthlyPrice = num;
+        }
+      }
+      if (maxParam !== null) {
+        const num = parseFloat(maxParam);
+        if (!isNaN(num)) {
+          state.maxMonthlyPrice = num;
+        }
+      }
+      if (state.minMonthlyPrice === null) {
+        const suggestedMin = getSuggestedMin();
+        if (suggestedMin !== null) {
+          state.minMonthlyPrice = suggestedMin;
+        }
+      }
+      if (state.maxMonthlyPrice === null) {
+        const suggestedMax = getSuggestedMax();
+        if (suggestedMax !== null) {
+          state.maxMonthlyPrice = suggestedMax;
+        }
+      }
+
+      // sortBy
+      const sortParam = params.get('sortBy');
+      if (sortParam) {
+        let isValid = true;
+        if (filterOptions && Array.isArray(filterOptions.sort_options) && filterOptions.sort_options.length > 0) {
+          isValid = filterOptions.sort_options.some(function(opt) { return opt.value === sortParam; });
+        }
+        state.sortBy = isValid ? sortParam : getDefaultSortValue();
+      }
+
+      // page
+      const pageParam = params.get('page');
+      if (pageParam) {
+        const num = parseInt(pageParam, 10);
+        if (!isNaN(num) && num > 0) {
+          state.page = num;
+        }
+      }
+
+      // pageSize
+      const pageSizeParam = params.get('pageSize');
+      if (pageSizeParam) {
+        const num = parseInt(pageSizeParam, 10);
+        if (!isNaN(num) && num > 0) {
+          state.pageSize = num;
+        }
+      }
+
+      return state;
+    }
+
+    function updateUrlFromState(replace) {
+      const params = new URLSearchParams();
+      if (currentState.amenityKeys && currentState.amenityKeys.length > 0) {
+        params.set('amenities', currentState.amenityKeys.join(','));
+      }
+      if (currentState.minMonthlyPrice != null) {
+        params.set('minMonthlyPrice', String(currentState.minMonthlyPrice));
+      }
+      if (currentState.maxMonthlyPrice != null) {
+        params.set('maxMonthlyPrice', String(currentState.maxMonthlyPrice));
+      }
+      if (currentState.sortBy) {
+        params.set('sortBy', currentState.sortBy);
+      }
+      if (currentState.page && currentState.page !== 1) {
+        params.set('page', String(currentState.page));
+      }
+      if (currentState.pageSize && currentState.pageSize !== 10) {
+        params.set('pageSize', String(currentState.pageSize));
+      }
+      const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+      if (replace) {
+        window.history.replaceState(null, '', newUrl);
+      } else {
+        window.history.pushState(null, '', newUrl);
+      }
+    }
+
+    function renderFilterSidebar(container) {
+      if (!container) {
+        return;
+      }
+      if (!filterOptions) {
+        container.innerHTML = '<h2 class="card-title">Filter Memberships</h2><p>Loading filter options...</p>';
+        attachActionHandlers(container);
+        return;
+      }
+
+      const amenities = Array.isArray(filterOptions.amenities) ? filterOptions.amenities : [];
+      const amenityHtml = amenities.map(function(a) {
+        const checked = currentState.amenityKeys.indexOf(a.key) !== -1 ? ' checked' : '';
+        return '<label class="amenity-option"><input type="checkbox" data-action="toggle-amenity" data-amenity-key="' + escapeHtml(a.key) + '"' + checked + '> ' + escapeHtml(a.label) + '</label><br>';
+      }).join('');
+
+      const suggestedMin = getSuggestedMin();
+      const suggestedMax = getSuggestedMax();
+      const step = getPriceStep();
+      const minVal = currentState.minMonthlyPrice != null ? currentState.minMonthlyPrice : '';
+      const maxVal = currentState.maxMonthlyPrice != null ? currentState.maxMonthlyPrice : '';
+
+      container.innerHTML = (
+        '<h2 class="card-title">Filter Memberships</h2>' +
+        '<div class="filter-section">' +
+          '<p><strong>Amenities</strong></p>' +
+          '<div class="amenities-list">' +
+            (amenityHtml || '<p>No amenity filters available.</p>') +
+          '</div>' +
+        '</div>' +
+        '<div class="filter-section">' +
+          '<p><strong>Monthly Price Range</strong></p>' +
+          '<p class="filter-helper">Suggested: ' +
+            (suggestedMin != null && suggestedMax != null ? ('$' + suggestedMin + ' - $' + suggestedMax) : 'n/a') +
+          '</p>' +
+          '<p>Min: <input type="number" min="0" step="' + step + '" value="' + (minVal !== '' ? escapeHtml(minVal) : '') + '" data-action="change-price-min"></p>' +
+          '<p>Max: <input type="number" min="0" step="' + step + '" value="' + (maxVal !== '' ? escapeHtml(maxVal) : '') + '" data-action="change-price-max"></p>' +
+          '<p><a href="javascript:void(0)" data-action="commit-price-range">Apply price range</a></p>' +
+          '<p><a href="javascript:void(0)" data-action="reset-price-filter">Reset price to suggested range</a></p>' +
+        '</div>' +
+        '<p><a href="javascript:void(0)" data-action="clear-all-filters">Clear all filters</a></p>'
+      );
+      attachActionHandlers(container);
+    }
+
+    function renderFilterSidebarError(container, message) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = (
+        '<h2 class="card-title">Filter Memberships</h2>' +
+        '<p>' + escapeHtml(message) + '</p>' +
+        '<p><a href="javascript:void(0)" data-action="retry-load-filters">Try again</a></p>'
+      );
+      attachActionHandlers(container);
+    }
+
+    function renderSortControl(container) {
+      if (!container) {
+        return;
+      }
+      if (!filterOptions || !Array.isArray(filterOptions.sort_options) || filterOptions.sort_options.length === 0) {
+        container.innerHTML = '<p>Sorting is currently unavailable.</p>';
+        return;
+      }
+      const optionsHtml = filterOptions.sort_options.map(function(opt) {
+        const selected = opt.value === currentState.sortBy ? ' selected' : '';
+        return '<option value="' + escapeHtml(opt.value) + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
+      }).join('');
+
+      container.innerHTML = (
+        '<div class="sort-control-inner">' +
+          '<span class="sort-label">Sort by:</span> ' +
+          '<select data-action="change-sort">' + optionsHtml + '</select>' +
+        '</div>'
+      );
+      attachActionHandlers(container);
+    }
+
+    function renderActiveFilterSummary(container) {
+      if (!container) {
+        return;
+      }
+      if (!filterOptions) {
+        container.innerHTML = '<p>Loading filter summary...</p>';
+        return;
+      }
+
+      const amenityLabelsByKey = {};
+      if (Array.isArray(filterOptions.amenities)) {
+        filterOptions.amenities.forEach(function(a) {
+          amenityLabelsByKey[a.key] = a.label;
+        });
+      }
+
+      const summaryParts = [];
+
+      if (currentState.amenityKeys && currentState.amenityKeys.length > 0) {
+        const chips = currentState.amenityKeys.map(function(key) {
+          const label = amenityLabelsByKey[key] || key;
+          return '<a href="javascript:void(0)" data-action="remove-amenity-filter" data-amenity-key="' + escapeHtml(key) + '">[x] ' + escapeHtml(label) + '</a>';
+        }).join(' ');
+        summaryParts.push('<span class="summary-label">Amenities:</span> ' + chips);
+      }
+
+      const suggestedMin = getSuggestedMin();
+      const suggestedMax = getSuggestedMax();
+      const minActive = currentState.minMonthlyPrice != null;
+      const maxActive = currentState.maxMonthlyPrice != null;
+      const priceIsDefault = (
+        suggestedMin != null && suggestedMax != null &&
+        currentState.minMonthlyPrice === suggestedMin &&
+        currentState.maxMonthlyPrice === suggestedMax
+      );
+
+      if (minActive || maxActive) {
+        const rangeText = '$' + (currentState.minMonthlyPrice != null ? currentState.minMonthlyPrice : '0') +
+          ' - $' + (currentState.maxMonthlyPrice != null ? currentState.maxMonthlyPrice : 'no max');
+        const pricePart = '<span class="summary-label">Monthly price:</span> ' + escapeHtml(rangeText) +
+          (priceIsDefault ? '' : ' (<a href="javascript:void(0)" data-action="reset-price-filter">reset</a>)');
+        summaryParts.push(pricePart);
+      }
+
+      if (filterOptions && Array.isArray(filterOptions.sort_options) && filterOptions.sort_options.length > 0 && currentState.sortBy) {
+        const sortOption = filterOptions.sort_options.find(function(opt) { return opt.value === currentState.sortBy; });
+        if (sortOption) {
+          summaryParts.push('<span class="summary-label">Sorted by:</span> ' + escapeHtml(sortOption.label));
+        }
+      }
+
+      if (summaryParts.length === 0) {
+        container.innerHTML = '<p>No filters applied. All membership plans are shown.</p>';
+      } else {
+        container.innerHTML = (
+          '<div class="active-filters">' +
+            summaryParts.join(' &nbsp;|&nbsp; ') +
+          '</div>' +
+          '<p class="summary-actions"><a href="javascript:void(0)" data-action="clear-all-filters">Clear all filters</a></p>'
+        );
+      }
+      attachActionHandlers(container);
+    }
+
+    function renderResultsSummary(container, total, page, pageSize) {
+      if (!container) {
+        return;
+      }
+      if (total === 0) {
+        container.innerHTML = '<p>0 membership plans found.</p>';
+        return;
+      }
+      const start = (page - 1) * pageSize + 1;
+      const end = Math.min(total, page * pageSize);
+      container.innerHTML = '<p>Showing ' + start + '–' + end + ' of ' + total + ' membership plans.</p>';
+    }
+
+    function renderMembershipPlans(container, plans) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+      if (!plans || plans.length === 0) {
+        return;
+      }
+      plans.forEach(function(plan) {
+        const card = document.createElement('article');
+        card.className = 'membership-plan-card';
+        card.setAttribute('data-component', 'membership-plan-card');
+        card.setAttribute('data-action', 'open-plan-detail');
+        card.setAttribute('data-plan-id', plan.id);
+
+        const priceText = plan.currency === 'usd'
+          ? ('$' + plan.monthly_price.toFixed(2) + ' / month')
+          : (plan.monthly_price.toFixed(2) + ' ' + plan.currency + ' / month');
+
+        const enrollmentFeeText = (typeof plan.enrollment_fee === 'number')
+          ? ('$' + plan.enrollment_fee.toFixed(2))
+          : 'None';
+
+        const termText = (typeof plan.term_length_months === 'number')
+          ? (plan.term_length_months + ' month' + (plan.term_length_months === 1 ? '' : 's'))
+          : 'Flexible term';
+
+        let amenitiesText = '';
+        if (Array.isArray(plan.amenities_labels) && plan.amenities_labels.length > 0) {
+          amenitiesText = plan.amenities_labels.map(function(label) { return escapeHtml(label); }).join(', ');
+        } else {
+          amenitiesText = 'Standard club access';
+        }
+
+        const statusLabel = plan.status === 'active' ? 'Active' : 'Inactive';
+        const bestValueFlag = plan.is_best_value
+          ? '<p class="best-value-flag">BEST VALUE</p>'
+          : '';
+
+        const description = plan.description ? plan.description : '';
+
+        card.innerHTML = (
+          '<h3 class="plan-name">' + escapeHtml(plan.name) + '</h3>' +
+          bestValueFlag +
+          '<p class="plan-price">' + escapeHtml(priceText) + '</p>' +
+          '<p class="plan-term">Term: ' + escapeHtml(termText) + '</p>' +
+          '<p class="plan-enrollment">Enrollment fee: ' + escapeHtml(enrollmentFeeText) + '</p>' +
+          '<p class="plan-status">Status: ' + escapeHtml(statusLabel) + '</p>' +
+          '<p class="plan-amenities"><strong>Amenities:</strong> ' + amenitiesText + '</p>' +
+          (description ? '<p class="plan-description">' + escapeHtml(description) + '</p>' : '') +
+          '<p class="plan-detail-link"><a href="javascript:void(0)" data-action="open-plan-detail" data-plan-id="' + escapeHtml(plan.id) + '">View details and join</a></p>'
+        );
+
+        container.appendChild(card);
+      });
+      attachActionHandlers(container);
+    }
+
+    function renderPagination(container, total, page, pageSize) {
+      if (!container) {
+        return;
+      }
+      if (!total || total <= 0) {
+        container.innerHTML = '';
+        container.hidden = true;
+        return;
+      }
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      const sizes = [10, 20, 50];
+
+      const perPageOptions = sizes.map(function(size) {
+        const selected = size === pageSize ? ' selected' : '';
+        return '<option value="' + size + '"' + selected + '>' + size + '</option>';
+      }).join('');
+
+      let pagesHtml = '';
+      for (var p = 1; p <= totalPages; p++) {
+        if (p === page) {
+          pagesHtml += '<span class="pagination-current">' + p + '</span> ';
+        } else {
+          pagesHtml += '<a href="javascript:void(0)" data-action="change-page" data-page="' + p + '">' + p + '</a> ';
+        }
+      }
+
+      const prevHtml = page > 1
+        ? '<a href="javascript:void(0)" data-action="previous-page">Previous</a>'
+        : '<span class="pagination-disabled">Previous</span>';
+
+      const nextHtml = page < totalPages
+        ? '<a href="javascript:void(0)" data-action="next-page">Next</a>'
+        : '<span class="pagination-disabled">Next</span>';
+
+      container.innerHTML = (
+        '<div class="pagination-top-row">' +
+          '<span>Page ' + page + ' of ' + totalPages + '</span>' +
+          '<span class="pagination-page-size">&nbsp; Per page: ' +
+            '<select data-action="change-page-size">' + perPageOptions + '</select>' +
+          '</span>' +
+        '</div>' +
+        '<div class="pagination-links">' +
+          prevHtml + ' ' + pagesHtml + nextHtml +
+        '</div>'
+      );
+      container.hidden = false;
+      attachActionHandlers(container);
+    }
+
+    function showListState(state) {
+      if (listLoaderCard) {
+        listLoaderCard.hidden = state !== 'loading';
+      }
+      if (listErrorCard) {
+        listErrorCard.hidden = state !== 'error';
+      }
+      if (listEmptyCard) {
+        listEmptyCard.hidden = state !== 'empty';
+      }
+      if (membershipListContainer) {
+        membershipListContainer.hidden = state !== 'list';
+      }
+      if (paginationContainer) {
+        paginationContainer.hidden = state !== 'list';
+      }
+    }
+
+    function fetchAndRenderPlans() {
+      if (!membershipListContainer) {
+        return;
+      }
+      showListState('loading');
+      if (resultsSummaryContainer) {
+        resultsSummaryContainer.innerHTML = '<p>Loading membership plans...</p>';
+      }
+      try {
+        const response = WebsiteSDK.listMembershipPlans(
+          currentState.amenityKeys,
+          currentState.minMonthlyPrice,
+          currentState.maxMonthlyPrice,
+          currentState.sortBy,
+          currentState.page,
+          currentState.pageSize
+        );
+
+        currentState.page = response.page;
+        currentState.pageSize = response.pageSize;
+        currentState.total = response.total;
+
+        updateUrlFromState(true);
+
+        if (!response.results || response.results.length === 0) {
+          showListState('empty');
+          if (resultsSummaryContainer) {
+            renderResultsSummary(resultsSummaryContainer, response.total, response.page, response.pageSize);
+          }
+          if (activeFilterSummaryContainer) {
+            renderActiveFilterSummary(activeFilterSummaryContainer);
+          }
+          return;
+        }
+
+        renderMembershipPlans(membershipListContainer, response.results);
+        if (paginationContainer) {
+          renderPagination(paginationContainer, response.total, response.page, response.pageSize);
+        }
+        if (resultsSummaryContainer) {
+          renderResultsSummary(resultsSummaryContainer, response.total, response.page, response.pageSize);
+        }
+        if (activeFilterSummaryContainer) {
+          renderActiveFilterSummary(activeFilterSummaryContainer);
+        }
+        showListState('list');
+      } catch (err) {
+        const message = err && err.message ? err.message : 'Unable to load membership plans at this time.';
+        if (listErrorCard) {
+          listErrorCard.innerHTML = (
+            '<h2 class="card-title">Problem loading membership plans</h2>' +
+            '<p>' + escapeHtml(message) + '</p>' +
+            '<p><a href="javascript:void(0)" data-action="retry-load-plans">Try again</a></p>'
+          );
+          attachActionHandlers(listErrorCard);
+        }
+        if (resultsSummaryContainer) {
+          resultsSummaryContainer.innerHTML = '<p>There was a problem loading membership plans.</p>';
+        }
+        showListState('error');
+      }
+    }
+
+    function onFiltersChanged() {
+      currentState.page = 1;
+      updateUrlFromState(false);
+      if (activeFilterSummaryContainer) {
+        renderActiveFilterSummary(activeFilterSummaryContainer);
+      }
+      fetchAndRenderPlans();
+    }
+
+    function handleClickAction(event) {
+      const target = event.currentTarget;
+      const action = target.dataset.action;
+      if (!action) {
+        return;
+      }
+      event.preventDefault();
+
+      if (action === 'clear-all-filters') {
+        if (filterOptions) {
+          const suggestions = filterOptions.price_range_suggestions || {};
+          currentState.amenityKeys = [];
+          currentState.minMonthlyPrice = typeof suggestions.min === 'number' ? suggestions.min : null;
+          currentState.maxMonthlyPrice = typeof suggestions.max === 'number' ? suggestions.max : null;
+          currentState.sortBy = getDefaultSortValue();
+          currentState.page = 1;
+          currentState.pageSize = currentState.pageSize || 10;
+          renderFilterSidebar(filterSidebarContainer);
+          if (sortControlContainer) {
+            renderSortControl(sortControlContainer);
+          }
+          if (activeFilterSummaryContainer) {
+            renderActiveFilterSummary(activeFilterSummaryContainer);
+          }
+          onFiltersChanged();
+        }
+      } else if (action === 'commit-price-range') {
+        onFiltersChanged();
+      } else if (action === 'reset-price-filter') {
+        if (filterOptions) {
+          const suggestions = filterOptions.price_range_suggestions || {};
+          currentState.minMonthlyPrice = typeof suggestions.min === 'number' ? suggestions.min : null;
+          currentState.maxMonthlyPrice = typeof suggestions.max === 'number' ? suggestions.max : null;
+        } else {
+          currentState.minMonthlyPrice = null;
+          currentState.maxMonthlyPrice = null;
+        }
+        renderFilterSidebar(filterSidebarContainer);
+        if (activeFilterSummaryContainer) {
+          renderActiveFilterSummary(activeFilterSummaryContainer);
+        }
+        onFiltersChanged();
+      } else if (action === 'remove-amenity-filter') {
+        const key = target.dataset.amenityKey;
+        if (key && currentState.amenityKeys) {
+          currentState.amenityKeys = currentState.amenityKeys.filter(function(k) { return k !== key; });
+          renderFilterSidebar(filterSidebarContainer);
+          if (activeFilterSummaryContainer) {
+            renderActiveFilterSummary(activeFilterSummaryContainer);
+          }
+          onFiltersChanged();
+        }
+      } else if (action === 'change-page') {
+        const pageStr = target.dataset.page;
+        const newPage = parseInt(pageStr, 10);
+        if (!isNaN(newPage) && newPage > 0 && newPage !== currentState.page) {
+          currentState.page = newPage;
+          updateUrlFromState(false);
+          fetchAndRenderPlans();
+        }
+      } else if (action === 'next-page') {
+        const totalPages = currentState && currentState.total
+          ? Math.max(1, Math.ceil(currentState.total / currentState.pageSize))
+          : 1;
+        if (currentState.page < totalPages) {
+          currentState.page += 1;
+          updateUrlFromState(false);
+          fetchAndRenderPlans();
+        }
+      } else if (action === 'previous-page') {
+        if (currentState.page > 1) {
+          currentState.page -= 1;
+          updateUrlFromState(false);
+          fetchAndRenderPlans();
+        }
+      } else if (action === 'open-plan-detail') {
+        const planId = target.dataset.planId;
+        if (planId) {
+          window.location.href = 'membership_detail.html?id=' + encodeURIComponent(planId);
+        }
+      } else if (action === 'retry-load-plans') {
+        fetchAndRenderPlans();
+      } else if (action === 'retry-load-filters') {
+        reloadFilterOptions();
+      }
+    }
+
+    function handleChangeAction(event) {
+      const target = event.currentTarget;
+      const action = target.dataset.action;
+      if (!action) {
+        return;
+      }
+
+      if (action === 'toggle-amenity') {
+        const key = target.dataset.amenityKey;
+        if (!key) {
+          return;
+        }
+        if (!currentState.amenityKeys) {
+          currentState.amenityKeys = [];
+        }
+        if (target.checked) {
+          if (currentState.amenityKeys.indexOf(key) === -1) {
+            currentState.amenityKeys.push(key);
+          }
+        } else {
+          currentState.amenityKeys = currentState.amenityKeys.filter(function(k) { return k !== key; });
+        }
+        if (activeFilterSummaryContainer) {
+          renderActiveFilterSummary(activeFilterSummaryContainer);
+        }
+        onFiltersChanged();
+      } else if (action === 'change-price-min') {
+        const val = target.value;
+        const num = val === '' ? null : parseFloat(val);
+        currentState.minMonthlyPrice = isNaN(num) ? null : num;
+      } else if (action === 'change-price-max') {
+        const val = target.value;
+        const num = val === '' ? null : parseFloat(val);
+        currentState.maxMonthlyPrice = isNaN(num) ? null : num;
+      } else if (action === 'change-sort') {
+        const sortVal = target.value;
+        currentState.sortBy = sortVal;
+        currentState.page = 1;
+        updateUrlFromState(false);
+        if (activeFilterSummaryContainer) {
+          renderActiveFilterSummary(activeFilterSummaryContainer);
+        }
+        fetchAndRenderPlans();
+      } else if (action === 'change-page-size') {
+        const val = parseInt(target.value, 10);
+        if (!isNaN(val) && val > 0) {
+          currentState.pageSize = val;
+          currentState.page = 1;
+          updateUrlFromState(false);
+          fetchAndRenderPlans();
+        }
+      }
+    }
+
+    function attachActionHandlers(root) {
+      if (!root || !root.querySelectorAll) {
+        return;
+      }
+      const elements = root.querySelectorAll('[data-action]');
+      elements.forEach(function(el) {
+        if (el.dataset.actionBound === 'true') {
+          return;
+        }
+        const action = el.dataset.action;
+        if (!action) {
+          return;
+        }
+        if (
+          action === 'toggle-amenity' ||
+          action === 'change-price-min' ||
+          action === 'change-price-max' ||
+          action === 'change-sort' ||
+          action === 'change-page-size'
+        ) {
+          el.addEventListener('change', handleChangeAction);
+        } else {
+          el.addEventListener('click', handleClickAction);
+        }
+        el.dataset.actionBound = 'true';
+      });
+    }
+
+    function reloadFilterOptions() {
+      try {
+        filterOptions = WebsiteSDK.getMembershipFilterOptions();
+        currentState = parseUrlState();
+        updateUrlFromState(true);
+        renderFilterSidebar(filterSidebarContainer);
+        if (sortControlContainer) {
+          renderSortControl(sortControlContainer);
+        }
+        if (activeFilterSummaryContainer) {
+          renderActiveFilterSummary(activeFilterSummaryContainer);
+        }
+        fetchAndRenderPlans();
+      } catch (err) {
+        const message = err && err.message ? err.message : 'Unable to load filter options at this time.';
+        renderFilterSidebarError(filterSidebarContainer, message);
+      }
+    }
+
+    function initPage() {
+      try {
+        filterOptions = WebsiteSDK.getMembershipFilterOptions();
+      } catch (err) {
+        const message = err && err.message ? err.message : 'Unable to load filter options at this time.';
+        renderFilterSidebarError(filterSidebarContainer, message);
+        // Fallback state without filterOptions
+        currentState = parseUrlState();
+        updateUrlFromState(true);
+        fetchAndRenderPlans();
+        attachActionHandlers(document);
+        return;
+      }
+
+      currentState = parseUrlState();
+      updateUrlFromState(true);
+
+      renderFilterSidebar(filterSidebarContainer);
+      if (sortControlContainer) {
+        renderSortControl(sortControlContainer);
+      }
+      if (activeFilterSummaryContainer) {
+        renderActiveFilterSummary(activeFilterSummaryContainer);
+      }
+      if (resultsSummaryContainer) {
+        resultsSummaryContainer.innerHTML = '<p>Loading membership plans...</p>';
+      }
+
+      fetchAndRenderPlans();
+      attachActionHandlers(document);
+    }
+
+    window.addEventListener('popstate', function() {
+      if (!filterOptions) {
+        return;
+      }
+      currentState = parseUrlState();
+      renderFilterSidebar(filterSidebarContainer);
+      if (sortControlContainer) {
+        renderSortControl(sortControlContainer);
+      }
+      if (activeFilterSummaryContainer) {
+        renderActiveFilterSummary(activeFilterSummaryContainer);
+      }
+      fetchAndRenderPlans();
+    });
+
+    initPage();
+  });
+  </script>
+</body>
+</html>

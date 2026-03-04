@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Game Roadmap &amp; Community</title>
+
+  <!-- Typography -->
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&amp;family=Cormorant+Garamond:wght@400;500;600&amp;family=Source+Code+Pro:wght@400;600&amp;display=swap' rel='stylesheet'>
+
+  <!-- Site styles -->
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='community_post.css'>
+</head>
+<body class='site'>
+  <header class='site-header'>
+    <div class='header-inner container'>
+      <nav class='primary-nav' aria-label='Main navigation'>
+        <ul class='nav-list'>
+          <li class='nav-item'>
+            <a href='index.html' class='nav-link'>Home</a>
+          </li>
+          <li class='nav-item'>
+            <a href='roadmap.html' class='nav-link'>Roadmap</a>
+          </li>
+          <li class='nav-item'>
+            <a href='community.html' class='nav-link'>Community</a>
+          </li>
+          <li class='nav-item'>
+            <a href='updates.html' class='nav-link'>Updates</a>
+          </li>
+          <li class='nav-item'>
+            <a href='watchlist.html' class='nav-link'>Watchlist</a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-content container' tabindex='-1'>
+    <div class='community-post-detail layout-column' data-component='community-post-detail-controller'>
+      <!-- Breadcrumb -->
+      <section class='community-breadcrumb-row' data-component='community-breadcrumb-nav'>
+        <a href='javascript:void(0)' class='breadcrumb-link' data-action='breadcrumb-back' data-populate='breadcrumb'>Back to Community</a>
+      </section>
+
+      <!-- Community Post Mode -->
+      <article class='community-post-shell' data-component='community-post'>
+        <header class='community-post-header hero-header' data-component='community-post-header' data-populate='post-header'>
+          <!-- Filled via JS -->
+        </header>
+
+        <!-- Follow toggle band (bug reports only) -->
+        <div class='bug-follow-band' data-component='bug-report-follow-toggle' data-populate='follow-toggle'>
+          <!-- Follow / Unfollow pill button injected here -->
+        </div>
+
+        <!-- Post body -->
+        <section class='community-post-body reading-block' data-component='community-post-body' data-populate='post-body'>
+          <!-- Full post content injected here -->
+        </section>
+
+        <!-- Comments -->
+        <section class='comments-section' aria-label='Comments'>
+          <header class='comments-header'>
+            <h2 class='comments-title'>Comments</h2>
+            <span class='comments-count' data-populate='comments-count'></span>
+          </header>
+
+          <div class='comments-thread' data-component='comments-thread' data-populate='comments-thread' aria-live='polite'>
+            <!-- Threaded comments injected here -->
+          </div>
+        </section>
+
+        <!-- Comment editor at bottom of thread -->
+        <section class='comment-editor-section' data-component='comment-reply-editor' data-populate='comment-editor'>
+          <!-- Comment form injected here -->
+        </section>
+      </article>
+
+      <!-- Poll Mode -->
+      <section class='poll-detail-wrapper' data-component='poll-detail-view' data-populate='poll-detail' hidden>
+        <!-- Poll header + options injected here -->
+      </section>
+
+      <section class='poll-vote-wrapper' data-component='poll-vote-controller' data-populate='poll-vote' hidden>
+        <!-- Poll vote controls injected here -->
+      </section>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner container'>
+      <div class='footer-divider' aria-hidden='true'>
+        <span class='footer-divider-line'></span>
+        <span class='footer-divider-ornament'></span>
+        <span class='footer-divider-line'></span>
+      </div>
+
+      <nav class='footer-nav' aria-label='Footer navigation'>
+        <ul class='footer-nav-list'>
+          <li class='footer-nav-item'>
+            <a href='about.html' class='footer-link'>About</a>
+          </li>
+          <li class='footer-nav-item'>
+            <a href='help.html' class='footer-link'>Help / FAQ</a>
+          </li>
+          <li class='footer-nav-item'>
+            <a href='policies.html' class='footer-link'>Policies &amp; Guidelines</a>
+          </li>
+          <li class='footer-nav-item'>
+            <a href='updates.html' class='footer-link'>Dev Updates</a>
+          </li>
+          <li class='footer-nav-item'>
+            <a href='reading_list.html' class='footer-link'>Reading List</a>
+          </li>
+        </ul>
+      </nav>
+
+      <p class='footer-meta'>&copy; 2026 Frontier Game Studio. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const urlParams = new URLSearchParams(window.location.search);
+
+      const state = {
+        mode: null, // 'post' | 'poll' | 'error' | 'missing'
+        urlParams: urlParams,
+        post: null,
+        comments: [],
+        commentsTotal: 0,
+        isFollowingBugReport: false,
+        poll: null,
+        pollOptions: [],
+        selectedPollOptionId: null,
+        replyingToCommentId: null
+      };
+
+      const populateTargets = {};
+      document.querySelectorAll('[data-populate]').forEach(function (el) {
+        const key = el.dataset.populate;
+        if (key && !populateTargets[key]) {
+          populateTargets[key] = el;
+        }
+      });
+
+      function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
+        return String(text)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      function formatDate(value) {
+        if (!value) return '';
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) {
+          return String(value);
+        }
+        return d.toLocaleString(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      }
+
+      function formatPostType(postType) {
+        if (!postType) return '';
+        if (postType === 'feedback') return 'Feedback';
+        if (postType === 'discussion') return 'Discussion';
+        if (postType === 'bug_report') return 'Bug Report';
+        return postType;
+      }
+
+      function formatPostCategory(category) {
+        if (!category) return '';
+        const map = {
+          gameplay_balance: 'Gameplay Balance',
+          general: 'General',
+          general_discussion: 'General Discussion',
+          bug_reports: 'Bug Reports',
+          performance: 'Performance',
+          crafting: 'Crafting',
+          support: 'Support',
+          announcements: 'Announcements'
+        };
+        return map[category] || category;
+      }
+
+      function formatPlatform(platform) {
+        if (!platform) return '';
+        const map = {
+          pc: 'PC',
+          ps5: 'PS5',
+          xbox_series_xs: 'Xbox Series X|S',
+          xbox_one: 'Xbox One',
+          switch: 'Switch',
+          other: 'Other'
+        };
+        return map[platform] || platform;
+      }
+
+      function formatPollCategory(category) {
+        if (!category) return '';
+        const map = {
+          general_discussion: 'General Discussion',
+          gameplay_balance: 'Gameplay Balance',
+          feedback: 'Feedback',
+          announcements: 'Announcements',
+          events: 'Events',
+          other: 'Other'
+        };
+        return map[category] || category;
+      }
+
+      function renderBreadcrumb(container, currentState) {
+        if (!container) return;
+        const up = currentState.urlParams;
+        const tab = up.get('tab');
+        let label = 'Back to Community';
+        if (tab === 'discussions') {
+          label = 'Back to Discussions';
+        } else if (tab === 'feedback') {
+          label = 'Back to Feedback';
+        } else if (tab === 'bug_reports') {
+          label = 'Back to Bug Reports';
+        } else if (tab === 'polls') {
+          label = 'Back to Polls';
+        }
+        container.textContent = label;
+      }
+
+      function renderPostHeader(container, currentState) {
+        if (!container) return;
+        const post = currentState.post;
+        if (!post) {
+          container.innerHTML = '<p class="loading-text">Loading post…</p>';
+          return;
+        }
+        const created = formatDate(post.created_at);
+        const updated = post.updated_at ? formatDate(post.updated_at) : null;
+        const postTypeLabel = formatPostType(post.post_type);
+        const categoryLabel = formatPostCategory(post.category);
+        const platformLabel = post.platform ? formatPlatform(post.platform) : null;
+        const tags = Array.isArray(post.tags) ? post.tags : [];
+        const tagBadges = tags.map(function (tag) {
+          return '<span class="meta-tag">' + escapeHtml(tag) + '</span>';
+        }).join('');
+        const pinBadge = post.is_pinned ? '<span class="meta-flag meta-flag--pinned">Pinned</span>' : '';
+        const lockBadge = post.is_locked ? '<span class="meta-flag meta-flag--locked">Locked</span>' : '';
+        const commentCount = (typeof currentState.commentsTotal === 'number' && currentState.commentsTotal >= 0)
+          ? currentState.commentsTotal
+          : (post.comment_count || 0);
+
+        container.innerHTML = `
+          <h1 class="community-post-title">${escapeHtml(post.title)}</h1>
+          <div class="community-post-underline" aria-hidden="true"></div>
+          <div class="community-post-meta">
+            <span class="meta-item meta-item--type">${escapeHtml(postTypeLabel)}</span>
+            <span class="meta-divider">•</span>
+            <span class="meta-item meta-item--category">${escapeHtml(categoryLabel)}</span>
+            ${platformLabel ? `<span class="meta-divider">•</span><span class="meta-item meta-item--platform">${escapeHtml(platformLabel)}</span>` : ''}
+            <span class="meta-divider">•</span>
+            <span class="meta-item meta-item--created">Posted ${escapeHtml(created)}</span>
+            ${updated ? `<span class="meta-divider">•</span><span class="meta-item meta-item--updated">Updated ${escapeHtml(updated)}</span>` : ''}
+            <span class="meta-divider">•</span>
+            <span class="meta-item meta-item--comments">${commentCount} comment${commentCount === 1 ? '' : 's'}</span>
+            ${pinBadge}
+            ${lockBadge}
+          </div>
+          ${tagBadges ? `<div class="community-post-tags">${tagBadges}</div>` : ''}
+        `;
+      }
+
+      function renderFollowToggle(container, currentState) {
+        if (!container) return;
+        const post = currentState.post;
+        container.innerHTML = '';
+        if (!post || post.post_type !== 'bug_report') {
+          container.hidden = true;
+          return;
+        }
+        container.hidden = false;
+        const following = !!currentState.isFollowingBugReport;
+        const label = following ? 'Unfollow Bug Report' : 'Follow Bug Report';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pill-button follow-toggle-button' + (following ? ' is-following' : '');
+        btn.dataset.action = 'toggle-follow';
+        btn.textContent = label;
+        container.appendChild(btn);
+      }
+
+      function renderPostBody(container, currentState) {
+        if (!container) return;
+        const post = currentState.post;
+        if (!post) {
+          container.innerHTML = '<p class="loading-text">Loading content…</p>';
+          return;
+        }
+        const body = post.body || '';
+        const parts = body.split(/\n{2,}/);
+        const paragraphs = parts.filter(function (p) { return p.trim().length > 0; }).map(function (p) {
+          return '<p>' + escapeHtml(p.trim()) + '</p>';
+        }).join('');
+        container.innerHTML = paragraphs || '<p>No additional details provided.</p>';
+      }
+
+      function renderCommentsHeader(container, currentState) {
+        if (!container) return;
+        const post = currentState.post;
+        if (!post) {
+          container.textContent = '';
+          return;
+        }
+        const total = (typeof currentState.commentsTotal === 'number' && currentState.commentsTotal >= 0)
+          ? currentState.commentsTotal
+          : (post.comment_count || 0);
+        container.textContent = total + ' comment' + (total === 1 ? '' : 's');
+      }
+
+      function createCommentElement(node, currentState, depth) {
+        const comment = node.comment;
+        const el = document.createElement('article');
+        el.className = 'comment' + (depth > 0 ? ' comment--child' : '');
+        el.setAttribute('data-comment-id', comment.id);
+        const created = formatDate(comment.created_at);
+        const bodyHtml = escapeHtml(comment.body || '');
+        const isLocked = !!(currentState.post && currentState.post.is_locked);
+        const replyButtonHtml = !isLocked
+          ? `<button type="button" class="link-button comment-reply-button" data-action="reply-to-comment" data-comment-id="${escapeHtml(comment.id)}">Reply</button>`
+          : '';
+
+        el.innerHTML = `
+          <header class="comment-header">
+            <div class="comment-author">
+              <span class="comment-author-name">Player</span>
+            </div>
+            <div class="comment-meta">
+              <time datetime="${escapeHtml(comment.created_at)}" class="comment-timestamp">${escapeHtml(created)}</time>
+            </div>
+          </header>
+          <div class="comment-body">
+            <p>${bodyHtml}</p>
+          </div>
+          <footer class="comment-footer">
+            ${replyButtonHtml}
+          </footer>
+        `;
+
+        if (node.children && node.children.length) {
+          const childrenContainer = document.createElement('div');
+          childrenContainer.className = 'comment-children';
+          node.children.forEach(function (childNode) {
+            const childEl = createCommentElement(childNode, currentState, depth + 1);
+            childrenContainer.appendChild(childEl);
+          });
+          el.appendChild(childrenContainer);
+        }
+        return el;
+      }
+
+      function renderCommentsThread(container, currentState) {
+        if (!container) return;
+        const post = currentState.post;
+        if (!post) {
+          container.innerHTML = '';
+          return;
+        }
+        const comments = Array.isArray(currentState.comments) ? currentState.comments : [];
+        if (!comments.length) {
+          container.innerHTML = '<p class="comments-empty">No comments yet. Be the first to share your thoughts.</p>';
+          return;
+        }
+        const nodesById = {};
+        const roots = [];
+        comments.forEach(function (comment) {
+          nodesById[comment.id] = { comment: comment, children: [] };
+        });
+        comments.forEach(function (comment) {
+          const node = nodesById[comment.id];
+          if (comment.parent_comment_id && nodesById[comment.parent_comment_id]) {
+            nodesById[comment.parent_comment_id].children.push(node);
+          } else {
+            roots.push(node);
+          }
+        });
+        function sortNodes(arr) {
+          arr.sort(function (a, b) {
+            const da = new Date(a.comment.created_at).getTime();
+            const db = new Date(b.comment.created_at).getTime();
+            return da - db;
+          });
+          arr.forEach(function (n) { sortNodes(n.children); });
+        }
+        sortNodes(roots);
+        container.innerHTML = '';
+        roots.forEach(function (node) {
+          const el = createCommentElement(node, currentState, 0);
+          container.appendChild(el);
+        });
+      }
+
+      function renderCommentEditor(container, currentState) {
+        if (!container) return;
+        const post = currentState.post;
+        if (!post) {
+          container.innerHTML = '';
+          return;
+        }
+        const isLocked = !!post.is_locked;
+        let replyContextHtml = '';
+        if (currentState.replyingToCommentId) {
+          const parent = (Array.isArray(currentState.comments) ? currentState.comments : []).find(function (c) {
+            return c.id === currentState.replyingToCommentId;
+          });
+          const snippetRaw = parent && parent.body ? parent.body : '';
+          const snippet = snippetRaw ? snippetRaw.slice(0, 120) : '';
+          const needsEllipsis = snippetRaw && snippetRaw.length > 120;
+          replyContextHtml = `
+            <div class="reply-context">
+              <p class="reply-context-label">
+                Replying to comment <span class="reply-context-id">#${escapeHtml(currentState.replyingToCommentId)}</span>
+              </p>
+              ${snippet ? `<blockquote class="reply-context-snippet">${escapeHtml(snippet)}${needsEllipsis ? '…' : ''}</blockquote>` : ''}
+              <button type="button" class="link-button reply-context-cancel" data-action="cancel-reply">Cancel reply</button>
+            </div>
+          `;
+        }
+        const disabledAttr = isLocked ? 'disabled' : '';
+        const helperText = isLocked
+          ? 'This thread is locked by moderators. New comments and replies are disabled.'
+          : 'Share your thoughts. Please keep feedback constructive and respectful.';
+        container.innerHTML = `
+          <form class="comment-form" data-action="submit-comment" novalidate>
+            ${replyContextHtml}
+            <div class="form-group">
+              <label for="commentBody">Add a comment</label>
+              <textarea id="commentBody" name="body" rows="5" minlength="20" ${disabledAttr}></textarea>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="pill-button comment-submit-button" ${disabledAttr}>Post Comment</button>
+            </div>
+            <p class="form-helper-text">${escapeHtml(helperText)}</p>
+          </form>
+        `;
+      }
+
+      function renderPollDetail(container, currentState) {
+        if (!container) return;
+        const poll = currentState.poll;
+        if (!poll) {
+          container.innerHTML = '<p class="loading-text">Loading poll…</p>';
+          return;
+        }
+        const categoryLabel = formatPollCategory(poll.category);
+        const created = formatDate(poll.created_at);
+        const expires = formatDate(poll.expires_at);
+        const statusLabel = poll.is_closed ? 'Closed' : 'Open';
+        const totalVotes = poll.total_votes || 0;
+        const descriptionHtml = poll.description
+          ? `<p class="poll-description-body">${escapeHtml(poll.description)}</p>`
+          : '';
+        const options = Array.isArray(currentState.pollOptions) ? currentState.pollOptions : [];
+        const optionsHtml = options.map(function (option) {
+          const count = option.vote_count || 0;
+          const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+          const selected = currentState.selectedPollOptionId && currentState.selectedPollOptionId === option.id;
+          const closedAttr = poll.is_closed ? 'disabled' : '';
+          const checkedAttr = selected ? 'checked' : '';
+          return `
+            <label class="poll-option-card">
+              <input type="radio" class="poll-option-input" name="pollOption" value="${escapeHtml(option.id)}" ${checkedAttr} ${closedAttr}>
+              <div class="poll-option-content">
+                <div class="poll-option-text-row">
+                  <span class="poll-option-label">${escapeHtml(option.text)}</span>
+                  <span class="poll-option-votes">${count} vote${count === 1 ? '' : 's'}</span>
+                </div>
+                <div class="poll-option-bar">
+                  <div class="poll-option-bar-fill" style="width: ${pct}%;"></div>
+                </div>
+                <div class="poll-option-percentage">${pct}%</div>
+              </div>
+            </label>
+          `;
+        }).join('');
+        const votedLabel = poll.user_has_voted ? 'You have voted in this poll.' : 'You have not voted in this poll yet.';
+        container.innerHTML = `
+          <header class="poll-header">
+            <h1 class="poll-question">${escapeHtml(poll.question)}</h1>
+            <div class="community-post-underline" aria-hidden="true"></div>
+            <div class="poll-meta">
+              <span class="meta-item meta-item--category">${escapeHtml(categoryLabel)}</span>
+              <span class="meta-divider">•</span>
+              <span class="meta-item meta-item--status">${escapeHtml(statusLabel)}</span>
+              <span class="meta-divider">•</span>
+              <span class="meta-item meta-item--dates">Opened ${escapeHtml(created)} • Closes ${escapeHtml(expires)}</span>
+              <span class="meta-divider">•</span>
+              <span class="meta-item meta-item--votes">${totalVotes} total vote${totalVotes === 1 ? '' : 's'}</span>
+            </div>
+            ${descriptionHtml}
+            <p class="poll-voted-label">${escapeHtml(votedLabel)}</p>
+          </header>
+          <div class="poll-options-grid">
+            ${optionsHtml}
+          </div>
+        `;
+      }
+
+      function renderPollVote(container, currentState) {
+        if (!container) return;
+        const poll = currentState.poll;
+        if (!poll) {
+          container.innerHTML = '';
+          return;
+        }
+        const disabled = poll.is_closed || !currentState.selectedPollOptionId;
+        const buttonLabel = poll.is_closed
+          ? 'Poll Closed'
+          : (poll.user_has_voted ? 'Change Vote' : 'Submit Vote');
+        const helperText = poll.is_closed
+          ? 'This poll is closed. Results are read-only.'
+          : (currentState.selectedPollOptionId ? '' : 'Select an option to enable voting.');
+        container.innerHTML = `
+          <button type="button" class="pill-button poll-vote-button" data-action="poll-vote" ${disabled ? 'disabled' : ''}>
+            ${escapeHtml(buttonLabel)}
+          </button>
+          <p class="poll-vote-helper">${escapeHtml(helperText)}</p>
+          <p class="poll-vote-message" aria-live="polite"></p>
+        `;
+      }
+
+      function handleBreadcrumbClick() {
+        const up = state.urlParams;
+        const targetParams = new URLSearchParams();
+        const keys = ['tab', 'category', 'tags', 'platform', 'date_from', 'date_to', 'search_query', 'sort', 'page', 'page_size'];
+        keys.forEach(function (name) {
+          const val = up.get(name);
+          if (val !== null && val !== '') {
+            targetParams.set(name, val);
+          }
+        });
+        const qs = targetParams.toString();
+        const targetUrl = qs ? 'community.html?' + qs : 'community.html';
+        window.location.href = targetUrl;
+      }
+
+      function handleToggleFollow() {
+        const post = state.post;
+        if (!post || post.post_type !== 'bug_report') return;
+        const currentlyFollowing = !!state.isFollowingBugReport;
+        try {
+          let response;
+          if (currentlyFollowing) {
+            response = WebsiteSDK.unfollowBugReport(post.id);
+          } else {
+            response = WebsiteSDK.followBugReport(post.id);
+          }
+          if (response && response.success) {
+            state.isFollowingBugReport = !!response.is_following;
+            renderFollowToggle(populateTargets['follow-toggle'], state);
+          } else if (response && response.message) {
+            alert(response.message);
+          } else {
+            alert('Unable to update follow state.');
+          }
+        } catch (err) {
+          console.error(err);
+          alert('An error occurred while updating follow state.');
+        }
+      }
+
+      function handleReplyToComment(commentId) {
+        if (!state.post || state.post.is_locked) return;
+        if (!commentId) return;
+        state.replyingToCommentId = commentId;
+        const editorContainer = populateTargets['comment-editor'];
+        renderCommentEditor(editorContainer, state);
+        if (editorContainer) {
+          const textarea = editorContainer.querySelector('textarea[name="body"]');
+          if (textarea) {
+            textarea.focus();
+            try {
+              textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } catch (e) {
+              // older browsers: ignore
+            }
+          }
+        }
+      }
+
+      function handleSubmitComment(form) {
+        if (!state.post) return;
+        if (state.post.is_locked) return;
+        if (!form) return;
+        const textarea = form.querySelector('textarea[name="body"]');
+        const helper = form.querySelector('.form-helper-text');
+        if (!textarea) return;
+        const body = textarea.value.trim();
+        if (helper) helper.textContent = '';
+        if (!body) {
+          if (helper) helper.textContent = 'Please enter a comment before posting.';
+          return;
+        }
+        if (body.length < 20) {
+          if (helper) helper.textContent = 'Please write at least a couple of sentences (20+ characters).';
+          return;
+        }
+        try {
+          let resp;
+          if (state.replyingToCommentId) {
+            resp = WebsiteSDK.addCommunityPostComment(state.post.id, body, state.replyingToCommentId);
+          } else {
+            resp = WebsiteSDK.addCommunityPostComment(state.post.id, body);
+          }
+          if (resp && resp.success) {
+            if (resp.comment) {
+              state.comments.push(resp.comment);
+            }
+            if (typeof resp.comments_total === 'number') {
+              state.commentsTotal = resp.comments_total;
+            }
+            textarea.value = '';
+            state.replyingToCommentId = null;
+            renderCommentsHeader(populateTargets['comments-count'], state);
+            renderCommentsThread(populateTargets['comments-thread'], state);
+            renderCommentEditor(populateTargets['comment-editor'], state);
+            renderPostHeader(populateTargets['post-header'], state);
+          } else if (helper) {
+            helper.textContent = (resp && resp.message) || 'Unable to post comment.';
+          }
+        } catch (err) {
+          console.error(err);
+          if (helper) helper.textContent = 'An unexpected error occurred while posting your comment.';
+        }
+      }
+
+      function handlePollVote() {
+        const poll = state.poll;
+        if (!poll) return;
+        if (poll.is_closed) return;
+        const optionId = state.selectedPollOptionId;
+        if (!optionId) return;
+        let message = '';
+        try {
+          const resp = WebsiteSDK.voteInPoll(poll.id, optionId);
+          if (resp && resp.success && resp.poll) {
+            state.poll = resp.poll;
+            state.pollOptions = Array.isArray(resp.options) ? resp.options : [];
+            state.selectedPollOptionId = state.poll.user_vote_option_id || optionId;
+            renderPollDetail(populateTargets['poll-detail'], state);
+            renderPollVote(populateTargets['poll-vote'], state);
+            message = resp.message || 'Your vote has been recorded.';
+          } else {
+            message = (resp && resp.message) || 'Unable to submit vote.';
+          }
+        } catch (err) {
+          console.error(err);
+          message = 'An unexpected error occurred while submitting your vote.';
+        }
+        const pollVoteContainer = populateTargets['poll-vote'];
+        if (pollVoteContainer) {
+          const msgEl = pollVoteContainer.querySelector('.poll-vote-message');
+          if (msgEl) {
+            msgEl.textContent = message;
+          }
+        }
+      }
+
+      function renderAll() {
+        renderBreadcrumb(populateTargets['breadcrumb'], state);
+        const postWrapper = document.querySelector('[data-component="community-post"]');
+        const pollDetailWrapper = document.querySelector('[data-component="poll-detail-view"]');
+        const pollVoteWrapper = document.querySelector('[data-component="poll-vote-controller"]');
+
+        if (state.mode === 'post') {
+          if (postWrapper) postWrapper.hidden = false;
+          if (pollDetailWrapper) pollDetailWrapper.hidden = true;
+          if (pollVoteWrapper) pollVoteWrapper.hidden = true;
+          renderPostHeader(populateTargets['post-header'], state);
+          renderFollowToggle(populateTargets['follow-toggle'], state);
+          renderPostBody(populateTargets['post-body'], state);
+          renderCommentsHeader(populateTargets['comments-count'], state);
+          renderCommentsThread(populateTargets['comments-thread'], state);
+          renderCommentEditor(populateTargets['comment-editor'], state);
+        } else if (state.mode === 'poll') {
+          if (postWrapper) postWrapper.hidden = true;
+          if (pollDetailWrapper) pollDetailWrapper.hidden = false;
+          if (pollVoteWrapper) pollVoteWrapper.hidden = false;
+          renderPollDetail(populateTargets['poll-detail'], state);
+          renderPollVote(populateTargets['poll-vote'], state);
+        } else {
+          if (postWrapper) postWrapper.hidden = true;
+          if (pollDetailWrapper) pollDetailWrapper.hidden = true;
+          if (pollVoteWrapper) pollVoteWrapper.hidden = true;
+          const controller = document.querySelector('[data-component="community-post-detail-controller"]');
+          if (controller && !controller.querySelector('.page-error')) {
+            const div = document.createElement('div');
+            div.className = 'page-error';
+            div.innerHTML = '<p>Unable to load this community item. Please return to the Community page and try again.</p>';
+            controller.appendChild(div);
+          }
+        }
+      }
+
+      function setupEventHandlers() {
+        const root = document.querySelector('[data-component="community-post-detail-controller"]');
+        if (!root) return;
+
+        root.addEventListener('click', function (event) {
+          const actionEl = event.target.closest('[data-action]');
+          if (!actionEl) return;
+          const action = actionEl.dataset.action;
+          if (action === 'breadcrumb-back') {
+            event.preventDefault();
+            handleBreadcrumbClick();
+          } else if (action === 'toggle-follow') {
+            event.preventDefault();
+            handleToggleFollow();
+          } else if (action === 'reply-to-comment') {
+            event.preventDefault();
+            const commentId = actionEl.getAttribute('data-comment-id');
+            handleReplyToComment(commentId);
+          } else if (action === 'cancel-reply') {
+            event.preventDefault();
+            state.replyingToCommentId = null;
+            renderCommentEditor(populateTargets['comment-editor'], state);
+          } else if (action === 'poll-vote') {
+            event.preventDefault();
+            handlePollVote();
+          }
+        });
+
+        root.addEventListener('submit', function (event) {
+          const form = event.target;
+          if (form && form.dataset && form.dataset.action === 'submit-comment') {
+            event.preventDefault();
+            handleSubmitComment(form);
+          }
+        });
+
+        root.addEventListener('change', function (event) {
+          const target = event.target;
+          if (target && target.name === 'pollOption') {
+            state.selectedPollOptionId = target.value;
+            renderPollVote(populateTargets['poll-vote'], state);
+          }
+        });
+      }
+
+      function init() {
+        const pollId = urlParams.get('pollId');
+        const postId = urlParams.get('id');
+
+        if (pollId) {
+          state.mode = 'poll';
+          try {
+            const result = WebsiteSDK.getPollDetail(pollId);
+            if (result && result.poll) {
+              state.poll = result.poll;
+              state.pollOptions = Array.isArray(result.options) ? result.options : [];
+              state.selectedPollOptionId = state.poll.user_vote_option_id || null;
+            } else {
+              state.mode = 'error';
+            }
+          } catch (err) {
+            console.error(err);
+            state.mode = 'error';
+          }
+        } else if (postId) {
+          state.mode = 'post';
+          try {
+            const result = WebsiteSDK.getCommunityPostDetail(postId);
+            if (result && result.post) {
+              state.post = result.post;
+              state.comments = Array.isArray(result.comments) ? result.comments : [];
+              if (typeof result.comments_total === 'number') {
+                state.commentsTotal = result.comments_total;
+              } else {
+                state.commentsTotal = result.post.comment_count || 0;
+              }
+              state.isFollowingBugReport = !!result.is_following_bug_report;
+            } else {
+              state.mode = 'error';
+            }
+          } catch (err) {
+            console.error(err);
+            state.mode = 'error';
+          }
+        } else {
+          state.mode = 'missing';
+        }
+
+        renderAll();
+        setupEventHandlers();
+      }
+
+      init();
+    });
+  </script>
+</body>
+</html>

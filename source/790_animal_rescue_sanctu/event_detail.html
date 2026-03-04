@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Animal Rescue Sanctuary</title>
+
+  <!-- Typography -->
+  <link rel='preconnect' href='https://fonts.googleapis.com'>
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+  <link href='https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&amp;family=Source+Sans+3:wght@300;400;600&amp;family=Source+Code+Pro:wght@400;600&amp;display=swap' rel='stylesheet'>
+
+  <!-- Site stylesheet -->
+  <link rel='stylesheet' href='styles.css'>
+  <!-- Page-specific stylesheet -->
+  <link rel='stylesheet' href='event_detail.css'>
+</head>
+<body>
+
+  <header class='site-header'>
+    <div class='site-header-inner'>
+      <a href='index.html' class='site-logo' aria-label='Sanctuary home'>
+        <!-- Replace src with actual logo file (PNG/JPG). Circular look comes from the image asset. -->
+        <img src='assets/logo_sanctuary.svg' alt='Animal rescue sanctuary logo'>
+      </a>
+
+      <nav class='primary-nav' aria-label='Main navigation'>
+        <ul class='primary-nav-list'>
+          <li class='primary-nav-item'><a class='primary-nav-link' href='index.html'>Home</a></li>
+          <li class='primary-nav-item'><a class='primary-nav-link' href='animals.html?view=adopt'>Adopt</a></li>
+          <li class='primary-nav-item'><a class='primary-nav-link' href='animals.html?view=sponsor'>Sponsor an Animal</a></li>
+          <li class='primary-nav-item'><a class='primary-nav-link' href='donate.html'>Donate</a></li>
+          <li class='primary-nav-item'><a class='primary-nav-link' href='wishlist.html'>Wishlist &amp; Supplies</a></li>
+          <li class='primary-nav-item'><a class='primary-nav-link' href='tours_events.html'>Visit Us</a></li>
+          <li class='primary-nav-item'><a class='primary-nav-link' href='about.html'>About</a></li>
+          <li class='primary-nav-item'><a class='primary-nav-link' href='contact.html'>Contact</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='site-main' role='main'>
+    <div class='page-section event-detail-page'>
+      <!-- Data loader / skeleton state -->
+      <div id='event-loader' data-component='event-detail-data-loader' class='event-loader'>
+        <p class='loader-text'>Loading event details...</p>
+      </div>
+
+      <!-- Error state when event id is missing or getEventDetail fails -->
+      <section id='event-error' data-component='event-load-error-panel' class='event-error-panel' hidden>
+        <div class='content-column'>
+          <h1 class='event-error-heading'>Unable to load this event</h1>
+          <p class='event-error-message' data-role='error-message'>Something went wrong while loading the event details.</p>
+          <div class='event-error-actions'>
+            <button type='button' class='text-button' data-action='retry-load-event'>Retry loading</button>
+            <a href='javascript:void(0)' class='text-link' data-action='back-to-events'>Back to Tours &amp; Events</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- Main event content will be rendered here once data is loaded -->
+      <section id='event-main' data-component='event-main' data-populate='event-detail' class='event-main-section' hidden>
+        <!-- Populated by JavaScript -->
+      </section>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <nav class='footer-nav' aria-label='Footer navigation'>
+      <ul class='footer-nav-list'>
+        <li class='footer-nav-item'><a class='footer-nav-link' href='about.html'>About the Sanctuary</a></li>
+        <li class='footer-nav-item'><a class='footer-nav-link' href='contact.html'>Contact Us</a></li>
+        <li class='footer-nav-item'><a class='footer-nav-link' href='tours_events.html'>Tours &amp; Events</a></li>
+        <li class='footer-nav-item'><a class='footer-nav-link' href='campaign_list.html'>Campaigns</a></li>
+        <li class='footer-nav-item'><a class='footer-nav-link' href='animals.html?view=adopt'>Available Animals</a></li>
+        <li class='footer-nav-item'><a class='footer-nav-link' href='animals.html?view=sponsor'>Sponsor an Animal</a></li>
+        <li class='footer-nav-item'><a class='footer-nav-link' href='wishlist.html'>Wishlist &amp; Supplies</a></li>
+        <li class='footer-nav-item'><a class='footer-nav-link' href='newsletter.html'>Email Newsletter</a></li>
+        <li class='footer-nav-item'><a class='footer-nav-link' href='privacy.html'>Privacy &amp; Terms</a></li>
+      </ul>
+    </nav>
+
+    <div class='footer-logo-wrapper'>
+      <a href='index.html' class='site-logo footer-logo' aria-label='Sanctuary home'>
+        <img src='assets/logo_sanctuary.svg' alt='Animal rescue sanctuary logo'>
+      </a>
+    </div>
+  </footer>
+
+  <!-- SDK / business logic -->
+  <script src='business_logic.js'></script>
+
+  <!-- Page-specific UI logic -->
+  <script>
+  'use strict';
+
+  function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function formatMultilineText(value) {
+    if (!value) return '';
+    var escaped = escapeHtml(value);
+    return escaped.replace(/\n/g, '<br>');
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    var urlParams = new URLSearchParams(window.location.search);
+    var eventId = urlParams.get('id');
+
+    var loaderEl = document.getElementById('event-loader');
+    var errorEl = document.getElementById('event-error');
+    var eventContainer = document.getElementById('event-main');
+
+    function showLoader(show) {
+      if (!loaderEl) return;
+      loaderEl.hidden = !show;
+    }
+
+    function setErrorMessage(message) {
+      if (!errorEl) return;
+      var msgEl = errorEl.querySelector('[data-role="error-message"]');
+      if (msgEl) {
+        msgEl.textContent = message;
+      }
+    }
+
+    function showError(message) {
+      if (!errorEl) return;
+      setErrorMessage(message);
+      errorEl.hidden = false;
+    }
+
+    function hideError() {
+      if (!errorEl) return;
+      errorEl.hidden = true;
+    }
+
+    function renderEventMain(container, detail) {
+      var eventObj = detail && detail.event ? detail.event : {};
+      var formattedDate = detail && detail.formattedDate ? detail.formattedDate : '';
+      var formattedTime = detail && detail.formattedTime ? detail.formattedTime : '';
+      var remainingSlots = typeof detail.remainingSlots === 'number' ? detail.remainingSlots : null;
+      var capacity = typeof eventObj.capacity === 'number' ? eventObj.capacity : null;
+      var availableSlots = typeof eventObj.available_slots === 'number' ? eventObj.available_slots : null;
+      var registrationOpen = !!(detail && detail.registrationOpen);
+      var isFullFlag = !!(detail && detail.isFull);
+      var status = eventObj.status || 'scheduled';
+
+      var computedIsFull = false;
+      if (isFullFlag) {
+        computedIsFull = true;
+      } else if (typeof remainingSlots === 'number' && remainingSlots <= 0) {
+        computedIsFull = true;
+      } else if (typeof availableSlots === 'number' && availableSlots <= 0) {
+        computedIsFull = true;
+      }
+
+      var statusLabel = '';
+      var statusClass = '';
+      var capacityText = '';
+
+      if (status === 'cancelled') {
+        statusLabel = 'Cancelled';
+        statusClass = 'cancelled';
+        capacityText = 'This event has been cancelled.';
+      } else if (status === 'completed') {
+        statusLabel = 'Completed';
+        statusClass = 'completed';
+        capacityText = 'This event has already taken place.';
+      } else {
+        if (computedIsFull) {
+          statusLabel = 'Full';
+          statusClass = 'full';
+          capacityText = 'This event is fully booked.';
+        } else if (!registrationOpen) {
+          statusLabel = 'Registration closed';
+          statusClass = 'closed';
+          capacityText = 'Registration is currently closed for this event.';
+        } else {
+          statusLabel = 'Open for registration';
+          statusClass = 'open';
+          if (typeof remainingSlots === 'number') {
+            capacityText = remainingSlots + ' spot' + (remainingSlots === 1 ? '' : 's') + (capacity ? ' remaining out of ' + capacity : '') + '.';
+          } else if (typeof availableSlots === 'number') {
+            capacityText = availableSlots + ' spot' + (availableSlots === 1 ? '' : 's') + ' available.';
+          } else if (capacity) {
+            capacityText = 'Capacity: up to ' + capacity + ' attendees.';
+          } else {
+            capacityText = 'Spaces are available for this event.';
+          }
+        }
+      }
+
+      var maxAttendees;
+      if (typeof remainingSlots === 'number' && remainingSlots > 0) {
+        maxAttendees = remainingSlots;
+      } else if (typeof availableSlots === 'number' && availableSlots > 0) {
+        maxAttendees = availableSlots;
+      } else if (typeof capacity === 'number' && capacity > 0) {
+        maxAttendees = capacity;
+      } else {
+        maxAttendees = 10;
+      }
+      if (maxAttendees < 1) {
+        maxAttendees = 1;
+      }
+
+      var allowsAdditionalDonation = !!(detail && detail.allowsAdditionalDonation);
+      var suggestedAmountsRaw = detail && Array.isArray(detail.additionalDonationSuggestedAmounts) ? detail.additionalDonationSuggestedAmounts : [];
+      var suggestedAmounts = suggestedAmountsRaw
+        .filter(function(a) { return typeof a === 'number' && a > 0; })
+        .sort(function(a, b) { return a - b; });
+
+      var registrationAvailable = status === 'scheduled' && registrationOpen && !computedIsFull;
+      var registrationNote;
+      if (eventObj.is_free) {
+        registrationNote = 'This is a free event. Optional donations help cover the cost of care for the animals.';
+      } else {
+        registrationNote = 'This event may require payment at registration. Any additional donation helps support the animals.';
+      }
+
+      var attendeesOptionsHtml = '';
+      for (var i = 1; i <= maxAttendees; i += 1) {
+        attendeesOptionsHtml += '<option value="' + i + '"' + (i === 1 ? ' selected' : '') + '>' + i + '</option>';
+      }
+
+      var donationSectionHtml = '';
+      if (allowsAdditionalDonation) {
+        var suggestedButtonsHtml = '';
+        for (var j = 0; j < suggestedAmounts.length; j += 1) {
+          var amt = suggestedAmounts[j];
+          suggestedButtonsHtml += '<button type="button" class="chip-button" data-action="set-suggested-donation" data-amount="' + amt + '">$' + amt + '</button>';
+        }
+
+        donationSectionHtml = `
+          <section class="form-subsection donation-add-on" data-component="donation-add-on-section">
+            <h3 class="subsection-heading">Optional additional donation</h3>
+            <p class="subsection-help">If you&#39;d like, you can add a one-time donation along with your registration.</p>
+            <div class="form-field checkbox-field">
+              <input type="checkbox" id="addDonation" name="addDonation" data-action="toggle-donation">
+              <label for="addDonation">Add a donation to support the sanctuary</label>
+            </div>
+            <div class="donation-controls" data-donation-controls hidden>
+              <div class="form-field">
+                <label for="donationAmount">Donation amount</label>
+                <div class="donation-quick-choices">${suggestedButtonsHtml}</div>
+                <div class="donation-input-row">
+                  <span class="currency-prefix">$</span>
+                  <input type="number" id="donationAmount" name="donationAmount" min="0" step="1" inputmode="decimal">
+                </div>
+                <div class="field-error" data-field-error="donationAmount"></div>
+              </div>
+            </div>
+          </section>
+        `;
+      }
+
+      var disabledFormAttr = registrationAvailable ? '' : ' disabled';
+      var registrationNoticeHtml = '';
+      if (!registrationAvailable) {
+        if (status === 'cancelled') {
+          registrationNoticeHtml = '<p class="registration-unavailable">Registration is not available because this event has been cancelled.</p>';
+        } else if (status === 'completed') {
+          registrationNoticeHtml = '<p class="registration-unavailable">Registration is closed because this event has already taken place.</p>';
+        } else if (computedIsFull) {
+          registrationNoticeHtml = '<p class="registration-unavailable">Registration is not available because this event is full.</p>';
+        } else if (!registrationOpen) {
+          registrationNoticeHtml = '<p class="registration-unavailable">Registration is currently closed for this event.</p>';
+        }
+      }
+
+      container.innerHTML = `
+        <div class="content-column">
+          <a href="javascript:void(0)" class="back-link" data-action="back-to-events">Back to Tours &amp; Events</a>
+
+          <header class="event-header" data-component="event-detail-header">
+            <h1 class="event-title">${escapeHtml(eventObj.title || 'Event')}</h1>
+            <p class="event-meta">${escapeHtml(formattedDate)}${formattedTime ? ' &middot; ' + escapeHtml(formattedTime) : ''}</p>
+            ${eventObj.location || eventObj.address ? `<p class="event-location">${escapeHtml(eventObj.location || eventObj.address || '')}</p>` : ''}
+          </header>
+
+          <div class="event-capacity-status" data-component="event-capacity-status">
+            <span class="status-pill status-${statusClass}">${escapeHtml(statusLabel)}</span>
+            <p class="capacity-text">${escapeHtml(capacityText)}</p>
+          </div>
+
+          <div class="registration-cta-wrapper">
+            <button type="button" class="primary-button" data-component="registration-cta-button" data-action="scroll-to-registration" ${registrationAvailable ? '' : 'disabled'}>Register</button>
+            <p class="registration-note">${escapeHtml(registrationNote)}</p>
+          </div>
+
+          <section id="registration-section" class="registration-form-section" data-component="registration-form" data-registration-available="${registrationAvailable ? 'true' : 'false'}">
+            <h2 class="section-heading">Event registration</h2>
+            ${registrationNoticeHtml}
+            <div class="form-global-errors" data-component="registration-validation-messages" data-role="form-global-error" aria-live="polite"></div>
+
+            <form id="event-registration-form" novalidate>
+              <fieldset class="form-fields" ${disabledFormAttr}>
+                <legend class="sr-only">Registration details</legend>
+
+                <div class="form-field">
+                  <label for="registrantName">Your name</label>
+                  <input type="text" id="registrantName" name="registrantName" autocomplete="name" required>
+                  <div class="field-error" data-field-error="registrantName"></div>
+                </div>
+
+                <div class="form-field">
+                  <label for="registrantEmail">Email address</label>
+                  <input type="email" id="registrantEmail" name="registrantEmail" autocomplete="email" required>
+                  <div class="field-error" data-field-error="registrantEmail"></div>
+                </div>
+
+                <div class="form-field" data-component="attendees-selector">
+                  <label for="numAttendees">Number of attendees</label>
+                  <select id="numAttendees" name="numAttendees">
+                    ${attendeesOptionsHtml}
+                  </select>
+                  <div class="field-error" data-field-error="numAttendees"></div>
+                </div>
+
+                ${donationSectionHtml}
+
+                <section class="form-subsection payment-details" data-component="payment-details-subform" data-payment-required="false" data-payment-section hidden>
+                  <h3 class="subsection-heading">Payment details</h3>
+                  <p class="subsection-help">Payment details are required only when a positive donation amount is added.</p>
+
+                  <div class="form-field">
+                    <label for="paymentMethod">Payment method</label>
+                    <select id="paymentMethod" name="paymentMethod" data-action="payment-field-change">
+                      <option value="">Select a payment method</option>
+                      <option value="credit_card">Credit card</option>
+                    </select>
+                    <div class="field-error" data-field-error="paymentMethod"></div>
+                  </div>
+
+                  <div class="form-field">
+                    <label for="cardNumber">Card number</label>
+                    <input type="text" id="cardNumber" name="cardNumber" inputmode="numeric" autocomplete="cc-number" data-action="payment-field-change">
+                    <div class="field-error" data-field-error="cardNumber"></div>
+                  </div>
+
+                  <div class="form-field form-field-inline">
+                    <div class="form-field-inline-item">
+                      <label for="cardExpirationMonth">Expiration month</label>
+                      <input type="number" id="cardExpirationMonth" name="cardExpirationMonth" min="1" max="12" inputmode="numeric" autocomplete="cc-exp-month" data-action="payment-field-change">
+                      <div class="field-error" data-field-error="cardExpirationMonth"></div>
+                    </div>
+                    <div class="form-field-inline-item">
+                      <label for="cardExpirationYear">Expiration year</label>
+                      <input type="number" id="cardExpirationYear" name="cardExpirationYear" min="${new Date().getFullYear()}" inputmode="numeric" autocomplete="cc-exp-year" data-action="payment-field-change">
+                      <div class="field-error" data-field-error="cardExpirationYear"></div>
+                    </div>
+                    <div class="form-field-inline-item">
+                      <label for="cardCvv">Security code</label>
+                      <input type="text" id="cardCvv" name="cardCvv" inputmode="numeric" autocomplete="cc-csc" data-action="payment-field-change">
+                      <div class="field-error" data-field-error="cardCvv"></div>
+                    </div>
+                  </div>
+
+                  <div class="form-field">
+                    <label for="billingPostalCode">Billing postal code</label>
+                    <input type="text" id="billingPostalCode" name="billingPostalCode" autocomplete="postal-code" data-action="payment-field-change">
+                    <div class="field-error" data-field-error="billingPostalCode"></div>
+                  </div>
+                </section>
+              </fieldset>
+
+              <div class="form-actions">
+                <button type="submit" class="primary-button" data-action="submit-registration" ${registrationAvailable ? '' : 'disabled'}>Complete registration</button>
+                <span class="submit-spinner" data-submit-spinner hidden>Processing registration</span>
+              </div>
+            </form>
+          </section>
+
+          <section id="registration-confirmation" class="registration-confirmation" data-component="registration-confirmation-panel" hidden>
+            <h2 class="section-heading">Registration confirmed</h2>
+            <p class="confirmation-message">Thank you for registering. A confirmation email will be sent to you shortly.</p>
+            <dl class="confirmation-summary">
+              <div class="summary-row">
+                <dt>Registrant</dt>
+                <dd data-confirmation="registrant_name"></dd>
+              </div>
+              <div class="summary-row">
+                <dt>Email</dt>
+                <dd data-confirmation="registrant_email"></dd>
+              </div>
+              <div class="summary-row">
+                <dt>Attendees</dt>
+                <dd data-confirmation="num_attendees"></dd>
+              </div>
+              <div class="summary-row">
+                <dt>Registration status</dt>
+                <dd data-confirmation="registration_status"></dd>
+              </div>
+              <div class="summary-row" data-confirmation="donation_row" hidden>
+                <dt>Additional donation</dt>
+                <dd data-confirmation="donation_amount"></dd>
+              </div>
+              <div class="summary-row" data-confirmation="donation_status_row" hidden>
+                <dt>Donation status</dt>
+                <dd data-confirmation="donation_status"></dd>
+              </div>
+            </dl>
+            <div class="confirmation-actions">
+              <a href="javascript:void(0)" class="text-link" data-action="back-to-events">Back to Tours &amp; Events</a>
+            </div>
+          </section>
+        </div>
+      `;
+    }
+
+    function attachGlobalErrorPanelHandlers() {
+      if (!errorEl) return;
+      var backLink = errorEl.querySelector('[data-action="back-to-events"]');
+      if (backLink) {
+        backLink.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          window.location.href = 'tours_events.html';
+        });
+      }
+      var retryBtn = errorEl.querySelector('[data-action="retry-load-event"]');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          loadEvent();
+        });
+      }
+    }
+
+    function attachEventHandlers(detail) {
+      var backLinks = document.querySelectorAll('[data-action="back-to-events"]');
+      backLinks.forEach(function(link) {
+        link.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          window.location.href = 'tours_events.html';
+        });
+      });
+
+      var registrationSection = document.getElementById('registration-section');
+      var registerButton = document.querySelector('[data-component="registration-cta-button"]');
+      if (registerButton && registrationSection) {
+        registerButton.addEventListener('click', function() {
+          registrationSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          var firstInput = registrationSection.querySelector('input, select, textarea');
+          if (firstInput) {
+            firstInput.focus();
+          }
+        });
+      }
+
+      var addDonationCheckbox = document.getElementById('addDonation');
+      var donationControls = document.querySelector('[data-donation-controls]');
+      var donationInput = document.getElementById('donationAmount');
+      var paymentSection = document.querySelector('[data-payment-section]');
+
+      function updatePaymentVisibility() {
+        if (!paymentSection) return;
+        var addDonationChecked = !!(addDonationCheckbox && addDonationCheckbox.checked);
+        var amountValue = 0;
+        if (donationInput && donationInput.value !== '') {
+          var parsed = parseFloat(donationInput.value);
+          if (!isNaN(parsed) && parsed > 0) {
+            amountValue = parsed;
+          }
+        }
+        var requirePayment = addDonationChecked && amountValue > 0;
+        paymentSection.hidden = !requirePayment;
+        paymentSection.setAttribute('data-payment-required', requirePayment ? 'true' : 'false');
+      }
+
+      if (addDonationCheckbox) {
+        addDonationCheckbox.addEventListener('change', function() {
+          if (donationControls) {
+            donationControls.hidden = !addDonationCheckbox.checked;
+          }
+          if (!addDonationCheckbox.checked && donationInput) {
+            donationInput.value = '';
+          }
+          var donationError = document.querySelector('[data-field-error="donationAmount"]');
+          if (donationError) {
+            donationError.textContent = '';
+          }
+          updatePaymentVisibility();
+        });
+      }
+
+      if (donationInput) {
+        donationInput.addEventListener('input', function() {
+          var donationError = document.querySelector('[data-field-error="donationAmount"]');
+          if (donationError) {
+            donationError.textContent = '';
+          }
+          updatePaymentVisibility();
+        });
+      }
+
+      var suggestedButtons = document.querySelectorAll('[data-action="set-suggested-donation"]');
+      suggestedButtons.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var amountAttr = btn.getAttribute('data-amount');
+          var amount = parseFloat(amountAttr || '0');
+          if (donationInput && !isNaN(amount) && amount > 0) {
+            donationInput.value = String(amount);
+            if (addDonationCheckbox && !addDonationCheckbox.checked) {
+              addDonationCheckbox.checked = true;
+              if (donationControls) {
+                donationControls.hidden = false;
+              }
+            }
+            updatePaymentVisibility();
+          }
+        });
+      });
+
+      var form = document.getElementById('event-registration-form');
+      var globalErrorEl = document.querySelector('[data-role="form-global-error"]');
+
+      function clearErrors() {
+        var fieldErrors = document.querySelectorAll('[data-field-error]');
+        fieldErrors.forEach(function(el) { el.textContent = ''; });
+        if (globalErrorEl) {
+          globalErrorEl.textContent = '';
+        }
+      }
+
+      function showFieldError(fieldName, message) {
+        var fieldErrorEl = document.querySelector('[data-field-error="' + fieldName + '"]');
+        if (fieldErrorEl) {
+          fieldErrorEl.textContent = message;
+        }
+      }
+
+      if (form) {
+        form.addEventListener('submit', function(ev) {
+          ev.preventDefault();
+          clearErrors();
+
+          if (registrationSection && registrationSection.getAttribute('data-registration-available') === 'false') {
+            if (globalErrorEl) {
+              globalErrorEl.textContent = 'Registration is not available for this event.';
+            }
+            return;
+          }
+
+          var formData = new FormData(form);
+          var registrantName = (formData.get('registrantName') || '').toString().trim();
+          var registrantEmail = (formData.get('registrantEmail') || '').toString().trim();
+          var numAttendeesStr = (formData.get('numAttendees') || '').toString();
+          var numAttendees = parseInt(numAttendeesStr, 10);
+          if (isNaN(numAttendees) || numAttendees < 1) {
+            numAttendees = 0;
+          }
+          var addDonation = !!formData.get('addDonation');
+          var donationAmountRaw = (formData.get('donationAmount') || '').toString().trim();
+          var donationAmount = 0;
+          if (donationAmountRaw !== '') {
+            var parsed = parseFloat(donationAmountRaw);
+            if (!isNaN(parsed)) {
+              donationAmount = parsed;
+            }
+          }
+
+          var paymentMethod = (formData.get('paymentMethod') || '').toString();
+          var cardNumber = (formData.get('cardNumber') || '').toString().replace(/\s+/g, '');
+          var cardExpirationMonthStr = (formData.get('cardExpirationMonth') || '').toString();
+          var cardExpirationYearStr = (formData.get('cardExpirationYear') || '').toString();
+          var cardCvv = (formData.get('cardCvv') || '').toString();
+          var billingPostalCode = (formData.get('billingPostalCode') || '').toString().trim();
+
+          var errors = {};
+
+          if (!registrantName) {
+            errors.registrantName = 'Please enter your name.';
+          }
+
+          if (!registrantEmail) {
+            errors.registrantEmail = 'Please enter your email address.';
+          } else {
+            var emailPattern = /.+@.+\..+/;
+            if (!emailPattern.test(registrantEmail)) {
+              errors.registrantEmail = 'Please enter a valid email address.';
+            }
+          }
+
+          if (!numAttendees || numAttendees < 1) {
+            errors.numAttendees = 'Please select at least one attendee.';
+          }
+
+          if (addDonation) {
+            if (donationAmountRaw === '') {
+              errors.donationAmount = 'Please enter a donation amount or uncheck the donation option.';
+            } else if (isNaN(donationAmount) || donationAmount < 0) {
+              errors.donationAmount = 'Donation amount must be zero or a positive number.';
+            }
+          }
+
+          var paymentRequired = addDonation && donationAmount > 0;
+
+          if (paymentRequired) {
+            if (!paymentMethod) {
+              errors.paymentMethod = 'Please select a payment method.';
+            }
+            if (!cardNumber) {
+              errors.cardNumber = 'Please enter your card number.';
+            } else if (cardNumber.length < 12 || cardNumber.length > 19) {
+              errors.cardNumber = 'Please enter a valid card number.';
+            }
+
+            var month = parseInt(cardExpirationMonthStr, 10);
+            var year = parseInt(cardExpirationYearStr, 10);
+            if (!month || month < 1 || month > 12) {
+              errors.cardExpirationMonth = 'Enter a valid month (1-12).';
+            }
+            if (!year) {
+              errors.cardExpirationYear = 'Enter a valid year.';
+            } else {
+              var currentYear = new Date().getFullYear();
+              if (year < currentYear) {
+                errors.cardExpirationYear = 'Card expiration year must be in the future.';
+              }
+            }
+            if (!cardCvv) {
+              errors.cardCvv = 'Please enter the card security code.';
+            } else if (cardCvv.length < 3 || cardCvv.length > 4) {
+              errors.cardCvv = 'Please enter a valid security code.';
+            }
+          }
+
+          Object.keys(errors).forEach(function(field) {
+            showFieldError(field, errors[field]);
+          });
+
+          if (Object.keys(errors).length > 0) {
+            if (globalErrorEl) {
+              globalErrorEl.textContent = 'Please review the highlighted fields and try again.';
+            }
+            return;
+          }
+
+          var submitBtn = form.querySelector('[data-action="submit-registration"]');
+          var submitSpinner = form.querySelector('[data-submit-spinner]');
+          if (submitBtn) {
+            submitBtn.disabled = true;
+          }
+          if (submitSpinner) {
+            submitSpinner.hidden = false;
+          }
+
+          try {
+            var response = WebsiteSDK.registerForEvent(
+              eventId,
+              registrantName,
+              registrantEmail,
+              numAttendees,
+              addDonation && donationAmount > 0,
+              addDonation && donationAmount > 0 ? donationAmount : 0,
+              paymentRequired ? paymentMethod : undefined,
+              paymentRequired ? cardNumber : undefined,
+              paymentRequired ? parseInt(cardExpirationMonthStr || '0', 10) : undefined,
+              paymentRequired ? parseInt(cardExpirationYearStr || '0', 10) : undefined,
+              paymentRequired ? cardCvv : undefined,
+              paymentRequired ? billingPostalCode : undefined
+            );
+
+            if (response && response.success) {
+              var confirmationSection = document.getElementById('registration-confirmation');
+              if (confirmationSection) {
+                var reg = response.registration || {};
+                var donation = response.additionalDonation || null;
+
+                var nameSpan = confirmationSection.querySelector('[data-confirmation="registrant_name"]');
+                var emailSpan = confirmationSection.querySelector('[data-confirmation="registrant_email"]');
+                var attendeesSpan = confirmationSection.querySelector('[data-confirmation="num_attendees"]');
+                var statusSpan = confirmationSection.querySelector('[data-confirmation="registration_status"]');
+                var donationRow = confirmationSection.querySelector('[data-confirmation="donation_row"]');
+                var donationStatusRow = confirmationSection.querySelector('[data-confirmation="donation_status_row"]');
+                var donationAmountSpan = confirmationSection.querySelector('[data-confirmation="donation_amount"]');
+                var donationStatusSpan = confirmationSection.querySelector('[data-confirmation="donation_status"]');
+
+                if (nameSpan) {
+                  nameSpan.textContent = reg.registrant_name || registrantName;
+                }
+                if (emailSpan) {
+                  emailSpan.textContent = reg.registrant_email || registrantEmail;
+                }
+                if (attendeesSpan) {
+                  attendeesSpan.textContent = String(reg.num_attendees || numAttendees);
+                }
+                if (statusSpan) {
+                  statusSpan.textContent = reg.status || 'registered';
+                }
+
+                if (donation && typeof donation.amount === 'number' && donation.amount > 0) {
+                  if (donationRow && donationAmountSpan) {
+                    donationRow.hidden = false;
+                    donationAmountSpan.textContent = '$' + donation.amount.toFixed(2);
+                  }
+                  if (donationStatusRow && donationStatusSpan) {
+                    donationStatusRow.hidden = false;
+                    donationStatusSpan.textContent = donation.status || 'completed';
+                  }
+                } else {
+                  if (donationRow) {
+                    donationRow.hidden = true;
+                  }
+                  if (donationStatusRow) {
+                    donationStatusRow.hidden = true;
+                  }
+                }
+
+                confirmationSection.hidden = false;
+              }
+
+              if (registrationSection) {
+                registrationSection.classList.add('is-completed');
+              }
+              if (globalErrorEl) {
+                globalErrorEl.textContent = '';
+              }
+            } else {
+              var msg = response && response.message ? response.message : 'We could not complete your registration. Please try again.';
+              if (globalErrorEl) {
+                globalErrorEl.textContent = msg;
+              }
+            }
+          } catch (err) {
+            if (globalErrorEl) {
+              globalErrorEl.textContent = 'An unexpected error occurred while submitting your registration. Please try again.';
+            }
+          } finally {
+            if (submitBtn) {
+              submitBtn.disabled = false;
+            }
+            if (submitSpinner) {
+              submitSpinner.hidden = true;
+            }
+          }
+        });
+      }
+    }
+
+    function loadEvent() {
+      if (!eventContainer) return;
+
+      if (!eventId) {
+        showLoader(false);
+        renderEventMain(eventContainer, { event: { title: 'Event' }, formattedDate: '', formattedTime: '', isFull: true, remainingSlots: 0, registrationOpen: false, allowsAdditionalDonation: false, additionalDonationSuggestedAmounts: [] });
+        eventContainer.hidden = false;
+        showError('No event was specified. Please return to the Tours &amp; Events page and select an event.');
+        return;
+      }
+
+      showLoader(true);
+      hideError();
+      eventContainer.hidden = true;
+
+      try {
+        var detail = WebsiteSDK.getEventDetail(eventId);
+        renderEventMain(eventContainer, detail);
+        showLoader(false);
+        eventContainer.hidden = false;
+        attachEventHandlers(detail);
+      } catch (e) {
+        showLoader(false);
+        showError('We were unable to load this event. Please try again.');
+      }
+    }
+
+    attachGlobalErrorPanelHandlers();
+    loadEvent();
+  });
+  </script>
+</body>
+</html>

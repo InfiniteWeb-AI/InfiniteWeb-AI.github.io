@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Abha Card – Digital Health Card</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+
+    <!-- Site stylesheet -->
+    
+    <!-- Page-specific stylesheet -->
+    <link rel="stylesheet" href="plan_detail.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a href="index.html" class="brand" aria-label="Abha Card home">
+                Abha Card
+            </a>
+            <nav class="primary-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html">Home</a></li>
+                    <li><a href="eligibility.html">Check eligibility</a></li>
+                    <li><a href="plans_pricing.html">Plans &amp; pricing</a></li>
+                    <li><a href="cost_estimator.html">Cost estimator</a></li>
+                    <li><a href="provider_search.html">Find a provider</a></li>
+                    <li><a href="coverage_overview.html">Coverage</a></li>
+                    <li><a href="usage_scenarios.html">How to use your card</a></li>
+                    <li><a href="resources.html">Resources</a></li>
+                    <li><a href="help_faqs.html">Help &amp; FAQs</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <div class="page-background">
+        <main id="content" class="content-shell" role="main">
+            <div class="plan-detail-page">
+                <div class="plan-detail-card" data-component="plan-detail-controller">
+                    <!-- Loading / error indicator -->
+                    <div class="plan-status-region" data-component="plan-loading-error-indicator" role="status" aria-live="polite"></div>
+
+                    <!-- Plan summary header -->
+                    <section class="plan-summary-section" data-component="plan-summary-header" data-populate="plan-summary" aria-label="Plan summary"></section>
+
+                    <!-- Save plan panel -->
+                    <section class="save-plan-section" data-component="save-plan-panel" data-populate="save-plan" aria-label="Save this plan"></section>
+
+                    <!-- Contextual navigation links -->
+                    <nav class="plan-context-nav" data-component="navigation-links-bar" aria-label="Plan navigation">
+                        <a href="javascript:void(0)" class="nav-link back-to-plans" data-action="back-to-plans">Back to plans &amp; pricing</a>
+                        <a href="javascript:void(0)" class="nav-link back-to-eligibility" data-action="back-to-eligibility">Back to my recommended plans</a>
+                    </nav>
+
+                    <!-- Coverage benefits table -->
+                    <section class="coverage-benefits-section" data-component="coverage-benefits-table" data-populate="coverage-benefits" aria-label="Coverage details"></section>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="accessibility.html">Accessibility</a></li>
+                    <li><a href="help_faqs.html">Help &amp; FAQs</a></li>
+                    <li><a href="coverage_overview.html">Coverage overview</a></li>
+                    <li><a href="resources.html">Resources</a></li>
+                    <li><a href="provider_search.html">Find a provider</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">&copy; 2024 Abha Card. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <!-- SDK / business logic -->
+    <script src="business_logic.js"></script>
+
+    <!-- Page-specific UI logic -->
+    <script>
+    (function() {
+        'use strict';
+
+        // ---------- Helpers ----------
+        function escapeHtml(value) {
+            if (value === null || value === undefined) return '';
+            return String(value).replace(/[&<>"']/g, function(ch) {
+                switch (ch) {
+                    case '&': return '&amp;';
+                    case '<': return '&lt;';
+                    case '>': return '&gt;';
+                    case '"': return '&quot;';
+                    case "'": return '&#39;';
+                    default: return ch;
+                }
+            });
+        }
+
+        function getPlanIdFromUrl() {
+            var params = new URLSearchParams(window.location.search);
+            var raw = params.get('planId');
+            if (!raw) return null;
+            var trimmed = raw.trim();
+            return trimmed === '' ? null : trimmed;
+        }
+
+        function formatPlanTypeLabel(type) {
+            switch (type) {
+                case 'adult': return 'Adult plan';
+                case 'child': return 'Child plan';
+                case 'family': return 'Family plan';
+                case 'student': return 'Student plan';
+                default: return '';
+            }
+        }
+
+        function formatCurrency(amount, currency) {
+            if (typeof amount !== 'number' || isNaN(amount)) return '';
+            var symbol = (currency === 'usd' || !currency) ? '$' : '';
+            var fixed = amount.toFixed(2);
+            fixed = fixed.replace(/\.00$/, '');
+            return symbol + fixed;
+        }
+
+        var BENEFIT_TYPE_LABELS = {
+            primary_care_visit: 'Primary care visits',
+            specialist_visit: 'Specialist visits',
+            urgent_care_visit: 'Urgent care visits',
+            emergency_room_visit: 'Emergency room visits',
+            mental_health_visit: 'Mental health visits',
+            telehealth_visit: 'Telehealth visits',
+            pharmacy: 'Pharmacy',
+            labs_imaging: 'Labs & imaging',
+            other: 'Other coverage'
+        };
+
+        function formatCoverageTypeLabel(type) {
+            switch (type) {
+                case 'copay': return 'Copay';
+                case 'coinsurance': return 'Coinsurance';
+                case 'deductible': return 'Deductible';
+                case 'not_covered': return 'Not covered';
+                case 'included': return 'Included';
+                default: return '';
+            }
+        }
+
+        function formatBenefitCost(benefit) {
+            if (!benefit || !benefit.coverage_type) return '';
+            var type = benefit.coverage_type;
+            var parts = [];
+
+            if (type === 'copay') {
+                if (typeof benefit.copay_amount === 'number') {
+                    parts.push(formatCurrency(benefit.copay_amount, 'usd') + ' copay');
+                } else {
+                    parts.push('Copay applies');
+                }
+            } else if (type === 'coinsurance') {
+                if (typeof benefit.coinsurance_percent === 'number') {
+                    parts.push(benefit.coinsurance_percent + '% of allowed amount');
+                } else {
+                    parts.push('Coinsurance applies');
+                }
+                if (typeof benefit.deductible_amount === 'number') {
+                    parts.push('after ' + formatCurrency(benefit.deductible_amount, 'usd') + ' deductible');
+                }
+            } else if (type === 'deductible') {
+                if (typeof benefit.deductible_amount === 'number') {
+                    parts.push(formatCurrency(benefit.deductible_amount, 'usd') + ' deductible');
+                } else {
+                    parts.push('Subject to deductible');
+                }
+            } else if (type === 'included') {
+                parts.push('Included at no additional cost');
+            } else if (type === 'not_covered') {
+                parts.push('Not covered');
+            }
+
+            return parts.join(', ');
+        }
+
+        // ---------- State ----------
+        var state = {
+            planId: null,
+            loading: false,
+            loadError: null, // { type: 'missing_plan_id' | 'api_error', message: string }
+            plan: null,
+            benefits: [],
+            highlightTags: [],
+            isSaved: false,
+            saving: false,
+            saveError: null,
+            saveMessage: null,
+            savedPlan: null,
+            nicknameDraft: ''
+        };
+
+        // ---------- Rendering ----------
+        function renderStatus(container) {
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (state.loading) {
+                var loadingDiv = document.createElement('div');
+                loadingDiv.className = 'status-banner status-loading';
+                loadingDiv.textContent = 'Loading plan details...';
+                container.appendChild(loadingDiv);
+                return;
+            }
+
+            if (state.loadError) {
+                var wrapper = document.createElement('div');
+                wrapper.className = 'status-banner status-error';
+
+                var msg = document.createElement('p');
+                msg.textContent = state.loadError.message || 'Something went wrong while loading this plan.';
+                wrapper.appendChild(msg);
+
+                if (state.loadError.type === 'api_error' && state.planId) {
+                    var retryBtn = document.createElement('button');
+                    retryBtn.type = 'button';
+                    retryBtn.className = 'btn btn-text';
+                    retryBtn.dataset.action = 'retry-load-plan';
+                    retryBtn.textContent = 'Try again';
+                    wrapper.appendChild(retryBtn);
+                }
+
+                container.appendChild(wrapper);
+            }
+        }
+
+        function renderPlanSummary(container) {
+            if (!container) return;
+
+            if (state.loading || state.loadError || !state.plan) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var plan = state.plan;
+
+            var combinedTags = new Set();
+            if (Array.isArray(plan.highlight_tags)) {
+                plan.highlight_tags.forEach(function(tag) {
+                    if (typeof tag === 'string') combinedTags.add(tag);
+                });
+            }
+            if (Array.isArray(state.highlightTags)) {
+                state.highlightTags.forEach(function(tag) {
+                    if (typeof tag === 'string') combinedTags.add(tag);
+                });
+            }
+
+            var tagsHtml = '';
+            if (combinedTags.size > 0) {
+                var tagParts = [];
+                combinedTags.forEach(function(tag) {
+                    tagParts.push('<li class="tag-pill">' + escapeHtml(tag) + '</li>');
+                });
+                tagsHtml = '<ul class="plan-tags-list">' + tagParts.join('') + '</ul>';
+            }
+
+            var price = (typeof plan.monthly_price === 'number') ? formatCurrency(plan.monthly_price, plan.currency) : '';
+            var priceHtml = price ? ('<div class="plan-price"><span class="price-amount">' + escapeHtml(price) + '</span><span class="price-period"> / month</span></div>') : '';
+
+            var typeLabel = formatPlanTypeLabel(plan.type);
+            var savedLabel = state.isSaved ? '<span class="plan-saved-indicator">Saved</span>' : '';
+            var descriptionHtml = plan.description ? ('<p class="plan-description">' + escapeHtml(plan.description) + '</p>') : '';
+
+            container.innerHTML = `
+                <header class="plan-summary-header-inner">
+                    <p class="page-kicker">Plan details &amp; coverage</p>
+                    <div class="plan-summary-heading-row">
+                        <div class="plan-title-block">
+                            <h1 class="plan-name">${escapeHtml(plan.name || '')}</h1>
+                            ${typeLabel ? '<p class="plan-type">' + escapeHtml(typeLabel) + '</p>' : ''}
+                        </div>
+                        <div class="plan-meta-block">
+                            ${priceHtml}
+                            ${savedLabel}
+                        </div>
+                    </div>
+                    ${descriptionHtml}
+                    ${tagsHtml}
+                </header>
+            `;
+        }
+
+        function renderCoverageBenefits(container) {
+            if (!container) return;
+
+            if (state.loading || state.loadError || !state.plan) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var benefitsArr = Array.isArray(state.benefits) ? state.benefits : [];
+
+            if (benefitsArr.length === 0) {
+                container.innerHTML = `
+                    <section class="coverage-table-wrapper">
+                        <h2 class="section-title">Coverage details</h2>
+                        <div class="coverage-empty">
+                            <p>Coverage details are not available for this plan.</p>
+                        </div>
+                    </section>
+                `;
+                return;
+            }
+
+            var groups = {};
+            benefitsArr.forEach(function(b) {
+                var key = b && b.benefit_type ? b.benefit_type : 'other';
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(b);
+            });
+
+            var groupKeys = Object.keys(groups).sort();
+            var html = '<section class="coverage-table-wrapper">';
+            html += '<h2 class="section-title">Coverage details</h2>';
+
+            groupKeys.forEach(function(key) {
+                var group = groups[key];
+                if (!group || group.length === 0) return;
+
+                html += `
+                    <section class="coverage-group" data-benefit-type="${escapeHtml(key)}">
+                        <h3 class="coverage-group-title">${escapeHtml(BENEFIT_TYPE_LABELS[key] || key)}</h3>
+                        <table class="coverage-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Benefit</th>
+                                    <th scope="col">How you pay</th>
+                                    <th scope="col">Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+
+                group.forEach(function(benefit) {
+                    var coverageLabel = formatCoverageTypeLabel(benefit.coverage_type);
+                    var costText = formatBenefitCost(benefit) || '';
+                    var notesText = benefit.coverage_notes ? escapeHtml(benefit.coverage_notes) : '';
+
+                    html += `
+                        <tr>
+                            <td class="coverage-benefit-name">
+                                <span class="benefit-name">${escapeHtml(benefit.name || '')}</span>
+                                ${coverageLabel ? '<span class="benefit-coverage-type">' + escapeHtml(coverageLabel) + '</span>' : ''}
+                            </td>
+                            <td class="coverage-benefit-cost">${escapeHtml(costText)}</td>
+                            <td class="coverage-benefit-notes">${notesText}</td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                            </tbody>
+                        </table>
+                    </section>
+                `;
+            });
+
+            html += '</section>';
+            container.innerHTML = html;
+        }
+
+        function renderSavePlanPanel(container) {
+            if (!container) return;
+
+            if (state.loading || state.loadError || !state.plan) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var planSaved = !!state.isSaved;
+            var saving = !!state.saving;
+            var nicknameValue = state.nicknameDraft || (state.savedPlan && state.savedPlan.nickname) || '';
+            var saveError = state.saveError;
+            var message = state.saveMessage;
+
+            container.innerHTML = `
+                <div class="save-plan-panel-inner">
+                    <header class="save-plan-header">
+                        <h2 class="section-title">Save this plan</h2>
+                        <p class="section-help">Add this plan to your saved list with an optional nickname.</p>
+                    </header>
+                    <form class="save-plan-form" novalidate>
+                        <div class="form-row">
+                            <label for="planNickname">Nickname (optional)</label>
+                            <input
+                                id="planNickname"
+                                type="text"
+                                name="nickname"
+                                maxlength="120"
+                                value="${escapeHtml(nicknameValue)}"
+                                ${planSaved ? 'disabled' : ''}
+                                data-action="nickname-input"
+                            >
+                        </div>
+                        <div class="form-row form-actions">
+                            <button
+                                type="button"
+                                class="btn btn-primary"
+                                data-action="save-plan"
+                                ${planSaved || saving ? 'disabled' : ''}
+                            >
+                                ${saving ? 'Saving…' : (planSaved ? 'Plan saved' : 'Save this plan')}
+                            </button>
+                            ${planSaved ? '<span class="saved-indicator">Saved</span>' : ''}
+                        </div>
+                        <div class="form-row" aria-live="polite">
+                            ${saveError ? '<p class="form-error">' + escapeHtml(saveError) + '</p>' : ''}
+                            ${message ? '<p class="form-success">' + escapeHtml(message) + '</p>' : ''}
+                            ${planSaved && state.savedPlan && state.savedPlan.nickname ? '<p class="form-note">Saved as: <strong>' + escapeHtml(state.savedPlan.nickname) + '</strong></p>' : ''}
+                        </div>
+                    </form>
+                </div>
+            `;
+        }
+
+        function renderAll() {
+            var statusEl = document.querySelector('[data-component="plan-loading-error-indicator"]');
+            if (statusEl) {
+                renderStatus(statusEl);
+            }
+
+            var populateElements = document.querySelectorAll('[data-populate]');
+            populateElements.forEach(function(element) {
+                var type = element.dataset.populate;
+                if (type === 'plan-summary') {
+                    renderPlanSummary(element);
+                } else if (type === 'save-plan') {
+                    renderSavePlanPanel(element);
+                } else if (type === 'coverage-benefits') {
+                    renderCoverageBenefits(element);
+                }
+            });
+        }
+
+        // ---------- Data loading ----------
+        function resetPlanStateForNewId() {
+            state.loading = false;
+            state.loadError = null;
+            state.plan = null;
+            state.benefits = [];
+            state.highlightTags = [];
+            state.isSaved = false;
+            state.saving = false;
+            state.saveError = null;
+            state.saveMessage = null;
+            state.savedPlan = null;
+            state.nicknameDraft = '';
+        }
+
+        function loadPlan() {
+            if (!state.planId) return;
+
+            state.loading = true;
+            state.loadError = null;
+            renderAll();
+
+            try {
+                var result = WebsiteSDK.getPlanDetails(state.planId);
+                state.plan = result && result.plan ? result.plan : null;
+                state.benefits = result && Array.isArray(result.benefits) ? result.benefits : [];
+                state.highlightTags = result && Array.isArray(result.highlight_tags) ? result.highlight_tags : [];
+                state.isSaved = !!(result && result.is_saved);
+                state.loading = false;
+            } catch (err) {
+                state.plan = null;
+                state.benefits = [];
+                state.highlightTags = [];
+                state.isSaved = false;
+                state.loading = false;
+                state.loadError = {
+                    type: 'api_error',
+                    message: (err && err.message) ? err.message : 'We were not able to load this plan right now.'
+                };
+            }
+
+            renderAll();
+        }
+
+        function applyPlanIdFromUrl() {
+            var newId = getPlanIdFromUrl();
+            if (newId === state.planId) {
+                return;
+            }
+
+            state.planId = newId;
+            resetPlanStateForNewId();
+
+            if (!state.planId) {
+                state.loadError = {
+                    type: 'missing_plan_id',
+                    message: 'Plan details are not available because no plan was selected. Use the links below to go back and choose a plan.'
+                };
+                renderAll();
+                return;
+            }
+
+            loadPlan();
+        }
+
+        // ---------- Actions ----------
+        function handleSavePlan() {
+            if (!state.planId || !state.plan) return;
+            if (state.saving || state.isSaved) return;
+
+            state.saving = true;
+            state.saveError = null;
+            state.saveMessage = null;
+            renderAll();
+
+            try {
+                var nicknameArg = state.nicknameDraft ? state.nicknameDraft : undefined;
+                var result = WebsiteSDK.savePlan(state.planId, nicknameArg);
+
+                state.saving = false;
+                if (result) {
+                    state.savedPlan = result.saved_plan || null;
+                    if (result.plan) {
+                        state.plan = result.plan;
+                    }
+                    state.isSaved = true;
+                    state.saveMessage = (typeof result.message === 'string' && result.message) ? result.message : 'This plan has been saved.';
+                } else {
+                    state.isSaved = true;
+                    state.saveMessage = 'This plan has been saved.';
+                }
+            } catch (err) {
+                state.saving = false;
+                state.saveError = (err && err.message) ? err.message : 'We could not save this plan. Please try again.';
+            }
+
+            renderAll();
+        }
+
+        // ---------- Event wiring ----------
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize from URL
+            state.planId = getPlanIdFromUrl();
+
+            if (!state.planId) {
+                state.loadError = {
+                    type: 'missing_plan_id',
+                    message: 'Plan details are not available because no plan was selected. Use the links below to go back and choose a plan.'
+                };
+                renderAll();
+            } else {
+                loadPlan();
+            }
+        });
+
+        window.addEventListener('popstate', function() {
+            applyPlanIdFromUrl();
+        });
+
+        // Delegate click actions
+        document.addEventListener('click', function(event) {
+            var target = event.target;
+            if (!target) return;
+
+            var actionEl = target.closest('[data-action]');
+            if (!actionEl) return;
+
+            var action = actionEl.dataset.action;
+            if (!action) return;
+
+            if (action === 'back-to-plans') {
+                event.preventDefault();
+                window.location.href = 'plans_pricing.html';
+            } else if (action === 'back-to-eligibility') {
+                event.preventDefault();
+                window.location.href = 'eligibility_results.html';
+            } else if (action === 'save-plan') {
+                event.preventDefault();
+                handleSavePlan();
+            } else if (action === 'retry-load-plan') {
+                event.preventDefault();
+                if (state.planId) {
+                    loadPlan();
+                }
+            }
+        });
+
+        // Delegate input changes
+        document.addEventListener('input', function(event) {
+            var target = event.target;
+            if (!target || !target.dataset) return;
+            if (target.dataset.action === 'nickname-input') {
+                state.nicknameDraft = target.value || '';
+            }
+        });
+
+    })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Artist Discography Framework</title>
+  
+  <link rel="stylesheet" href="lists.css">
+</head>
+<body>
+  <div class="page-background">
+    <div class="page-container">
+      <header class="site-header">
+        <h1 class="site-title">Artist Discography</h1>
+        <nav class="site-nav" aria-label="Primary">
+          <ul>
+            <li><a href="index.html">Home</a></li>
+            <li><a href="genres.html">Browse Genres</a></li>
+            <li><a href="library.html">Library</a></li>
+            <li><a href="playlists.html">Playlists</a></li>
+            <li><a href="favorites.html">Favorites</a></li>
+            <li><a href="queue.html">Queue</a></li>
+          </ul>
+        </nav>
+      </header>
+
+      <main id="content" class="site-main" role="main">
+        <section class="lists-panel" aria-labelledby="lists-heading">
+          <h2 id="lists-heading">Lists</h2>
+
+          <!-- Data loader / status line -->
+          <div id="lists-status" data-component="lists-page-init" aria-live="polite"></div>
+
+          <!-- Toolbar: create, search, sort -->
+          <section class="lists-toolbar" data-component="lists-toolbar">
+            <p>
+              <button type="button" data-action="open-create-list">Create list</button>
+            </p>
+            <form id="lists-search-form">
+              <label for="lists-search-input">Search lists:</label>
+              <input id="lists-search-input" name="search" type="text" />
+              <button type="submit" data-action="submit-search">Search</button>
+            </form>
+            <p>
+              <label for="lists-sort-select">Sort by:</label>
+              <select id="lists-sort-select" name="sort" data-action="change-sort">
+                <option value="updated_at_desc">Last updated (newest first)</option>
+                <option value="updated_at_asc">Last updated (oldest first)</option>
+                <option value="created_at_desc">Created (newest first)</option>
+                <option value="created_at_asc">Created (oldest first)</option>
+                <option value="name_asc">Name (A-Z)</option>
+                <option value="name_desc">Name (Z-A)</option>
+                <option value="album_count_desc">Album count (high to low)</option>
+                <option value="album_count_asc">Album count (low to high)</option>
+              </select>
+            </p>
+          </section>
+
+          <!-- Create list form (inline, initially hidden) -->
+          <section id="create-list-section" data-component="create-list-form" hidden>
+            <h3>Create a new list</h3>
+            <form id="create-list-form">
+              <p>
+                <label for="create-list-name">List name:</label>
+                <input id="create-list-name" name="name" type="text" required />
+              </p>
+              <p>
+                <label for="create-list-description">Description (optional):</label>
+                <input id="create-list-description" name="description" type="text" />
+              </p>
+              <p>
+                <button type="submit" data-action="submit-create-list">Create list</button>
+                <button type="button" data-action="cancel-create-list">Cancel</button>
+                <span id="create-list-error" class="form-error" aria-live="polite"></span>
+              </p>
+            </form>
+          </section>
+
+          <!-- Main lists table / empty state -->
+          <section id="lists-main" class="lists-main">
+            <table id="lists-table" data-component="custom-lists-table">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Description</th>
+                  <th scope="col">Albums</th>
+                  <th scope="col">Created</th>
+                  <th scope="col">Updated</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody data-populate="custom-lists-overview"></tbody>
+            </table>
+
+            <div id="lists-empty-state" data-component="lists-empty-state" hidden>
+              <p data-populate="empty-state-message"></p>
+              <p>
+                <a href="javascript:void(0)" data-action="open-create-list-from-empty">Create a new list</a>
+              </p>
+            </div>
+          </section>
+
+          <!-- Pagination -->
+          <nav id="lists-pagination" data-component="lists-pagination-placeholder" aria-label="Pagination">
+            <!-- Filled by JS -->
+          </nav>
+
+          <!-- Delete confirmation dialog -->
+          <div id="delete-list-dialog" data-component="delete-list-confirmation" hidden role="dialog" aria-modal="true" aria-labelledby="delete-list-title">
+            <h3 id="delete-list-title">Delete list</h3>
+            <p>Are you sure you want to delete the list "<span data-populate="delete-list-name"></span>"?</p>
+            <p>This will remove the list and all its album entries.</p>
+            <p>
+              <button type="button" data-action="confirm-delete-list">Delete</button>
+              <button type="button" data-action="cancel-delete-list">Cancel</button>
+            </p>
+            <p id="delete-list-error" class="form-error" aria-live="polite"></p>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <hr class="footer-divider">
+        <nav class="footer-nav" aria-label="Footer">
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="help.html">Help / FAQ</a></li>
+            <li><a href="contact.html">Contact</a></li>
+            <li><a href="bookmarks.html">Bookmarks</a></li>
+            <li><a href="lists.html">Lists</a></li>
+          </ul>
+        </nav>
+        <p class="footer-meta">&copy; Artist Discography</p>
+      </footer>
+    </div>
+  </div>
+
+  <script src="business_logic.js"></script>
+  <script>
+    (function() {
+      const PAGE_SIZE = 10;
+      let baseLists = [];
+      let urlState = { search: '', sort: 'updated_at_desc', page: 1 };
+      let totalPages = 1;
+      let editingListId = null;
+      let pendingDeleteId = null;
+      let pendingDeleteName = '';
+
+      function getUrlState() {
+        const params = new URLSearchParams(window.location.search);
+        const search = params.get('search') || '';
+        const sort = params.get('sort') || 'updated_at_desc';
+        const pageParam = params.get('page');
+        let page = parseInt(pageParam || '1', 10);
+        if (!Number.isFinite(page) || page < 1) {
+          page = 1;
+        }
+        return { search, sort, page };
+      }
+
+      function updateUrlState(patch) {
+        const params = new URLSearchParams(window.location.search);
+
+        if (Object.prototype.hasOwnProperty.call(patch, 'search')) {
+          const value = patch.search || '';
+          if (value) {
+            params.set('search', value);
+          } else {
+            params.delete('search');
+          }
+        }
+
+        if (Object.prototype.hasOwnProperty.call(patch, 'sort')) {
+          const value = patch.sort || '';
+          if (value) {
+            params.set('sort', value);
+          } else {
+            params.delete('sort');
+          }
+        }
+
+        if (Object.prototype.hasOwnProperty.call(patch, 'page')) {
+          const value = patch.page;
+          if (value && value > 1) {
+            params.set('page', String(value));
+          } else {
+            params.delete('page');
+          }
+        }
+
+        const queryString = params.toString();
+        const newUrl = queryString ? window.location.pathname + '?' + queryString : window.location.pathname;
+        window.history.pushState(null, '', newUrl);
+        urlState = getUrlState();
+        renderAll();
+      }
+
+      function applyFilterAndSort() {
+        const searchTerm = (urlState.search || '').toLowerCase();
+        let filtered = baseLists.slice();
+
+        if (searchTerm) {
+          filtered = filtered.filter(function(item) {
+            const name = (item.name || '').toLowerCase();
+            const description = (item.description || '').toLowerCase();
+            return name.indexOf(searchTerm) !== -1 || description.indexOf(searchTerm) !== -1;
+          });
+        }
+
+        const sort = urlState.sort || 'updated_at_desc';
+        const comparator = getComparator(sort);
+        filtered.sort(comparator);
+
+        return filtered;
+      }
+
+      function getComparator(sort) {
+        switch (sort) {
+          case 'name_asc':
+            return function(a, b) { return (a.name || '').localeCompare(b.name || ''); };
+          case 'name_desc':
+            return function(a, b) { return (b.name || '').localeCompare(a.name || ''); };
+          case 'created_at_asc':
+            return function(a, b) { return toTime(a.created_at) - toTime(b.created_at); };
+          case 'created_at_desc':
+            return function(a, b) { return toTime(b.created_at) - toTime(a.created_at); };
+          case 'updated_at_asc':
+            return function(a, b) { return toTime(a.updated_at) - toTime(b.updated_at); };
+          case 'updated_at_desc':
+            return function(a, b) { return toTime(b.updated_at) - toTime(a.updated_at); };
+          case 'album_count_asc':
+            return function(a, b) { return (a.album_count || 0) - (b.album_count || 0); };
+          case 'album_count_desc':
+            return function(a, b) { return (b.album_count || 0) - (a.album_count || 0); };
+          default:
+            return function(a, b) { return toTime(b.updated_at) - toTime(a.updated_at); };
+        }
+      }
+
+      function toTime(value) {
+        if (!value) return 0;
+        const t = new Date(value).getTime();
+        return Number.isFinite(t) ? t : 0;
+      }
+
+      function formatDate(value) {
+        if (!value) return '';
+        const d = new Date(value);
+        if (!Number.isFinite(d.getTime())) return '';
+        return d.toLocaleDateString();
+      }
+
+      function renderTableBody(container, listsForPage) {
+        container.innerHTML = '';
+
+        listsForPage.forEach(function(list) {
+          const tr = document.createElement('tr');
+          tr.dataset.listId = list.list_id;
+          tr.setAttribute('data-action', 'open-list-detail');
+
+          // Name cell
+          const nameTd = document.createElement('td');
+          if (editingListId && editingListId === list.list_id) {
+            const form = document.createElement('form');
+            form.setAttribute('data-action', 'rename-list-form');
+            form.dataset.listId = list.list_id;
+
+            const label = document.createElement('label');
+            const inputId = 'rename-' + list.list_id;
+            label.setAttribute('for', inputId);
+            label.textContent = 'New name:';
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.id = inputId;
+            input.name = 'newName';
+            input.required = true;
+            input.value = list.name || '';
+            input.setAttribute('data-role', 'rename-input');
+            input.dataset.listId = list.list_id;
+
+            const saveBtn = document.createElement('button');
+            saveBtn.type = 'submit';
+            saveBtn.textContent = 'Save';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.setAttribute('data-action', 'cancel-rename-list');
+            cancelBtn.dataset.listId = list.list_id;
+            cancelBtn.textContent = 'Cancel';
+
+            form.appendChild(label);
+            form.appendChild(document.createTextNode(' '));
+            form.appendChild(input);
+            form.appendChild(document.createTextNode(' '));
+            form.appendChild(saveBtn);
+            form.appendChild(document.createTextNode(' '));
+            form.appendChild(cancelBtn);
+
+            nameTd.appendChild(form);
+          } else {
+            const link = document.createElement('a');
+            link.href = 'javascript:void(0)';
+            link.setAttribute('data-action', 'open-list-detail');
+            link.dataset.listId = list.list_id;
+            link.textContent = list.name || '';
+            nameTd.appendChild(link);
+          }
+          tr.appendChild(nameTd);
+
+          // Description cell
+          const descTd = document.createElement('td');
+          descTd.textContent = list.description || '';
+          tr.appendChild(descTd);
+
+          // Album count
+          const countTd = document.createElement('td');
+          countTd.textContent = String(list.album_count != null ? list.album_count : 0);
+          tr.appendChild(countTd);
+
+          // Created
+          const createdTd = document.createElement('td');
+          createdTd.textContent = formatDate(list.created_at);
+          tr.appendChild(createdTd);
+
+          // Updated
+          const updatedTd = document.createElement('td');
+          updatedTd.textContent = formatDate(list.updated_at);
+          tr.appendChild(updatedTd);
+
+          // Actions
+          const actionsTd = document.createElement('td');
+          const renameLink = document.createElement('a');
+          renameLink.href = 'javascript:void(0)';
+          renameLink.setAttribute('data-action', 'rename-list');
+          renameLink.dataset.listId = list.list_id;
+          renameLink.textContent = 'Rename';
+
+          const separator = document.createTextNode(' | ');
+
+          const deleteLink = document.createElement('a');
+          deleteLink.href = 'javascript:void(0)';
+          deleteLink.setAttribute('data-action', 'delete-list');
+          deleteLink.dataset.listId = list.list_id;
+          deleteLink.dataset.listName = list.name || '';
+          deleteLink.textContent = 'Delete';
+
+          actionsTd.appendChild(renameLink);
+          actionsTd.appendChild(separator);
+          actionsTd.appendChild(deleteLink);
+          tr.appendChild(actionsTd);
+
+          container.appendChild(tr);
+        });
+      }
+
+      function renderEmptyState(container, messageContainer, visibleCount) {
+        if (visibleCount > 0) {
+          container.hidden = true;
+          messageContainer.textContent = '';
+          return;
+        }
+
+        const anyLists = baseLists.length > 0;
+        if (anyLists) {
+          messageContainer.textContent = 'No lists match the current search or sort.';
+        } else {
+          messageContainer.textContent = 'You do not have any lists yet.';
+        }
+        container.hidden = false;
+      }
+
+      function renderPagination(container, visibleCount) {
+        container.innerHTML = '';
+        if (visibleCount === 0) {
+          return;
+        }
+
+        totalPages = Math.max(1, Math.ceil(visibleCount / PAGE_SIZE));
+        if (urlState.page > totalPages) {
+          urlState.page = totalPages;
+        }
+
+        const wrapper = document.createElement('p');
+
+        const prevLink = document.createElement('a');
+        prevLink.href = 'javascript:void(0)';
+        prevLink.setAttribute('data-action', 'page-prev');
+        prevLink.textContent = 'Previous';
+        if (urlState.page <= 1) {
+          prevLink.setAttribute('aria-disabled', 'true');
+        }
+
+        wrapper.appendChild(prevLink);
+        wrapper.appendChild(document.createTextNode(' '));
+
+        for (let p = 1; p <= totalPages; p++) {
+          if (p === urlState.page) {
+            const span = document.createElement('span');
+            span.textContent = '[' + p + ']';
+            wrapper.appendChild(span);
+          } else {
+            const pageLink = document.createElement('a');
+            pageLink.href = 'javascript:void(0)';
+            pageLink.setAttribute('data-action', 'page-go');
+            pageLink.dataset.page = String(p);
+            pageLink.textContent = String(p);
+            wrapper.appendChild(pageLink);
+          }
+          if (p < totalPages) {
+            wrapper.appendChild(document.createTextNode(' '));
+          }
+        }
+
+        wrapper.appendChild(document.createTextNode(' '));
+
+        const nextLink = document.createElement('a');
+        nextLink.href = 'javascript:void(0)';
+        nextLink.setAttribute('data-action', 'page-next');
+        nextLink.textContent = 'Next';
+        if (urlState.page >= totalPages) {
+          nextLink.setAttribute('aria-disabled', 'true');
+        }
+
+        wrapper.appendChild(nextLink);
+        container.appendChild(wrapper);
+      }
+
+      function focusRenameInput() {
+        if (!editingListId) return;
+        const input = document.querySelector('input[data-role="rename-input"][data-list-id="' + editingListId + '"]');
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      }
+
+      function renderAll() {
+        const statusEl = document.getElementById('lists-status');
+        const tableBody = document.querySelector('tbody[data-populate="custom-lists-overview"]');
+        const table = document.getElementById('lists-table');
+        const emptyState = document.getElementById('lists-empty-state');
+        const emptyMessage = document.querySelector('[data-populate="empty-state-message"]');
+        const pagination = document.getElementById('lists-pagination');
+
+        if (!tableBody || !statusEl || !emptyState || !emptyMessage || !pagination || !table) {
+          return;
+        }
+
+        const filtered = applyFilterAndSort();
+        const visibleCount = filtered.length;
+
+        if (visibleCount === 0) {
+          table.hidden = true;
+          tableBody.innerHTML = '';
+        } else {
+          table.hidden = false;
+          const total = Math.max(1, Math.ceil(visibleCount / PAGE_SIZE));
+          if (urlState.page > total) {
+            urlState.page = total;
+          }
+          const startIndex = (urlState.page - 1) * PAGE_SIZE;
+          const pageItems = filtered.slice(startIndex, startIndex + PAGE_SIZE);
+          renderTableBody(tableBody, pageItems);
+        }
+
+        renderEmptyState(emptyState, emptyMessage, visibleCount);
+        renderPagination(pagination, visibleCount);
+
+        const totalLabel = baseLists.length === 1 ? '1 list loaded.' : baseLists.length + ' lists loaded.';
+        statusEl.textContent = totalLabel;
+
+        if (editingListId) {
+          focusRenameInput();
+        }
+      }
+
+      function openCreateForm() {
+        const section = document.getElementById('create-list-section');
+        const nameInput = document.getElementById('create-list-name');
+        const errorEl = document.getElementById('create-list-error');
+        if (!section || !nameInput || !errorEl) return;
+        section.hidden = false;
+        errorEl.textContent = '';
+        nameInput.focus();
+      }
+
+      function closeCreateForm() {
+        const section = document.getElementById('create-list-section');
+        const form = document.getElementById('create-list-form');
+        const errorEl = document.getElementById('create-list-error');
+        if (section) {
+          section.hidden = true;
+        }
+        if (form) {
+          form.reset();
+        }
+        if (errorEl) {
+          errorEl.textContent = '';
+        }
+      }
+
+      function handleCreateFormSubmit(event) {
+        event.preventDefault();
+        const nameInput = document.getElementById('create-list-name');
+        const descInput = document.getElementById('create-list-description');
+        const errorEl = document.getElementById('create-list-error');
+        const statusEl = document.getElementById('lists-status');
+        if (!nameInput || !descInput || !errorEl || !statusEl) return;
+
+        const name = (nameInput.value || '').trim();
+        const description = (descInput.value || '').trim();
+
+        if (!name) {
+          errorEl.textContent = 'Name is required.';
+          nameInput.focus();
+          return;
+        }
+
+        try {
+          statusEl.textContent = 'Creating list...';
+          const result = WebsiteSDK.createCustomList(name, description || undefined);
+          const now = new Date().toISOString();
+          const newItem = {
+            list_id: result.list_id,
+            name: result.name,
+            description: result.description || '',
+            album_count: 0,
+            created_at: result.created_at || now,
+            updated_at: result.updated_at || now
+          };
+          baseLists.push(newItem);
+          closeCreateForm();
+          renderAll();
+        } catch (e) {
+          errorEl.textContent = 'Could not create list.';
+          const statusEl2 = document.getElementById('lists-status');
+          if (statusEl2) {
+            statusEl2.textContent = 'Error creating list.';
+          }
+        }
+      }
+
+      function openRename(listId) {
+        editingListId = listId;
+        renderAll();
+      }
+
+      function cancelRename() {
+        editingListId = null;
+        renderAll();
+      }
+
+      function handleRenameSubmit(form) {
+        const listId = form.dataset.listId;
+        const input = form.querySelector('input[name="newName"]');
+        const statusEl = document.getElementById('lists-status');
+        if (!listId || !input || !statusEl) return;
+
+        const newName = (input.value || '').trim();
+        if (!newName) {
+          statusEl.textContent = 'Name is required.';
+          input.focus();
+          return;
+        }
+
+        const item = baseLists.find(function(l) { return l.list_id === listId; });
+        if (!item) {
+          statusEl.textContent = 'List not found.';
+          return;
+        }
+
+        if (item.name === newName) {
+          editingListId = null;
+          renderAll();
+          return;
+        }
+
+        try {
+          statusEl.textContent = 'Renaming list...';
+          const result = WebsiteSDK.renameCustomList(listId, newName);
+          item.name = result.name;
+          item.updated_at = result.updated_at || new Date().toISOString();
+          editingListId = null;
+          renderAll();
+        } catch (e) {
+          statusEl.textContent = 'Error renaming list.';
+        }
+      }
+
+      function openDeleteDialog(listId, listName) {
+        const dialog = document.getElementById('delete-list-dialog');
+        const nameSpan = dialog ? dialog.querySelector('[data-populate="delete-list-name"]') : null;
+        const errorEl = document.getElementById('delete-list-error');
+        if (!dialog || !nameSpan || !errorEl) return;
+        pendingDeleteId = listId;
+        pendingDeleteName = listName || '';
+        nameSpan.textContent = pendingDeleteName;
+        errorEl.textContent = '';
+        dialog.hidden = false;
+      }
+
+      function closeDeleteDialog() {
+        const dialog = document.getElementById('delete-list-dialog');
+        const errorEl = document.getElementById('delete-list-error');
+        if (dialog) {
+          dialog.hidden = true;
+        }
+        if (errorEl) {
+          errorEl.textContent = '';
+        }
+        pendingDeleteId = null;
+        pendingDeleteName = '';
+      }
+
+      function confirmDelete() {
+        const errorEl = document.getElementById('delete-list-error');
+        const statusEl = document.getElementById('lists-status');
+        if (!pendingDeleteId || !statusEl || !errorEl) {
+          return;
+        }
+
+        try {
+          statusEl.textContent = 'Deleting list...';
+          const result = WebsiteSDK.deleteCustomList(pendingDeleteId);
+          if (result && result.deleted) {
+            baseLists = baseLists.filter(function(l) { return l.list_id !== pendingDeleteId; });
+            closeDeleteDialog();
+            renderAll();
+          } else {
+            errorEl.textContent = (result && result.message) || 'Could not delete list.';
+            statusEl.textContent = 'Error deleting list.';
+          }
+        } catch (e) {
+          errorEl.textContent = 'Could not delete list.';
+          statusEl.textContent = 'Error deleting list.';
+        }
+      }
+
+      function handleSearchSubmit(event) {
+        event.preventDefault();
+        const input = document.getElementById('lists-search-input');
+        if (!input) return;
+        const value = (input.value || '').trim();
+        updateUrlState({ search: value, page: 1 });
+      }
+
+      function handleSortChange() {
+        const select = document.getElementById('lists-sort-select');
+        if (!select) return;
+        const value = select.value || 'updated_at_desc';
+        updateUrlState({ sort: value, page: 1 });
+      }
+
+      function handlePaginationAction(action, target) {
+        if (action === 'page-prev') {
+          if (urlState.page > 1) {
+            updateUrlState({ page: urlState.page - 1 });
+          }
+        } else if (action === 'page-next') {
+          if (urlState.page < totalPages) {
+            updateUrlState({ page: urlState.page + 1 });
+          }
+        } else if (action === 'page-go') {
+          const pageAttr = target.dataset.page;
+          const page = parseInt(pageAttr || '1', 10);
+          if (Number.isFinite(page) && page >= 1 && page <= totalPages) {
+            updateUrlState({ page: page });
+          }
+        }
+      }
+
+      function handleClick(event) {
+        const actionEl = event.target.closest('[data-action]');
+        if (!actionEl) return;
+        const action = actionEl.dataset.action;
+        if (!action) return;
+
+        event.preventDefault();
+
+        switch (action) {
+          case 'open-create-list':
+          case 'open-create-list-from-empty':
+            openCreateForm();
+            break;
+
+          case 'cancel-create-list':
+            closeCreateForm();
+            break;
+
+          case 'rename-list': {
+            const listId = actionEl.dataset.listId;
+            if (listId) {
+              openRename(listId);
+            }
+            break;
+          }
+
+          case 'cancel-rename-list':
+            cancelRename();
+            break;
+
+          case 'delete-list': {
+            const listId = actionEl.dataset.listId;
+            const listName = actionEl.dataset.listName || '';
+            if (listId) {
+              openDeleteDialog(listId, listName);
+            }
+            break;
+          }
+
+          case 'confirm-delete-list':
+            confirmDelete();
+            break;
+
+          case 'cancel-delete-list':
+            closeDeleteDialog();
+            break;
+
+          case 'open-list-detail': {
+            const listId = actionEl.dataset.listId || (actionEl.closest('tr') && actionEl.closest('tr').dataset.listId);
+            if (listId) {
+              const url = 'list_detail.html?listId=' + encodeURIComponent(listId);
+              window.location.href = url;
+            }
+            break;
+          }
+
+          case 'page-prev':
+          case 'page-next':
+          case 'page-go':
+            handlePaginationAction(action, actionEl);
+            break;
+
+          case 'submit-search':
+            // Handled via form submit; do nothing here.
+            break;
+
+          default:
+            break;
+        }
+      }
+
+      function initFromUrl() {
+        urlState = getUrlState();
+        const searchInput = document.getElementById('lists-search-input');
+        const sortSelect = document.getElementById('lists-sort-select');
+        if (searchInput) {
+          searchInput.value = urlState.search || '';
+        }
+        if (sortSelect) {
+          sortSelect.value = urlState.sort || 'updated_at_desc';
+        }
+      }
+
+      function loadData() {
+        const statusEl = document.getElementById('lists-status');
+        if (statusEl) {
+          statusEl.textContent = 'Loading lists...';
+        }
+        try {
+          const lists = WebsiteSDK.getCustomListsOverview();
+          baseLists = Array.isArray(lists) ? lists.slice() : [];
+          renderAll();
+        } catch (e) {
+          if (statusEl) {
+            statusEl.textContent = 'Error loading lists.';
+          }
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        initFromUrl();
+
+        const searchForm = document.getElementById('lists-search-form');
+        if (searchForm) {
+          searchForm.addEventListener('submit', handleSearchSubmit);
+        }
+
+        const sortSelect = document.getElementById('lists-sort-select');
+        if (sortSelect) {
+          sortSelect.addEventListener('change', handleSortChange);
+        }
+
+        const createForm = document.getElementById('create-list-form');
+        if (createForm) {
+          createForm.addEventListener('submit', handleCreateFormSubmit);
+        }
+
+        document.addEventListener('click', handleClick);
+
+        window.addEventListener('popstate', function() {
+          urlState = getUrlState();
+          initFromUrl();
+          renderAll();
+        });
+
+        const populateElements = document.querySelectorAll('[data-populate]');
+        populateElements.forEach(function(element) {
+          if (element.dataset.populate === 'custom-lists-overview') {
+            loadData();
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

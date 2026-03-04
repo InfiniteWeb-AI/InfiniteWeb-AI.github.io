@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Theory Board</title>
+    
+    <link rel="stylesheet" href="theory_board.css">
+</head>
+<body>
+    <div class="page">
+        <header class="site-header">
+            <div class="site-identity">
+                <span class="site-title">The Initiative</span>
+            </div>
+            <nav class="site-nav" aria-label="Primary navigation">
+                <ul>
+                    <li><a href="index.html" title="Homepage and primary entry into the ARG experience">Home</a></li>
+                    <li><a href="transmission_logs.html" title="Browse transmissions and unlock the Phase I teaser via Prelude logs">Transmission Logs</a></li>
+                    <li><a href="timeline.html" title="Chronological view of events with filters and severity controls">Timeline</a></li>
+                    <li><a href="timeline.html?view=watchlist" title="List of events the user has flagged for monitoring">Watchlist</a></li>
+                    <li><a href="characters.html" title="Directory of Initiative characters, including Project Orion profiles">Characters</a></li>
+                    <li><a href="anomaly_map.html" title="Interactive map and list of anomalous locations and case files">Anomaly Map</a></li>
+                    <li><a href="media_videos.html" title="Media gallery for teaser and briefing videos">Videos</a></li>
+                    <li><a href="incident_logs.html" title="Searchable archive of incident logs and low-threat reports">Incident Logs</a></li>
+                    <li><a href="signals.html" title="Live signal stream used as clues for theories">Signals</a></li>
+                    <li><a href="ciphers.html" title="Tools and cipher list for decoding and theory building">Ciphers</a></li>
+                    <li><a href="theory_board.html" title="Workspace for assembling clues into named theories">Theory Board</a></li>
+                    <li><a href="artifacts.html" title="Catalog of recovered artifacts and their risk levels">Artifacts</a></li>
+                    <li><a href="recruitment.html" title="Recruitment and assessment form for new operatives">Join the Initiative</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id="content" class="site-main" tabindex="-1">
+            <div class="theory-board-column">
+                <section data-component="clue-panel" data-populate="theory-board-clues" aria-label="Pinned clues on the Theory Board">
+                    <div class="clue-panel-box">
+                        <p>Loading pinned clues&hellip;</p>
+                    </div>
+                </section>
+
+                <section data-component="theory-detail-panel" data-populate="theory-detail" aria-label="Theory narrative">
+                    <p>Preparing narrative&hellip;</p>
+                </section>
+
+                <p data-component="focused-theory-indicator" data-populate="focused-theory-indicator">
+                    <strong>Focused theory:</strong> <span>none.</span>
+                </p>
+
+                <section data-component="clue-selection-panel" data-populate="clue-selection" aria-label="Select clues for new theory" style="display:none;"></section>
+
+                <section data-component="theory-list-panel" data-populate="theory-list" aria-label="Existing theories">
+                    <p>Theory list will appear here.</p>
+                </section>
+
+                <form data-component="theory-creation-form" data-action="submit-theory-form" style="display:none;" aria-label="Create a new theory">
+                    <p>
+                        <label for="theoryTitleInput">Theory title</label><br>
+                        <input id="theoryTitleInput" name="title" type="text" maxlength="200" required>
+                    </p>
+                    <p>
+                        <label for="theoryDescriptionInput">Short description (optional)</label><br>
+                        <textarea id="theoryDescriptionInput" name="description" rows="4"></textarea>
+                    </p>
+                    <p>
+                        <button type="submit">Save Theory</button>
+                        <button type="button" data-action="cancel-theory-creation">Cancel</button>
+                    </p>
+                </form>
+            </div>
+        </main>
+
+        <footer class="site-footer">
+            <hr class="footer-rule">
+            <nav class="footer-nav" aria-label="Footer navigation">
+                <ul>
+                    <li><a href="about.html" title="About the Initiative and the ARG universe">About</a></li>
+                    <li><a href="transmission_logs.html" title="Access the transmission archive">Transmission Logs</a></li>
+                    <li><a href="incident_logs.html" title="Access the incident log archives">Incident Logs</a></li>
+                    <li><a href="artifacts.html" title="Browse artifacts by origin and corruption risk">Artifacts Catalog</a></li>
+                    <li><a href="recruitment.html" title="Create your recruitment profile">Join the Initiative</a></li>
+                </ul>
+            </nav>
+            <p class="footer-meta">The Initiative</p>
+        </footer>
+    </div>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const components = {
+            cluePanel: document.querySelector('[data-component="clue-panel"]'),
+            theoryDetailPanel: document.querySelector('[data-component="theory-detail-panel"]'),
+            focusedIndicator: document.querySelector('[data-component="focused-theory-indicator"]'),
+            clueSelectionPanel: document.querySelector('[data-component="clue-selection-panel"]'),
+            theoryListPanel: document.querySelector('[data-component="theory-list-panel"]'),
+            theoryCreationForm: document.querySelector('[data-component="theory-creation-form"]')
+        };
+
+        const state = {
+            boardState: null,
+            signalLookup: {},
+            cipherLookup: {},
+            focusedTheoryDetail: null,
+            currentTheoryId: '',
+            isCreatingTheory: false,
+            theoryFormState: {
+                selectedClueIds: []
+            }
+        };
+
+        function readTheoryIdFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('theoryId') || '';
+        }
+
+        function setTheoryIdInUrl(theoryId) {
+            const url = new URL(window.location.href);
+            if (theoryId) {
+                url.searchParams.set('theoryId', theoryId);
+            } else {
+                url.searchParams.delete('theoryId');
+            }
+            window.history.pushState({}, '', url.toString());
+            state.currentTheoryId = theoryId || '';
+            if (state.currentTheoryId) {
+                loadFocusedTheory(state.currentTheoryId);
+            } else {
+                clearFocusedTheory();
+            }
+        }
+
+        function handlePopState() {
+            const newId = readTheoryIdFromUrl();
+            if (newId === state.currentTheoryId) {
+                return;
+            }
+            state.currentTheoryId = newId;
+            if (state.currentTheoryId) {
+                loadFocusedTheory(state.currentTheoryId);
+            } else {
+                clearFocusedTheory();
+            }
+        }
+
+        window.addEventListener('popstate', handlePopState);
+
+        function loadBoardState() {
+            try {
+                const result = WebsiteSDK.getTheoryBoardState();
+                state.boardState = {
+                    boardClues: Array.isArray(result.board_clues) ? result.board_clues : [],
+                    resolvedSignals: Array.isArray(result.resolved_signals) ? result.resolved_signals : [],
+                    resolvedCiphers: Array.isArray(result.resolved_ciphers) ? result.resolved_ciphers : [],
+                    theories: Array.isArray(result.theories) ? result.theories : []
+                };
+
+                state.signalLookup = {};
+                state.boardState.resolvedSignals.forEach(function(sig) {
+                    if (sig && sig.id) {
+                        state.signalLookup[sig.id] = sig;
+                    }
+                });
+
+                state.cipherLookup = {};
+                state.boardState.resolvedCiphers.forEach(function(cip) {
+                    if (cip && cip.id) {
+                        state.cipherLookup[cip.id] = cip;
+                    }
+                });
+
+                try {
+                    const list = WebsiteSDK.getTheoryList();
+                    if (Array.isArray(list) && list.length > 0) {
+                        state.boardState.theories = list;
+                    }
+                } catch (e) {
+                    console.error('Error refreshing theory list', e);
+                }
+            } catch (e) {
+                console.error('Error loading Theory Board state', e);
+                state.boardState = {
+                    boardClues: [],
+                    resolvedSignals: [],
+                    resolvedCiphers: [],
+                    theories: []
+                };
+            }
+        }
+
+        function renderCluePanel(container) {
+            container.innerHTML = '';
+            const box = document.createElement('div');
+            box.className = 'clue-panel-box';
+
+            if (!state.boardState || !Array.isArray(state.boardState.boardClues) || state.boardState.boardClues.length === 0) {
+                const p = document.createElement('p');
+                p.textContent = 'No clues have been pinned to the board yet.';
+                box.appendChild(p);
+                container.appendChild(box);
+                return;
+            }
+
+            const signalClues = [];
+            const cipherClues = [];
+
+            state.boardState.boardClues.forEach(function(clue) {
+                if (!clue || !clue.clue_type) {
+                    return;
+                }
+                if (clue.clue_type === 'signal') {
+                    signalClues.push(clue);
+                } else if (clue.clue_type === 'cipher') {
+                    cipherClues.push(clue);
+                }
+            });
+
+            if (signalClues.length > 0) {
+                const heading = document.createElement('p');
+                heading.textContent = 'Signals';
+                box.appendChild(heading);
+
+                signalClues.forEach(function(clue) {
+                    const sig = state.signalLookup[clue.clue_id];
+                    const desc = document.createElement('p');
+                    let text = '\u2022 ';
+                    if (sig) {
+                        text += sig.title || 'Untitled signal';
+                        if (sig.description) {
+                            text += ' \u2014 ' + sig.description;
+                        }
+                    } else {
+                        text += 'Unknown signal (' + clue.clue_id + ')';
+                    }
+                    desc.textContent = text;
+                    box.appendChild(desc);
+                });
+            }
+
+            if (cipherClues.length > 0) {
+                const heading = document.createElement('p');
+                heading.textContent = 'Ciphers';
+                box.appendChild(heading);
+
+                cipherClues.forEach(function(clue) {
+                    const cip = state.cipherLookup[clue.clue_id];
+                    const desc = document.createElement('p');
+                    let text = '\u2022 ';
+                    if (cip) {
+                        text += cip.name || 'Unnamed cipher';
+                        if (cip.description) {
+                            text += ' \u2014 ' + cip.description;
+                        }
+                    } else {
+                        text += 'Unknown cipher (' + clue.clue_id + ')';
+                    }
+                    desc.textContent = text;
+                    box.appendChild(desc);
+                });
+            }
+
+            container.appendChild(box);
+        }
+
+        function renderTheoryListPanel(container) {
+            container.innerHTML = '';
+            const heading = document.createElement('p');
+            heading.textContent = 'Theory list:';
+            container.appendChild(heading);
+
+            const theories = state.boardState && Array.isArray(state.boardState.theories) ? state.boardState.theories : [];
+            if (theories.length === 0) {
+                const empty = document.createElement('p');
+                empty.textContent = 'No theories have been recorded yet.';
+                container.appendChild(empty);
+                return;
+            }
+
+            const list = document.createElement('ul');
+            theories.forEach(function(theory) {
+                if (!theory) {
+                    return;
+                }
+                const li = document.createElement('li');
+                const link = document.createElement('a');
+                link.href = 'javascript:void(0)';
+                link.dataset.action = 'select-theory';
+                if (theory.id) {
+                    link.dataset.theoryId = theory.id;
+                }
+                const label = theory.title || 'Untitled theory';
+                if (theory.id && state.currentTheoryId && theory.id === state.currentTheoryId) {
+                    const strong = document.createElement('strong');
+                    strong.textContent = label;
+                    link.appendChild(strong);
+                } else {
+                    link.textContent = label;
+                }
+                li.appendChild(link);
+                list.appendChild(li);
+            });
+
+            container.appendChild(list);
+        }
+
+        function renderTheoryDetailPanel(container) {
+            container.innerHTML = '';
+
+            if (state.focusedTheoryDetail && state.focusedTheoryDetail.theory) {
+                const t = state.focusedTheoryDetail.theory;
+
+                const titlePara = document.createElement('p');
+                const strong = document.createElement('strong');
+                strong.textContent = t.title || 'Untitled theory';
+                titlePara.appendChild(strong);
+                container.appendChild(titlePara);
+
+                const descPara = document.createElement('p');
+                if (t.description && t.description.trim().length > 0) {
+                    descPara.textContent = t.description;
+                } else {
+                    descPara.textContent = 'No written description has been attached to this theory yet. The links below are all that remain.';
+                }
+                container.appendChild(descPara);
+
+                const clues = Array.isArray(state.focusedTheoryDetail.board_clues) ? state.focusedTheoryDetail.board_clues : [];
+                const signals = {};
+                const ciphers = {};
+
+                (state.focusedTheoryDetail.signals || []).forEach(function(sig) {
+                    if (sig && sig.id) {
+                        signals[sig.id] = sig;
+                    }
+                });
+
+                (state.focusedTheoryDetail.ciphers || []).forEach(function(cip) {
+                    if (cip && cip.id) {
+                        ciphers[cip.id] = cip;
+                    }
+                });
+
+                if (clues.length > 0) {
+                    const linksHeading = document.createElement('p');
+                    linksHeading.textContent = 'Linked clues:';
+                    container.appendChild(linksHeading);
+
+                    const list = document.createElement('ul');
+                    clues.forEach(function(clue) {
+                        if (!clue) {
+                            return;
+                        }
+                        const li = document.createElement('li');
+                        let text = '';
+                        if (clue.clue_type === 'signal') {
+                            const sig = signals[clue.clue_id] || state.signalLookup[clue.clue_id];
+                            text += 'Signal: ';
+                            if (sig) {
+                                text += sig.title || 'Untitled signal';
+                            } else {
+                                text += 'Unknown (' + clue.clue_id + ')';
+                            }
+                        } else if (clue.clue_type === 'cipher') {
+                            const cip = ciphers[clue.clue_id] || state.cipherLookup[clue.clue_id];
+                            text += 'Cipher: ';
+                            if (cip) {
+                                text += cip.name || 'Unnamed cipher';
+                            } else {
+                                text += 'Unknown (' + clue.clue_id + ')';
+                            }
+                        } else {
+                            text += 'Clue: ' + clue.id;
+                        }
+                        li.textContent = text;
+                        list.appendChild(li);
+                    });
+                    container.appendChild(list);
+                }
+
+                const ctaPara = document.createElement('p');
+                ctaPara.appendChild(document.createTextNode('If this alignment feels wrong, you can '));
+                const link = document.createElement('a');
+                link.href = 'javascript:void(0)';
+                link.dataset.action = 'open-theory-creation';
+                link.textContent = 'create a new theory';
+                ctaPara.appendChild(link);
+                ctaPara.appendChild(document.createTextNode('. '));
+
+                const refresh = document.createElement('a');
+                refresh.href = 'javascript:void(0)';
+                refresh.dataset.action = 'refresh-focused-theory';
+                refresh.textContent = 'Refresh this view';
+                ctaPara.appendChild(refresh);
+                ctaPara.appendChild(document.createTextNode(' or '));
+
+                const clear = document.createElement('a');
+                clear.href = 'javascript:void(0)';
+                clear.dataset.action = 'clear-focused-theory';
+                clear.textContent = 'clear focus';
+                ctaPara.appendChild(clear);
+                ctaPara.appendChild(document.createTextNode('.'));
+
+                container.appendChild(ctaPara);
+            } else {
+                const p1 = document.createElement('p');
+                p1.textContent = 'Nothing on the board has been brought into focus yet. The pins above remain uncommitted, waiting for someone to draw the first line between them.';
+                container.appendChild(p1);
+
+                const p2 = document.createElement('p');
+                p2.appendChild(document.createTextNode('When you are ready to test a pattern, you can '));
+                const link = document.createElement('a');
+                link.href = 'javascript:void(0)';
+                link.dataset.action = 'open-theory-creation';
+                link.textContent = 'create a new theory';
+                p2.appendChild(link);
+                p2.appendChild(document.createTextNode(' and bind any of the pinned clues into a single name.'));
+                container.appendChild(p2);
+            }
+        }
+
+        function renderFocusedIndicator(container) {
+            container.innerHTML = '';
+            const strong = document.createElement('strong');
+            strong.textContent = 'Focused theory: ';
+            container.appendChild(strong);
+
+            const span = document.createElement('span');
+            if (state.focusedTheoryDetail && state.focusedTheoryDetail.theory) {
+                span.textContent = state.focusedTheoryDetail.theory.title || state.focusedTheoryDetail.theory.id || '(untitled)';
+            } else if (state.currentTheoryId) {
+                span.textContent = 'unable to load ' + state.currentTheoryId + '.';
+            } else {
+                span.textContent = 'none.';
+            }
+            container.appendChild(span);
+        }
+
+        function renderClueSelectionPanel(container) {
+            if (!state.isCreatingTheory) {
+                container.style.display = 'none';
+                container.innerHTML = '';
+                return;
+            }
+
+            container.style.display = 'block';
+            container.innerHTML = '';
+
+            const intro = document.createElement('p');
+            intro.textContent = 'Select clues to bind into this theory:';
+            container.appendChild(intro);
+
+            if (!state.boardState || !Array.isArray(state.boardState.boardClues) || state.boardState.boardClues.length === 0) {
+                const none = document.createElement('p');
+                none.textContent = 'There are no pinned clues available.';
+                container.appendChild(none);
+                return;
+            }
+
+            const anySignals = state.boardState.boardClues.some(function(c) { return c && c.clue_type === 'signal'; });
+            const anyCiphers = state.boardState.boardClues.some(function(c) { return c && c.clue_type === 'cipher'; });
+
+            if (anySignals) {
+                const signalGroup = document.createElement('div');
+                const heading = document.createElement('p');
+                heading.textContent = 'Signals';
+                signalGroup.appendChild(heading);
+
+                state.boardState.boardClues.forEach(function(clue) {
+                    if (!clue || clue.clue_type !== 'signal') {
+                        return;
+                    }
+                    const sig = state.signalLookup[clue.clue_id];
+                    const label = document.createElement('label');
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.value = clue.id;
+                    checkbox.dataset.action = 'toggle-clue-selection';
+                    if (state.theoryFormState.selectedClueIds.indexOf(clue.id) !== -1) {
+                        checkbox.checked = true;
+                    }
+                    label.appendChild(checkbox);
+                    const text = document.createTextNode(' ' + (sig && sig.title ? sig.title : 'Signal ' + clue.clue_id));
+                    label.appendChild(text);
+                    const wrap = document.createElement('p');
+                    wrap.appendChild(label);
+                    signalGroup.appendChild(wrap);
+                });
+
+                container.appendChild(signalGroup);
+            }
+
+            if (anyCiphers) {
+                const cipherGroup = document.createElement('div');
+                const heading = document.createElement('p');
+                heading.textContent = 'Ciphers';
+                cipherGroup.appendChild(heading);
+
+                state.boardState.boardClues.forEach(function(clue) {
+                    if (!clue || clue.clue_type !== 'cipher') {
+                        return;
+                    }
+                    const cip = state.cipherLookup[clue.clue_id];
+                    const label = document.createElement('label');
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.value = clue.id;
+                    checkbox.dataset.action = 'toggle-clue-selection';
+                    if (state.theoryFormState.selectedClueIds.indexOf(clue.id) !== -1) {
+                        checkbox.checked = true;
+                    }
+                    label.appendChild(checkbox);
+                    const text = document.createTextNode(' ' + (cip && cip.name ? cip.name : 'Cipher ' + clue.clue_id));
+                    label.appendChild(text);
+                    const wrap = document.createElement('p');
+                    wrap.appendChild(label);
+                    cipherGroup.appendChild(wrap);
+                });
+
+                container.appendChild(cipherGroup);
+            }
+        }
+
+        function renderBoardBoundComponents() {
+            if (state.boardState) {
+                if (components.cluePanel) {
+                    renderCluePanel(components.cluePanel);
+                }
+                if (components.theoryListPanel) {
+                    renderTheoryListPanel(components.theoryListPanel);
+                }
+                if (components.clueSelectionPanel) {
+                    renderClueSelectionPanel(components.clueSelectionPanel);
+                }
+            }
+        }
+
+        function loadFocusedTheory(theoryId) {
+            if (!theoryId) {
+                clearFocusedTheory();
+                return;
+            }
+            try {
+                const detail = WebsiteSDK.getTheoryDetail(theoryId);
+                state.focusedTheoryDetail = detail;
+            } catch (e) {
+                console.error('Error loading focused theory', e);
+                state.focusedTheoryDetail = null;
+            }
+
+            if (components.theoryDetailPanel) {
+                renderTheoryDetailPanel(components.theoryDetailPanel);
+            }
+            if (components.focusedIndicator) {
+                renderFocusedIndicator(components.focusedIndicator);
+            }
+            if (components.theoryListPanel && state.boardState) {
+                renderTheoryListPanel(components.theoryListPanel);
+            }
+        }
+
+        function clearFocusedTheory() {
+            state.focusedTheoryDetail = null;
+            if (components.theoryDetailPanel) {
+                renderTheoryDetailPanel(components.theoryDetailPanel);
+            }
+            if (components.focusedIndicator) {
+                renderFocusedIndicator(components.focusedIndicator);
+            }
+            if (components.theoryListPanel && state.boardState) {
+                renderTheoryListPanel(components.theoryListPanel);
+            }
+        }
+
+        function updateTheoryFormVisibility() {
+            if (!components.theoryCreationForm) {
+                return;
+            }
+            if (state.isCreatingTheory) {
+                components.theoryCreationForm.style.display = 'block';
+            } else {
+                components.theoryCreationForm.style.display = 'none';
+            }
+        }
+
+        function openTheoryCreation() {
+            state.isCreatingTheory = true;
+            state.theoryFormState.selectedClueIds = [];
+
+            const titleInput = document.getElementById('theoryTitleInput');
+            const descriptionInput = document.getElementById('theoryDescriptionInput');
+            if (titleInput) {
+                titleInput.value = '';
+            }
+            if (descriptionInput) {
+                descriptionInput.value = '';
+            }
+
+            updateTheoryFormVisibility();
+            if (components.clueSelectionPanel) {
+                renderClueSelectionPanel(components.clueSelectionPanel);
+            }
+        }
+
+        function cancelTheoryCreation() {
+            state.isCreatingTheory = false;
+            state.theoryFormState.selectedClueIds = [];
+            updateTheoryFormVisibility();
+            if (components.clueSelectionPanel) {
+                renderClueSelectionPanel(components.clueSelectionPanel);
+            }
+        }
+
+        function handleToggleClueSelection(checkbox) {
+            const id = checkbox.value;
+            if (!id) {
+                return;
+            }
+            const selected = state.theoryFormState.selectedClueIds;
+            const index = selected.indexOf(id);
+            if (checkbox.checked) {
+                if (index === -1) {
+                    selected.push(id);
+                }
+            } else if (index !== -1) {
+                selected.splice(index, 1);
+            }
+        }
+
+        function handleTheoryFormSubmit(form) {
+            const titleInput = document.getElementById('theoryTitleInput');
+            const descriptionInput = document.getElementById('theoryDescriptionInput');
+            const title = titleInput ? titleInput.value.trim() : '';
+            const description = descriptionInput ? descriptionInput.value.trim() : '';
+            const selected = state.theoryFormState.selectedClueIds || [];
+
+            if (!title) {
+                alert('Please enter a title for your theory.');
+                return;
+            }
+            if (!selected || selected.length === 0) {
+                alert('Select at least one clue to link to this theory.');
+                return;
+            }
+
+            try {
+                const newTheory = WebsiteSDK.createTheory(title, description, selected.slice());
+
+                try {
+                    const updatedList = WebsiteSDK.getTheoryList();
+                    if (Array.isArray(updatedList) && updatedList.length > 0) {
+                        state.boardState.theories = updatedList;
+                    } else if (newTheory) {
+                        state.boardState.theories.push(newTheory);
+                    }
+                } catch (e) {
+                    console.error('Error refreshing theory list after create', e);
+                    if (newTheory) {
+                        state.boardState.theories.push(newTheory);
+                    }
+                }
+
+                state.isCreatingTheory = false;
+                state.theoryFormState.selectedClueIds = [];
+
+                if (titleInput) {
+                    titleInput.value = '';
+                }
+                if (descriptionInput) {
+                    descriptionInput.value = '';
+                }
+
+                updateTheoryFormVisibility();
+                if (components.clueSelectionPanel) {
+                    renderClueSelectionPanel(components.clueSelectionPanel);
+                }
+                if (components.theoryListPanel) {
+                    renderTheoryListPanel(components.theoryListPanel);
+                }
+
+                if (newTheory && newTheory.id) {
+                    setTheoryIdInUrl(newTheory.id);
+                }
+            } catch (e) {
+                console.error('Error creating theory', e);
+                alert('Something went wrong while saving the theory. Please try again.');
+            }
+        }
+
+        function bindEvents() {
+            document.addEventListener('click', function(event) {
+                const target = event.target;
+                if (!target || !target.dataset) {
+                    return;
+                }
+                const action = target.dataset.action;
+                if (!action) {
+                    return;
+                }
+
+                if (action === 'open-theory-creation') {
+                    event.preventDefault();
+                    openTheoryCreation();
+                } else if (action === 'cancel-theory-creation') {
+                    event.preventDefault();
+                    cancelTheoryCreation();
+                } else if (action === 'select-theory') {
+                    event.preventDefault();
+                    const theoryId = target.dataset.theoryId;
+                    if (theoryId) {
+                        setTheoryIdInUrl(theoryId);
+                    }
+                } else if (action === 'refresh-focused-theory') {
+                    event.preventDefault();
+                    if (state.currentTheoryId) {
+                        loadFocusedTheory(state.currentTheoryId);
+                    }
+                } else if (action === 'clear-focused-theory') {
+                    event.preventDefault();
+                    setTheoryIdInUrl('');
+                }
+            });
+
+            document.addEventListener('change', function(event) {
+                const target = event.target;
+                if (!target || !target.dataset) {
+                    return;
+                }
+                const action = target.dataset.action;
+                if (action === 'toggle-clue-selection') {
+                    handleToggleClueSelection(target);
+                }
+            });
+
+            document.addEventListener('submit', function(event) {
+                const target = event.target;
+                if (target && target.dataset && target.dataset.component === 'theory-creation-form') {
+                    event.preventDefault();
+                    handleTheoryFormSubmit(target);
+                }
+            });
+        }
+
+        function init() {
+            state.currentTheoryId = readTheoryIdFromUrl();
+            loadBoardState();
+            renderBoardBoundComponents();
+
+            if (components.theoryDetailPanel) {
+                renderTheoryDetailPanel(components.theoryDetailPanel);
+            }
+            if (components.focusedIndicator) {
+                renderFocusedIndicator(components.focusedIndicator);
+            }
+
+            updateTheoryFormVisibility();
+
+            if (state.currentTheoryId) {
+                loadFocusedTheory(state.currentTheoryId);
+            }
+
+            bindEvents();
+        }
+
+        init();
+    });
+    </script>
+</body>
+</html>

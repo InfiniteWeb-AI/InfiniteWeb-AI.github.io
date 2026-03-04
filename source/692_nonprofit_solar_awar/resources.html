@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sun Day Solar Awareness Event</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="resources.css">
+</head>
+<body>
+  <div class="page">
+    <header class="site-header">
+      <div class="header-inner">
+        <a href="index.html" class="brand" aria-label="Sun Day Solar Awareness home">
+          <img src="assets/logo-sunday-solar.svg" alt="Sun Day Solar Awareness logo" class="brand-mark">
+          <span class="brand-text" aria-hidden="true">
+            <span class="brand-line brand-line-primary">Sun Day</span>
+            <span class="brand-line brand-line-secondary">in DC</span>
+          </span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <ul class="nav-list">
+            <li class="nav-item"><a href="index.html" class="nav-link">Home</a></li>
+            <li class="nav-item"><a href="events.html" class="nav-link">Events</a></li>
+            <li class="nav-item"><a href="schedule.html" class="nav-link">Schedule</a></li>
+            <li class="nav-item"><a href="resources.html" class="nav-link">Learn</a></li>
+            <li class="nav-item"><a href="volunteer.html" class="nav-link">Volunteer</a></li>
+            <li class="nav-item"><a href="schools_field_trips.html" class="nav-link">Schools &amp; Groups</a></li>
+            <li class="nav-item"><a href="exhibitors.html" class="nav-link">Exhibitors</a></li>
+            <li class="nav-item"><a href="donate.html" class="nav-link nav-link-donate">Donate</a></li>
+            <li class="nav-item"><a href="contact.html" class="nav-link">Contact</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id="content" class="content" tabindex="-1">
+      <div class="resources-page" data-component="resources-page-initializer">
+        <header class="resources-header-band">
+          <div class="resources-header-inner">
+            <h1 class="page-title">Resources &amp; Articles</h1>
+            <p class="resources-count" data-component="resources-article-count-indicator" data-populate="article-count">Loading resources</p>
+          </div>
+        </header>
+
+        <section class="resources-controls-band" aria-label="Resource filters and sorting">
+          <div class="resources-filters" data-component="resources-filter-bar" data-populate="article-filters"></div>
+          <div class="resources-sort" data-component="resources-sort-control" data-populate="sort-control"></div>
+        </section>
+
+        <section class="reading-list-section" data-component="resources-reading-list-panel" data-populate="reading-list" aria-label="My Reading List"></section>
+
+        <section class="articles-section" data-component="resources-article-list" data-populate="articles" aria-label="Resource results"></section>
+
+        <section class="tools-section" data-component="resources-tools-section" data-populate="tools" aria-label="Tools &amp; calculators"></section>
+
+        <div data-component="resources-url-sync-manager" hidden></div>
+      </div>
+
+      <script src="business_logic.js"></script>
+      <script>
+        (function () {
+          // --- Helper utilities ---
+          function parseIntOrNull(value) {
+            if (value === null || value === undefined || value === '') return null;
+            var n = parseInt(value, 10);
+            return Number.isNaN(n) ? null : n;
+          }
+
+          function getStateFromUrl() {
+            var params = new URLSearchParams(window.location.search);
+            var audience = params.get('audience') || null;
+            var contentType = params.get('contentType') || null;
+            var startYear = parseIntOrNull(params.get('startYear'));
+            var endYear = parseIntOrNull(params.get('endYear'));
+            var topicsParam = params.get('topics');
+            var topics = topicsParam ? topicsParam.split(',').filter(function (t) { return t; }) : [];
+            var sort = params.get('sort') || 'newest_first';
+
+            if (startYear !== null && endYear !== null && startYear > endYear) {
+              var tmp = startYear;
+              startYear = endYear;
+              endYear = tmp;
+            }
+
+            return {
+              audience: audience,
+              contentType: contentType,
+              startYear: startYear,
+              endYear: endYear,
+              topics: topics,
+              sort: sort
+            };
+          }
+
+          function updateUrlFromState(updatedParams) {
+            var params = new URLSearchParams(window.location.search);
+
+            Object.keys(updatedParams).forEach(function (key) {
+              var value = updatedParams[key];
+              if (value === null || value === undefined || value === '') {
+                params.delete(key);
+              } else {
+                params.set(key, String(value));
+              }
+            });
+
+            var query = params.toString();
+            var newUrl = window.location.pathname + (query ? '?' + query : '');
+            history.pushState(null, '', newUrl);
+          }
+
+          // Label maps populated from filter options
+          var audienceLabelMap = {};
+
+          function mapAudienceLabel(value) {
+            if (!value) return '';
+            return audienceLabelMap[value] || value;
+          }
+
+          // --- Render functions (must use container directly) ---
+          function renderFilterBar(container, options, state) {
+            container.innerHTML = '';
+
+            var wrapper = document.createElement('div');
+            wrapper.className = 'resources-filter-bar';
+
+            // Content type filter
+            var contentField = document.createElement('div');
+            contentField.className = 'filter-field';
+
+            var contentLabel = document.createElement('label');
+            contentLabel.setAttribute('for', 'filter-contentType');
+            contentLabel.textContent = 'Content type';
+            contentField.appendChild(contentLabel);
+
+            var contentSelect = document.createElement('select');
+            contentSelect.id = 'filter-contentType';
+            contentSelect.name = 'contentType';
+            contentSelect.dataset.action = 'filter-change';
+            contentSelect.dataset.filterKey = 'contentType';
+
+            var ctAny = document.createElement('option');
+            ctAny.value = '';
+            ctAny.textContent = 'All types';
+            contentSelect.appendChild(ctAny);
+
+            if (options && Array.isArray(options.content_types)) {
+              options.content_types.forEach(function (ct) {
+                var opt = document.createElement('option');
+                opt.value = ct.value;
+                opt.textContent = ct.label;
+                if (state.contentType === ct.value) {
+                  opt.selected = true;
+                }
+                contentSelect.appendChild(opt);
+              });
+            }
+
+            contentField.appendChild(contentSelect);
+            wrapper.appendChild(contentField);
+
+            // Audience filter
+            var audienceField = document.createElement('div');
+            audienceField.className = 'filter-field';
+
+            var audienceLabel = document.createElement('label');
+            audienceLabel.setAttribute('for', 'filter-audience');
+            audienceLabel.textContent = 'Audience';
+            audienceField.appendChild(audienceLabel);
+
+            var audienceSelect = document.createElement('select');
+            audienceSelect.id = 'filter-audience';
+            audienceSelect.name = 'audience';
+            audienceSelect.dataset.action = 'filter-change';
+            audienceSelect.dataset.filterKey = 'audience';
+
+            var audAny = document.createElement('option');
+            audAny.value = '';
+            audAny.textContent = 'All audiences';
+            audienceSelect.appendChild(audAny);
+
+            if (options && Array.isArray(options.audiences)) {
+              options.audiences.forEach(function (aud) {
+                var optA = document.createElement('option');
+                optA.value = aud.value;
+                optA.textContent = aud.label;
+                if (state.audience === aud.value) {
+                  optA.selected = true;
+                }
+                audienceSelect.appendChild(optA);
+              });
+            }
+
+            audienceField.appendChild(audienceSelect);
+            wrapper.appendChild(audienceField);
+
+            // Topics filter (multi-select)
+            var topicsField = document.createElement('div');
+            topicsField.className = 'filter-field filter-field-topics';
+
+            var topicsLabel = document.createElement('label');
+            topicsLabel.setAttribute('for', 'filter-topics');
+            topicsLabel.textContent = 'Topics';
+            topicsField.appendChild(topicsLabel);
+
+            var topicsSelect = document.createElement('select');
+            topicsSelect.id = 'filter-topics';
+            topicsSelect.name = 'topics';
+            topicsSelect.multiple = true;
+            topicsSelect.dataset.action = 'filter-change';
+            topicsSelect.dataset.filterKey = 'topics';
+
+            if (options && Array.isArray(options.topics)) {
+              options.topics.forEach(function (topic) {
+                var optT = document.createElement('option');
+                optT.value = topic;
+                optT.textContent = topic;
+                if (state.topics && state.topics.indexOf(topic) !== -1) {
+                  optT.selected = true;
+                }
+                topicsSelect.appendChild(optT);
+              });
+            }
+
+            topicsField.appendChild(topicsSelect);
+            wrapper.appendChild(topicsField);
+
+            // Year range filters
+            var yearsField = document.createElement('div');
+            yearsField.className = 'filter-field filter-field-years';
+
+            var yearsLabel = document.createElement('span');
+            yearsLabel.className = 'filter-label-inline';
+            yearsLabel.textContent = 'Year range';
+            yearsField.appendChild(yearsLabel);
+
+            var sortedYears = [];
+            if (options && Array.isArray(options.years)) {
+              sortedYears = options.years.slice().sort(function (a, b) { return a - b; });
+            }
+
+            var startSelect = document.createElement('select');
+            startSelect.id = 'filter-startYear';
+            startSelect.name = 'startYear';
+            startSelect.dataset.action = 'filter-change';
+            startSelect.dataset.filterKey = 'startYear';
+
+            var startAny = document.createElement('option');
+            startAny.value = '';
+            startAny.textContent = 'Any';
+            startSelect.appendChild(startAny);
+
+            sortedYears.forEach(function (year) {
+              var optS = document.createElement('option');
+              optS.value = String(year);
+              optS.textContent = String(year);
+              if (state.startYear === year) {
+                optS.selected = true;
+              }
+              startSelect.appendChild(optS);
+            });
+
+            var endSelect = document.createElement('select');
+            endSelect.id = 'filter-endYear';
+            endSelect.name = 'endYear';
+            endSelect.dataset.action = 'filter-change';
+            endSelect.dataset.filterKey = 'endYear';
+
+            var endAny = document.createElement('option');
+            endAny.value = '';
+            endAny.textContent = 'Any';
+            endSelect.appendChild(endAny);
+
+            sortedYears.forEach(function (yearEnd) {
+              var optE = document.createElement('option');
+              optE.value = String(yearEnd);
+              optE.textContent = String(yearEnd);
+              if (state.endYear === yearEnd) {
+                optE.selected = true;
+              }
+              endSelect.appendChild(optE);
+            });
+
+            yearsField.appendChild(startSelect);
+            yearsField.appendChild(endSelect);
+            wrapper.appendChild(yearsField);
+
+            // Reset button
+            var resetField = document.createElement('div');
+            resetField.className = 'filter-field filter-field-reset';
+
+            var resetButton = document.createElement('button');
+            resetButton.type = 'button';
+            resetButton.className = 'filter-reset-button';
+            resetButton.dataset.action = 'filters-reset';
+            resetButton.textContent = 'Clear filters';
+            resetField.appendChild(resetButton);
+
+            wrapper.appendChild(resetField);
+
+            container.appendChild(wrapper);
+          }
+
+          function renderSortControl(container, state) {
+            container.innerHTML = '';
+
+            var wrapper = document.createElement('div');
+            wrapper.className = 'resources-sort-control-inner';
+
+            var label = document.createElement('label');
+            label.setAttribute('for', 'sort-order');
+            label.textContent = 'Sort by';
+
+            var select = document.createElement('select');
+            select.id = 'sort-order';
+            select.name = 'sort';
+            select.dataset.action = 'sort-change';
+
+            var sortOptions = [
+              { value: 'newest_first', label: 'Newest first' },
+              { value: 'oldest_first', label: 'Oldest first' },
+              { value: 'relevance', label: 'Relevance' }
+            ];
+
+            var currentSort = state.sort || 'newest_first';
+
+            sortOptions.forEach(function (optDef) {
+              var opt = document.createElement('option');
+              opt.value = optDef.value;
+              opt.textContent = optDef.label;
+              if (currentSort === optDef.value) {
+                opt.selected = true;
+              }
+              select.appendChild(opt);
+            });
+
+            label.appendChild(select);
+            wrapper.appendChild(label);
+            container.appendChild(wrapper);
+          }
+
+          function renderArticleCount(container, total) {
+            var count = typeof total === 'number' ? total : 0;
+            var label = count === 1 ? 'resource' : 'resources';
+            container.textContent = count + ' ' + label;
+          }
+
+          function renderArticleList(container, articles) {
+            container.innerHTML = '';
+
+            var wrapper = document.createElement('div');
+            wrapper.className = 'resources-article-list';
+
+            if (!articles || !articles.length) {
+              var empty = document.createElement('p');
+              empty.className = 'resources-empty-state';
+              empty.textContent = 'No resources match your current filters. Try adjusting the audience or year range.';
+              wrapper.appendChild(empty);
+              container.appendChild(wrapper);
+              return;
+            }
+
+            articles.forEach(function (article) {
+              var item = document.createElement('article');
+              item.className = 'resource-item';
+
+              var titleButton = document.createElement('button');
+              titleButton.type = 'button';
+              titleButton.className = 'resource-title-button';
+              titleButton.dataset.action = 'open-article';
+              titleButton.setAttribute('data-article-id', article.id);
+              titleButton.textContent = article.title || 'Untitled resource';
+              item.appendChild(titleButton);
+
+              var meta = document.createElement('div');
+              meta.className = 'resource-meta';
+
+              if (article.year) {
+                var yearSpan = document.createElement('span');
+                yearSpan.className = 'resource-meta-year';
+                yearSpan.textContent = String(article.year);
+                meta.appendChild(yearSpan);
+              }
+
+              if (article.primary_audience) {
+                var audienceSpan = document.createElement('span');
+                audienceSpan.className = 'resource-meta-audience';
+                audienceSpan.textContent = mapAudienceLabel(article.primary_audience);
+                meta.appendChild(audienceSpan);
+              }
+
+              if (article.topics && article.topics.length) {
+                var topicsSpan = document.createElement('span');
+                topicsSpan.className = 'resource-meta-topics';
+                topicsSpan.textContent = article.topics.join(', ');
+                meta.appendChild(topicsSpan);
+              }
+
+              if (meta.childNodes.length) {
+                item.appendChild(meta);
+              }
+
+              if (article.summary) {
+                var summaryP = document.createElement('p');
+                summaryP.className = 'resource-summary';
+                summaryP.textContent = article.summary;
+                item.appendChild(summaryP);
+              }
+
+              wrapper.appendChild(item);
+            });
+
+            container.appendChild(wrapper);
+          }
+
+          function renderReadingList(container, readingData) {
+            container.innerHTML = '';
+
+            var wrapper = document.createElement('div');
+            wrapper.className = 'reading-list-panel-inner';
+
+            var header = document.createElement('div');
+            header.className = 'reading-list-header';
+
+            var title = document.createElement('h2');
+            title.className = 'reading-list-title';
+            title.textContent = 'My Reading List';
+            header.appendChild(title);
+
+            var countSpan = document.createElement('span');
+            countSpan.className = 'reading-list-count';
+
+            var items = readingData && Array.isArray(readingData.items) ? readingData.items : [];
+            var itemCount = items.length;
+
+            if (itemCount) {
+              countSpan.textContent = itemCount + ' saved ' + (itemCount === 1 ? 'article' : 'articles');
+            } else {
+              countSpan.textContent = 'No saved articles yet';
+            }
+
+            header.appendChild(countSpan);
+            wrapper.appendChild(header);
+
+            var body = document.createElement('div');
+            body.className = 'reading-list-body';
+
+            if (!itemCount) {
+              var empty = document.createElement('p');
+              empty.className = 'reading-list-empty';
+              empty.textContent = 'Save articles as you browse to quickly find them here.';
+              body.appendChild(empty);
+            } else {
+              var list = document.createElement('ul');
+              list.className = 'reading-list-items';
+
+              var maxItems = 5;
+              items.slice(0, maxItems).forEach(function (entry) {
+                var li = document.createElement('li');
+                li.className = 'reading-list-item';
+
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'reading-list-item-title';
+                btn.dataset.action = 'open-article';
+                btn.setAttribute('data-article-id', entry.article && entry.article.id);
+                btn.textContent = (entry.article && entry.article.title) || 'Untitled resource';
+                li.appendChild(btn);
+
+                if (entry.article && entry.article.summary) {
+                  var sum = document.createElement('p');
+                  sum.className = 'reading-list-item-summary';
+                  sum.textContent = entry.article.summary;
+                  li.appendChild(sum);
+                }
+
+                list.appendChild(li);
+              });
+
+              body.appendChild(list);
+
+              if (itemCount > maxItems) {
+                var more = document.createElement('p');
+                more.className = 'reading-list-more';
+                more.textContent = 'Showing ' + maxItems + ' of ' + itemCount + ' saved ' + (itemCount === 1 ? 'article' : 'articles') + '.';
+                body.appendChild(more);
+              }
+            }
+
+            wrapper.appendChild(body);
+            container.appendChild(wrapper);
+          }
+
+          function renderTools(container, tools) {
+            container.innerHTML = '';
+
+            var wrapper = document.createElement('div');
+            wrapper.className = 'resources-tools-inner';
+
+            var heading = document.createElement('h2');
+            heading.className = 'resources-tools-heading';
+            heading.textContent = 'Tools & Calculators';
+            wrapper.appendChild(heading);
+
+            if (!tools || !tools.length) {
+              var empty = document.createElement('p');
+              empty.className = 'resources-tools-empty';
+              empty.textContent = 'Interactive tools will appear here as they become available.';
+              wrapper.appendChild(empty);
+              container.appendChild(wrapper);
+              return;
+            }
+
+            var list = document.createElement('ul');
+            list.className = 'resources-tools-list';
+
+            tools.forEach(function (tool) {
+              var li = document.createElement('li');
+              li.className = 'resources-tool-item';
+
+              var btn = document.createElement('button');
+              btn.type = 'button';
+              btn.className = 'resources-tool-button';
+              if (tool.slug === 'solar_savings_calculator') {
+                btn.className += ' resources-tool-button-primary';
+              }
+              btn.dataset.action = 'open-tool';
+              btn.setAttribute('data-tool-slug', tool.slug);
+
+              var nameSpan = document.createElement('span');
+              nameSpan.className = 'resources-tool-name';
+              nameSpan.textContent = tool.name;
+              btn.appendChild(nameSpan);
+
+              if (tool.description) {
+                var descSpan = document.createElement('span');
+                descSpan.className = 'resources-tool-description';
+                descSpan.textContent = tool.description;
+                btn.appendChild(descSpan);
+              }
+
+              if (tool.slug === 'solar_savings_calculator') {
+                var badge = document.createElement('span');
+                badge.className = 'resources-tool-badge';
+                badge.textContent = 'Solar Savings Calculator';
+                btn.appendChild(badge);
+              }
+
+              li.appendChild(btn);
+              list.appendChild(li);
+            });
+
+            wrapper.appendChild(list);
+            container.appendChild(wrapper);
+          }
+
+          function updateFilterControlsFromState(state) {
+            var contentSelect = document.getElementById('filter-contentType');
+            if (contentSelect) {
+              contentSelect.value = state.contentType || '';
+            }
+
+            var audienceSelect = document.getElementById('filter-audience');
+            if (audienceSelect) {
+              audienceSelect.value = state.audience || '';
+            }
+
+            var topicsSelect = document.getElementById('filter-topics');
+            if (topicsSelect) {
+              var selectedTopics = state.topics || [];
+              Array.prototype.forEach.call(topicsSelect.options, function (opt) {
+                opt.selected = selectedTopics.indexOf(opt.value) !== -1;
+              });
+            }
+
+            var startSelect = document.getElementById('filter-startYear');
+            if (startSelect) {
+              startSelect.value = state.startYear !== null && state.startYear !== undefined ? String(state.startYear) : '';
+            }
+
+            var endSelect = document.getElementById('filter-endYear');
+            if (endSelect) {
+              endSelect.value = state.endYear !== null && state.endYear !== undefined ? String(state.endYear) : '';
+            }
+          }
+
+          function updateSortControlFromState(state) {
+            var sortSelect = document.getElementById('sort-order');
+            if (sortSelect) {
+              sortSelect.value = state.sort || 'newest_first';
+            }
+          }
+
+          // --- Main initializer ---
+          document.addEventListener('DOMContentLoaded', function () {
+            var filterOptions;
+            try {
+              filterOptions = WebsiteSDK.getArticleFilterOptions();
+            } catch (e) {
+              console.error('Failed to load article filter options', e);
+              filterOptions = { content_types: [], audiences: [], topics: [], years: [] };
+            }
+
+            // Build label maps
+            if (filterOptions && Array.isArray(filterOptions.audiences)) {
+              filterOptions.audiences.forEach(function (aud) {
+                audienceLabelMap[aud.value] = aud.label;
+              });
+            }
+
+            var initialState = getStateFromUrl();
+
+            var articleListContainers = [];
+            var articleCountContainers = [];
+
+            var populateElements = document.querySelectorAll('[data-populate]');
+            populateElements.forEach(function (element) {
+              var populateType = element.dataset.populate;
+
+              if (populateType === 'article-filters') {
+                renderFilterBar(element, filterOptions, initialState);
+              } else if (populateType === 'sort-control') {
+                renderSortControl(element, initialState);
+              } else if (populateType === 'reading-list') {
+                try {
+                  var readingData = WebsiteSDK.getReadingList();
+                  renderReadingList(element, readingData);
+                } catch (eRL) {
+                  console.error('Failed to load reading list', eRL);
+                  element.innerHTML = '<p class="reading-list-error">Unable to load your reading list right now.</p>';
+                }
+              } else if (populateType === 'tools') {
+                try {
+                  var tools = WebsiteSDK.getResourceTools();
+                  renderTools(element, tools);
+                } catch (eTools) {
+                  console.error('Failed to load tools', eTools);
+                  element.innerHTML = '<p class="resources-tools-error">Unable to load tools at the moment.</p>';
+                }
+              } else if (populateType === 'articles') {
+                articleListContainers.push(element);
+              } else if (populateType === 'article-count') {
+                articleCountContainers.push(element);
+              }
+            });
+
+            function runSearchAndRender() {
+              var state = getStateFromUrl();
+
+              var articlesResult;
+              try {
+                articlesResult = WebsiteSDK.searchArticles(
+                  state.contentType || undefined,
+                  state.audience || undefined,
+                  state.topics && state.topics.length ? state.topics : undefined,
+                  typeof state.startYear === 'number' ? state.startYear : undefined,
+                  typeof state.endYear === 'number' ? state.endYear : undefined,
+                  state.sort || 'newest_first'
+                );
+              } catch (eSearch) {
+                console.error('Failed to search articles', eSearch);
+                articlesResult = { articles: [], total_count: 0 };
+              }
+
+              var articles = articlesResult.articles || [];
+              var total = typeof articlesResult.total_count === 'number' ? articlesResult.total_count : 0;
+
+              articleListContainers.forEach(function (container) {
+                renderArticleList(container, articles);
+              });
+
+              articleCountContainers.forEach(function (container) {
+                renderArticleCount(container, total);
+              });
+
+              // Keep controls in sync with URL state (for popstate and external links)
+              updateFilterControlsFromState(state);
+              updateSortControlFromState(state);
+            }
+
+            // Initial search and render
+            runSearchAndRender();
+
+            // Handle browser back/forward
+            window.addEventListener('popstate', function () {
+              runSearchAndRender();
+            });
+
+            // Event delegation for filter/sort changes
+            document.addEventListener('change', function (event) {
+              var target = event.target;
+              if (!target || !target.dataset) return;
+
+              var action = target.dataset.action;
+              if (!action) return;
+
+              if (action === 'filter-change') {
+                var key = target.dataset.filterKey;
+                if (!key) return;
+
+                var updates = {};
+
+                if (key === 'topics') {
+                  var selectedTopics = Array.prototype.slice.call(target.selectedOptions).map(function (opt) {
+                    return opt.value;
+                  }).filter(function (v) { return v; });
+                  updates.topics = selectedTopics.length ? selectedTopics.join(',') : null;
+                } else if (key === 'startYear' || key === 'endYear') {
+                  var yearVal = target.value.trim();
+                  updates[key] = yearVal || null;
+                } else if (key === 'contentType' || key === 'audience') {
+                  var val = target.value.trim();
+                  updates[key] = val || null;
+                }
+
+                updateUrlFromState(updates);
+                runSearchAndRender();
+              } else if (action === 'sort-change') {
+                var sortVal = target.value;
+                var sortUpdates = {};
+                if (!sortVal || sortVal === 'newest_first') {
+                  sortUpdates.sort = null;
+                } else {
+                  sortUpdates.sort = sortVal;
+                }
+                updateUrlFromState(sortUpdates);
+                runSearchAndRender();
+              }
+            });
+
+            // Event delegation for clicks (articles, tools, reset)
+            document.addEventListener('click', function (event) {
+              var target = event.target.closest('[data-action]');
+              if (!target) return;
+
+              var action = target.dataset.action;
+
+              if (action === 'filters-reset') {
+                var params = new URLSearchParams(window.location.search);
+                ['audience', 'contentType', 'startYear', 'endYear', 'topics'].forEach(function (key) {
+                  params.delete(key);
+                });
+                var sortValCurrent = params.get('sort');
+                var newQuery = params.toString();
+                var newUrl = window.location.pathname + (newQuery ? '?' + newQuery : '');
+                history.pushState(null, '', newUrl);
+
+                var clearedState = getStateFromUrl();
+                updateFilterControlsFromState(clearedState);
+                updateSortControlFromState(clearedState);
+                runSearchAndRender();
+              } else if (action === 'open-article') {
+                var articleId = target.getAttribute('data-article-id');
+                if (articleId) {
+                  window.location.href = 'article_detail.html?articleId=' + encodeURIComponent(articleId);
+                }
+              } else if (action === 'open-tool') {
+                var slug = target.getAttribute('data-tool-slug');
+                if (slug === 'solar_savings_calculator') {
+                  window.location.href = 'calculator.html?tool=solar_savings_calculator';
+                }
+              }
+            });
+          });
+        })();
+      </script>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand-block">
+          <a href="index.html" class="footer-brand">
+            <span class="footer-logo-mark" aria-hidden="true"></span>
+            <span class="footer-brand-text">
+              <span class="footer-brand-line">Sun Day</span>
+              <span class="footer-brand-line footer-brand-line-sub">Solar Awareness in DC</span>
+            </span>
+          </a>
+          <p class="footer-copy">&copy; <span id="footer-year">2026</span> Sun Day Solar Awareness Event. All rights reserved.</p>
+        </div>
+        <nav class="footer-nav" aria-label="Footer">
+          <div class="footer-nav-column">
+            <h2 class="footer-nav-title">Participate</h2>
+            <ul class="footer-nav-list">
+              <li><a href="about.html">About</a></li>
+              <li><a href="contact.html">Contact</a></li>
+              <li><a href="donate.html">Donate</a></li>
+              <li><a href="volunteer.html">Volunteer</a></li>
+            </ul>
+          </div>
+          <div class="footer-nav-column">
+            <h2 class="footer-nav-title">Programs</h2>
+            <ul class="footer-nav-list">
+              <li><a href="schools_field_trips.html">Schools &amp; Field Trips</a></li>
+              <li><a href="exhibitors.html">Exhibitors &amp; Partners</a></li>
+              <li><a href="resources.html">Resources</a></li>
+              <li><a href="privacy.html">Privacy</a></li>
+            </ul>
+          </div>
+        </nav>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    // Keep copyright year current without adding new interactive navigation elements.
+    (function () {
+      var yearEl = document.getElementById('footer-year');
+      if (yearEl) {
+        yearEl.textContent = new Date().getFullYear();
+      }
+    })();
+  </script>
+</body>
+</html>

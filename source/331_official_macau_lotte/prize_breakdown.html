@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='prize_breakdown.css'>
+<script src='business_logic.js'></script>
+
+<div class='container prize-breakdown-container' data-component='prize-breakdown-page'>
+  <!-- Breadcrumb / Back navigation -->
+  <div class='pb-breadcrumb-row' data-component='prize-breakdown-breadcrumb'>
+    <nav class='pb-breadcrumb-nav' aria-label='Prize breakdown navigation'>
+      <button type='button' class='pb-breadcrumb-back' data-action='breadcrumb-back' data-populate='breadcrumb-back-label'>Back</button>
+      <span class='pb-breadcrumb-separator'>/</span>
+      <span class='pb-breadcrumb-current' data-populate='breadcrumb-current'></span>
+    </nav>
+  </div>
+
+  <!-- Draw / game header band -->
+  <section class='pb-header-band' data-component='prize-breakdown-header' data-populate='header'></section>
+
+  <!-- Main two-column area -->
+  <section class='pb-main-columns'>
+    <!-- Left column: odds + notes -->
+    <div class='pb-left-column'>
+      <section class='pb-card pb-odds-card' data-component='prize-breakdown-odds-summary'>
+        <h2 class='pb-card-title'>Odds summary</h2>
+        <div class='pb-odds-content' data-populate='odds-summary'></div>
+      </section>
+
+      <section class='pb-card pb-notes-card' data-component='draw-notes-summary'>
+        <h2 class='pb-card-title'>Draw notes</h2>
+        <div class='pb-notes-content' data-populate='draw-notes'></div>
+        <button type='button' class='pb-notes-link' data-action='view-more-notes'>View full draw details</button>
+      </section>
+    </div>
+
+    <!-- Right column: prize tiers table -->
+    <div class='pb-right-column'>
+      <section class='pb-card pb-table-card' aria-labelledby='pb-table-title'>
+        <header class='pb-table-header'>
+          <h1 id='pb-table-title' class='pb-table-title'>Prize breakdown</h1>
+          <div class='pb-table-status' data-populate='status'></div>
+        </header>
+
+        <div class='pb-no-breakdown-banner' data-populate='no-breakdown'></div>
+
+        <div class='pb-table-wrapper'>
+          <table class='pb-prize-table'>
+            <thead>
+              <tr>
+                <th scope='col'>Prize tier</th>
+                <th scope='col'>Match</th>
+                <th scope='col'>Odds</th>
+                <th scope='col'>Winners</th>
+                <th scope='col'>Prize (per winner)</th>
+              </tr>
+            </thead>
+            <tbody data-populate='prize-tiers'></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <!-- Full-page loader overlay for data loading -->
+  <div class='pb-loader-overlay' data-component='prize-breakdown-data-loader' hidden>
+    <div class='pb-loader-inner' role='status' aria-live='polite'>
+      <div class='pb-loader-spinner' aria-hidden='true'></div>
+      <p class='pb-loader-text'>Loading prize breakdown…</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const pageState = {
+      drawId: null,
+      source: null,
+      draw: null,
+      game: null,
+      prizeTiers: [],
+      isWatched: null,
+      isStarred: null,
+      notes: [],
+      detailsPrizeBreakdownAvailable: null,
+      breakdownError: false,
+      breakdownErrorMessage: ''
+    };
+
+    function escapeHtml(value) {
+      if (value === null || value === undefined) return '';
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatDateTime(value) {
+      if (!value) return '';
+      try {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        return date.toLocaleString(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      } catch (err) {
+        return String(value);
+      }
+    }
+
+    function formatCurrency(amount, currency) {
+      const numeric = Number(amount);
+      if (!Number.isFinite(numeric)) return '—';
+      const cur = (currency || '').toString().toLowerCase();
+      let symbol = '';
+      let code = '';
+      if (cur === 'mop') {
+        symbol = 'MOP$';
+        code = 'MOP';
+      } else if (cur === 'hkd') {
+        symbol = 'HK$';
+        code = 'HKD';
+      } else if (cur === 'usd') {
+        symbol = '$';
+        code = 'USD';
+      } else if (cur) {
+        code = cur.toUpperCase();
+      }
+      const formatted = numeric.toLocaleString(undefined, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      });
+      return (symbol ? symbol + formatted : formatted) + (code ? ' ' + code : '');
+    }
+
+    function isBreakdownAvailable() {
+      if (!pageState.draw) return false;
+      if (pageState.detailsPrizeBreakdownAvailable === false) return false;
+      if (pageState.draw && pageState.draw.prizeBreakdownAvailable === false) return false;
+      return true;
+    }
+
+    function showLoader(show) {
+      const loader = document.querySelector('[data-component="prize-breakdown-data-loader"]');
+      if (!loader) return;
+      if (show) {
+        loader.removeAttribute('hidden');
+      } else {
+        loader.setAttribute('hidden', 'hidden');
+      }
+    }
+
+    // Renderers
+    function renderBreadcrumbBackLabel(container) {
+      const source = pageState.source || '';
+      let label = 'Back';
+      if (source === 'ticket_checker') {
+        label = 'Back to Ticket Checker';
+      } else if (source === 'draw_details') {
+        label = 'Back to Draw Details';
+      } else if (source === 'results_all') {
+        label = 'Back to Results';
+      } else if (source === 'jackpots') {
+        label = 'Back to Jackpots';
+      }
+      container.textContent = label;
+    }
+
+    function renderBreadcrumbCurrent(container) {
+      const draw = pageState.draw;
+      const game = pageState.game;
+      if (!draw || !game) {
+        container.textContent = 'Prize breakdown';
+        return;
+      }
+      const dateText = formatDateTime(draw.drawDateTime);
+      container.textContent = game.name + ' – ' + dateText;
+    }
+
+    function renderHeader(container) {
+      const draw = pageState.draw;
+      const game = pageState.game;
+
+      if (!draw || !game) {
+        container.innerHTML = `
+          <div class='pb-header-inner'>
+            <div class='pb-header-left'>
+              <h1 class='pb-header-title'>Prize breakdown</h1>
+              <p class='pb-header-subtitle'>Select a draw to view the full prize tier breakdown.</p>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      const dateText = formatDateTime(draw.drawDateTime);
+      const drawNumberText = draw.drawNumber ? 'Draw ' + escapeHtml(draw.drawNumber) : '';
+      const sessionText = draw.session && draw.session !== 'unknown'
+        ? 'Session: ' + escapeHtml(draw.session)
+        : '';
+
+      const mainNums = Array.isArray(draw.mainNumbers) ? draw.mainNumbers : [];
+      const bonusNums = Array.isArray(draw.bonusNumbers) ? draw.bonusNumbers : [];
+      const isWatched = pageState.isWatched === true;
+      const isStarred = pageState.isStarred === true;
+
+      const watchedLabel = isWatched ? 'Watched draw' : 'Not watched';
+      const starredLabel = isStarred ? 'Starred' : 'Not starred';
+
+      let statusLabel = 'Status unknown';
+      if (draw.drawStatus === 'completed') statusLabel = 'Official results';
+      else if (draw.drawStatus === 'scheduled') statusLabel = 'Scheduled';
+      else if (draw.drawStatus === 'canceled') statusLabel = 'Canceled';
+
+      const jackpotAmount = typeof draw.jackpotAmount === 'number'
+        ? formatCurrency(draw.jackpotAmount, draw.jackpotCurrency || (game.currentJackpotCurrency || ''))
+        : '';
+
+      const mainNumbersHtml = mainNums.map(function(n) {
+        return `<li class='pb-number-ball'>${escapeHtml(n)}</li>`;
+      }).join('');
+
+      const bonusNumbersHtml = bonusNums.map(function(n, index) {
+        const label = index === 0 ? 'Bonus' : 'Extra';
+        return `<li class='pb-number-ball pb-number-ball--bonus' aria-label='${label} number'>${escapeHtml(n)}</li>`;
+      }).join('');
+
+      container.innerHTML = `
+        <div class='pb-header-inner'>
+          <div class='pb-header-left'>
+            <button type='button' class='pb-header-title-button' data-action='open-draw-details'>
+              <span class='pb-header-game-name'>${escapeHtml(game.name)}</span>
+              <span class='pb-header-draw-meta'>${escapeHtml(dateText)}${drawNumberText ? ' · ' + escapeHtml(drawNumberText) : ''}</span>
+            </button>
+            <div class='pb-header-badges'>
+              <span class='pb-header-badge pb-header-badge--status pb-header-badge--${escapeHtml(draw.drawStatus || 'unknown')}'>${escapeHtml(statusLabel)}</span>
+              <span class='pb-header-badge pb-header-badge--watch' aria-label='${escapeHtml(watchedLabel)}'>${isWatched ? 'Watched' : 'Not watched'}</span>
+              <span class='pb-header-badge pb-header-badge--star' aria-label='${escapeHtml(starredLabel)}'>${isStarred ? 'Starred' : 'Not starred'}</span>
+            </div>
+            <div class='pb-header-numbers' aria-label='Winning numbers for this draw'>
+              <ul class='pb-number-list pb-number-list--main'>${mainNumbersHtml}</ul>
+              ${bonusNumbersHtml ? `<ul class='pb-number-list pb-number-list--bonus'>${bonusNumbersHtml}</ul>` : ''}
+            </div>
+            ${sessionText ? `<p class='pb-header-session'>${sessionText}</p>` : ''}
+          </div>
+          <div class='pb-header-right'>
+            ${jackpotAmount ? `<div class='pb-header-figure-label'>Jackpot for this draw</div><div class='pb-header-figure-value'>${jackpotAmount}</div>` : ''}
+            ${draw.prizeSummary ? `<div class='pb-header-prize-summary'>${escapeHtml(draw.prizeSummary)}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderOddsSummary(container) {
+      const game = pageState.game;
+      if (!game) {
+        container.innerHTML = `
+          <p class='pb-odds-text'>The overall odds of winning will be shown once draw details are available.</p>
+        `;
+        return;
+      }
+
+      if (typeof game.oddsOfWinningAnyPrize === 'number' && game.oddsOfWinningAnyPrize > 0) {
+        const oddsText = '1 in ' + Number(game.oddsOfWinningAnyPrize).toLocaleString();
+        container.innerHTML = `
+          <p class='pb-odds-text'>Overall odds of winning any prize in <strong>${escapeHtml(game.name)}</strong> are approximately <strong>${escapeHtml(oddsText)}</strong>.</p>
+          <p class='pb-odds-footnote'>Actual odds for each prize tier are shown in the breakdown table.</p>
+        `;
+      } else {
+        container.innerHTML = `
+          <p class='pb-odds-text'>Overall odds of winning are not available for this game. Please refer to the prize tiers for per-tier odds where provided.</p>
+        `;
+      }
+    }
+
+    function renderStatus(container) {
+      if (!pageState.drawId) {
+        container.innerHTML = `
+          <div class='pb-status-message pb-status-message--error'>
+            No draw selected. Prize breakdown cannot be displayed.
+          </div>
+        `;
+        return;
+      }
+
+      if (pageState.breakdownError) {
+        container.innerHTML = `
+          <div class='pb-status-message pb-status-message--error'>
+            <span>We could not load prize breakdown data for this draw.</span>
+            <button type='button' class='pb-status-retry' data-action='retry-load'>Retry</button>
+          </div>
+        `;
+        return;
+      }
+
+      const draw = pageState.draw;
+      if (!draw) {
+        container.innerHTML = `
+          <div class='pb-status-message pb-status-message--info'>
+            Loading draw information…
+          </div>
+        `;
+        return;
+      }
+
+      let statusLabel = 'Draw status unknown';
+      if (draw.drawStatus === 'completed') statusLabel = 'Official prize breakdown';
+      else if (draw.drawStatus === 'scheduled') statusLabel = 'Draw not completed';
+      else if (draw.drawStatus === 'canceled') statusLabel = 'Draw canceled';
+
+      const statusClass = draw.drawStatus ? 'pb-status-pill--' + escapeHtml(draw.drawStatus) : 'pb-status-pill--unknown';
+      container.innerHTML = `
+        <div class='pb-status-pill ${statusClass}'>
+          <span class='pb-status-pill-label'>${escapeHtml(statusLabel)}</span>
+        </div>
+      `;
+    }
+
+    function renderNoBreakdown(container) {
+      container.innerHTML = '';
+      if (!pageState.drawId || pageState.breakdownError) return;
+      const available = isBreakdownAvailable();
+      const hasTiers = Array.isArray(pageState.prizeTiers) && pageState.prizeTiers.length > 0;
+      if (!available || !hasTiers) {
+        container.innerHTML = `
+          <div class='pb-no-breakdown-message'>
+            No detailed prize breakdown is available for this draw. High-level prize results may still be shown on the draw details page.
+          </div>
+        `;
+      }
+    }
+
+    function renderPrizeTiers(container) {
+      container.innerHTML = '';
+      if (!pageState.drawId || pageState.breakdownError) return;
+      const available = isBreakdownAvailable();
+      if (!available) return;
+      const tiers = Array.isArray(pageState.prizeTiers) ? pageState.prizeTiers.slice() : [];
+      if (!tiers.length) return;
+
+      tiers.sort(function(a, b) {
+        const aHasLevel = typeof a.tierLevel === 'number';
+        const bHasLevel = typeof b.tierLevel === 'number';
+        if (aHasLevel && bHasLevel && a.tierLevel !== b.tierLevel) {
+          return a.tierLevel - b.tierLevel;
+        }
+        if (aHasLevel && !bHasLevel) return -1;
+        if (!aHasLevel && bHasLevel) return 1;
+        const aJack = !!a.isJackpot;
+        const bJack = !!b.isJackpot;
+        if (aJack && !bJack) return -1;
+        if (!aJack && bJack) return 1;
+        return 0;
+      });
+
+      const rowsHtml = tiers.map(function(tier) {
+        const tierName = tier.tierName ? escapeHtml(tier.tierName) : 'Tier';
+        const matchDesc = tier.matchDescription ? escapeHtml(tier.matchDescription) : '';
+        let oddsText = '—';
+        if (typeof tier.oddsDenominator === 'number' && tier.oddsDenominator > 0) {
+          oddsText = '1 in ' + Number(tier.oddsDenominator).toLocaleString();
+        }
+        const winnersText = typeof tier.numWinners === 'number'
+          ? Number(tier.numWinners).toLocaleString()
+          : '—';
+        let prizeText = '—';
+        if (typeof tier.prizeAmount === 'number') {
+          prizeText = formatCurrency(tier.prizeAmount, tier.prizeCurrency);
+        }
+        const jackpotClass = tier.isJackpot ? ' pb-prize-row--jackpot' : '';
+        return `
+          <tr class='pb-prize-row${jackpotClass}'>
+            <td class='pb-prize-cell pb-prize-cell--tier' data-label='Prize tier'>${tierName}</td>
+            <td class='pb-prize-cell pb-prize-cell--match' data-label='Match'>${matchDesc}</td>
+            <td class='pb-prize-cell pb-prize-cell--odds' data-label='Odds'>${oddsText}</td>
+            <td class='pb-prize-cell pb-prize-cell--winners' data-label='Winners'>${winnersText}</td>
+            <td class='pb-prize-cell pb-prize-cell--prize' data-label='Prize'>${prizeText}</td>
+          </tr>
+        `;
+      }).join('');
+
+      container.innerHTML = rowsHtml;
+    }
+
+    function renderDrawNotes(container) {
+      const notes = Array.isArray(pageState.notes) ? pageState.notes : [];
+      if (!pageState.drawId) {
+        container.innerHTML = `
+          <p class='pb-notes-empty'>Notes for this draw will appear here when available.</p>
+        `;
+        return;
+      }
+      if (!notes.length) {
+        container.innerHTML = `
+          <p class='pb-notes-empty'>No notes have been added for this draw yet. You can manage notes from the full draw details view.</p>
+        `;
+        return;
+      }
+
+      const itemsHtml = notes.map(function(note) {
+        const typeLabel = note.type === 'tag' ? 'Tag' : 'Note';
+        const createdAt = note.createdAt ? formatDateTime(note.createdAt) : '';
+        return `
+          <li class='pb-note-item'>
+            <div class='pb-note-type'>${escapeHtml(typeLabel)}</div>
+            <div class='pb-note-text'>${escapeHtml(note.text)}</div>
+            ${createdAt ? `<div class='pb-note-meta'>${escapeHtml(createdAt)}</div>` : ''}
+          </li>
+        `;
+      }).join('');
+
+      container.innerHTML = `<ul class='pb-notes-list'>${itemsHtml}</ul>`;
+    }
+
+    function renderAll() {
+      const populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function(element) {
+        const key = element.dataset.populate;
+        if (key === 'breadcrumb-back-label') {
+          renderBreadcrumbBackLabel(element);
+        } else if (key === 'breadcrumb-current') {
+          renderBreadcrumbCurrent(element);
+        } else if (key === 'header') {
+          renderHeader(element);
+        } else if (key === 'odds-summary') {
+          renderOddsSummary(element);
+        } else if (key === 'status') {
+          renderStatus(element);
+        } else if (key === 'no-breakdown') {
+          renderNoBreakdown(element);
+        } else if (key === 'prize-tiers') {
+          renderPrizeTiers(element);
+        } else if (key === 'draw-notes') {
+          renderDrawNotes(element);
+        }
+      });
+    }
+
+    function handleBackNavigation() {
+      const source = pageState.source || '';
+      const draw = pageState.draw;
+
+      if (!source) {
+        window.history.back();
+        return;
+      }
+
+      if (source === 'ticket_checker' && draw && draw.gameId && draw.drawDateTime) {
+        const params = new URLSearchParams();
+        params.set('gameId', draw.gameId);
+        params.set('drawDate', draw.drawDateTime);
+        window.location.href = 'ticket_checker.html?' + params.toString();
+        return;
+      }
+
+      if (source === 'draw_details' && pageState.drawId) {
+        const params = new URLSearchParams();
+        params.set('drawId', pageState.drawId);
+        params.set('from', 'prize_breakdown');
+        window.location.href = 'draw_details.html?' + params.toString();
+        return;
+      }
+
+      // For results_all, jackpots, or unknown sources: generic back
+      window.history.back();
+    }
+
+    function navigateToDrawDetails() {
+      if (!pageState.drawId) return;
+      const params = new URLSearchParams();
+      params.set('drawId', pageState.drawId);
+      params.set('from', 'prize_breakdown');
+      window.location.href = 'draw_details.html?' + params.toString();
+    }
+
+    function loadData() {
+      const urlParams = new URLSearchParams(window.location.search);
+      pageState.drawId = urlParams.get('drawId');
+      pageState.source = urlParams.get('source') || '';
+      pageState.breakdownError = false;
+      pageState.breakdownErrorMessage = '';
+
+      if (!pageState.drawId) {
+        // Missing drawId: do not call SDK, just render default state
+        pageState.draw = null;
+        pageState.game = null;
+        pageState.prizeTiers = [];
+        showLoader(false);
+        renderAll();
+        return;
+      }
+
+      showLoader(true);
+
+      // Load prize breakdown
+      try {
+        const breakdownResult = WebsiteSDK.getPrizeBreakdown(pageState.drawId);
+        if (!breakdownResult || !breakdownResult.draw || !breakdownResult.game) {
+          throw new Error('Incomplete prize breakdown data');
+        }
+        pageState.draw = breakdownResult.draw;
+        pageState.game = breakdownResult.game;
+        pageState.prizeTiers = Array.isArray(breakdownResult.prizeTiers)
+          ? breakdownResult.prizeTiers.slice()
+          : [];
+      } catch (err) {
+        console.error('Error loading prize breakdown', err);
+        pageState.breakdownError = true;
+        pageState.breakdownErrorMessage = 'We could not load prize breakdown data for this draw. Please try again.';
+        pageState.prizeTiers = [];
+      }
+
+      // Load additional draw details (notes, watch/star, optional breakdown flag)
+      try {
+        const detailsResult = WebsiteSDK.getDrawDetails(pageState.drawId);
+        if (detailsResult) {
+          if (!pageState.draw && detailsResult.draw) {
+            pageState.draw = detailsResult.draw;
+          }
+          if (!pageState.game && detailsResult.game) {
+            pageState.game = detailsResult.game;
+          }
+          if (typeof detailsResult.isWatched === 'boolean') {
+            pageState.isWatched = detailsResult.isWatched;
+          }
+          if (typeof detailsResult.isStarred === 'boolean') {
+            pageState.isStarred = detailsResult.isStarred;
+          }
+          pageState.notes = Array.isArray(detailsResult.notes)
+            ? detailsResult.notes.slice()
+            : [];
+          if ('prizeBreakdownAvailable' in detailsResult) {
+            pageState.detailsPrizeBreakdownAvailable = detailsResult.prizeBreakdownAvailable;
+          }
+        }
+      } catch (err) {
+        console.error('Error loading draw details', err);
+      }
+
+      showLoader(false);
+      renderAll();
+    }
+
+    // Global delegated click handler for all actions
+    document.addEventListener('click', function(event) {
+      const target = event.target.closest('[data-action]');
+      if (!target) return;
+      const action = target.dataset.action;
+      if (action === 'breadcrumb-back') {
+        handleBackNavigation();
+      } else if (action === 'retry-load') {
+        loadData();
+      } else if (action === 'open-draw-details') {
+        navigateToDrawDetails();
+      } else if (action === 'view-more-notes') {
+        navigateToDrawDetails();
+      }
+    });
+
+    // Initial load
+    loadData();
+  });
+</script>

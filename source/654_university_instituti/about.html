@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <title>University Research Repository</title>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <link rel='stylesheet' href='framework.css'>
+  <link rel='stylesheet' href='about.css'>
+</head>
+<body>
+  <div class='page-wrapper'>
+    <header class='site-header'>
+      <div class='branding-row'>
+        <div class='branding-inner'>
+          <a href='index.html' class='site-logo'>
+            <img src='https://exlibrisgroup.com/wp-content/uploads/Esploro-Research-Discovery-Portal-1.jpg' alt='University logo'>
+          </a>
+        </div>
+      </div>
+
+      <nav class='primary-nav' aria-label='Main navigation'>
+        <div class='primary-nav-inner'>
+          <ul class='primary-nav-list'>
+            <li class='nav-item'>
+              <a href='index.html' title='Repository homepage with global search and quick links.'>Home</a>
+            </li>
+            <li class='nav-item'>
+              <a href='search_results.html' title='Search interface with basic and advanced options.'>Search</a>
+            </li>
+            <li class='nav-item'>
+              <a href='departments.html' title='Browse and select departments and faculties.'>Departments</a>
+            </li>
+            <li class='nav-item'>
+              <a href='authors.html' title='Browse and search for researcher profiles.'>Authors</a>
+            </li>
+            <li class='nav-item'>
+              <a href='analytics.html' title='Analytics dashboard for publications and usage statistics.'>Analytics</a>
+            </li>
+            <li class='nav-item'>
+              <a href='lists.html' title='View and manage reading lists and favorites.'>Lists</a>
+            </li>
+          </ul>
+        </div>
+      </nav>
+
+      <div class='utility-bar'>
+        <div class='utility-inner'>
+          <div class='utility-left'>
+            <a href='profile.html' class='utility-link' title='User profile with followed departments and alerts.'>Profile</a>
+          </div>
+          <div class='utility-right'>
+            <form class='header-search' action='search_results.html' method='get' role='search'>
+              <label class='visually-hidden' for='site-search'>Search repository</label>
+              <input type='text' id='site-search' name='q' class='search-input'>
+              <button type='submit' class='search-button'>Search</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class='content-wrapper'>
+      <main id='content' class='site-main' role='main'>
+        <div class='about-page' data-component='about-page'>
+          <div class='about-page-inner'>
+            <header class='about-page-header' data-component='about-page-header' data-populate='about-header'>
+              <!-- Dynamic About page header will be injected here -->
+            </header>
+
+            <div class='about-page-body'>
+              <div class='about-status-container' data-component='about-error-and-loading-state' data-populate='about-status' role='status' aria-live='polite'>
+                <!-- Loading and error states will be injected here -->
+              </div>
+
+              <div class='about-layout-row'>
+                <div class='about-main-column' data-component='about-section-list' data-populate='about-sections' aria-label='About sections'>
+                  <!-- About sections will be injected here -->
+                </div>
+
+                <aside class='about-toc-column' data-component='about-section-toc' data-populate='about-toc' aria-label='On this page navigation'>
+                  <!-- Table of contents will be injected here -->
+                </aside>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <footer class='site-footer'>
+      <div class='footer-inner'>
+        <nav class='footer-nav' aria-label='Footer navigation'>
+          <ul class='footer-nav-list'>
+            <li class='footer-nav-item'>
+              <a href='about.html' title='Information about the repository and institution.'>About</a>
+            </li>
+            <li class='footer-nav-item'>
+              <a href='help.html' title='Help and FAQ for using the repository.'>Help</a>
+            </li>
+            <li class='footer-nav-item'>
+              <a href='policies.html' title='Open access, reuse, and privacy policies.'>Policies</a>
+            </li>
+          </ul>
+        </nav>
+        <p class='footer-copy'>&copy; <span class='footer-year'>2024</span> University Research Repository</p>
+      </div>
+    </footer>
+  </div>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var headerContainer = document.querySelector('[data-populate=about-header]');
+      var statusContainer = document.querySelector('[data-populate=about-status]');
+      var sectionsContainer = document.querySelector('[data-populate=about-sections]');
+      var tocContainer = document.querySelector('[data-populate=about-toc]');
+
+      function getUrlState() {
+        var currentUrl = new URL(window.location.href);
+        var searchParams = currentUrl.searchParams;
+        var pk = searchParams.get('pageKey') || 'about';
+        var sectionFromQuery = searchParams.get('section');
+        var sectionFromHash = window.location.hash ? window.location.hash.substring(1) : null;
+        return {
+          pageKey: pk,
+          sectionSlug: sectionFromQuery || sectionFromHash || null
+        };
+      }
+
+      var urlState = getUrlState();
+      var pageKey = urlState.pageKey;
+      var currentSectionSlug = urlState.sectionSlug;
+
+      var loadingState = 'idle'; // 'idle' | 'loading' | 'loaded' | 'error'
+      var lastErrorMessage = null;
+      var informationalContent = null;
+      var sectionMeta = [];
+      var sectionSlugToId = {};
+      var intersectionObserver = null;
+
+      function slugifyHeading(text) {
+        if (!text) {
+          return '';
+        }
+        var slug = text.toString().trim().toLowerCase();
+        slug = slug.replace(/[^a-z0-9]+/g, '-');
+        slug = slug.replace(/^-+|-+$/g, '');
+        return slug;
+      }
+
+      function buildSectionMeta(sections) {
+        sectionMeta = [];
+        sectionSlugToId = {};
+        if (!sections || !sections.length) {
+          return;
+        }
+        for (var i = 0; i < sections.length; i += 1) {
+          var sec = sections[i] || {};
+          var baseSlug = slugifyHeading(sec.heading) || 'section-' + (i + 1);
+          var uniqueSlug = baseSlug;
+          var counter = 2;
+          while (sectionSlugToId[uniqueSlug]) {
+            uniqueSlug = baseSlug + '-' + counter;
+            counter += 1;
+          }
+          var domId = 'about-section-' + uniqueSlug;
+          sectionSlugToId[uniqueSlug] = domId;
+          sectionMeta.push({
+            heading: sec.heading || '',
+            bodyHtml: sec.bodyHtml || '',
+            slug: uniqueSlug,
+            domId: domId
+          });
+        }
+      }
+
+      function renderStatus(container) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (loadingState === 'loading') {
+          container.innerHTML = "<div class='about-status-card about-status-card--loading'><p>Loading About page information...</p></div>";
+        } else if (loadingState === 'error') {
+          var message = lastErrorMessage || 'We could not load this information right now.';
+          container.innerHTML = "<div class='about-status-card about-status-card--error'><p>" + message + "</p><button type='button' class='about-status-retry-button' data-action='retry-load'>Retry</button></div>";
+        }
+      }
+
+      function renderHeader(container) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (loadingState !== 'loaded' || !informationalContent) {
+          container.style.display = 'none';
+          return;
+        }
+        container.style.display = '';
+
+        var titleText = informationalContent.title || '';
+        var lastUpdatedText = informationalContent.lastUpdated || '';
+
+        var fragment = document.createDocumentFragment();
+
+        var h1 = document.createElement('h1');
+        h1.className = 'about-page-title';
+        h1.textContent = titleText;
+        fragment.appendChild(h1);
+
+        if (lastUpdatedText) {
+          var formatted = lastUpdatedText;
+          var parsed = new Date(lastUpdatedText);
+          if (!isNaN(parsed.getTime())) {
+            try {
+              formatted = parsed.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+            } catch (e) {
+              formatted = lastUpdatedText;
+            }
+          }
+          var meta = document.createElement('p');
+          meta.className = 'about-page-meta';
+          meta.textContent = 'Last updated: ' + formatted;
+          fragment.appendChild(meta);
+        }
+
+        container.appendChild(fragment);
+      }
+
+      function renderSections(container) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (loadingState !== 'loaded') {
+          container.style.display = 'none';
+          return;
+        }
+        if (!sectionMeta.length) {
+          container.style.display = '';
+          return;
+        }
+        container.style.display = '';
+
+        var frag = document.createDocumentFragment();
+        for (var i = 0; i < sectionMeta.length; i += 1) {
+          var sec = sectionMeta[i];
+          var card = document.createElement('article');
+          card.className = 'about-section-card';
+          card.id = sec.domId;
+          card.setAttribute('data-section-slug', sec.slug);
+
+          var headingEl = document.createElement('h2');
+          headingEl.className = 'about-section-title';
+
+          var headingButton = document.createElement('button');
+          headingButton.type = 'button';
+          headingButton.className = 'about-section-title-button';
+          headingButton.setAttribute('data-action', 'navigate-section');
+          headingButton.setAttribute('data-section-slug', sec.slug);
+          headingButton.textContent = sec.heading;
+
+          headingEl.appendChild(headingButton);
+          card.appendChild(headingEl);
+
+          var bodyEl = document.createElement('div');
+          bodyEl.className = 'about-section-body';
+          bodyEl.innerHTML = sec.bodyHtml;
+          card.appendChild(bodyEl);
+
+          frag.appendChild(card);
+        }
+        container.appendChild(frag);
+      }
+
+      function renderToc(container) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (loadingState !== 'loaded' || !sectionMeta.length) {
+          container.style.display = 'none';
+          return;
+        }
+        container.style.display = '';
+
+        var wrapper = document.createElement('div');
+        wrapper.className = 'about-toc-card';
+
+        var title = document.createElement('h2');
+        title.className = 'about-toc-title';
+        title.textContent = 'On this page';
+        wrapper.appendChild(title);
+
+        var list = document.createElement('ul');
+        list.className = 'about-toc-list';
+
+        for (var i = 0; i < sectionMeta.length; i += 1) {
+          var sec = sectionMeta[i];
+          var li = document.createElement('li');
+          li.className = 'about-toc-item';
+
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'about-toc-link';
+          btn.setAttribute('data-action', 'navigate-section');
+          btn.setAttribute('data-section-slug', sec.slug);
+          btn.textContent = sec.heading;
+
+          if (currentSectionSlug && currentSectionSlug === sec.slug) {
+            btn.classList.add('is-active');
+          }
+
+          li.appendChild(btn);
+          list.appendChild(li);
+        }
+
+        wrapper.appendChild(list);
+        container.appendChild(wrapper);
+      }
+
+      function renderAll() {
+        renderStatus(statusContainer);
+        renderHeader(headerContainer);
+        renderSections(sectionsContainer);
+        renderToc(tocContainer);
+      }
+
+      function getHeaderOffset() {
+        var headerEl = document.querySelector('.site-header');
+        var offset = 0;
+        if (headerEl) {
+          offset = headerEl.offsetHeight;
+        }
+        return offset + 16;
+      }
+
+      function updateActiveTocItem(slug) {
+        if (!tocContainer) {
+          return;
+        }
+        var links = tocContainer.querySelectorAll('[data-section-slug]');
+        for (var i = 0; i < links.length; i += 1) {
+          var link = links[i];
+          if (link.getAttribute('data-section-slug') === slug) {
+            link.classList.add('is-active');
+          } else {
+            link.classList.remove('is-active');
+          }
+        }
+      }
+
+      function navigateToSection(slug, options) {
+        if (!slug || !sectionSlugToId[slug]) {
+          return;
+        }
+        var opts = options || {};
+        var sectionId = sectionSlugToId[slug];
+        var target = document.getElementById(sectionId);
+        if (!target) {
+          return;
+        }
+        var rect = target.getBoundingClientRect();
+        var absoluteY = window.pageYOffset + rect.top;
+        var scrollY = absoluteY - getHeaderOffset();
+        window.scrollTo({
+          top: scrollY,
+          behavior: 'smooth'
+        });
+        currentSectionSlug = slug;
+        updateActiveTocItem(slug);
+
+        if (opts.updateUrl) {
+          var currentUrl = new URL(window.location.href);
+          var sp = currentUrl.searchParams;
+          if (slug) {
+            sp.set('section', slug);
+          } else {
+            sp.delete('section');
+          }
+          var newUrl = currentUrl.toString();
+          if (opts.pushHistory) {
+            window.history.pushState({ section: slug }, '', newUrl);
+          } else {
+            window.history.replaceState({ section: slug }, '', newUrl);
+          }
+        }
+      }
+
+      function setupIntersectionObserver() {
+        if (!('IntersectionObserver' in window)) {
+          return;
+        }
+        if (!sectionsContainer) {
+          return;
+        }
+        if (intersectionObserver) {
+          intersectionObserver.disconnect();
+          intersectionObserver = null;
+        }
+        var sectionElements = sectionsContainer.querySelectorAll('[data-section-slug]');
+        if (!sectionElements.length) {
+          return;
+        }
+        var headerOffset = getHeaderOffset();
+        intersectionObserver = new IntersectionObserver(function (entries) {
+          var topEntry = null;
+          for (var i = 0; i < entries.length; i += 1) {
+            var entry = entries[i];
+            if (entry.isIntersecting) {
+              if (!topEntry || entry.boundingClientRect.top < topEntry.boundingClientRect.top) {
+                topEntry = entry;
+              }
+            }
+          }
+          if (topEntry) {
+            var visibleSlug = topEntry.target.getAttribute('data-section-slug');
+            if (visibleSlug && visibleSlug !== currentSectionSlug) {
+              currentSectionSlug = visibleSlug;
+              updateActiveTocItem(visibleSlug);
+              var currentUrl = new URL(window.location.href);
+              currentUrl.searchParams.set('section', visibleSlug);
+              window.history.replaceState({ section: visibleSlug }, '', currentUrl.toString());
+            }
+          }
+        }, {
+          root: null,
+          rootMargin: '-' + (headerOffset + 24) + 'px 0px -60% 0px',
+          threshold: 0.25
+        });
+
+        for (var j = 0; j < sectionElements.length; j += 1) {
+          intersectionObserver.observe(sectionElements[j]);
+        }
+      }
+
+      function loadContent() {
+        urlState = getUrlState();
+        pageKey = urlState.pageKey;
+        currentSectionSlug = urlState.sectionSlug;
+
+        loadingState = 'loading';
+        lastErrorMessage = null;
+        renderAll();
+
+        try {
+          var content = WebsiteSDK.getInformationalPageContent(pageKey);
+          informationalContent = content || {};
+          if (!Array.isArray(informationalContent.sections)) {
+            informationalContent.sections = [];
+          }
+          buildSectionMeta(informationalContent.sections);
+          loadingState = 'loaded';
+          renderAll();
+          setupIntersectionObserver();
+          if (currentSectionSlug && sectionSlugToId[currentSectionSlug]) {
+            navigateToSection(currentSectionSlug, { updateUrl: false, pushHistory: false });
+          }
+        } catch (e) {
+          loadingState = 'error';
+          lastErrorMessage = e && e.message ? e.message : 'An unexpected error occurred.';
+          renderAll();
+        }
+      }
+
+      loadContent();
+
+      document.addEventListener('click', function (event) {
+        var actionTarget = event.target.closest('[data-action]');
+        if (!actionTarget) {
+          return;
+        }
+        var action = actionTarget.getAttribute('data-action');
+        if (action === 'retry-load') {
+          event.preventDefault();
+          if (loadingState !== 'loading') {
+            loadContent();
+          }
+        } else if (action === 'navigate-section') {
+          event.preventDefault();
+          var slug = actionTarget.getAttribute('data-section-slug');
+          if (slug) {
+            navigateToSection(slug, { updateUrl: true, pushHistory: true });
+          }
+        }
+      });
+
+      document.addEventListener('click', function (event) {
+        var anchor = event.target.closest('[data-component=about-section-list] a[href^="#"]');
+        if (!anchor) {
+          return;
+        }
+        var href = anchor.getAttribute('href') || '';
+        if (!href || href.charAt(0) !== '#') {
+          return;
+        }
+        var hash = href.substring(1);
+        if (!hash) {
+          return;
+        }
+        if (sectionSlugToId[hash]) {
+          event.preventDefault();
+          navigateToSection(hash, { updateUrl: true, pushHistory: true });
+        } else {
+          var targetEl = document.getElementById(hash);
+          if (targetEl) {
+            event.preventDefault();
+            var rect = targetEl.getBoundingClientRect();
+            var absoluteY = window.pageYOffset + rect.top;
+            var scrollY = absoluteY - getHeaderOffset();
+            window.scrollTo({
+              top: scrollY,
+              behavior: 'smooth'
+            });
+          }
+        }
+      });
+
+      window.addEventListener('popstate', function () {
+        if (loadingState !== 'loaded') {
+          return;
+        }
+        var state = getUrlState();
+        var slug = state.sectionSlug;
+        if (slug && sectionSlugToId[slug]) {
+          navigateToSection(slug, { updateUrl: false, pushHistory: false });
+        }
+      });
+    });
+  </script>
+</body>
+</html>

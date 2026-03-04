@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Slideshow Editor - Travel Photo Gallery</title>
+  <meta name="description" content="Configure and save a slideshow from a selected set of travel photos." />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="slideshow_edit.css" />
+  <script src="business_logic.js"></script>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header" role="banner">
+      <nav class="site-nav" aria-label="Primary">
+        <a href="index.html" title="Homepage and dashboard">Home</a>
+        <a href="photos.html" title="Browse and filter all photos">All Photos</a>
+        <a href="albums.html" title="View and manage photo albums">Albums</a>
+        <a href="collections.html" title="Smart and custom photo collections">Collections</a>
+        <a href="trips.html" title="Travel stories and trip timelines">Trips</a>
+      </nav>
+    </header>
+
+    <main id="content" role="main">
+      <div class="slideshow-editor-shell">
+        <div class="slideshow-editor-column" data-populate="slideshow-editor">
+          <section class="page-init-controller" data-component="page-init-controller">
+            <a href="javascript:void(0)" class="text-link back-link" data-action="cancel-edit" aria-label="Go back without saving">&lt; Back</a>
+            <span class="inline-separator">&middot;</span>
+            <span class="context-label" data-role="context-label">Slideshow editor</span>
+            <span class="mode-label" data-role="mode-label"></span>
+          </section>
+
+          <section class="slideshow-metadata-section">
+            <form class="slideshow-metadata-form" data-component="slideshow-metadata-form">
+              <div class="field">
+                <label for="slideshowTitle">Title</label>
+                <input type="text" id="slideshowTitle" name="title" maxlength="200" autocomplete="off" data-action="title-change" />
+              </div>
+
+              <div class="field field-inline">
+                <div class="field-group">
+                  <label for="slideDurationSeconds">Seconds per slide</label>
+                  <input type="number" id="slideDurationSeconds" name="slideDurationSeconds" min="1" max="600" step="1" data-action="duration-change" />
+                </div>
+                <div class="field-group field-toggle">
+                  <label for="shuffleToggle">Shuffle</label>
+                  <div class="toggle-row">
+                    <input type="checkbox" id="shuffleToggle" name="shuffleEnabled" data-action="shuffle-toggle" />
+                    <span class="toggle-label">Random order</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Hidden submit so Enter key in a field can trigger save via JS -->
+              <button type="submit" class="visually-hidden" aria-hidden="true">Submit</button>
+            </form>
+
+            <div class="validation-messages" data-component="validation-messages" aria-live="polite" aria-atomic="true"></div>
+          </section>
+
+          <section class="photo-sequence-section">
+            <h1 class="visually-hidden">Slideshow photo sequence</h1>
+            <div class="photo-sequence-strip-frame">
+              <div class="photo-sequence-strip" data-component="photo-sequence-strip">
+                <p class="sequence-loading">Loading selected photos...</p>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="slideshow-save-bar" data-component="slideshow-save-bar">
+          <div class="slideshow-save-bar-inner">
+            <div class="save-bar-status" data-role="save-status"></div>
+            <div class="save-bar-actions">
+              <button type="button" class="btn btn-secondary" data-action="cancel-edit">Cancel</button>
+              <button type="button" class="btn btn-primary" data-action="save-slideshow">Save Slideshow</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+      <nav class="footer-nav" aria-label="Footer">
+        <a href="about.html" title="About this travel photo gallery">About</a>
+        <span class="footer-separator">&middot;</span>
+        <a href="help.html" title="Help and usage guide">Help</a>
+      </nav>
+      <p class="footer-meta">&copy; 2024 Travel Photo Gallery</p>
+    </footer>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var rootContainer = document.querySelector('[data-populate="slideshow-editor"]');
+      if (!rootContainer) {
+        return;
+      }
+
+      var urlParams = new URLSearchParams(window.location.search);
+
+      var state = {
+        photoIds: [],
+        photos: [],
+        title: '',
+        durationSeconds: null,
+        shuffleEnabled: false,
+        slideshowId: null,
+        source: urlParams.get('source') || null,
+        sourceAlbumId: urlParams.get('sourceAlbumId') || null,
+        returnTo: urlParams.get('returnTo') || null,
+        defaultSettings: {},
+        isSaving: false
+      };
+
+      var dom = {
+        container: rootContainer,
+        titleInput: rootContainer.querySelector('#slideshowTitle'),
+        durationInput: rootContainer.querySelector('#slideDurationSeconds'),
+        shuffleInput: rootContainer.querySelector('#shuffleToggle'),
+        validationPanel: rootContainer.querySelector('[data-component="validation-messages"]'),
+        stripContainer: rootContainer.querySelector('[data-component="photo-sequence-strip"]'),
+        modeLabel: rootContainer.querySelector('[data-role="mode-label"]'),
+        contextLabel: rootContainer.querySelector('[data-role="context-label"]'),
+        saveStatus: document.querySelector('[data-role="save-status"]'),
+        saveButton: document.querySelector('[data-action="save-slideshow"]')
+      };
+
+      function escapeHtml(str) {
+        if (str === null || str === undefined) {
+          return '';
+        }
+        return String(str).replace(/[&<>"']/g, function(ch) {
+          switch (ch) {
+            case '&': return '&amp;';
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '"': return '&quot;';
+            case "'": return '&#39;';
+            default: return ch;
+          }
+        });
+      }
+
+      function escapeHtmlAttr(str) {
+        return escapeHtml(str);
+      }
+
+      function parseBooleanParam(value) {
+        if (value === null || value === undefined) {
+          return null;
+        }
+        var normalized = String(value).toLowerCase();
+        if (normalized === 'true' || normalized === '1' || normalized === 'yes') {
+          return true;
+        }
+        if (normalized === 'false' || normalized === '0' || normalized === 'no') {
+          return false;
+        }
+        return null;
+      }
+
+      function clearValidationMessages() {
+        if (!dom.validationPanel) {
+          return;
+        }
+        dom.validationPanel.innerHTML = '';
+        dom.validationPanel.classList.remove('has-error');
+      }
+
+      function showValidationMessages(messages) {
+        if (!dom.validationPanel) {
+          return;
+        }
+        if (!messages || !messages.length) {
+          clearValidationMessages();
+          return;
+        }
+        var listItems = messages.map(function(msg) {
+          return '<li>' + escapeHtml(msg) + '</li>';
+        }).join('');
+        dom.validationPanel.innerHTML = '<ul class="validation-list">' + listItems + '</ul>';
+        dom.validationPanel.classList.add('has-error');
+      }
+
+      function renderPhotoSequence() {
+        if (!dom.stripContainer) {
+          return;
+        }
+        dom.stripContainer.innerHTML = '';
+
+        if (!state.photoIds || !state.photoIds.length) {
+          var emptyMessage = document.createElement('p');
+          emptyMessage.className = 'sequence-empty';
+          emptyMessage.textContent = 'No photos in this slideshow. Use All Photos or an album to add photos, then create a slideshow again.';
+          dom.stripContainer.appendChild(emptyMessage);
+          return;
+        }
+
+        var list = document.createElement('ul');
+        list.className = 'sequence-list';
+
+        state.photoIds.forEach(function(photoId, index) {
+          var photo = null;
+          for (var i = 0; i < state.photos.length; i++) {
+            if (state.photos[i].id === photoId) {
+              photo = state.photos[i];
+              break;
+            }
+          }
+
+          var li = document.createElement('li');
+          li.className = 'sequence-item';
+          li.dataset.photoId = photoId;
+
+          var imageUrl = '';
+          if (photo && photo.thumbnailUrl) {
+            imageUrl = photo.thumbnailUrl;
+          } else if (photo && photo.fileUrl) {
+            imageUrl = photo.fileUrl;
+          }
+          var title = photo && photo.title ? photo.title : '';
+
+          li.innerHTML = '\n            <figure class="photo-frame">\n              <img src="' + escapeHtmlAttr(imageUrl) + '" alt="' + escapeHtmlAttr(title || 'Slideshow photo') + '">\n            </figure>\n            <div class="sequence-meta">\n              <span class="sequence-index">' + (index + 1) + '</span>\n              <span class="sequence-title">' + escapeHtml(title || '') + '</span>\n            </div>\n            <div class="sequence-controls">\n              <button type="button" class="sequence-btn sequence-btn-up" data-action="move-photo-up" data-photo-id="' + escapeHtmlAttr(photoId) + '" aria-label="Move photo up">&#8593;</button>\n              <button type="button" class="sequence-btn sequence-btn-down" data-action="move-photo-down" data-photo-id="' + escapeHtmlAttr(photoId) + '" aria-label="Move photo down">&#8595;</button>\n              <button type="button" class="sequence-btn sequence-btn-remove" data-action="remove-photo" data-photo-id="' + escapeHtmlAttr(photoId) + '">Remove</button>\n            </div>\n          ';
+
+          list.appendChild(li);
+        });
+
+        dom.stripContainer.appendChild(list);
+      }
+
+      function showInitError(message) {
+        showValidationMessages([message]);
+        if (dom.stripContainer) {
+          dom.stripContainer.innerHTML = '';
+          var p = document.createElement('p');
+          p.className = 'sequence-empty';
+          p.textContent = 'Unable to load the selected photos.';
+          dom.stripContainer.appendChild(p);
+        }
+        if (dom.saveButton) {
+          dom.saveButton.disabled = true;
+        }
+        if (dom.modeLabel) {
+          dom.modeLabel.textContent = ' · Unavailable';
+        }
+      }
+
+      function handleNoPhotoIds() {
+        var msg = 'No photos were provided to edit a slideshow. Start from All Photos or an album and choose \"Create Slideshow\".';
+        showValidationMessages([msg]);
+        if (dom.stripContainer) {
+          dom.stripContainer.innerHTML = '';
+          var p = document.createElement('p');
+          p.className = 'sequence-empty';
+          p.textContent = 'No photos selected for this slideshow.';
+          dom.stripContainer.appendChild(p);
+        }
+        if (dom.modeLabel) {
+          dom.modeLabel.textContent = ' · No photos selected';
+        }
+        if (dom.saveButton) {
+          dom.saveButton.disabled = true;
+        }
+      }
+
+      function initializeFromUrlAndSdk() {
+        var rawPhotoIds = urlParams.get('photoIds');
+        if (!rawPhotoIds) {
+          handleNoPhotoIds();
+          return;
+        }
+
+        var parsedIds = rawPhotoIds.split(',').map(function(id) {
+          return id.trim();
+        }).filter(function(id) {
+          return id.length > 0;
+        });
+
+        if (!parsedIds.length) {
+          handleNoPhotoIds();
+          return;
+        }
+
+        state.photoIds = parsedIds;
+
+        if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK.initSlideshowEditor) {
+          showInitError('Slideshow editor could not be initialized.');
+          return;
+        }
+
+        var result;
+        try {
+          result = WebsiteSDK.initSlideshowEditor(state.photoIds);
+        } catch (e) {
+          if (window.console && console.error) {
+            console.error('initSlideshowEditor error', e);
+          }
+          showInitError('There was a problem loading the slideshow editor. Please try again.');
+          return;
+        }
+
+        if (!result || !result.photos) {
+          showInitError('Slideshow editor did not return photo data.');
+          return;
+        }
+
+        state.photos = Array.isArray(result.photos) ? result.photos : [];
+        state.defaultSettings = result.defaultSettings || {};
+
+        state.photoIds = state.photoIds.filter(function(id) {
+          for (var i = 0; i < state.photos.length; i++) {
+            if (state.photos[i].id === id) {
+              return true;
+            }
+          }
+          return false;
+        });
+
+        if (!state.photoIds.length) {
+          handleNoPhotoIds();
+          return;
+        }
+
+        var slideshowIdParam = urlParams.get('slideshowId');
+        if (slideshowIdParam) {
+          state.slideshowId = slideshowIdParam;
+        }
+
+        var titleParam = urlParams.get('title');
+        state.title = titleParam || '';
+
+        var durationParam = urlParams.get('slideDurationSeconds');
+        var initialDuration = null;
+        if (durationParam !== null && durationParam !== '') {
+          var parsedDuration = parseInt(durationParam, 10);
+          if (!isNaN(parsedDuration) && parsedDuration > 0) {
+            initialDuration = parsedDuration;
+          }
+        }
+        var defaultDuration = (state.defaultSettings && typeof state.defaultSettings.slideDurationSeconds === 'number') ? state.defaultSettings.slideDurationSeconds : null;
+        if (initialDuration !== null) {
+          state.durationSeconds = initialDuration;
+        } else if (defaultDuration !== null && defaultDuration > 0) {
+          state.durationSeconds = defaultDuration;
+        } else {
+          state.durationSeconds = 5;
+        }
+
+        var shuffleParam = urlParams.get('shuffleEnabled');
+        var shuffleFromUrl = parseBooleanParam(shuffleParam);
+        var defaultShuffle = (state.defaultSettings && typeof state.defaultSettings.shuffleEnabled === 'boolean') ? state.defaultSettings.shuffleEnabled : false;
+        if (shuffleFromUrl !== null) {
+          state.shuffleEnabled = shuffleFromUrl;
+        } else {
+          state.shuffleEnabled = defaultShuffle;
+        }
+
+        if (dom.titleInput) {
+          dom.titleInput.value = state.title;
+        }
+        if (dom.durationInput) {
+          dom.durationInput.value = state.durationSeconds;
+        }
+        if (dom.shuffleInput) {
+          dom.shuffleInput.checked = !!state.shuffleEnabled;
+        }
+
+        if (dom.modeLabel) {
+          dom.modeLabel.textContent = state.slideshowId ? ' · Edit slideshow' : ' · New slideshow';
+        }
+
+        renderPhotoSequence();
+      }
+
+      function updateStateFromInputs() {
+        if (dom.titleInput) {
+          state.title = dom.titleInput.value || '';
+        }
+        if (dom.durationInput) {
+          var val = dom.durationInput.value;
+          var parsed = parseInt(val, 10);
+          if (!isNaN(parsed)) {
+            state.durationSeconds = parsed;
+          }
+        }
+        if (dom.shuffleInput) {
+          state.shuffleEnabled = !!dom.shuffleInput.checked;
+        }
+      }
+
+      function validateBeforeSave() {
+        var messages = [];
+        var title = (dom.titleInput && dom.titleInput.value) ? dom.titleInput.value.trim() : '';
+        if (!title) {
+          messages.push('Please enter a slideshow title.');
+        }
+
+        if (!state.photoIds || !state.photoIds.length) {
+          messages.push('Add at least one photo to the slideshow.');
+        }
+
+        var durationRaw = dom.durationInput ? dom.durationInput.value : '';
+        var duration = parseInt(durationRaw, 10);
+        if (isNaN(duration) || duration <= 0) {
+          messages.push('Enter a valid slide duration in seconds (minimum 1 second).');
+        }
+
+        return {
+          isValid: messages.length === 0,
+          messages: messages,
+          title: title,
+          duration: duration
+        };
+      }
+
+      function navigateAfterSave() {
+        var targetUrl;
+        if (state.source === 'album' && state.sourceAlbumId) {
+          targetUrl = 'album_detail.html?id=' + encodeURIComponent(state.sourceAlbumId);
+        } else {
+          targetUrl = 'photos.html';
+        }
+        window.location.href = targetUrl;
+      }
+
+      function navigateWithoutSave() {
+        var targetUrl;
+        if (state.source === 'album' && state.sourceAlbumId) {
+          targetUrl = 'album_detail.html?id=' + encodeURIComponent(state.sourceAlbumId);
+        } else {
+          targetUrl = 'photos.html';
+        }
+        window.location.href = targetUrl;
+      }
+
+      function handleSave() {
+        if (state.isSaving) {
+          return;
+        }
+
+        clearValidationMessages();
+        updateStateFromInputs();
+
+        var validation = validateBeforeSave();
+        if (!validation.isValid) {
+          showValidationMessages(validation.messages);
+          return;
+        }
+
+        if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK.saveSlideshow) {
+          showValidationMessages(['Saving is not available right now. Please try again later.']);
+          return;
+        }
+
+        state.isSaving = true;
+        if (dom.saveButton) {
+          dom.saveButton.disabled = true;
+          dom.saveButton.textContent = 'Saving...';
+        }
+        if (dom.saveStatus) {
+          dom.saveStatus.textContent = '';
+        }
+
+        var result;
+        try {
+          result = WebsiteSDK.saveSlideshow(validation.title, validation.duration, !!state.shuffleEnabled, state.photoIds, state.slideshowId || undefined);
+        } catch (e) {
+          state.isSaving = false;
+          if (dom.saveButton) {
+            dom.saveButton.disabled = false;
+            dom.saveButton.textContent = 'Save Slideshow';
+          }
+          if (window.console && console.error) {
+            console.error('saveSlideshow error', e);
+          }
+          showValidationMessages(['There was a problem saving the slideshow. Please try again.']);
+          return;
+        }
+
+        if (!result || result.success !== true) {
+          state.isSaving = false;
+          if (dom.saveButton) {
+            dom.saveButton.disabled = false;
+            dom.saveButton.textContent = 'Save Slideshow';
+          }
+          showValidationMessages(['Unable to save the slideshow. Please check your connection and try again.']);
+          return;
+        }
+
+        if (result.slideshow && result.slideshow.id) {
+          state.slideshowId = result.slideshow.id;
+        }
+
+        if (dom.saveStatus) {
+          dom.saveStatus.textContent = 'Slideshow saved.';
+        }
+
+        navigateAfterSave();
+      }
+
+      function movePhoto(photoId, direction) {
+        if (!state.photoIds || !state.photoIds.length) {
+          return;
+        }
+        var index = state.photoIds.indexOf(photoId);
+        if (index === -1) {
+          return;
+        }
+        var newIndex = direction === 'up' ? index - 1 : index + 1;
+        if (newIndex < 0 || newIndex >= state.photoIds.length) {
+          return;
+        }
+        var temp = state.photoIds[index];
+        state.photoIds[index] = state.photoIds[newIndex];
+        state.photoIds[newIndex] = temp;
+        renderPhotoSequence();
+        clearValidationMessages();
+      }
+
+      function removePhoto(photoId) {
+        if (!state.photoIds || !state.photoIds.length) {
+          return;
+        }
+        state.photoIds = state.photoIds.filter(function(id) {
+          return id !== photoId;
+        });
+        renderPhotoSequence();
+        clearValidationMessages();
+      }
+
+      var metadataForm = rootContainer.querySelector('.slideshow-metadata-form');
+      if (metadataForm) {
+        metadataForm.addEventListener('submit', function(event) {
+          event.preventDefault();
+          handleSave();
+        });
+      }
+
+      rootContainer.addEventListener('input', function(event) {
+        var action = event.target && event.target.dataset ? event.target.dataset.action : null;
+        if (!action) {
+          return;
+        }
+        if (action === 'title-change') {
+          state.title = event.target.value || '';
+        } else if (action === 'duration-change') {
+          var val = event.target.value;
+          var parsed = parseInt(val, 10);
+          if (!isNaN(parsed)) {
+            state.durationSeconds = parsed;
+          }
+        }
+      });
+
+      rootContainer.addEventListener('change', function(event) {
+        var action = event.target && event.target.dataset ? event.target.dataset.action : null;
+        if (!action) {
+          return;
+        }
+        if (action === 'shuffle-toggle') {
+          state.shuffleEnabled = !!event.target.checked;
+        }
+      });
+
+      document.addEventListener('click', function(event) {
+        var target = event.target;
+        if (!target) {
+          return;
+        }
+        if (typeof target.closest !== 'function') {
+          return;
+        }
+        var actionElement = target.closest('[data-action]');
+        if (!actionElement) {
+          return;
+        }
+        var action = actionElement.dataset.action;
+        if (!action) {
+          return;
+        }
+        if (action === 'save-slideshow') {
+          event.preventDefault();
+          handleSave();
+        } else if (action === 'cancel-edit') {
+          event.preventDefault();
+          navigateWithoutSave();
+        } else if (action === 'move-photo-up') {
+          event.preventDefault();
+          var photoIdUp = actionElement.dataset.photoId;
+          if (photoIdUp) {
+            movePhoto(photoIdUp, 'up');
+          }
+        } else if (action === 'move-photo-down') {
+          event.preventDefault();
+          var photoIdDown = actionElement.dataset.photoId;
+          if (photoIdDown) {
+            movePhoto(photoIdDown, 'down');
+          }
+        } else if (action === 'remove-photo') {
+          event.preventDefault();
+          var photoIdRemove = actionElement.dataset.photoId;
+          if (photoIdRemove) {
+            removePhoto(photoIdRemove);
+          }
+        }
+      });
+
+      var populateElements = document.querySelectorAll('[data-populate]');
+      populateElements.forEach(function(element) {
+        var type = element.dataset.populate;
+        if (type === 'slideshow-editor') {
+          initializeFromUrlAndSdk();
+        }
+      });
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Admiral Bookmarks - Search &amp; Browse Results</title>
+    <link rel='stylesheet' href='styles.css'>
+    <link rel='stylesheet' href='results.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <div class='navbar'>
+            <div class='container navbar-inner'>
+                <div class='navbar-brand'>
+                    <a href='index.html' class='brand-link'>admiralbookmarks</a>
+                </div>
+                <nav class='navbar-nav' aria-label='Main navigation'>
+                    <ul class='nav-list'>
+                        <li class='nav-item is-active'><a href='index.html'>Home</a></li>
+                        <li class='nav-item'><a href='explore.html'>Explore</a></li>
+                        <li class='nav-item'><a href='results.html?categoryId=web_development'>Web Development</a></li>
+                        <li class='nav-item'><a href='results.html?categoryId=security'>Security</a></li>
+                        <li class='nav-item'><a href='my_bookmarks.html'>My Bookmarks</a></li>
+                        <li class='nav-item'><a href='collections.html'>Collections</a></li>
+                        <li class='nav-item'><a href='community.html'>Community</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+
+        <div class='breadcrumb-bar'>
+            <div class='container'>
+                <nav aria-label='Breadcrumb'>
+                    <ol class='breadcrumb'>
+                        <li class='breadcrumb-item'><a href='index.html'>Home</a></li>
+                        <li class='breadcrumb-item is-active' aria-current='page'>Search &amp; Browse Results</li>
+                    </ol>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <div class='page'>
+        <div class='container'>
+            <div class='layout'>
+                <main id='content' class='content' role='main'>
+                    <div class='results-page-controller' data-component='results-page-controller'>
+                        <div class='results-grid'>
+                            <div class='results-main-column'>
+                                <section class='panel panel-search' data-component='search-query-bar' data-populate='search-query-bar' aria-label='Search bookmarks'>
+                                    <!-- Search bar will be rendered here -->
+                                </section>
+
+                                <section class='results-meta-block'>
+                                    <div class='results-summary' data-component='results-summary' data-populate='results-summary'>
+                                        <!-- Summary will be rendered here -->
+                                    </div>
+                                    <nav class='sort-bar' data-component='sort-bar' data-populate='sort-bar' aria-label='Sort results'>
+                                        <!-- Sort options will be rendered here -->
+                                    </nav>
+                                </section>
+
+                                <section class='results-list' data-component='bookmark-results-list' data-populate='bookmark-results' aria-label='Search results'>
+                                    <!-- Bookmark result cards will be rendered here -->
+                                </section>
+
+                                <nav class='pagination-controls' data-component='pagination-controls' data-populate='pagination' aria-label='Pagination'>
+                                    <!-- Pagination controls will be rendered here -->
+                                </nav>
+                            </div>
+
+                            <aside class='results-sidebar' data-component='filter-sidebar' data-populate='filter-sidebar' aria-label='Filter results'>
+                                <!-- Filter sidebar will be rendered here -->
+                            </aside>
+                        </div>
+
+                        <div class='collection-picker-overlay' data-component='collection-picker-dialog' data-populate='collection-dialog' hidden>
+                            <!-- Collection picker dialog will be rendered here -->
+                        </div>
+                    </div>
+                </main>
+                <aside class='sidebar' aria-label='Sidebar'>
+                    <!-- Optional global sidebar content can be added here -->
+                </aside>
+            </div>
+        </div>
+    </div>
+
+    <footer class='site-footer'>
+        <div class='container'>
+            <div class='footer-inner'>
+                <p class='footer-copy'>&copy; 2024 admiralbookmarks</p>
+                <nav class='footer-nav' aria-label='Footer navigation'>
+                    <ul class='footer-list'>
+                        <li class='footer-item'><a href='about.html'>About</a></li>
+                        <li class='footer-item'><a href='help.html'>Help &amp; FAQs</a></li>
+                        <li class='footer-item'><a href='privacy.html'>Privacy Policy</a></li>
+                        <li class='footer-item'><a href='terms.html'>Terms of Use</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    </footer>
+
+    <script src='business_logic.js'></script>
+    <script>
+    (function() {
+        'use strict';
+
+        function escapeHtml(str) {
+            if (typeof str !== 'string') {
+                return '';
+            }
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function formatNumber(value) {
+            if (typeof value !== 'number' || isNaN(value)) {
+                return '';
+            }
+            try {
+                return value.toLocaleString();
+            } catch (e) {
+                return String(value);
+            }
+        }
+
+        function formatShortDate(value) {
+            if (!value) {
+                return '';
+            }
+            var d = new Date(value);
+            if (isNaN(d.getTime())) {
+                return '';
+            }
+            try {
+                return d.toLocaleDateString();
+            } catch (e) {
+                return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+            }
+        }
+
+        function getUrlState() {
+            var url = new URL(window.location.href);
+            var params = url.searchParams;
+            var state = {
+                query: params.get('query') || '',
+                categoryId: params.get('categoryId') || '',
+                tagId: params.get('tagId') || '',
+                shortcutId: params.get('shortcutId') || '',
+                datePostedRangeId: params.get('datePostedRangeId') || '',
+                ratingMin: null,
+                minSaves: null,
+                commentsMin: null,
+                sortBy: params.get('sortBy') || '',
+                page: 1
+            };
+
+            var ratingStr = params.get('ratingMin');
+            if (ratingStr !== null && ratingStr !== '') {
+                var ratingVal = parseFloat(ratingStr);
+                if (!isNaN(ratingVal)) {
+                    state.ratingMin = ratingVal;
+                }
+            }
+
+            var savesStr = params.get('minSaves');
+            if (savesStr !== null && savesStr !== '') {
+                var savesVal = parseInt(savesStr, 10);
+                if (!isNaN(savesVal)) {
+                    state.minSaves = savesVal;
+                }
+            }
+
+            var commentsStr = params.get('commentsMin');
+            if (commentsStr !== null && commentsStr !== '') {
+                var commentsVal = parseInt(commentsStr, 10);
+                if (!isNaN(commentsVal)) {
+                    state.commentsMin = commentsVal;
+                }
+            }
+
+            var pageStr = params.get('page');
+            if (pageStr !== null && pageStr !== '') {
+                var pageVal = parseInt(pageStr, 10);
+                if (!isNaN(pageVal) && pageVal > 0) {
+                    state.page = pageVal;
+                }
+            }
+
+            return state;
+        }
+
+        var appState = {
+            filterOptions: null,
+            query: '',
+            filters: {},
+            sortBy: '',
+            page: 1,
+            pagination: null,
+            results: [],
+            shortcutId: '',
+            isLoading: false,
+            lastError: null,
+            collectionDialog: {
+                isOpen: false,
+                bookmarkId: null,
+                bookmarkTitle: ''
+            }
+        };
+
+        function getValidSortId(preferredId) {
+            if (!appState.filterOptions || !appState.filterOptions.sortOptions || appState.filterOptions.sortOptions.length === 0) {
+                return preferredId || '';
+            }
+            var options = appState.filterOptions.sortOptions;
+            var i;
+            if (preferredId) {
+                for (i = 0; i < options.length; i++) {
+                    if (options[i] && options[i].id === preferredId) {
+                        return preferredId;
+                    }
+                }
+            }
+            for (i = 0; i < options.length; i++) {
+                if (options[i] && options[i].id === 'relevance') {
+                    return 'relevance';
+                }
+            }
+            return options[0].id;
+        }
+
+        function isValidIdInList(id, list) {
+            if (!id || !list || !list.length) {
+                return false;
+            }
+            var i;
+            for (i = 0; i < list.length; i++) {
+                if (list[i] && list[i].id === id) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function applyShortcutDefaults(rawState) {
+            if (!rawState) {
+                return rawState;
+            }
+            var shortcutId = rawState.shortcutId;
+            if (!shortcutId || !appState.filterOptions) {
+                return rawState;
+            }
+
+            var modified = {
+                query: rawState.query,
+                categoryId: rawState.categoryId,
+                tagId: rawState.tagId,
+                shortcutId: rawState.shortcutId,
+                datePostedRangeId: rawState.datePostedRangeId,
+                ratingMin: rawState.ratingMin,
+                minSaves: rawState.minSaves,
+                commentsMin: rawState.commentsMin,
+                sortBy: rawState.sortBy,
+                page: rawState.page
+            };
+
+            if (shortcutId === 'trending_this_month') {
+                if (!modified.sortBy) {
+                    modified.sortBy = getValidSortId('most_saved');
+                }
+                if (!modified.datePostedRangeId && appState.filterOptions.datePostedRanges && appState.filterOptions.datePostedRanges.length) {
+                    var i;
+                    for (i = 0; i < appState.filterOptions.datePostedRanges.length; i++) {
+                        if (appState.filterOptions.datePostedRanges[i] && appState.filterOptions.datePostedRanges[i].id === 'last_30_days') {
+                            modified.datePostedRangeId = 'last_30_days';
+                            break;
+                        }
+                    }
+                }
+            }
+
+            return modified;
+        }
+
+        function rebuildStateFromUrl() {
+            var rawState = getUrlState();
+            var withShortcut = applyShortcutDefaults(rawState);
+
+            appState.query = withShortcut.query || '';
+            appState.shortcutId = withShortcut.shortcutId || '';
+            appState.page = withShortcut.page || 1;
+
+            var filters = {};
+
+            if (withShortcut.categoryId && appState.filterOptions && isValidIdInList(withShortcut.categoryId, appState.filterOptions.categories)) {
+                filters.categoryId = withShortcut.categoryId;
+            }
+
+            if (withShortcut.tagId && appState.filterOptions && isValidIdInList(withShortcut.tagId, appState.filterOptions.tags)) {
+                filters.tagIds = [withShortcut.tagId];
+            }
+
+            if (withShortcut.datePostedRangeId && appState.filterOptions && isValidIdInList(withShortcut.datePostedRangeId, appState.filterOptions.datePostedRanges)) {
+                filters.datePostedRange = withShortcut.datePostedRangeId;
+            }
+
+            if (typeof withShortcut.ratingMin === 'number' && !isNaN(withShortcut.ratingMin)) {
+                filters.minRating = withShortcut.ratingMin;
+            }
+
+            if (typeof withShortcut.minSaves === 'number' && !isNaN(withShortcut.minSaves)) {
+                filters.minSaves = withShortcut.minSaves;
+            }
+
+            if (typeof withShortcut.commentsMin === 'number' && !isNaN(withShortcut.commentsMin)) {
+                filters.minComments = withShortcut.commentsMin;
+            }
+
+            appState.filters = filters;
+            appState.sortBy = getValidSortId(withShortcut.sortBy);
+        }
+
+        function executeSearch() {
+            appState.isLoading = true;
+            appState.lastError = null;
+            renderAll();
+
+            try {
+                var queryArg = appState.query || undefined;
+                var filtersArg = null;
+                var hasFilterKey = false;
+                var key;
+                for (key in appState.filters) {
+                    if (Object.prototype.hasOwnProperty.call(appState.filters, key)) {
+                        hasFilterKey = true;
+                        break;
+                    }
+                }
+                if (hasFilterKey) {
+                    filtersArg = appState.filters;
+                }
+
+                var sortByArg = appState.sortBy || undefined;
+                var pageArg = appState.page || undefined;
+
+                var response = WebsiteSDK.searchBookmarks(queryArg, filtersArg, sortByArg, pageArg);
+
+                appState.results = response && response.results ? response.results : [];
+                appState.pagination = response && response.pagination ? response.pagination : null;
+                appState.isLoading = false;
+                appState.lastError = null;
+            } catch (e) {
+                appState.isLoading = false;
+                appState.results = [];
+                appState.pagination = null;
+                appState.lastError = 'There was a problem loading results. Please try again.';
+            }
+
+            renderAll();
+        }
+
+        function renderSearchBar(container) {
+            var value = escapeHtml(appState.query || '');
+            container.innerHTML = `
+                <form class="search-form" data-action="search-submit">
+                    <div class="search-form-row">
+                        <label for="resultsSearchInput" class="search-label">Search bookmarks</label>
+                    </div>
+                    <div class="search-form-row search-input-group">
+                        <input type="text" id="resultsSearchInput" name="query" class="search-input" value="${value}" placeholder="Search by keyword, URL, or topic">
+                        <button type="submit" class="btn btn-primary">Search</button>
+                    </div>
+                </form>
+            `;
+        }
+
+        function findCategoryName(categoryId) {
+            if (!categoryId || !appState.filterOptions || !appState.filterOptions.categories) {
+                return '';
+            }
+            var list = appState.filterOptions.categories;
+            var i;
+            for (i = 0; i < list.length; i++) {
+                if (list[i] && list[i].id === categoryId) {
+                    return list[i].name || '';
+                }
+            }
+            return '';
+        }
+
+        function findTagName(tagId) {
+            if (!tagId || !appState.filterOptions || !appState.filterOptions.tags) {
+                return '';
+            }
+            var list = appState.filterOptions.tags;
+            var i;
+            for (i = 0; i < list.length; i++) {
+                if (list[i] && list[i].id === tagId) {
+                    return list[i].name || '';
+                }
+            }
+            return '';
+        }
+
+        function renderResultsSummary(container) {
+            if (appState.lastError) {
+                container.innerHTML = `<p class="summary-text summary-error">${escapeHtml(appState.lastError)}</p>`;
+                return;
+            }
+
+            if (appState.isLoading) {
+                container.innerHTML = '<p class="summary-text">Loading results&hellip;</p>';
+                return;
+            }
+
+            if (!appState.pagination || typeof appState.pagination.totalItems !== 'number' || appState.pagination.totalItems === 0) {
+                var noContextParts = [];
+                if (appState.query) {
+                    noContextParts.push(`for "${escapeHtml(appState.query)}"`);
+                }
+                if (appState.filters.categoryId) {
+                    var catName = findCategoryName(appState.filters.categoryId);
+                    if (catName) {
+                        noContextParts.push(`in ${escapeHtml(catName)}`);
+                    }
+                }
+                if (appState.filters.tagIds && appState.filters.tagIds.length) {
+                    var tagName = findTagName(appState.filters.tagIds[0]);
+                    if (tagName) {
+                        noContextParts.push(`tagged ${escapeHtml(tagName)}`);
+                    }
+                }
+                var noContext = '';
+                if (noContextParts.length) {
+                    noContext = ' ' + noContextParts.join(' ');
+                }
+                container.innerHTML = `<p class="summary-text">No bookmarks found${noContext}.</p>`;
+                return;
+            }
+
+            var pagination = appState.pagination;
+            var page = pagination.page || 1;
+            var pageSize = pagination.pageSize || 20;
+            var totalItems = pagination.totalItems || 0;
+            var start = (page - 1) * pageSize + 1;
+            var end = start + appState.results.length - 1;
+            if (end < start) {
+                end = start;
+            }
+
+            var parts = [];
+            parts.push(`Showing ${formatNumber(start)}&ndash;${formatNumber(end)} of ${formatNumber(totalItems)} bookmarks`);
+
+            if (appState.query) {
+                parts.push(`for "${escapeHtml(appState.query)}"`);
+            }
+
+            if (appState.filters.categoryId) {
+                var cName = findCategoryName(appState.filters.categoryId);
+                if (cName) {
+                    parts.push(`in ${escapeHtml(cName)}`);
+                }
+            }
+
+            if (appState.filters.tagIds && appState.filters.tagIds.length) {
+                var tName = findTagName(appState.filters.tagIds[0]);
+                if (tName) {
+                    parts.push(`tagged ${escapeHtml(tName)}`);
+                }
+            }
+
+            var summaryText = parts.join(' ');
+            container.innerHTML = `<p class="summary-text">${summaryText}</p>`;
+        }
+
+        function renderSortBar(container) {
+            if (!appState.filterOptions || !appState.filterOptions.sortOptions) {
+                container.innerHTML = '';
+                return;
+            }
+            var options = appState.filterOptions.sortOptions;
+            var activeId = appState.sortBy || getValidSortId('');
+            var html = '<ul class="sort-list">';
+            var i;
+            for (i = 0; i < options.length; i++) {
+                var opt = options[i];
+                if (!opt) {
+                    continue;
+                }
+                var isActive = opt.id === activeId;
+                var cls = 'sort-link';
+                if (isActive) {
+                    cls += ' is-active';
+                }
+                html += `
+                    <li class="sort-item">
+                        <a href="javascript:void(0)" class="${cls}" data-action="change-sort" data-sort-id="${escapeHtml(opt.id)}">${escapeHtml(opt.label || opt.id)}</a>
+                    </li>
+                `;
+            }
+            html += '</ul>';
+            container.innerHTML = html;
+        }
+
+        function renderResultsList(container) {
+            if (appState.lastError) {
+                container.innerHTML = `<div class="results-message results-error">${escapeHtml(appState.lastError)}</div>`;
+                return;
+            }
+
+            if (appState.isLoading) {
+                container.innerHTML = '<div class="results-message">Loading results&hellip;</div>';
+                return;
+            }
+
+            if (!appState.results || appState.results.length === 0) {
+                container.innerHTML = '<div class="results-message">No bookmarks to display.</div>';
+                return;
+            }
+
+            var html = '';
+            var i;
+            for (i = 0; i < appState.results.length; i++) {
+                var b = appState.results[i];
+                if (!b) {
+                    continue;
+                }
+                var rating = typeof b.ratingAverage === 'number' && !isNaN(b.ratingAverage) ? b.ratingAverage.toFixed(1) : '–';
+                var ratingCount = typeof b.ratingCount === 'number' ? b.ratingCount : null;
+                var savesCount = typeof b.savesCount === 'number' ? b.savesCount : null;
+                var commentsCount = typeof b.commentsCount === 'number' ? b.commentsCount : null;
+                var created = formatShortDate(b.createdAt);
+                var saveLabel = b.isSavedByCurrentAgent ? 'Saved' : 'Save';
+                var saveClass = b.isSavedByCurrentAgent ? 'btn-save is-saved' : 'btn-save';
+                var tagNamesHtml = '';
+                if (b.tagNames && b.tagNames.length) {
+                    var j;
+                    tagNamesHtml += '<ul class="bookmark-tags">';
+                    for (j = 0; j < b.tagNames.length; j++) {
+                        if (b.tagNames[j]) {
+                            tagNamesHtml += `<li class="bookmark-tag">${escapeHtml(b.tagNames[j])}</li>`;
+                        }
+                    }
+                    tagNamesHtml += '</ul>';
+                }
+                var thumbnailPart = '';
+                if (b.thumbnailUrl) {
+                    thumbnailPart = `
+                        <a href="javascript:void(0)" class="bookmark-thumbnail-link" data-action="open-bookmark" data-bookmark-id="${escapeHtml(b.id)}">
+                            <img src="${escapeHtml(b.thumbnailUrl)}" alt="Thumbnail for ${escapeHtml(b.title)}" class="bookmark-thumbnail">
+                        </a>
+                    `;
+                }
+
+                html += `
+                    <article class="bookmark-card" data-component="bookmark-result-card" data-bookmark-id="${escapeHtml(b.id)}">
+                        <div class="bookmark-card-inner">
+                            <div class="bookmark-actions-strip">
+                                <div class="bookmark-score-box">
+                                    <span class="bookmark-score-label">Saves</span>
+                                    <span class="bookmark-score-value">${savesCount !== null ? formatNumber(savesCount) : '0'}</span>
+                                </div>
+                                <button type="button" class="btn btn-default ${saveClass}" data-action="open-collection-dialog" data-bookmark-id="${escapeHtml(b.id)}" data-bookmark-title="${escapeHtml(b.title)}">${escapeHtml(saveLabel)}</button>
+                            </div>
+                            <div class="bookmark-main">
+                                <div class="bookmark-header">
+                                    ${thumbnailPart}
+                                    <div class="bookmark-title-meta">
+                                        <h2 class="bookmark-title">
+                                            <a href="javascript:void(0)" class="bookmark-title-link" data-action="open-bookmark" data-bookmark-id="${escapeHtml(b.id)}">${escapeHtml(b.title)}</a>
+                                        </h2>
+                                        <div class="bookmark-meta-line">
+                                            ${b.sourceSiteName ? `<span class="bookmark-source">${escapeHtml(b.sourceSiteName)}</span>` : ''}
+                                            ${created ? `<span class="bookmark-dot">&bull;</span><span class="bookmark-date">Posted ${escapeHtml(created)}</span>` : ''}
+                                            <span class="bookmark-dot">&bull;</span>
+                                            <span class="bookmark-rating">Rating ${escapeHtml(rating)}${ratingCount !== null ? ` (${formatNumber(ratingCount)})` : ''}</span>
+                                            <span class="bookmark-dot">&bull;</span>
+                                            <span class="bookmark-comments-count">${commentsCount !== null ? formatNumber(commentsCount) : '0'} comments</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                ${b.description ? `<p class="bookmark-description">${escapeHtml(b.description)}</p>` : ''}
+                                ${tagNamesHtml}
+                                <div class="bookmark-footer-actions">
+                                    <a href="${escapeHtml(b.url)}" class="bookmark-link" target="_blank" rel="noopener noreferrer">Open link</a>
+                                    <span class="bookmark-footer-separator">&bull;</span>
+                                    <a href="javascript:void(0)" data-action="open-bookmark" data-bookmark-id="${escapeHtml(b.id)}" class="bookmark-detail-link">View details</a>
+                                    <span class="bookmark-footer-separator">&bull;</span>
+                                    <a href="javascript:void(0)" data-action="open-collection-dialog" data-bookmark-id="${escapeHtml(b.id)}" data-bookmark-title="${escapeHtml(b.title)}" class="bookmark-save-link">${escapeHtml(saveLabel)}</a>
+                                </div>
+                            </div>
+                        </div>
+                    </article>
+                `;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function renderPagination(container) {
+            if (!appState.pagination || !appState.results || appState.results.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var pagination = appState.pagination;
+            var totalPages = pagination.totalPages || 1;
+            var currentPage = pagination.page || 1;
+
+            if (totalPages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+
+            var html = '<ul class="pagination">';
+
+            var prevDisabled = currentPage <= 1;
+            html += `
+                <li class="page-item ${prevDisabled ? 'disabled' : ''}">
+                    <a href="javascript:void(0)" class="page-link" data-action="page-change" data-page="${currentPage - 1}">Previous</a>
+                </li>
+            `;
+
+            var page;
+            for (page = 1; page <= totalPages; page++) {
+                var active = page === currentPage;
+                html += `
+                    <li class="page-item ${active ? 'active' : ''}">
+                        <a href="javascript:void(0)" class="page-link" data-action="page-change" data-page="${page}">${page}</a>
+                    </li>
+                `;
+            }
+
+            var nextDisabled = currentPage >= totalPages;
+            html += `
+                <li class="page-item ${nextDisabled ? 'disabled' : ''}">
+                    <a href="javascript:void(0)" class="page-link" data-action="page-change" data-page="${currentPage + 1}">Next</a>
+                </li>
+            `;
+
+            html += '</ul>';
+            container.innerHTML = html;
+        }
+
+        function renderFilterSidebar(container) {
+            if (!appState.filterOptions) {
+                container.innerHTML = '<div class="panel panel-default"><div class="panel-body">Loading filters&hellip;</div></div>';
+                return;
+            }
+
+            var fo = appState.filterOptions;
+            var selectedCategoryId = appState.filters.categoryId || '';
+            var selectedTagId = appState.filters.tagIds && appState.filters.tagIds.length ? appState.filters.tagIds[0] : '';
+            var selectedDateRangeId = appState.filters.datePostedRange || '';
+            var selectedRatingMin = typeof appState.filters.minRating === 'number' && !isNaN(appState.filters.minRating) ? appState.filters.minRating : '';
+            var selectedMinSaves = typeof appState.filters.minSaves === 'number' && !isNaN(appState.filters.minSaves) ? appState.filters.minSaves : '';
+            var selectedCommentsMin = typeof appState.filters.minComments === 'number' && !isNaN(appState.filters.minComments) ? appState.filters.minComments : '';
+
+            var catOptions = '<option value="">All categories</option>';
+            var i;
+            if (fo.categories && fo.categories.length) {
+                for (i = 0; i < fo.categories.length; i++) {
+                    var c = fo.categories[i];
+                    if (!c) {
+                        continue;
+                    }
+                    var sel = c.id === selectedCategoryId ? ' selected' : '';
+                    catOptions += `<option value="${escapeHtml(c.id)}"${sel}>${escapeHtml(c.name)}</option>`;
+                }
+            }
+
+            var tagOptions = '<option value="">All tags</option>';
+            if (fo.tags && fo.tags.length) {
+                for (i = 0; i < fo.tags.length; i++) {
+                    var t = fo.tags[i];
+                    if (!t) {
+                        continue;
+                    }
+                    var tSel = t.id === selectedTagId ? ' selected' : '';
+                    tagOptions += `<option value="${escapeHtml(t.id)}"${tSel}>${escapeHtml(t.name)}</option>`;
+                }
+            }
+
+            var dateOptions = '<option value="">Any time</option>';
+            if (fo.datePostedRanges && fo.datePostedRanges.length) {
+                for (i = 0; i < fo.datePostedRanges.length; i++) {
+                    var d = fo.datePostedRanges[i];
+                    if (!d) {
+                        continue;
+                    }
+                    var dSel = d.id === selectedDateRangeId ? ' selected' : '';
+                    dateOptions += `<option value="${escapeHtml(d.id)}"${dSel}>${escapeHtml(d.label)}</option>`;
+                }
+            }
+
+            var ratingOptions = '<option value="">Any rating</option>';
+            if (fo.ratingMinSteps && fo.ratingMinSteps.length) {
+                for (i = 0; i < fo.ratingMinSteps.length; i++) {
+                    var step = fo.ratingMinSteps[i];
+                    if (typeof step !== 'number' || isNaN(step)) {
+                        continue;
+                    }
+                    var rSel = step === selectedRatingMin ? ' selected' : '';
+                    ratingOptions += `<option value="${step}"${rSel}>&ge; ${step.toFixed(1)} stars</option>`;
+                }
+            }
+
+            var savesOptions = '<option value="">Any saves</option>';
+            if (fo.savesPresets && fo.savesPresets.length) {
+                for (i = 0; i < fo.savesPresets.length; i++) {
+                    var sPreset = fo.savesPresets[i];
+                    if (!sPreset) {
+                        continue;
+                    }
+                    var minVal = typeof sPreset.min === 'number' ? sPreset.min : '';
+                    var sSel = minVal === selectedMinSaves ? ' selected' : '';
+                    var label = sPreset.label || (minVal !== '' ? (minVal + '+ saves') : 'Any');
+                    savesOptions += `<option value="${minVal !== '' ? minVal : ''}"${sSel}>${escapeHtml(label)}</option>`;
+                }
+            }
+
+            var commentsOptions = '<option value="">Any comments</option>';
+            if (fo.commentsPresets && fo.commentsPresets.length) {
+                for (i = 0; i < fo.commentsPresets.length; i++) {
+                    var cPreset = fo.commentsPresets[i];
+                    if (!cPreset) {
+                        continue;
+                    }
+                    var cMin = typeof cPreset.min === 'number' ? cPreset.min : '';
+                    var cSel = cMin === selectedCommentsMin ? ' selected' : '';
+                    var cLabel = cPreset.label || (cMin !== '' ? (cMin + '+ comments') : 'Any');
+                    commentsOptions += `<option value="${cMin !== '' ? cMin : ''}"${cSel}>${escapeHtml(cLabel)}</option>`;
+                }
+            }
+
+            container.innerHTML = `
+                <div class="panel panel-default filter-panel">
+                    <div class="panel-heading">Filter results</div>
+                    <div class="panel-body">
+                        <div class="form-group">
+                            <label for="filterCategory">Category</label>
+                            <select id="filterCategory" class="form-control" data-action="filter-change" data-filter-key="categoryId">
+                                ${catOptions}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="filterTag">Tag</label>
+                            <select id="filterTag" class="form-control" data-action="filter-change" data-filter-key="tagId">
+                                ${tagOptions}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="filterDatePosted">Posted</label>
+                            <select id="filterDatePosted" class="form-control" data-action="filter-change" data-filter-key="datePostedRangeId">
+                                ${dateOptions}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="filterRatingMin">Minimum rating</label>
+                            <select id="filterRatingMin" class="form-control" data-action="filter-change" data-filter-key="ratingMin">
+                                ${ratingOptions}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="filterMinSaves">Minimum saves</label>
+                            <select id="filterMinSaves" class="form-control" data-action="filter-change" data-filter-key="minSaves">
+                                ${savesOptions}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="filterCommentsMin">Minimum comments</label>
+                            <select id="filterCommentsMin" class="form-control" data-action="filter-change" data-filter-key="commentsMin">
+                                ${commentsOptions}
+                            </select>
+                        </div>
+                        <div class="form-group filter-reset-group">
+                            <button type="button" class="btn btn-default filter-reset-btn" data-action="reset-filters">Reset filters</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderCollectionDialog(container) {
+            if (!appState.collectionDialog || !appState.collectionDialog.isOpen) {
+                container.innerHTML = '';
+                container.setAttribute('hidden', 'hidden');
+                return;
+            }
+
+            var collectionsRaw = [];
+            try {
+                var stored = localStorage.getItem('collections');
+                if (stored) {
+                    collectionsRaw = JSON.parse(stored) || [];
+                }
+            } catch (e) {
+                collectionsRaw = [];
+            }
+
+            var collectionsListHtml = '';
+            if (collectionsRaw && collectionsRaw.length) {
+                var i;
+                collectionsListHtml += '<ul class="collection-list">';
+                for (i = 0; i < collectionsRaw.length; i++) {
+                    var col = collectionsRaw[i];
+                    if (!col) {
+                        continue;
+                    }
+                    var countLabel = typeof col.bookmarkCount === 'number' ? ` (${formatNumber(col.bookmarkCount)} items)` : '';
+                    collectionsListHtml += `
+                        <li class="collection-list-item">
+                            <label>
+                                <input type="radio" name="existingCollectionId" value="${escapeHtml(col.id)}">
+                                <span class="collection-title">${escapeHtml(col.title)}</span>
+                                <span class="collection-meta">${countLabel}</span>
+                            </label>
+                        </li>
+                    `;
+                }
+                collectionsListHtml += '</ul>';
+            } else {
+                collectionsListHtml = '<p class="collection-empty">You do not have any collections yet. Create one below.</p>';
+            }
+
+            var bookmarkTitle = escapeHtml(appState.collectionDialog.bookmarkTitle || '');
+
+            container.innerHTML = `
+                <div class="modal-backdrop-inner" data-action="close-dialog-click-outside">
+                    <div class="modal-dialog" role="dialog" aria-modal="true" aria-label="Save bookmark to collection" data-dialog-root>
+                        <div class="modal-header">
+                            <h2 class="modal-title">Save to collection</h2>
+                            <button type="button" class="modal-close" data-action="close-dialog" aria-label="Close">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="modal-intro">Bookmark: <strong>${bookmarkTitle}</strong></p>
+                            <form class="collection-form" data-action="confirm-save-form">
+                                <fieldset class="collection-mode-group">
+                                    <legend>Choose where to save</legend>
+                                    <div class="collection-mode-option">
+                                        <label>
+                                            <input type="radio" name="collectionMode" value="existing" checked>
+                                            Add to an existing collection
+                                        </label>
+                                        <div class="collection-existing-list">
+                                            ${collectionsListHtml}
+                                        </div>
+                                    </div>
+                                    <div class="collection-mode-option">
+                                        <label>
+                                            <input type="radio" name="collectionMode" value="create_new">
+                                            Create a new collection
+                                        </label>
+                                        <div class="collection-new-fields">
+                                            <div class="form-group">
+                                                <label for="newCollectionTitle">New collection title</label>
+                                                <input type="text" id="newCollectionTitle" name="newCollectionTitle" class="form-control" placeholder="e.g., Learn Web Dev">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="newCollectionVisibility">New collection visibility</label>
+                                                <select id="newCollectionVisibility" name="newCollectionVisibility" class="form-control">
+                                                    <option value="private">Private</option>
+                                                    <option value="public">Public</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </fieldset>
+                                <div class="form-group">
+                                    <label for="saveVisibility">Save visibility</label>
+                                    <select id="saveVisibility" name="saveVisibility" class="form-control">
+                                        <option value="public">Public</option>
+                                        <option value="private">Private</option>
+                                    </select>
+                                </div>
+                                <div class="collection-error" data-collection-error></div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-default" data-action="close-dialog">Cancel</button>
+                                    <button type="submit" class="btn btn-primary" data-action="confirm-save">Save</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            container.removeAttribute('hidden');
+        }
+
+        function renderAll() {
+            var populateElements = document.querySelectorAll('[data-populate]');
+            Array.prototype.forEach.call(populateElements, function(container) {
+                var type = container.getAttribute('data-populate');
+                if (!type) {
+                    return;
+                }
+                if (type === 'search-query-bar') {
+                    renderSearchBar(container);
+                } else if (type === 'results-summary') {
+                    renderResultsSummary(container);
+                } else if (type === 'sort-bar') {
+                    renderSortBar(container);
+                } else if (type === 'bookmark-results') {
+                    renderResultsList(container);
+                } else if (type === 'pagination') {
+                    renderPagination(container);
+                } else if (type === 'filter-sidebar') {
+                    renderFilterSidebar(container);
+                } else if (type === 'collection-dialog') {
+                    renderCollectionDialog(container);
+                }
+            });
+
+            bindActionHandlers(document);
+        }
+
+        function updateUrlAndState(modifier) {
+            var url = new URL(window.location.href);
+            var params = url.searchParams;
+            modifier(params);
+            url.search = params.toString();
+            window.history.pushState({}, '', url.toString());
+            rebuildStateFromUrl();
+            executeSearch();
+        }
+
+        function handleSearchSubmit(event) {
+            event.preventDefault();
+            var form = event.target;
+            if (!form || !form.querySelector) {
+                return;
+            }
+            var input = form.querySelector('input[name="query"]');
+            var value = input && typeof input.value === 'string' ? input.value.trim() : '';
+            updateUrlAndState(function(params) {
+                if (value) {
+                    params.set('query', value);
+                } else {
+                    params.delete('query');
+                }
+                params.delete('page');
+                params.delete('shortcutId');
+            });
+        }
+
+        function handleFilterChange(event) {
+            var select = event.target;
+            var key = select.getAttribute('data-filter-key');
+            if (!key) {
+                return;
+            }
+            var value = select.value;
+            updateUrlAndState(function(params) {
+                if (value === '' || value === null) {
+                    if (key === 'categoryId') {
+                        params.delete('categoryId');
+                    } else if (key === 'tagId') {
+                        params.delete('tagId');
+                    } else if (key === 'datePostedRangeId') {
+                        params.delete('datePostedRangeId');
+                    } else if (key === 'ratingMin') {
+                        params.delete('ratingMin');
+                    } else if (key === 'minSaves') {
+                        params.delete('minSaves');
+                    } else if (key === 'commentsMin') {
+                        params.delete('commentsMin');
+                    }
+                } else {
+                    if (key === 'categoryId') {
+                        params.set('categoryId', value);
+                    } else if (key === 'tagId') {
+                        params.set('tagId', value);
+                    } else if (key === 'datePostedRangeId') {
+                        params.set('datePostedRangeId', value);
+                    } else if (key === 'ratingMin') {
+                        params.set('ratingMin', value);
+                    } else if (key === 'minSaves') {
+                        params.set('minSaves', value);
+                    } else if (key === 'commentsMin') {
+                        params.set('commentsMin', value);
+                    }
+                }
+                params.delete('page');
+                params.delete('shortcutId');
+            });
+        }
+
+        function handleResetFilters() {
+            updateUrlAndState(function(params) {
+                params.delete('categoryId');
+                params.delete('tagId');
+                params.delete('datePostedRangeId');
+                params.delete('ratingMin');
+                params.delete('minSaves');
+                params.delete('commentsMin');
+                params.delete('shortcutId');
+                params.delete('sortBy');
+                params.delete('page');
+            });
+        }
+
+        function handleSortChange(event) {
+            event.preventDefault();
+            var link = event.target;
+            var sortId = link.getAttribute('data-sort-id');
+            if (!sortId) {
+                return;
+            }
+            updateUrlAndState(function(params) {
+                params.set('sortBy', sortId);
+                params.delete('page');
+                params.delete('shortcutId');
+            });
+        }
+
+        function handlePageChange(event) {
+            event.preventDefault();
+            var link = event.target;
+            var pageStr = link.getAttribute('data-page');
+            if (!pageStr) {
+                return;
+            }
+            var pageVal = parseInt(pageStr, 10);
+            if (isNaN(pageVal) || pageVal < 1) {
+                return;
+            }
+            updateUrlAndState(function(params) {
+                params.set('page', String(pageVal));
+            });
+        }
+
+        function handleOpenBookmark(event) {
+            event.preventDefault();
+            var el = event.target;
+            var bookmarkId = el.getAttribute('data-bookmark-id');
+            if (!bookmarkId) {
+                return;
+            }
+            var url = 'bookmark_detail.html?bookmarkId=' + encodeURIComponent(bookmarkId);
+            window.location.href = url;
+        }
+
+        function openCollectionDialogForBookmark(bookmarkId, bookmarkTitle) {
+            appState.collectionDialog.isOpen = true;
+            appState.collectionDialog.bookmarkId = bookmarkId;
+            appState.collectionDialog.bookmarkTitle = bookmarkTitle || '';
+            renderAll();
+        }
+
+        function handleOpenCollectionDialog(event) {
+            event.preventDefault();
+            var el = event.target;
+            var bookmarkId = el.getAttribute('data-bookmark-id');
+            if (!bookmarkId) {
+                return;
+            }
+            var bookmarkTitle = el.getAttribute('data-bookmark-title') || '';
+            openCollectionDialogForBookmark(bookmarkId, bookmarkTitle);
+        }
+
+        function handleCloseDialog(event) {
+            if (event) {
+                event.preventDefault();
+            }
+            appState.collectionDialog.isOpen = false;
+            appState.collectionDialog.bookmarkId = null;
+            appState.collectionDialog.bookmarkTitle = '';
+            renderAll();
+        }
+
+        function handleBackdropClick(event) {
+            var target = event.target;
+            if (!target || !target.getAttribute) {
+                return;
+            }
+            if (target.getAttribute('data-action') === 'close-dialog-click-outside') {
+                handleCloseDialog(event);
+            }
+        }
+
+        function handleConfirmSave(event) {
+            event.preventDefault();
+            var form = event.target.closest('form');
+            if (!form) {
+                return;
+            }
+
+            var bookmarkId = appState.collectionDialog.bookmarkId;
+            if (!bookmarkId) {
+                return;
+            }
+
+            var modeInput = form.querySelector('input[name="collectionMode"]:checked');
+            var mode = modeInput ? modeInput.value : 'existing';
+
+            var saveVisibilitySelect = form.querySelector('select[name="saveVisibility"]');
+            var saveVisibility = saveVisibilitySelect && saveVisibilitySelect.value ? saveVisibilitySelect.value : 'public';
+
+            var errorContainer = form.querySelector('[data-collection-error]');
+            if (errorContainer) {
+                errorContainer.textContent = '';
+            }
+
+            var options = {
+                saveVisibility: saveVisibility,
+                collectionAction: {
+                    mode: mode,
+                    collectionId: null,
+                    newCollectionTitle: null,
+                    newCollectionVisibility: 'private'
+                }
+            };
+
+            if (mode === 'existing') {
+                var selectedExisting = form.querySelector('input[name="existingCollectionId"]:checked');
+                if (!selectedExisting || !selectedExisting.value) {
+                    if (errorContainer) {
+                        errorContainer.textContent = 'Please select a collection to save into.';
+                    }
+                    return;
+                }
+                options.collectionAction.collectionId = selectedExisting.value;
+            } else if (mode === 'create_new') {
+                var newTitleInput = form.querySelector('input[name="newCollectionTitle"]');
+                var newTitle = newTitleInput && newTitleInput.value ? newTitleInput.value.trim() : '';
+                if (!newTitle) {
+                    if (errorContainer) {
+                        errorContainer.textContent = 'Please enter a title for the new collection.';
+                    }
+                    return;
+                }
+                options.collectionAction.newCollectionTitle = newTitle;
+                var newVisibilitySelect = form.querySelector('select[name="newCollectionVisibility"]');
+                var newVis = newVisibilitySelect && newVisibilitySelect.value ? newVisibilitySelect.value : 'private';
+                options.collectionAction.newCollectionVisibility = newVis;
+            }
+
+            var result;
+            try {
+                result = WebsiteSDK.saveBookmarkToCollection(bookmarkId, options);
+            } catch (e) {
+                if (errorContainer) {
+                    errorContainer.textContent = 'Unable to save this bookmark. Please try again.';
+                }
+                return;
+            }
+
+            if (!result || result.success !== true) {
+                if (errorContainer) {
+                    var msg = result && result.message ? result.message : 'Unable to save this bookmark. Please try again.';
+                    errorContainer.textContent = msg;
+                }
+                return;
+            }
+
+            var i;
+            for (i = 0; i < appState.results.length; i++) {
+                var item = appState.results[i];
+                if (item && item.id === bookmarkId) {
+                    item.isSavedByCurrentAgent = true;
+                    if (result.savedBookmarkId) {
+                        item.savedBookmarkId = result.savedBookmarkId;
+                    }
+                }
+            }
+
+            handleCloseDialog(event);
+        }
+
+        function bindActionHandlers(root) {
+            var actionElements = root.querySelectorAll('[data-action]');
+            Array.prototype.forEach.call(actionElements, function(el) {
+                if (el.getAttribute('data-bound') === 'true') {
+                    return;
+                }
+                var action = el.getAttribute('data-action');
+                if (!action) {
+                    return;
+                }
+
+                if (action === 'search-submit') {
+                    el.addEventListener('submit', handleSearchSubmit);
+                } else if (action === 'filter-change') {
+                    el.addEventListener('change', handleFilterChange);
+                } else if (action === 'reset-filters') {
+                    el.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        handleResetFilters();
+                    });
+                } else if (action === 'change-sort') {
+                    el.addEventListener('click', handleSortChange);
+                } else if (action === 'page-change') {
+                    el.addEventListener('click', handlePageChange);
+                } else if (action === 'open-bookmark') {
+                    el.addEventListener('click', handleOpenBookmark);
+                } else if (action === 'open-collection-dialog') {
+                    el.addEventListener('click', handleOpenCollectionDialog);
+                } else if (action === 'close-dialog') {
+                    el.addEventListener('click', handleCloseDialog);
+                } else if (action === 'confirm-save') {
+                    el.addEventListener('click', handleConfirmSave);
+                } else if (action === 'confirm-save-form') {
+                    el.addEventListener('submit', handleConfirmSave);
+                } else if (action === 'close-dialog-click-outside') {
+                    el.addEventListener('click', handleBackdropClick);
+                }
+
+                el.setAttribute('data-bound', 'true');
+            });
+        }
+
+        function initialize() {
+            try {
+                appState.filterOptions = WebsiteSDK.getBookmarkFilterOptions();
+            } catch (e) {
+                appState.filterOptions = null;
+            }
+
+            rebuildStateFromUrl();
+            executeSearch();
+
+            window.addEventListener('popstate', function() {
+                rebuildStateFromUrl();
+                executeSearch();
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initialize();
+        });
+    })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8' />
+  <meta name='viewport' content='width=device-width, initial-scale=1' />
+  <title>Smart Home Platform</title>
+  <meta name='description' content='Smart home device management and automation platform.' />
+
+  <!-- Typography -->
+  <link rel='preconnect' href='https://fonts.googleapis.com' />
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin />
+  <link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Source+Sans+3:wght@300;400;500;600&amp;display=swap' rel='stylesheet' />
+
+  <!-- Global styles for the site framework -->
+  <link rel='stylesheet' href='styles.css' />
+  <!-- Page-specific styles -->
+  <link rel='stylesheet' href='about.css' />
+</head>
+<body class='app-shell'>
+  <header class='site-header'>
+    <div class='header-inner'>
+      <a href='index.html' class='brand' aria-label='Smart home platform home'>
+        <span class='brand-mark' aria-hidden='true'>Z</span>
+        <span class='brand-text'>
+          <span class='brand-name'>Roborock Home</span>
+          <span class='brand-tagline'>Smart Living</span>
+        </span>
+      </a>
+
+      <nav class='primary-nav' aria-label='Primary'>
+        <ul>
+          <li>
+            <a href='index.html' title='Marketing homepage and product overview'>Home</a>
+          </li>
+          <li>
+            <a href='plan_selection.html' title='View and compare subscription plans'>Plans &amp; Pricing</a>
+          </li>
+          <li>
+            <a href='dashboard.html' title='Account overview after signup'>Dashboard</a>
+          </li>
+          <li>
+            <a href='home_setup_rooms.html' title='Manage rooms and devices in your home'>Home Setup</a>
+          </li>
+          <li>
+            <a href='automations_list.html' title='View and manage routines and automations'>Automations</a>
+          </li>
+          <li>
+            <a href='help.html' title='Help center and support resources'>Support</a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='page-content' role='main' tabindex='-1'>
+    <!-- About page card over lifestyle background -->
+    <div class='page-overlay about-page'>
+      <section class='glass-card about-card' aria-labelledby='about-heading' data-component='about-page-init'>
+        <div class='about-card-inner'>
+          <!-- Breadcrumb / contextual navigation -->
+          <nav class='breadcrumb-nav' aria-label='Breadcrumb' data-component='about-breadcrumb-navigation'>
+            <ol class='breadcrumb-list'>
+              <li class='breadcrumb-item' data-breadcrumb-parent>
+                <button type='button' class='breadcrumb-link' data-action='breadcrumb-home'>
+                  <span data-breadcrumb-home-label>Home</span>
+                </button>
+              </li>
+              <li class='breadcrumb-separator' aria-hidden='true' data-breadcrumb-separator>/</li>
+              <li class='breadcrumb-item breadcrumb-current' aria-current='page'>About</li>
+            </ol>
+            <p class='breadcrumb-context' data-breadcrumb-context></p>
+          </nav>
+
+          <!-- Loading / error state handler -->
+          <div class='about-state' data-component='about-error-and-loading-handler' aria-live='polite'>
+            <div class='about-loading' data-state-role='loading'>
+              <div class='loading-indicator' aria-hidden='true'></div>
+              <p class='loading-text'>Loading About information…</p>
+            </div>
+            <div class='about-error' data-state-role='error' hidden>
+              <p class='error-text'>We were unable to load this information. Please try again.</p>
+              <button type='button' class='btn btn-secondary' data-action='retry-fetch'>Retry</button>
+            </div>
+          </div>
+
+          <!-- Main About content; populated from getAboutPageContent -->
+          <div class='about-content' data-component='about-content' data-populate='aboutContent' hidden>
+            <!-- Populated by JavaScript using WebsiteSDK.getAboutPageContent() -->
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner'>
+      <div class='footer-links' aria-label='Footer'>
+        <a href='about.html' title='About the company and platform'>About</a>
+        <a href='help.html' title='FAQs and customer support options'>Help &amp; Support</a>
+        <a href='plan_selection.html' title='Compare subscription plans and features'>Plans &amp; Pricing</a>
+        <a href='terms.html' title='Legal terms governing use of the service'>Terms of Service</a>
+        <a href='privacy_policy.html' title='Details about data collection and privacy'>Privacy Policy</a>
+      </div>
+      <p class='footer-meta'>© 2024 Roborock Home. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <!-- SDK / business logic -->
+  <script src='business_logic.js'></script>
+  <!-- Page-specific UI logic -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      'use strict';
+
+      // --- State variables ---
+      var urlParams = new URLSearchParams(window.location.search);
+      var entrySource = urlParams.get('from') || 'direct'; // 'index', 'footer', or 'direct'
+
+      var aboutContent = null;
+      var loading = false;
+      var error = false;
+
+      var backgroundExpanded = false;
+      var expandedDifferentiatorIds = new Set();
+      var expandedHighlightIds = new Set();
+
+      // --- Core DOM references ---
+      var contentContainer = document.querySelector('[data-populate="aboutContent"]');
+      var stateContainer = document.querySelector('[data-component="about-error-and-loading-handler"]');
+      var breadcrumbNav = document.querySelector('[data-component="about-breadcrumb-navigation"]');
+
+      // --- Utility functions ---
+      function truncateText(str, maxLength) {
+        if (!str) return '';
+        if (str.length <= maxLength) return str;
+        var truncated = str.slice(0, maxLength);
+        // Avoid cutting the last word mid-way
+        truncated = truncated.replace(/\s+\S*$/, '');
+        return truncated + '…';
+      }
+
+      function escapeHTML(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function setLoadingState(isLoading) {
+        loading = isLoading;
+        if (!stateContainer) return;
+        var loadingEl = stateContainer.querySelector('[data-state-role="loading"]');
+        var errorEl = stateContainer.querySelector('[data-state-role="error"]');
+        if (loadingEl) {
+          loadingEl.hidden = !isLoading;
+        }
+        if (errorEl) {
+          // Hide error while loading
+          if (isLoading) {
+            errorEl.hidden = true;
+          }
+        }
+        if (contentContainer) {
+          contentContainer.hidden = true;
+        }
+      }
+
+      function setErrorState(hasError) {
+        error = hasError;
+        if (!stateContainer) return;
+        var loadingEl = stateContainer.querySelector('[data-state-role="loading"]');
+        var errorEl = stateContainer.querySelector('[data-state-role="error"]');
+        if (loadingEl) {
+          loadingEl.hidden = true;
+        }
+        if (errorEl) {
+          errorEl.hidden = !hasError;
+        }
+        if (contentContainer) {
+          contentContainer.hidden = true;
+        }
+      }
+
+      function showContent() {
+        if (stateContainer) {
+          var loadingEl = stateContainer.querySelector('[data-state-role="loading"]');
+          var errorEl = stateContainer.querySelector('[data-state-role="error"]');
+          if (loadingEl) loadingEl.hidden = true;
+          if (errorEl) errorEl.hidden = true;
+        }
+        if (contentContainer) {
+          contentContainer.hidden = false;
+        }
+      }
+
+      // --- Breadcrumb initialization ---
+      function initBreadcrumb(nav, source) {
+        if (!nav) return;
+        nav.setAttribute('data-entry-source', source);
+
+        var parentItem = nav.querySelector('[data-breadcrumb-parent]');
+        var separatorItem = nav.querySelector('[data-breadcrumb-separator]');
+        var homeLabelEl = nav.querySelector('[data-breadcrumb-home-label]');
+        var contextEl = nav.querySelector('[data-breadcrumb-context]');
+
+        var homeLabel = 'Home';
+        var contextText = '';
+
+        if (source === 'index') {
+          homeLabel = 'Home';
+          contextText = 'You came from the homepage.';
+        } else if (source === 'footer') {
+          homeLabel = 'Home';
+          contextText = 'You opened this page from the site footer.';
+        } else {
+          // Direct or unknown source: keep breadcrumb minimal
+          contextText = 'You are viewing the About page.';
+          if (parentItem) parentItem.hidden = true;
+          if (separatorItem) separatorItem.hidden = true;
+        }
+
+        if (homeLabelEl) homeLabelEl.textContent = homeLabel;
+        if (contextEl) contextEl.textContent = contextText;
+      }
+
+      // --- Navigation helpers ---
+      function navigateToHome() {
+        // index.html with ref=about
+        var targetUrl = new URL('index.html', window.location.href);
+        targetUrl.searchParams.set('ref', 'about');
+        window.location.href = targetUrl.toString();
+      }
+
+      function navigateToSignup() {
+        // signup_account.html with from=about
+        var targetUrl = new URL('signup_account.html', window.location.href);
+        targetUrl.searchParams.set('from', 'about');
+        window.location.href = targetUrl.toString();
+      }
+
+      // --- Rendering ---
+      function renderAboutContent(container, content, source) {
+        if (!container) return;
+
+        var mission = escapeHTML(content.mission || '');
+        var vision = escapeHTML(content.vision || '');
+        var background = content.background || '';
+        var backgroundCollapsed = truncateText(background, 320);
+
+        var differentiators = Array.isArray(content.differentiators) ? content.differentiators : [];
+        var securityHighlights = Array.isArray(content.securityAndPrivacyHighlights) ? content.securityAndPrivacyHighlights : [];
+
+        // Reset local UI state
+        backgroundExpanded = false;
+        expandedDifferentiatorIds = new Set();
+        expandedHighlightIds = new Set();
+
+        var differentiatorsHtml = '';
+        differentiators.forEach(function(diff, index) {
+          var title = escapeHTML(diff.title || '');
+          var desc = escapeHTML(diff.description || '');
+          differentiatorsHtml += (
+            "<li class='differentiator-item' data-differentiator-index='" + index + "'>" +
+              "<button type='button' class='differentiator-header' data-action='toggle-differentiator' aria-expanded='false' aria-controls='diff-body-" + index + "'>" +
+                "<span class='differentiator-title'>" + title + "</span>" +
+                "<span class='chevron-indicator' aria-hidden='true'></span>" +
+              "</button>" +
+              "<div id='diff-body-" + index + "' class='differentiator-body' hidden>" +
+                "<p>" + desc + "</p>" +
+              "</div>" +
+            "</li>"
+          );
+        });
+
+        var securityHtml = '';
+        securityHighlights.forEach(function(point, index) {
+          var full = String(point || '');
+          var summary = truncateText(full, 140);
+          var summaryEscaped = escapeHTML(summary);
+          var fullEscaped = escapeHTML(full);
+          securityHtml += (
+            "<li class='security-item' data-highlight-index='" + index + "'>" +
+              "<button type='button' class='security-header' data-action='toggle-highlight' aria-expanded='false' aria-controls='security-body-" + index + "'>" +
+                "<span class='security-title'>" + summaryEscaped + "</span>" +
+                "<span class='chevron-indicator' aria-hidden='true'></span>" +
+              "</button>" +
+              "<div id='security-body-" + index + "' class='security-body' hidden>" +
+                "<p>" + fullEscaped + "</p>" +
+              "</div>" +
+            "</li>"
+          );
+        });
+
+        var isFromIndex = (source === 'index');
+        var ctaHtml;
+        if (isFromIndex) {
+          ctaHtml = (
+            "<section class='about-section about-cta-section' data-component='about-cta-panel'>" +
+              "<div class='about-cta-panel-inner'>" +
+                "<p class='about-cta-text'>Finished exploring? Head back home or create an account when you're ready.</p>" +
+                "<div class='about-cta-actions'>" +
+                  "<button type='button' class='btn btn-primary' data-action='back-home'>Back to Home</button>" +
+                  "<button type='button' class='btn btn-secondary' data-action='create-account'>Create Account</button>" +
+                "</div>" +
+              "</div>" +
+            "</section>"
+          );
+        } else {
+          ctaHtml = (
+            "<section class='about-section about-cta-section' data-component='about-cta-panel'>" +
+              "<div class='about-cta-panel-inner'>" +
+                "<p class='about-cta-text'>Ready to try Roborock Home? Create an account or head back to the homepage.</p>" +
+                "<div class='about-cta-actions'>" +
+                  "<button type='button' class='btn btn-primary' data-action='create-account'>Create Account</button>" +
+                  "<button type='button' class='btn btn-secondary' data-action='back-home'>Back to Home</button>" +
+                "</div>" +
+              "</div>" +
+            "</section>"
+          );
+        }
+
+        // Build main About layout inside the glass card
+        container.innerHTML = (
+          "<section id='mission-vision' class='about-section mission-vision-section' data-component='mission-vision-section'>" +
+            "<header class='mission-vision-header'>" +
+              "<h1 id='about-heading' class='about-title'>About Roborock Home</h1>" +
+              "<nav class='about-section-nav' aria-label='In-page About navigation'>" +
+                "<a href='#mission-vision'>Mission &amp; vision</a>" +
+                "<a href='#background'>Background</a>" +
+                "<a href='#differentiators'>Why we're different</a>" +
+                "<a href='#security-privacy'>Security &amp; privacy</a>" +
+              "</nav>" +
+            "</header>" +
+            "<div class='mission-vision-body'>" +
+              "<h2 class='section-heading'>Our mission</h2>" +
+              "<p class='section-body-text'>" + mission + "</p>" +
+              "<h2 class='section-heading'>Our vision</h2>" +
+              "<p class='section-body-text'>" + vision + "</p>" +
+            "</div>" +
+          "</section>" +
+
+          "<section id='background' class='about-section background-section' data-component='background-section'>" +
+            "<header class='section-header background-header'>" +
+              "<h2 class='section-heading'>Background</h2>" +
+              "<button type='button' class='section-toggle' data-action='toggle-background' aria-expanded='false' aria-controls='background-content'>" +
+                "<span class='toggle-label' data-toggle-label>Show more</span>" +
+                "<span class='chevron-indicator' aria-hidden='true'></span>" +
+              "</button>" +
+            "</header>" +
+            "<div id='background-content' class='section-body-text background-body'>" + escapeHTML(backgroundCollapsed) + "</div>" +
+          "</section>" +
+
+          "<section id='differentiators' class='about-section differentiators-section' data-component='differentiators-list'>" +
+            "<header class='section-header'>" +
+              "<h2 class='section-heading'>Why we're different</h2>" +
+            "</header>" +
+            "<ul class='differentiators-list'>" +
+              differentiatorsHtml +
+            "</ul>" +
+          "</section>" +
+
+          "<section id='security-privacy' class='about-section security-section' data-component='security-privacy-highlights'>" +
+            "<header class='section-header'>" +
+              "<h2 class='section-heading'>Security &amp; privacy</h2>" +
+              "<p class='section-intro'>Your home and data stay in your control. Explore how we protect your devices, household, and personal information.</p>" +
+            "</header>" +
+            "<ul class='security-list'>" +
+              securityHtml +
+            "</ul>" +
+          "</section>" +
+
+          ctaHtml
+        );
+      }
+
+      // --- Interaction handlers ---
+      function toggleBackground(buttonEl) {
+        if (!aboutContent) return;
+        var bodyEl = document.getElementById('background-content');
+        if (!bodyEl) return;
+
+        backgroundExpanded = !backgroundExpanded;
+        var labelEl = buttonEl.querySelector('[data-toggle-label]');
+        buttonEl.setAttribute('aria-expanded', backgroundExpanded ? 'true' : 'false');
+        if (labelEl) {
+          labelEl.textContent = backgroundExpanded ? 'Show less' : 'Show more';
+        }
+        if (backgroundExpanded) {
+          bodyEl.textContent = aboutContent.background || '';
+        } else {
+          bodyEl.textContent = truncateText(aboutContent.background || '', 320);
+        }
+      }
+
+      function toggleDifferentiator(buttonEl) {
+        var item = buttonEl.closest('.differentiator-item');
+        if (!item) return;
+        var index = item.getAttribute('data-differentiator-index');
+        var contentEl = document.getElementById('diff-body-' + index);
+        if (!contentEl) return;
+
+        var expanded = buttonEl.getAttribute('aria-expanded') === 'true';
+        expanded = !expanded;
+        buttonEl.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        contentEl.hidden = !expanded;
+
+        if (expanded) {
+          expandedDifferentiatorIds.add(index);
+        } else {
+          expandedDifferentiatorIds.delete(index);
+        }
+      }
+
+      function toggleHighlight(buttonEl) {
+        var item = buttonEl.closest('.security-item');
+        if (!item) return;
+        var index = item.getAttribute('data-highlight-index');
+        var contentEl = document.getElementById('security-body-' + index);
+        if (!contentEl) return;
+
+        var expanded = buttonEl.getAttribute('aria-expanded') === 'true';
+        expanded = !expanded;
+        buttonEl.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        contentEl.hidden = !expanded;
+
+        if (expanded) {
+          expandedHighlightIds.add(index);
+        } else {
+          expandedHighlightIds.delete(index);
+        }
+      }
+
+      // --- Data loading ---
+      function fetchAboutContent() {
+        setLoadingState(true);
+        setErrorState(false);
+        try {
+          var data = WebsiteSDK.getAboutPageContent();
+          aboutContent = data || {};
+          renderAboutContent(contentContainer, aboutContent, entrySource);
+          showContent();
+        } catch (e) {
+          console.error('Failed to load About page content', e);
+          setErrorState(true);
+        } finally {
+          setLoadingState(false);
+        }
+      }
+
+      // --- Generic data-populate handling (single data source for this page) ---
+      var populateElements = document.querySelectorAll('[data-populate]');
+      var shouldFetchAbout = false;
+      populateElements.forEach(function(element) {
+        var dataType = element.getAttribute('data-populate');
+        if (dataType === 'aboutContent') {
+          shouldFetchAbout = true;
+        }
+      });
+
+      // --- Bind static actions ---
+      if (breadcrumbNav) {
+        var homeBtn = breadcrumbNav.querySelector('[data-action="breadcrumb-home"]');
+        if (homeBtn) {
+          homeBtn.addEventListener('click', function() {
+            navigateToHome();
+          });
+        }
+      }
+
+      if (stateContainer) {
+        var retryBtn = stateContainer.querySelector('[data-action="retry-fetch"]');
+        if (retryBtn) {
+          retryBtn.addEventListener('click', function() {
+            fetchAboutContent();
+          });
+        }
+      }
+
+      // Event delegation for dynamic content actions
+      if (contentContainer) {
+        contentContainer.addEventListener('click', function(event) {
+          var target = event.target;
+          if (!target) return;
+          var actionEl = target.closest('[data-action]');
+          if (!actionEl) return;
+          var action = actionEl.getAttribute('data-action');
+
+          if (action === 'toggle-background') {
+            toggleBackground(actionEl);
+          } else if (action === 'toggle-differentiator') {
+            toggleDifferentiator(actionEl);
+          } else if (action === 'toggle-highlight') {
+            toggleHighlight(actionEl);
+          } else if (action === 'back-home') {
+            navigateToHome();
+          } else if (action === 'create-account') {
+            navigateToSignup();
+          }
+        });
+      }
+
+      // --- Initialize ---
+      initBreadcrumb(breadcrumbNav, entrySource);
+      if (shouldFetchAbout) {
+        fetchAboutContent();
+      }
+    });
+  </script>
+</body>
+</html>

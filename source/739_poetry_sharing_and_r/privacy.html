@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Poetry Platform &mdash; Privacy Policy</title>
+
+    <!-- Typography -->
+    <link rel='preconnect' href='https://fonts.googleapis.com'>
+    <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+    <link href='https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&amp;family=Libre+Baskerville:wght@400;700&amp;display=swap' rel='stylesheet'>
+
+    <!-- Site stylesheet -->
+    <link rel='stylesheet' href='styles.css'>
+    <!-- Page stylesheet -->
+    <link rel='stylesheet' href='privacy.css'>
+</head>
+<body>
+    <header class='site-header'>
+        <div class='header-hero'>
+            <div class='header-hero-overlay'></div>
+            <div class='container header-hero-inner'>
+                <a href='index.html' class='site-logo'>
+                    <span class='logo-primary'>poetic</span><span class='logo-secondary'>house</span><span class='logo-dot'>.com</span>
+                </a>
+
+                <div class='user-menu' aria-label='Account menu'>
+                    <div class='user-menu-toggle'>
+                        <span class='avatar-circle'>PH</span>
+                        <span class='user-menu-label'>Account</span>
+                        <span class='user-menu-caret'>▾</span>
+                    </div>
+                    <ul class='user-dropdown'>
+                        <li><a href='settings.html'>Settings</a></li>
+                        <li><a href='drafts.html'>My drafts</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class='header-nav-bar'>
+                <div class='container'>
+                    <nav class='main-nav' aria-label='Primary navigation'>
+                        <ul>
+                            <li><a href='index.html'>Home</a></li>
+                            <li><a href='browse.html'>Browse</a></li>
+                            <li><a href='prompts.html'>Prompts</a></li>
+                            <li><a href='spoken_word.html'>Spoken Word</a></li>
+                            <li><a href='lists.html'>Reading Lists</a></li>
+                            <li><a href='write.html'>Write</a></li>
+                        </ul>
+                    </nav>
+                </div>
+            </div>
+        </div>
+
+        <div class='header-subband'>
+            <div class='container header-subband-inner'>
+                <p class='header-subband-text'>A curated place to share, discover, and collect poetry.</p>
+            </div>
+        </div>
+    </header>
+
+    <main id='content' class='site-main'>
+        <div class='container content-container'>
+            <!-- Page-specific content starts here -->
+            <div class='privacy-page-root' data-component='privacy-page-controller' data-populate='privacy_page'></div>
+        </div>
+    </main>
+
+    <footer class='site-footer'>
+        <div class='footer-main'>
+            <div class='container footer-main-inner'>
+                <nav class='footer-nav' aria-label='Footer navigation'>
+                    <ul>
+                        <li><a href='about.html'>About</a></li>
+                        <li><a href='help.html'>Help / FAQ</a></li>
+                        <li><a href='terms.html'>Terms &amp; Guidelines</a></li>
+                        <li><a href='privacy.html'>Privacy Policy</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+        <div class='footer-bottom'>
+            <div class='container footer-bottom-inner'>
+                <p class='footer-meta'>&copy; <span class='footer-site-name'>Poetry Platform</span>. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- SDK / business logic -->
+    <script src='business_logic.js'></script>
+
+    <!-- Page controller UI logic -->
+    <script>
+    (function() {
+        'use strict';
+
+        document.addEventListener('DOMContentLoaded', function() {
+            var urlParams = new URLSearchParams(window.location.search);
+            var initialSectionSlug = urlParams.get('section');
+
+            var populateElements = document.querySelectorAll('[data-populate]');
+            var privacyController = null;
+
+            populateElements.forEach(function(element) {
+                var dataType = element.dataset.populate;
+                if (dataType === 'privacy_page') {
+                    privacyController = createPrivacyPageController(element, initialSectionSlug);
+                }
+            });
+
+            window.addEventListener('popstate', function() {
+                if (!privacyController) return;
+                var params = new URLSearchParams(window.location.search);
+                var slug = params.get('section');
+                privacyController.onUrlSectionChange(slug);
+            });
+        });
+
+        function createPrivacyPageController(container, initialSectionSlug) {
+            var state = {
+                isLoading: false,
+                hasError: false,
+                isEmpty: false,
+                staticPage: null,
+                sectionsWithSlugs: [],
+                activeSectionSlug: null
+            };
+
+            function loadContent(desiredSectionSlug) {
+                state.isLoading = true;
+                state.hasError = false;
+                state.isEmpty = false;
+                renderLoading();
+
+                var response;
+                try {
+                    response = WebsiteSDK.getStaticPageContent('privacy_policy');
+                } catch (err) {
+                    state.isLoading = false;
+                    state.hasError = true;
+                    renderError('error');
+                    return;
+                }
+
+                state.isLoading = false;
+
+                if (!response || !Array.isArray(response.sections) || response.sections.length === 0) {
+                    state.isEmpty = true;
+                    renderError('empty');
+                    return;
+                }
+
+                state.staticPage = {
+                    title: response.title || ''
+                };
+
+                var existingSlugs = [];
+                state.sectionsWithSlugs = response.sections.map(function(section, index) {
+                    var heading = section.heading || ('Section ' + (index + 1));
+                    var slug = slugifyHeading(heading, existingSlugs);
+                    return {
+                        heading: heading,
+                        body_html: section.body_html || '',
+                        slug: slug
+                    };
+                });
+
+                if (desiredSectionSlug && hasSectionSlug(desiredSectionSlug)) {
+                    state.activeSectionSlug = desiredSectionSlug;
+                } else {
+                    state.activeSectionSlug = null;
+                }
+
+                renderPage();
+
+                if (state.activeSectionSlug) {
+                    scrollToSection(state.activeSectionSlug);
+                }
+            }
+
+            function hasSectionSlug(slug) {
+                if (!slug) return false;
+                return state.sectionsWithSlugs.some(function(sec) { return sec.slug === slug; });
+            }
+
+            function renderLoading() {
+                container.innerHTML = "" +
+                    "<article class='privacy-page' data-component='privacy-content-fetcher'>" +
+                    "  <section class='privacy-intro-band'>" +
+                    "    <header class='privacy-intro-header'>" +
+                    "      <h1 class='privacy-title'>Loading page</h1>" +
+                    "      <p class='privacy-intro-text'>Please wait while this information is prepared.</p>" +
+                    "    </header>" +
+                    "  </section>" +
+                    "  <section class='privacy-content-band'>" +
+                    "    <div class='privacy-loading-indicator' data-component='privacy-loading-indicator' aria-live='polite'>" +
+                    "      <div class='privacy-spinner' aria-hidden='true'></div>" +
+                    "      <p class='privacy-loading-text'>Loading content&hellip;</p>" +
+                    "    </div>" +
+                    "  </section>" +
+                    "</article>";
+            }
+
+            function renderError(kind) {
+                var isEmpty = kind === 'empty';
+                var heading = isEmpty ? 'No content available' : 'Content could not be loaded';
+                var body = isEmpty
+                    ? 'The information for this page is not available right now.'
+                    : 'There was a problem retrieving this information. You can try again in a moment.';
+
+                container.innerHTML = "" +
+                    "<article class='privacy-page' data-component='privacy-content-fetcher'>" +
+                    "  <section class='privacy-intro-band'>" +
+                    "    <header class='privacy-intro-header'>" +
+                    "      <h1 class='privacy-title'>Privacy information</h1>" +
+                    "    </header>" +
+                    "  </section>" +
+                    "  <section class='privacy-content-band'>" +
+                    "    <div class='privacy-error-state' data-component='privacy-error-state'>" +
+                    "      <h2 class='privacy-error-heading'>" + heading.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + "</h2>" +
+                    "      <p class='privacy-error-message'>" + body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + "</p>" +
+                    "      <button type='button' class='btn btn-primary privacy-retry-button' data-action='privacy-retry'>Retry</button>" +
+                    "    </div>" +
+                    "  </section>" +
+                    "</article>";
+            }
+
+            function renderPage() {
+                var titleText = state.staticPage && state.staticPage.title ? state.staticPage.title : 'Privacy Policy';
+
+                var tocItemsHtml = state.sectionsWithSlugs.map(function(sec) {
+                    var isActive = state.activeSectionSlug && state.activeSectionSlug === sec.slug;
+                    return "" +
+                        "<li class='privacy-toc-item'>" +
+                        "  <button type='button' class='privacy-toc-link" + (isActive ? " is-active" : "") + "'" +
+                        "    data-action='select-section' data-section-slug='" + sec.slug + "'>" +
+                        escapeHtml(sec.heading) + "</button>" +
+                        "</li>";
+                }).join('');
+
+                var sectionsHtml = state.sectionsWithSlugs.map(function(sec) {
+                    var isActive = state.activeSectionSlug && state.activeSectionSlug === sec.slug;
+                    return "" +
+                        "<article id='privacy-section-" + sec.slug + "' class='privacy-section" + (isActive ? " is-active" : "") + "'" +
+                        "  data-section-slug='" + sec.slug + "'>" +
+                        "  <h2 class='privacy-section-heading'>" + escapeHtml(sec.heading) + "</h2>" +
+                        "  <div class='privacy-section-body'>" + (sec.body_html || '') + "</div>" +
+                        "</article>";
+                }).join('');
+
+                container.innerHTML = "" +
+                    "<article class='privacy-page' data-component='privacy-page-shell'>" +
+                    "  <section class='privacy-intro-band'>" +
+                    "    <header class='privacy-intro-header'>" +
+                    "      <h1 class='privacy-title'>" + escapeHtml(titleText) + "</h1>" +
+                    "      <p class='privacy-intro-text'>Details on how this poetry platform handles account data, poems, comments, and notifications.</p>" +
+                    "    </header>" +
+                    "  </section>" +
+                    "  <section class='privacy-toc-band' aria-label='Privacy policy contents'>" +
+                    "    <nav class='privacy-toc-nav' data-component='privacy-toc'>" +
+                    "      <ul class='privacy-toc-list'>" + tocItemsHtml + "</ul>" +
+                    "    </nav>" +
+                    "  </section>" +
+                    "  <section class='privacy-content-band' data-component='privacy-section-list'>" +
+                    sectionsHtml +
+                    "  </section>" +
+                    "</article>";
+            }
+
+            function setActiveSectionSlug(slug, options) {
+                if (!options) options = {};
+                var updateUrl = !!options.updateUrl;
+                var scroll = !!options.scroll;
+
+                if (slug && !hasSectionSlug(slug)) {
+                    slug = null;
+                }
+
+                state.activeSectionSlug = slug;
+                updateActiveSectionVisuals();
+
+                if (scroll && slug) {
+                    scrollToSection(slug);
+                }
+
+                if (updateUrl) {
+                    var url = new URL(window.location.href);
+                    if (slug) {
+                        url.searchParams.set('section', slug);
+                    } else {
+                        url.searchParams.delete('section');
+                    }
+                    window.history.pushState({ section: slug }, '', url.toString());
+                }
+            }
+
+            function updateActiveSectionVisuals() {
+                var tocLinks = container.querySelectorAll('.privacy-toc-link');
+                tocLinks.forEach(function(link) {
+                    var slug = link.getAttribute('data-section-slug');
+                    if (state.activeSectionSlug && slug === state.activeSectionSlug) {
+                        link.classList.add('is-active');
+                    } else {
+                        link.classList.remove('is-active');
+                    }
+                });
+
+                var sections = container.querySelectorAll('.privacy-section');
+                sections.forEach(function(section) {
+                    var slug = section.getAttribute('data-section-slug');
+                    if (state.activeSectionSlug && slug === state.activeSectionSlug) {
+                        section.classList.add('is-active');
+                    } else {
+                        section.classList.remove('is-active');
+                    }
+                });
+            }
+
+            function scrollToSection(slug) {
+                var selector = ".privacy-section[data-section-slug='" + slug + "']";
+                var sectionEl = container.querySelector(selector);
+                if (!sectionEl) return;
+
+                var headerOffset = 140; // approximate combined header + subband height
+                var rect = sectionEl.getBoundingClientRect();
+                var targetTop = window.scrollY + rect.top - headerOffset;
+                if (targetTop < 0) targetTop = 0;
+
+                window.scrollTo({
+                    top: targetTop,
+                    behavior: 'smooth'
+                });
+            }
+
+            // Event delegation for interactions within the privacy page
+            container.addEventListener('click', function(event) {
+                var target = event.target;
+                if (!target) return;
+
+                // Allow actions to be on ancestors as well
+                if (!target.dataset.action && target.closest) {
+                    var actionable = target.closest('[data-action]');
+                    if (actionable) {
+                        target = actionable;
+                    }
+                }
+
+                var action = target.dataset.action;
+                if (!action) return;
+
+                if (action === 'select-section') {
+                    event.preventDefault();
+                    var slug = target.getAttribute('data-section-slug');
+                    setActiveSectionSlug(slug, { scroll: true, updateUrl: true });
+                } else if (action === 'privacy-retry') {
+                    event.preventDefault();
+                    var params = new URLSearchParams(window.location.search);
+                    var desiredSlug = params.get('section');
+                    loadContent(desiredSlug);
+                }
+            });
+
+            // Initial load
+            loadContent(initialSectionSlug);
+
+            return {
+                onUrlSectionChange: function(slug) {
+                    // React to browser back/forward navigation
+                    if (!state.staticPage) {
+                        // If content not yet loaded, load with this target section
+                        loadContent(slug);
+                        return;
+                    }
+                    setActiveSectionSlug(slug, { scroll: true, updateUrl: false });
+                }
+            };
+        }
+
+        function slugifyHeading(heading, existingSlugs) {
+            var base = String(heading)
+                .toLowerCase()
+                .trim()
+                .replace(/[^a-z0-9\s-]/g, '')
+                .replace(/\s+/g, '-')
+                .replace(/-+/g, '-');
+
+            if (!base) {
+                base = 'section';
+            }
+
+            var slug = base;
+            var unique = slug;
+            var counter = 2;
+            while (existingSlugs.indexOf(unique) !== -1) {
+                unique = slug + '-' + counter;
+                counter += 1;
+            }
+            existingSlugs.push(unique);
+            return unique;
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+    })();
+    </script>
+</body>
+</html>

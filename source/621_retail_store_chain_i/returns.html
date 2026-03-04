@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retail Store Chain</title>
+    
+    <link rel="stylesheet" href="returns.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a href="index.html" class="site-logo">Retail Store Chain</a>
+
+            <nav class="primary-nav" aria-label="Primary navigation">
+                <ul>
+                    <li>
+                        <a href="index.html" title="Go to the homepage with featured content and main navigation">Home</a>
+                    </li>
+                    <li>
+                        <a href="store_locator.html" title="Find nearby stores, filter by services and hours, and choose a preferred store">Store Locator</a>
+                    </li>
+                    <li>
+                        <a href="weekly_ad.html" title="View current weekly deals and add items to your shopping list">Weekly Ad</a>
+                    </li>
+                    <li>
+                        <a href="category.html?categoryId=electronics" title="Browse electronics including TVs and related accessories">Electronics</a>
+                    </li>
+                    <li>
+                        <a href="category.html?categoryId=home_cleaning" title="Browse home and cleaning products including cleaning supplies">Home &amp; Cleaning</a>
+                    </li>
+                    <li>
+                        <a href="loyalty.html" title="Learn about and enroll in the loyalty program">Rewards</a>
+                    </li>
+                    <li>
+                        <a href="help.html" title="Access help topics and customer service information">Help</a>
+                    </li>
+                    <li>
+                        <a href="shopping_list.html" title="View and manage items saved to your shopping list">Shopping List</a>
+                    </li>
+                    <li>
+                        <a href="cart.html" title="View and manage items added to your cart for pickup">Cart</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id="content" role="main">
+        <section data-component="returns-page-controller">
+            <h1>Returns &amp; Exchanges</h1>
+            <p>This page shows our current return and exchange guidelines by purchase channel. Policies are subject to change and may vary by store.</p>
+
+            <section data-component="preferred-store-summary-banner" aria-label="Preferred store context">
+                <p data-populate="preferred-store-summary"></p>
+            </section>
+
+            <section data-component="channel-segmentation-tabs" aria-label="Purchase channel selection">
+                <h2>Purchase channel</h2>
+                <ul data-populate="channel-tabs"></ul>
+            </section>
+
+            <section data-component="channel-policy-panel" aria-label="Return and exchange policies for selected channel">
+                <h2 data-populate="channel-policy-heading"></h2>
+                <div data-populate="channel-policy-content"></div>
+            </section>
+
+            <section data-component="policy-print-actions" aria-label="Print or view full policy">
+                <h2>Print or view full policy</h2>
+                <ul>
+                    <li>
+                        <a href="javascript:void(0)" data-action="print-policy">Print Policy / View Full Policy</a>
+                    </li>
+                </ul>
+                <p data-populate="print-policy-error" aria-live="polite"></p>
+            </section>
+
+            <div data-component="category-deep-link-handler" aria-hidden="true"></div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p class="footer-label">Language</p>
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul>
+                <li>
+                    <a href="about.html" title="Learn more about the company and its services">About Us</a>
+                </li>
+                <li>
+                    <a href="contact.html" title="Get in touch or request in-store services such as product demonstrations">Contact Us</a>
+                </li>
+                <li>
+                    <a href="store_locator.html" title="Find store locations, services, and hours">Store Locator</a>
+                </li>
+                <li>
+                    <a href="weekly_ad.html" title="See the latest weekly deals for your selected store">Weekly Ad</a>
+                </li>
+                <li>
+                    <a href="returns.html" title="Read return and exchange policies for in-store and other purchases">Returns &amp; Exchanges</a>
+                </li>
+                <li>
+                    <a href="help.html" title="Browse help topics and support options">Help / Customer Service</a>
+                </li>
+                <li>
+                    <a href="loyalty.html" title="Join or learn more about the loyalty rewards program">Rewards Program</a>
+                </li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var appState = {
+            channelParam: null,
+            activeChannel: null,
+            category: null,
+            policies: [],
+            electronicsPolicy: null,
+            preferredStoreSummary: null
+        };
+
+        function readUrlParams() {
+            var urlParams = new URLSearchParams(window.location.search);
+            appState.channelParam = urlParams.get('channel');
+            appState.category = urlParams.get('category');
+        }
+
+        function renderPreferredStoreSummary(container, summary) {
+            container.textContent = '';
+            if (!summary || !summary.hasPreferredStore || !summary.store) {
+                container.textContent = 'Preferred store: not set. Policies shown are general and may vary by location.';
+                return;
+            }
+            var text = 'Preferred store: ' + (summary.displayName || summary.store.name || 'Selected store');
+            if (summary.distanceText) {
+                text += ' (' + summary.distanceText + ')';
+            }
+            text += '. Policies shown are general and may be applied at this store as configured.';
+            container.textContent = text;
+        }
+
+        function loadPreferredStore() {
+            var container = document.querySelector('[data-populate="preferred-store-summary"]');
+            if (!container) {
+                return;
+            }
+            if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK.getPreferredStoreSummary) {
+                container.textContent = 'Preferred store information is not available.';
+                return;
+            }
+            try {
+                var summary = WebsiteSDK.getPreferredStoreSummary();
+                appState.preferredStoreSummary = summary;
+                renderPreferredStoreSummary(container, summary);
+            } catch (err) {
+                console.error('Error loading preferred store summary', err);
+                container.textContent = 'Preferred store information is temporarily unavailable.';
+            }
+        }
+
+        function loadPoliciesForCurrentState() {
+            appState.policies = [];
+            appState.electronicsPolicy = null;
+
+            if (typeof WebsiteSDK === 'undefined' || !WebsiteSDK.getReturnPolicies) {
+                console.warn('WebsiteSDK.getReturnPolicies is not available');
+                return;
+            }
+
+            var channel = appState.channelParam || undefined;
+            var category = appState.category || undefined;
+            var includeInactive = false;
+            var combined = [];
+
+            try {
+                var baseResult = WebsiteSDK.getReturnPolicies(channel, undefined, includeInactive) || {};
+                if (Array.isArray(baseResult.policies)) {
+                    combined = combined.concat(baseResult.policies);
+                }
+            } catch (err) {
+                console.error('Error loading return policies (base)', err);
+            }
+
+            if (category) {
+                try {
+                    var catResult = WebsiteSDK.getReturnPolicies(channel, category, includeInactive) || {};
+                    if (Array.isArray(catResult.policies)) {
+                        catResult.policies.forEach(function(policy) {
+                            if (!combined.some(function(existing) { return existing && existing.id === policy.id; })) {
+                                combined.push(policy);
+                            }
+                        });
+                    }
+                } catch (err2) {
+                    console.error('Error loading return policies (category)', err2);
+                }
+            }
+
+            combined = combined.filter(function(policy) {
+                return policy && policy.isActive;
+            });
+
+            appState.policies = combined;
+            appState.activeChannel = determineActiveChannel();
+            appState.electronicsPolicy = findElectronicsPolicy();
+        }
+
+        function determineActiveChannel() {
+            var availableChannels = Array.from(new Set(appState.policies.map(function(p) { return p.channel; }).filter(Boolean)));
+            if (!availableChannels.length) {
+                return null;
+            }
+            if (appState.channelParam && availableChannels.indexOf(appState.channelParam) !== -1) {
+                return appState.channelParam;
+            }
+            var preferredOrder = ['in_store', 'online', 'mixed'];
+            for (var i = 0; i < preferredOrder.length; i++) {
+                if (availableChannels.indexOf(preferredOrder[i]) !== -1) {
+                    return preferredOrder[i];
+                }
+            }
+            return availableChannels[0];
+        }
+
+        function findElectronicsPolicy() {
+            var electronicsPolicies = appState.policies.filter(function(p) {
+                return p.channel === 'in_store' && p.category === 'electronics';
+            });
+            if (!electronicsPolicies.length) {
+                return null;
+            }
+            electronicsPolicies.sort(function(a, b) {
+                var aDate = a.effectiveDate ? new Date(a.effectiveDate).getTime() : 0;
+                var bDate = b.effectiveDate ? new Date(b.effectiveDate).getTime() : 0;
+                return bDate - aDate;
+            });
+            return electronicsPolicies[0];
+        }
+
+        function channelLabel(channel) {
+            if (channel === 'in_store') return 'In-store purchases';
+            if (channel === 'online') return 'Online purchases';
+            if (channel === 'mixed') return 'Special or mixed purchases';
+            return 'Purchases';
+        }
+
+        function categoryLabel(category) {
+            if (category === 'general') return 'General';
+            if (category === 'electronics') return 'Electronics &amp; appliances';
+            if (category === 'appliances') return 'Appliances';
+            if (category === 'special_items') return 'Special items';
+            return 'Category';
+        }
+
+        function renderChannelTabs(container) {
+            container.innerHTML = '';
+            var channels = Array.from(new Set(appState.policies.map(function(p) { return p.channel; }).filter(Boolean)));
+
+            if (!channels.length) {
+                var li = document.createElement('li');
+                li.textContent = 'No return policies are available at this time.';
+                container.appendChild(li);
+                return;
+            }
+
+            channels.forEach(function(channel) {
+                var li = document.createElement('li');
+                var a = document.createElement('a');
+                a.href = 'javascript:void(0)';
+                a.setAttribute('data-action', 'change-channel');
+                a.setAttribute('data-channel', channel);
+                var label = channelLabel(channel);
+                if (channel === appState.activeChannel) {
+                    var strong = document.createElement('strong');
+                    strong.textContent = label + ' (selected)';
+                    a.appendChild(strong);
+                } else {
+                    a.textContent = label;
+                }
+                li.appendChild(a);
+                container.appendChild(li);
+            });
+        }
+
+        function renderChannelPolicyHeading(container) {
+            if (!appState.activeChannel) {
+                container.textContent = 'Return and exchange policies';
+                return;
+            }
+            container.textContent = 'Returns &amp; exchanges for ' + channelLabel(appState.activeChannel).toLowerCase();
+        }
+
+        function renderGenericChannelPolicies(container, channelPolicies) {
+            if (!channelPolicies.length) {
+                var p = document.createElement('p');
+                p.textContent = 'No active policies are available for this channel.';
+                container.appendChild(p);
+                return;
+            }
+
+            channelPolicies.forEach(function(policy) {
+                var section = document.createElement('section');
+                section.setAttribute('data-policy-id', policy.id);
+                section.setAttribute('data-policy-category', policy.category);
+
+                var h3 = document.createElement('h3');
+                h3.textContent = policy.name;
+                section.appendChild(h3);
+
+                if (policy.shortDescription) {
+                    var desc = document.createElement('p');
+                    desc.textContent = policy.shortDescription;
+                    section.appendChild(desc);
+                }
+
+                if (policy.fullText) {
+                    var snippet = document.createElement('p');
+                    var text = String(policy.fullText);
+                    if (text.length > 320) {
+                        text = text.substring(0, 317) + '...';
+                    }
+                    snippet.textContent = text;
+                    section.appendChild(snippet);
+                }
+
+                container.appendChild(section);
+            });
+        }
+
+        function renderInStorePurchasesSection(container, channelPolicies) {
+            var section = document.createElement('section');
+            section.setAttribute('data-component', 'in-store-purchases-section');
+
+            var heading = document.createElement('h3');
+            heading.textContent = 'In-store purchase returns';
+            section.appendChild(heading);
+
+            var policiesByCategory = {};
+            channelPolicies.forEach(function(policy) {
+                var cat = policy.category || 'general';
+                if (!policiesByCategory[cat]) {
+                    policiesByCategory[cat] = [];
+                }
+                policiesByCategory[cat].push(policy);
+            });
+
+            var generalPolicies = policiesByCategory.general || [];
+            if (generalPolicies.length) {
+                var generalHeading = document.createElement('h4');
+                generalHeading.textContent = 'General in-store guidelines';
+                section.appendChild(generalHeading);
+
+                var generalList = document.createElement('ul');
+                generalPolicies.forEach(function(policy) {
+                    var li = document.createElement('li');
+                    var strong = document.createElement('strong');
+                    strong.textContent = policy.name;
+                    li.appendChild(strong);
+                    if (policy.shortDescription) {
+                        li.appendChild(document.createTextNode(': ' + policy.shortDescription));
+                    }
+                    generalList.appendChild(li);
+                });
+                section.appendChild(generalList);
+            }
+
+            ['electronics', 'appliances', 'special_items'].forEach(function(catKey) {
+                var catPolicies = policiesByCategory[catKey] || [];
+                if (!catPolicies.length) {
+                    return;
+                }
+                var catHeading = document.createElement('h4');
+                var toggleLink = document.createElement('a');
+                toggleLink.href = 'javascript:void(0)';
+                toggleLink.setAttribute('data-action', 'toggle-category');
+                toggleLink.setAttribute('data-category', catKey);
+                toggleLink.setAttribute('role', 'button');
+                var isInitiallyOpen = appState.category && appState.category === catKey;
+                toggleLink.setAttribute('aria-expanded', isInitiallyOpen ? 'true' : 'false');
+                toggleLink.textContent = categoryLabel(catKey);
+                catHeading.appendChild(toggleLink);
+                section.appendChild(catHeading);
+
+                var panel = document.createElement('div');
+                panel.id = 'in-store-category-' + catKey;
+                panel.setAttribute('data-category-panel', catKey);
+                if (!isInitiallyOpen) {
+                    panel.hidden = true;
+                }
+
+                var list = document.createElement('ul');
+                catPolicies.forEach(function(policy) {
+                    var li = document.createElement('li');
+                    li.setAttribute('data-policy-id', policy.id);
+                    li.setAttribute('data-policy-category', policy.category);
+                    var title = document.createElement('strong');
+                    title.textContent = policy.name;
+                    li.appendChild(title);
+                    if (policy.shortDescription) {
+                        li.appendChild(document.createTextNode(': ' + policy.shortDescription));
+                    }
+                    list.appendChild(li);
+                });
+                panel.appendChild(list);
+                section.appendChild(panel);
+            });
+
+            var electronicsLinkContainer = document.createElement('p');
+            electronicsLinkContainer.setAttribute('data-component', 'electronics-policy-link');
+            electronicsLinkContainer.setAttribute('data-populate', 'electronics-policy-link');
+            section.appendChild(electronicsLinkContainer);
+
+            container.appendChild(section);
+        }
+
+        function renderChannelPolicyContent(container) {
+            container.innerHTML = '';
+            if (!appState.activeChannel) {
+                var p = document.createElement('p');
+                p.textContent = 'No return policies are available to display.';
+                container.appendChild(p);
+                return;
+            }
+            var channelPolicies = appState.policies.filter(function(policy) {
+                return policy.channel === appState.activeChannel;
+            });
+            if (appState.activeChannel === 'in_store') {
+                renderInStorePurchasesSection(container, channelPolicies);
+            } else {
+                renderGenericChannelPolicies(container, channelPolicies);
+            }
+        }
+
+        function renderElectronicsPolicyLink(container) {
+            container.innerHTML = '';
+            if (!appState.electronicsPolicy || appState.activeChannel !== 'in_store') {
+                return;
+            }
+            var link = document.createElement('a');
+            link.href = 'javascript:void(0)';
+            link.setAttribute('data-action', 'open-electronics-policy');
+            link.setAttribute('data-policy-id', appState.electronicsPolicy.id);
+            link.textContent = 'View in-store Electronics / Electronics &amp; Appliances return policy';
+            container.appendChild(link);
+        }
+
+        function focusCategorySection(categoryKey) {
+            if (!categoryKey) {
+                return;
+            }
+            if (appState.activeChannel === 'in_store') {
+                var panel = document.querySelector('[data-category-panel="' + categoryKey + '"]');
+                if (panel) {
+                    panel.hidden = false;
+                    var headerLink = document.querySelector('[data-action="toggle-category"][data-category="' + categoryKey + '"]');
+                    if (headerLink) {
+                        headerLink.setAttribute('aria-expanded', 'true');
+                    }
+                    try {
+                        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    } catch (e) {
+                        panel.scrollIntoView();
+                    }
+                }
+            } else {
+                var target = document.querySelector('[data-policy-category="' + categoryKey + '"]');
+                if (target) {
+                    try {
+                        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    } catch (e2) {
+                        target.scrollIntoView();
+                    }
+                }
+            }
+        }
+
+        function findGeneralPolicyForActiveChannel() {
+            if (!appState.activeChannel) {
+                return null;
+            }
+            var general = appState.policies.find(function(policy) {
+                return policy.channel === appState.activeChannel && policy.category === 'general';
+            });
+            if (general) {
+                return general;
+            }
+            return appState.policies.find(function(policy) {
+                return policy.channel === appState.activeChannel;
+            }) || null;
+        }
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        function handlePrintPolicy() {
+            var printErrorContainer = document.querySelector('[data-populate="print-policy-error"]');
+            if (!appState.activeChannel) {
+                if (printErrorContainer) {
+                    printErrorContainer.textContent = 'No policy is available to print for the selected channel.';
+                }
+                return;
+            }
+            var policy = findGeneralPolicyForActiveChannel();
+            if (!policy) {
+                if (printErrorContainer) {
+                    printErrorContainer.textContent = 'Full policy is not available to print for this channel.';
+                }
+                return;
+            }
+            if (policy.printViewUrl) {
+                window.open(policy.printViewUrl, '_blank', 'noopener');
+                return;
+            }
+            var fullText = policy.fullText || '';
+            var newWindow = window.open('', '_blank');
+            if (!newWindow) {
+                if (printErrorContainer) {
+                    printErrorContainer.textContent = 'Unable to open a new window for printing. Please check your browser settings.';
+                }
+                return;
+            }
+            var safeName = escapeHtml(policy.name || 'Return Policy');
+            var safeText = escapeHtml(fullText);
+            newWindow.document.open();
+            newWindow.document.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>${safeName}</title>
+</head>
+<body>
+  <h1>${safeName}</h1>
+  <pre>${safeText}</pre>
+</body>
+</html>`);
+            newWindow.document.close();
+        }
+
+        function updateUrl(channel, category) {
+            var url = new URL(window.location.href);
+            if (channel) {
+                url.searchParams.set('channel', channel);
+            } else {
+                url.searchParams.delete('channel');
+            }
+            if (category) {
+                url.searchParams.set('category', category);
+            } else {
+                url.searchParams.delete('category');
+            }
+            var state = { channel: channel, category: category };
+            window.history.pushState(state, '', url.toString());
+        }
+
+        function renderAll() {
+            var headingContainer = document.querySelector('[data-populate="channel-policy-heading"]');
+            var tabsContainer = document.querySelector('[data-populate="channel-tabs"]');
+            var policyContentContainer = document.querySelector('[data-populate="channel-policy-content"]');
+
+            if (tabsContainer) {
+                renderChannelTabs(tabsContainer);
+            }
+            if (headingContainer) {
+                renderChannelPolicyHeading(headingContainer);
+            }
+            if (policyContentContainer) {
+                renderChannelPolicyContent(policyContentContainer);
+            }
+
+            var electronicsLinkContainer = document.querySelector('[data-populate="electronics-policy-link"]');
+            if (electronicsLinkContainer) {
+                renderElectronicsPolicyLink(electronicsLinkContainer);
+            }
+
+            if (appState.category) {
+                focusCategorySection(appState.category);
+            }
+
+            var printErrorContainer = document.querySelector('[data-populate="print-policy-error"]');
+            if (printErrorContainer) {
+                printErrorContainer.textContent = '';
+            }
+        }
+
+        document.addEventListener('click', function(event) {
+            var actionElement = event.target.closest('[data-action]');
+            if (!actionElement) {
+                return;
+            }
+            var action = actionElement.getAttribute('data-action');
+
+            if (action === 'change-channel') {
+                event.preventDefault();
+                var newChannel = actionElement.getAttribute('data-channel');
+                if (!newChannel || newChannel === appState.activeChannel) {
+                    return;
+                }
+                appState.channelParam = newChannel;
+                updateUrl(newChannel, appState.category);
+                loadPoliciesForCurrentState();
+                renderAll();
+            } else if (action === 'toggle-category') {
+                event.preventDefault();
+                var categoryKey = actionElement.getAttribute('data-category');
+                if (!categoryKey) {
+                    return;
+                }
+                var panel = document.querySelector('[data-category-panel="' + categoryKey + '"]');
+                if (!panel) {
+                    return;
+                }
+                var isHidden = panel.hidden;
+                panel.hidden = !isHidden;
+                actionElement.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+                if (isHidden) {
+                    appState.category = categoryKey;
+                } else if (appState.category === categoryKey) {
+                    appState.category = null;
+                }
+                updateUrl(appState.channelParam || appState.activeChannel, appState.category);
+            } else if (action === 'open-electronics-policy') {
+                event.preventDefault();
+                var policyId = actionElement.getAttribute('data-policy-id');
+                if (!policyId) {
+                    return;
+                }
+                var targetUrl = 'returns_electronics.html?policyId=' + encodeURIComponent(policyId);
+                window.location.href = targetUrl;
+            } else if (action === 'print-policy') {
+                event.preventDefault();
+                handlePrintPolicy();
+            }
+        });
+
+        window.addEventListener('popstate', function() {
+            readUrlParams();
+            loadPoliciesForCurrentState();
+            renderAll();
+        });
+
+        readUrlParams();
+        loadPreferredStore();
+        loadPoliciesForCurrentState();
+        renderAll();
+    });
+    </script>
+</body>
+</html>

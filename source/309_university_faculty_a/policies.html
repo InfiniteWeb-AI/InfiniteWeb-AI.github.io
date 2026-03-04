@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Faculty Profiles &mdash; Site Framework</title>
+
+    <!-- Typography -->
+    <link rel='preconnect' href='https://fonts.googleapis.com'>
+    <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+    <link href='https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&amp;family=Source+Serif+4:wght@400;500;600&amp;display=swap' rel='stylesheet'>
+
+    <!-- Framework Styles -->
+    <link rel='stylesheet' href='styles.css'>
+    <!-- Page-specific Styles -->
+    <link rel='stylesheet' href='policies.css'>
+</head>
+<body>
+<div class='site'>
+    <header class='site-header'>
+        <!-- Navigation toggle (hamburger) -->
+        <input type='checkbox' id='nav-toggle' class='nav-toggle' aria-label='Toggle primary navigation'>
+
+        <div class='page-shell header-inner'>
+            <label for='nav-toggle' class='hamburger' aria-label='Toggle primary navigation'>
+                <span></span>
+                <span></span>
+                <span></span>
+            </label>
+        </div>
+
+        <!-- Primary navigation drawer -->
+        <nav class='site-nav' aria-label='Primary navigation'>
+            <div class='site-nav-inner'>
+                <div class='site-nav-title'>Navigation</div>
+                <ul class='site-nav-list'>
+                    <li><a href='index.html' title='Homepage with global search and quick links'>Home</a></li>
+                    <li><a href='faculty_directory.html' title='Browse and search all faculty'>Faculty Directory</a></li>
+                    <li><a href='reading_list.html' title='View and manage saved publications'>Reading List</a></li>
+                    <li><a href='planned_courses.html' title='View and manage your planned courses'>Planned Courses</a></li>
+                    <li><a href='thesis_advisor_shortlist.html' title='View shortlisted thesis advisors'>Thesis Advisor Shortlist</a></li>
+                    <li><a href='bookmarked_events.html' title='View bookmarked talks and events'>Bookmarked Events</a></li>
+                    <li><a href='my_notes.html' title='Open personal notes workspace'>My Notes</a></li>
+                    <li><a href='contacts.html' title='View and edit saved faculty contacts'>Contacts</a></li>
+                </ul>
+            </div>
+        </nav>
+    </header>
+
+    <main id='content' class='site-main' role='main' data-component='policies-deeplink-handler'>
+        <div class='page-shell'>
+            <section class='policies-layout' aria-labelledby='policies-page-title'>
+                <!-- Left column: static policies content -->
+                <div class='policies-main' data-component='policies-static-content-loader'>
+                    <header class='policies-header'>
+                        <h1 id='policies-page-title' class='policies-title' data-populate='policy-title'></h1>
+
+                        <p class='policies-meta' data-component='policies-last-updated-indicator'>
+                            <span class='policies-last-updated-label'>Last updated:</span>
+                            <time class='policies-last-updated-value' data-populate='policy-last-updated'></time>
+                        </p>
+
+                        <p class='policies-accessibility'>
+                            <a href='javascript:void(0)' class='policies-accessibility-link' data-component='policies-accessibility-help-link' data-action='accessibility-help'>
+                                Accessibility support and help
+                            </a>
+                        </p>
+
+                        <div class='policies-status' aria-live='polite' data-populate='policy-status'></div>
+                    </header>
+
+                    <article class='policies-body' data-populate='policy-body' aria-label='Policy content'>
+                        <!-- Static page content from getStaticPageContent will be injected here -->
+                    </article>
+                </div>
+
+                <!-- Right column: in-page navigation / table of contents -->
+                <aside class='policies-aside' aria-label='Policy sections navigation' data-component='policies-section-navigator'>
+                    <div class='policies-toc-card'>
+                        <h2 class='policies-toc-title'>On this page</h2>
+                        <nav class='policies-toc-nav' aria-label='Sections within this policies document'>
+                            <ol class='policies-toc-list' data-populate='policy-toc'>
+                                <!-- Dynamic table of contents items will be injected here -->
+                            </ol>
+                        </nav>
+                    </div>
+                </aside>
+            </section>
+        </div>
+    </main>
+
+    <footer class='site-footer'>
+        <div class='page-shell footer-inner'>
+            <nav class='footer-nav' aria-label='Footer navigation'>
+                <ul>
+                    <li><a href='about.html' title='About this faculty profiles site'>About</a></li>
+                    <li><a href='help.html' title='Help and FAQs for using the site'>Help</a></li>
+                    <li><a href='policies.html' title='Privacy, terms of use, and accessibility policies'>Policies</a></li>
+                    <li><a href='faculty_directory.html' title='Browse the full faculty directory'>Faculty Directory</a></li>
+                </ul>
+            </nav>
+            <div class='footer-meta'>
+                &copy; 2024 Faculty Profiles
+            </div>
+        </div>
+    </footer>
+</div>
+
+<!-- SDK / business logic -->
+<script src='business_logic.js'></script>
+
+<!-- Page-specific UI logic -->
+<script>
+(function() {
+    'use strict';
+
+    document.addEventListener('DOMContentLoaded', function() {
+        var url = new URL(window.location.href);
+        var initialSlug = getSlugFromUrl(url);
+        var initialSection = getSectionFromUrl(url);
+
+        var state = {
+            currentSlug: initialSlug,
+            currentSection: initialSection,
+            content: null,
+            headings: [],
+            observer: null
+        };
+
+        var containers = {
+            title: document.querySelector('[data-populate="policy-title"]'),
+            body: document.querySelector('[data-populate="policy-body"]'),
+            lastUpdated: document.querySelector('[data-populate="policy-last-updated"]'),
+            toc: document.querySelector('[data-populate="policy-toc"]'),
+            status: document.querySelector('[data-populate="policy-status"]')
+        };
+
+        // Initialize history state so back/forward work with section changes
+        try {
+            if (history && history.replaceState) {
+                history.replaceState({ slug: state.currentSlug, section: state.currentSection }, '', window.location.href);
+            }
+        } catch (e) {
+            // Ignore history errors (e.g., in very old browsers)
+        }
+
+        // Load initial content
+        loadContent(state.currentSlug, { preserveSection: true, isInitial: true });
+
+        // Bind generic action handlers
+        bindActions();
+
+        // Listen for browser back/forward
+        window.addEventListener('popstate', function() {
+            var currentUrl = new URL(window.location.href);
+            var newSlug = getSlugFromUrl(currentUrl);
+            var newSection = getSectionFromUrl(currentUrl);
+            var slugChanged = newSlug !== state.currentSlug;
+            var sectionChanged = newSection !== state.currentSection;
+
+            state.currentSection = newSection;
+
+            if (slugChanged) {
+                loadContent(newSlug, { preserveSection: true, isInitial: false });
+            } else if (sectionChanged) {
+                if (newSection) {
+                    scrollToSection(newSection, { behavior: 'auto' });
+                    setActiveSection(newSection, { updateUrl: false });
+                } else {
+                    setActiveSection(null, { updateUrl: false });
+                }
+            }
+        });
+
+        /** Utility: get slug param or default */
+        function getSlugFromUrl(urlObj) {
+            var params = urlObj.searchParams;
+            var slug = params.get('slug');
+            if (!slug || slug.trim() === '') {
+                // Default mapping from route to page_slug
+                slug = 'policies';
+            }
+            return slug;
+        }
+
+        /** Utility: get section param */
+        function getSectionFromUrl(urlObj) {
+            var params = urlObj.searchParams;
+            var section = params.get('section');
+            return section && section.trim() !== '' ? section : null;
+        }
+
+        /** Core: load static page content via SDK and render */
+        function loadContent(slug, options) {
+            var opts = options || {};
+            var preserveSection = !!opts.preserveSection;
+            var isInitial = !!opts.isInitial;
+
+            if (containers.status) {
+                containers.status.textContent = '';
+            }
+
+            var content;
+            try {
+                content = WebsiteSDK.getStaticPageContent(slug);
+            } catch (error) {
+                if (containers.body) {
+                    containers.body.innerHTML = '';
+                }
+                if (containers.title) {
+                    containers.title.textContent = '';
+                }
+                if (containers.lastUpdated) {
+                    containers.lastUpdated.textContent = '';
+                }
+                if (containers.toc) {
+                    containers.toc.innerHTML = '';
+                }
+                if (containers.status) {
+                    containers.status.textContent = 'Unable to load policies at this time. Please try again later.';
+                }
+                return;
+            }
+
+            state.content = content;
+            state.currentSlug = slug;
+
+            if (!preserveSection) {
+                state.currentSection = null;
+            }
+
+            // Render title
+            if (containers.title) {
+                containers.title.textContent = content && content.title ? content.title : '';
+            }
+
+            // Sync document title with content title
+            if (content && content.title) {
+                document.title = content.title + '  Faculty Profiles';
+            }
+
+            // Render last updated
+            if (containers.lastUpdated) {
+                containers.lastUpdated.textContent = content && content.last_updated ? content.last_updated : '';
+            }
+
+            // Render body HTML
+            if (containers.body) {
+                containers.body.innerHTML = content && content.body_html ? content.body_html : '';
+                postProcessBody(containers.body);
+            }
+
+            // Build TOC
+            if (containers.toc) {
+                buildToc(containers.toc, state.headings);
+            }
+
+            // Apply deep-link section, if any
+            if (state.currentSection) {
+                scrollToSection(state.currentSection, { behavior: isInitial ? 'auto' : 'smooth' });
+                setActiveSection(state.currentSection, { updateUrl: false });
+            } else if (state.headings.length > 0) {
+                // Default to first section as active without touching URL
+                setActiveSection(state.headings[0].id, { updateUrl: false });
+            }
+
+            // Re-bind actions that may exist inside loaded content (e.g., in-page anchors)
+            bindInPageAnchorHandling();
+        }
+
+        /** Process rendered body to identify sections and prepare for navigation */
+        function postProcessBody(container) {
+            state.headings = [];
+
+            // Clean up previous observer
+            if (state.observer && state.observer.disconnect) {
+                state.observer.disconnect();
+            }
+
+            if (!container) {
+                return;
+            }
+
+            // Use h2 as primary sections (could be extended to h3 if needed)
+            var headingNodes = container.querySelectorAll('h2');
+            headingNodes.forEach(function(heading) {
+                var id = heading.getAttribute('id');
+                if (!id || id.trim() === '') {
+                    id = slugifyHeading(heading.textContent || 'section');
+                    heading.setAttribute('id', id);
+                }
+                heading.dataset.sectionId = id;
+                state.headings.push({
+                    id: id,
+                    text: heading.textContent || '',
+                    element: heading
+                });
+            });
+
+            // Setup IntersectionObserver for active section tracking
+            if ('IntersectionObserver' in window && state.headings.length > 0) {
+                state.observer = new IntersectionObserver(function(entries) {
+                    var visibleEntries = entries.filter(function(entry) {
+                        return entry.isIntersecting;
+                    });
+
+                    if (visibleEntries.length === 0) {
+                        return;
+                    }
+
+                    visibleEntries.sort(function(a, b) {
+                        return a.target.offsetTop - b.target.offsetTop;
+                    });
+
+                    var topEntry = visibleEntries[0];
+                    var targetId = topEntry.target.id;
+                    if (!targetId || targetId === state.currentSection) {
+                        return;
+                    }
+
+                    // Update active section based on scroll, but avoid cluttering history
+                    setActiveSection(targetId, { updateUrl: true, pushHistory: false });
+                }, {
+                    root: null,
+                    rootMargin: '0px 0px -60% 0px',
+                    threshold: 0.3
+                });
+
+                state.headings.forEach(function(info) {
+                    state.observer.observe(info.element);
+                });
+            }
+        }
+
+        /** Build the table of contents in the provided container */
+        function buildToc(container, headings) {
+            if (!container) {
+                return;
+            }
+
+            container.innerHTML = '';
+
+            if (!headings || headings.length === 0) {
+                var emptyItem = document.createElement('li');
+                emptyItem.className = 'policies-toc-empty';
+                emptyItem.textContent = 'Sections will appear here once content is available.';
+                container.appendChild(emptyItem);
+                return;
+            }
+
+            headings.forEach(function(info) {
+                var li = document.createElement('li');
+                li.className = 'policies-toc-item';
+
+                var link = document.createElement('a');
+                link.href = 'javascript:void(0)';
+                link.textContent = info.text;
+                link.className = 'policies-toc-link';
+                link.dataset.action = 'navigate-section';
+                link.dataset.sectionId = info.id;
+
+                li.appendChild(link);
+                container.appendChild(li);
+            });
+        }
+
+        /** Bind click handlers based on data-action attributes */
+        function bindActions() {
+            var actionElements = document.querySelectorAll('[data-action]');
+            actionElements.forEach(function(element) {
+                var action = element.dataset.action;
+                if (action === 'accessibility-help') {
+                    element.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        navigateToAccessibilityHelp();
+                    });
+                } else if (action === 'navigate-section') {
+                    element.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        var sectionId = element.dataset.sectionId;
+                        if (sectionId) {
+                            handleSectionNavigation(sectionId, { scrollBehavior: 'smooth', pushHistory: true });
+                        }
+                    });
+                }
+            });
+        }
+
+        /** Bind handler for in-page anchors inside the policy body */
+        function bindInPageAnchorHandling() {
+            if (!containers.body) {
+                return;
+            }
+
+            containers.body.addEventListener('click', function(event) {
+                var target = event.target;
+                if (!target) {
+                    return;
+                }
+                var link = target.closest('a');
+                if (!link) {
+                    return;
+                }
+
+                var href = link.getAttribute('href');
+                if (!href) {
+                    return;
+                }
+
+                // Handle same-page anchors like #section-id
+                if (href.charAt(0) === '#') {
+                    var sectionId = href.substring(1);
+                    if (sectionId) {
+                        event.preventDefault();
+                        handleSectionNavigation(sectionId, { scrollBehavior: 'smooth', pushHistory: true });
+                    }
+                }
+            });
+        }
+
+        /** Navigate to help.html with context parameters */
+        function navigateToAccessibilityHelp() {
+            var helpUrl = new URL('help.html', window.location.href);
+            helpUrl.searchParams.set('from', 'policies');
+            helpUrl.searchParams.set('context', 'accessibility');
+            if (state.currentSlug) {
+                helpUrl.searchParams.set('source_slug', state.currentSlug);
+            }
+            if (state.currentSection) {
+                helpUrl.searchParams.set('source_section', state.currentSection);
+            }
+            window.location.href = helpUrl.toString();
+        }
+
+        /** Handle navigation to a particular section */
+        function handleSectionNavigation(sectionId, options) {
+            var opts = options || {};
+            var behavior = opts.scrollBehavior || 'smooth';
+            var pushHistory = opts.pushHistory !== false; // default true
+
+            scrollToSection(sectionId, { behavior: behavior });
+            setActiveSection(sectionId, { updateUrl: true, pushHistory: pushHistory });
+        }
+
+        /** Scroll to heading with given id */
+        function scrollToSection(sectionId, options) {
+            var opts = options || {};
+            var behavior = opts.behavior || 'smooth';
+
+            if (!sectionId) {
+                return;
+            }
+
+            var headingInfo = state.headings.find(function(h) { return h.id === sectionId; });
+            var heading = headingInfo ? headingInfo.element : document.getElementById(sectionId);
+            if (!heading) {
+                return;
+            }
+
+            var headerOffset = 96; // space for global header / top padding
+            var rect = heading.getBoundingClientRect();
+            var targetY = window.scrollY + rect.top - headerOffset;
+
+            try {
+                window.scrollTo({ top: targetY, behavior: behavior });
+            } catch (e) {
+                // Fallback for very old browsers
+                window.scrollTo(0, targetY);
+            }
+        }
+
+        /** Mark a section as active in both the content and the TOC */
+        function setActiveSection(sectionId, options) {
+            var opts = options || {};
+            var updateUrl = !!opts.updateUrl;
+            var pushHistory = opts.pushHistory !== false; // default true when updating URL
+
+            state.currentSection = sectionId;
+
+            // Highlight heading in content
+            state.headings.forEach(function(info) {
+                if (!info.element) {
+                    return;
+                }
+                if (info.id === sectionId) {
+                    info.element.classList.add('policies-section-active');
+                } else {
+                    info.element.classList.remove('policies-section-active');
+                }
+            });
+
+            // Highlight in TOC
+            if (containers.toc) {
+                var links = containers.toc.querySelectorAll('[data-action="navigate-section"]');
+                links.forEach(function(link) {
+                    if (link.dataset.sectionId === sectionId) {
+                        link.classList.add('is-active');
+                    } else {
+                        link.classList.remove('is-active');
+                    }
+                });
+            }
+
+            // Update URL query parameter for deep-linking
+            if (updateUrl) {
+                updateUrlForSection(sectionId, { replace: !pushHistory });
+            }
+        }
+
+        /** Update the URL's section parameter via History API */
+        function updateUrlForSection(sectionId, options) {
+            var opts = options || {};
+            var replace = !!opts.replace;
+
+            try {
+                var currentUrl = new URL(window.location.href);
+                if (sectionId) {
+                    currentUrl.searchParams.set('section', sectionId);
+                } else {
+                    currentUrl.searchParams.delete('section');
+                }
+
+                var method = replace ? 'replaceState' : 'pushState';
+                if (history && history[method]) {
+                    history[method]({ slug: state.currentSlug, section: sectionId }, '', currentUrl.toString());
+                }
+            } catch (e) {
+                // If History API or URL manipulation fails, silently ignore
+            }
+        }
+
+        /** Slugify heading text into a safe id */
+        function slugifyHeading(text) {
+            var base = (text || '').toLowerCase();
+            base = base.replace(/[^a-z0-9\s-]/g, '');
+            base = base.replace(/\s+/g, '-');
+            base = base.replace(/-+/g, '-');
+            base = base.replace(/^-|-$/g, '');
+            if (!base) {
+                base = 'section';
+            }
+
+            // Ensure uniqueness
+            var unique = base;
+            var counter = 1;
+            while (document.getElementById(unique)) {
+                unique = base + '-' + counter;
+                counter += 1;
+            }
+            return unique;
+        }
+    });
+})();
+</script>
+</body>
+</html>

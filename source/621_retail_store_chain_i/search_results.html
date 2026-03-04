@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retail Store Chain</title>
+    
+    <link rel="stylesheet" href="search_results.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a href="index.html" class="site-logo">Retail Store Chain</a>
+
+            <nav class="primary-nav" aria-label="Primary navigation">
+                <ul>
+                    <li>
+                        <a href="index.html" title="Go to the homepage with featured content and main navigation">Home</a>
+                    </li>
+                    <li>
+                        <a href="store_locator.html" title="Find nearby stores, filter by services and hours, and choose a preferred store">Store Locator</a>
+                    </li>
+                    <li>
+                        <a href="weekly_ad.html" title="View current weekly deals and add items to your shopping list">Weekly Ad</a>
+                    </li>
+                    <li>
+                        <a href="category.html?categoryId=electronics" title="Browse electronics including TVs and related accessories">Electronics</a>
+                    </li>
+                    <li>
+                        <a href="category.html?categoryId=home_cleaning" title="Browse home and cleaning products including cleaning supplies">Home &amp; Cleaning</a>
+                    </li>
+                    <li>
+                        <a href="loyalty.html" title="Learn about and enroll in the loyalty program">Rewards</a>
+                    </li>
+                    <li>
+                        <a href="help.html" title="Access help topics and customer service information">Help</a>
+                    </li>
+                    <li>
+                        <a href="shopping_list.html" title="View and manage items saved to your shopping list">Shopping List</a>
+                    </li>
+                    <li>
+                        <a href="cart.html" title="View and manage items added to your cart for pickup">Cart</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id="content" role="main">
+        <form id="globalSearchForm" data-component="global-search-form">
+            <label for="globalSearchInput">Search</label>
+            <input type="search" id="globalSearchInput" name="query">
+            <button type="submit">Search</button>
+            <input type="hidden" name="page" value="1">
+        </form>
+
+        <p id="preferredStoreIndicator" data-component="preferred-store-indicator" data-populate="preferred-store-summary"></p>
+
+        <p id="shoppingListShortcut" data-component="shopping-list-shortcut" data-populate="shopping-list-shortcut"></p>
+
+        <div id="shoppingListMessage" data-component="shopping-list-message" data-populate="shopping-list-message"></div>
+
+        <p id="searchResultsSummary" data-component="search-results-summary" data-populate="search-results-summary"></p>
+
+        <section aria-label="Filter results" data-component="filter-sidebar">
+            <p>Filter results</p>
+            <div id="filterSidebarContent" data-populate="filter-sidebar"></div>
+        </section>
+
+        <section aria-label="Sort results" data-component="sort-bar">
+            <div id="sortBarContent" data-populate="sort-bar"></div>
+        </section>
+
+        <div id="searchStatus" data-component="loading-and-error-handler" data-populate="search-status"></div>
+
+        <section aria-label="Products" data-component="product-grid">
+            <div id="productGridContent" data-populate="product-grid"></div>
+        </section>
+
+        <div id="paginationControls" data-component="pagination-controls" data-populate="pagination-controls"></div>
+    </main>
+
+    <footer class="site-footer">
+        <p class="footer-label">Language</p>
+        <nav class="footer-nav" aria-label="Footer navigation">
+            <ul>
+                <li>
+                    <a href="about.html" title="Learn more about the company and its services">About Us</a>
+                </li>
+                <li>
+                    <a href="contact.html" title="Get in touch or request in-store services such as product demonstrations">Contact Us</a>
+                </li>
+                <li>
+                    <a href="store_locator.html" title="Find store locations, services, and hours">Store Locator</a>
+                </li>
+                <li>
+                    <a href="weekly_ad.html" title="See the latest weekly deals for your selected store">Weekly Ad</a>
+                </li>
+                <li>
+                    <a href="returns.html" title="Read return and exchange policies for in-store and other purchases">Returns &amp; Exchanges</a>
+                </li>
+                <li>
+                    <a href="help.html" title="Browse help topics and support options">Help / Customer Service</a>
+                </li>
+                <li>
+                    <a href="loyalty.html" title="Join or learn more about the loyalty rewards program">Rewards Program</a>
+                </li>
+            </ul>
+        </nav>
+    </footer>
+
+    <script src="business_logic.js"></script>
+    <script>
+    (function() {
+        let currentShoppingListId = null;
+
+        function escapeHtml(value) {
+            if (value === undefined || value === null) {
+                return '';
+            }
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function parseNumber(value) {
+            if (value === null || value === undefined || value === '') {
+                return undefined;
+            }
+            const n = Number(value);
+            return Number.isNaN(n) ? undefined : n;
+        }
+
+        function parseBoolean(value) {
+            if (value === null || value === undefined || value === '') {
+                return undefined;
+            }
+            if (value === true || value === false) {
+                return value;
+            }
+            const v = String(value).toLowerCase();
+            if (v === 'true' || v === '1') {
+                return true;
+            }
+            if (v === 'false' || v === '0') {
+                return false;
+            }
+            return undefined;
+        }
+
+        function getInitialStateFromUrl(params) {
+            const fulfillmentParam = params.get('fulfillmentOptions');
+            const fulfillmentOptions = fulfillmentParam ? fulfillmentParam.split(',').map(function(item) { return item.trim(); }).filter(function(item) { return item.length > 0; }) : [];
+
+            const pageParam = params.get('page');
+            const page = pageParam ? parseInt(pageParam, 10) : undefined;
+
+            return {
+                query: params.get('query') || '',
+                categoryKey: params.get('categoryKey') || '',
+                minPrice: parseNumber(params.get('minPrice')),
+                maxPrice: parseNumber(params.get('maxPrice')),
+                minRating: parseNumber(params.get('minRating')),
+                isEcoFriendly: parseBoolean(params.get('isEcoFriendly')),
+                isFragranceFree: parseBoolean(params.get('isFragranceFree')),
+                fulfillmentOptions: fulfillmentOptions,
+                loadCountMin: parseNumber(params.get('loadCountMin')),
+                sortBy: params.get('sortBy') || undefined,
+                page: Number.isNaN(page) ? undefined : page
+            };
+        }
+
+        function buildSearchUrl(changes, options) {
+            const opts = options || {};
+            const params = new URLSearchParams(window.location.search);
+
+            Object.keys(changes).forEach(function(key) {
+                const value = changes[key];
+                if (value === undefined || value === null || value === '') {
+                    params.delete(key);
+                } else {
+                    params.set(key, String(value));
+                }
+            });
+
+            if (opts.resetPage) {
+                params.delete('page');
+                params.set('page', '1');
+            }
+
+            const queryString = params.toString();
+            return 'search_results.html' + (queryString ? '?' + queryString : '');
+        }
+
+        function navigateToSearch(changes, options) {
+            const url = buildSearchUrl(changes, options);
+            window.location.href = url;
+        }
+
+        function formatPrice(value, currency) {
+            if (value === undefined || value === null) {
+                return '';
+            }
+            const n = Number(value);
+            if (Number.isNaN(n)) {
+                return String(value);
+            }
+            const amount = n.toFixed(2);
+            const cur = currency || 'USD';
+            if (cur === 'USD') {
+                return '$' + amount;
+            }
+            return amount + ' ' + cur;
+        }
+
+        function capitalizeWords(key) {
+            if (!key) {
+                return '';
+            }
+            return key.split('_').map(function(part) {
+                if (!part) {
+                    return '';
+                }
+                return part.charAt(0).toUpperCase() + part.slice(1);
+            }).join(' ');
+        }
+
+        function renderPreferredStoreSummary(container, storeSummary) {
+            if (!storeSummary || !storeSummary.hasPreferredStore || !storeSummary.store) {
+                container.textContent = 'Preferred store: not selected';
+                return;
+            }
+            var text = 'Preferred store: ' + (storeSummary.displayName || storeSummary.store.name || '');
+            if (storeSummary.distanceText) {
+                text += ' (' + storeSummary.distanceText + ')';
+            }
+            container.textContent = text;
+        }
+
+        function renderShoppingListShortcut(container) {
+            if (!currentShoppingListId) {
+                container.textContent = 'Shopping list: no items added from these results yet.';
+                return;
+            }
+            container.innerHTML = '<a href="javascript:void(0)" data-action="view-shopping-list">View shopping list</a>';
+        }
+
+        function renderShoppingListMessage(container, message) {
+            if (!message) {
+                container.textContent = '';
+                return;
+            }
+            container.textContent = message;
+        }
+
+        function renderSearchResultsSummary(container, state, searchResult) {
+            if (!state.query) {
+                container.textContent = '';
+                return;
+            }
+            if (!searchResult || typeof searchResult.totalResults !== 'number') {
+                container.textContent = "Search results for '" + state.query + "'.";
+                return;
+            }
+            var total = searchResult.totalResults || 0;
+            var page = searchResult.page || 1;
+            var pageSize = searchResult.pageSize || 0;
+            var start = 0;
+            var end = 0;
+            if (total > 0 && pageSize > 0) {
+                start = (page - 1) * pageSize + 1;
+                end = Math.min(page * pageSize, total);
+            }
+            var text;
+            if (total === 0) {
+                text = "Showing 0 results for '" + state.query + "'.";
+            } else {
+                text = 'Showing ' + start + ' to ' + end + " of " + total + " results for '" + state.query + "'.";
+            }
+            container.textContent = text;
+        }
+
+        function buildCategoryOptionsHtml(selectedCategoryKey) {
+            var categories = [
+                'electronics',
+                'tvs',
+                'home_cleaning',
+                'cleaning_supplies',
+                'grocery',
+                'laundry',
+                'household_cleaning',
+                'home_kitchen'
+            ];
+            var options = '<option value="">All categories</option>';
+            categories.forEach(function(key) {
+                var selected = selectedCategoryKey === key ? ' selected' : '';
+                var label = capitalizeWords(key);
+                options += '<option value="' + key + '"' + selected + '>' + escapeHtml(label) + '</option>';
+            });
+            return options;
+        }
+
+        function renderFilterSidebar(container, state, filterOptions) {
+            if (!filterOptions) {
+                container.textContent = 'Filters are not available.';
+                return;
+            }
+
+            var priceRanges = Array.isArray(filterOptions.priceRanges) ? filterOptions.priceRanges : [];
+            var ratingOptions = Array.isArray(filterOptions.ratingOptions) ? filterOptions.ratingOptions : [];
+            var fulfillmentOptions = Array.isArray(filterOptions.fulfillmentOptions) ? filterOptions.fulfillmentOptions : [];
+            var attributeFilters = Array.isArray(filterOptions.attributeFilters) ? filterOptions.attributeFilters : [];
+
+            var priceRangesHtml = '<li><label><input type="radio" name="priceRange" data-action="price-range" data-min="" data-max=""' + (!state.minPrice && !state.maxPrice ? ' checked' : '') + '> Any price</label></li>';
+            priceRanges.forEach(function(range, index) {
+                var id = 'priceRange_' + index;
+                var isSelected = state.minPrice === range.min && state.maxPrice === range.max;
+                priceRangesHtml += '<li>' +
+                    '<label>' +
+                    '<input type="radio" name="priceRange" id="' + id + '" data-action="price-range" data-min="' + (range.min !== undefined ? range.min : '') + '" data-max="' + (range.max !== undefined ? range.max : '') + '"' + (isSelected ? ' checked' : '') + '>' +
+                    ' ' + escapeHtml(range.label || '') +
+                    '</label>' +
+                    '</li>';
+            });
+
+            var ratingHtml = '';
+            ratingOptions.forEach(function(option, index) {
+                var id = 'ratingOption_' + index;
+                var isSelected = state.minRating === option.minRating;
+                ratingHtml += '<li>' +
+                    '<label>' +
+                    '<input type="radio" name="ratingFilter" id="' + id + '" data-action="rating-filter" data-min-rating="' + (option.minRating !== undefined ? option.minRating : '') + '"' + (isSelected ? ' checked' : '') + '>' +
+                    ' ' + escapeHtml(option.label || '') +
+                    '</label>' +
+                    '</li>';
+            });
+
+            var attributesHtml = '';
+            attributeFilters.forEach(function(attr, index) {
+                var id = 'attributeFilter_' + index;
+                var key = attr.key || '';
+                var checked = false;
+                if (key === 'eco_friendly') {
+                    checked = !!state.isEcoFriendly;
+                } else if (key === 'fragrance_free') {
+                    checked = !!state.isFragranceFree;
+                }
+                attributesHtml += '<li>' +
+                    '<label>' +
+                    '<input type="checkbox" id="' + id + '" data-action="attribute-filter" data-attribute-key="' + escapeHtml(key) + '"' + (checked ? ' checked' : '') + '>' +
+                    ' ' + escapeHtml(attr.label || '') +
+                    '</label>' +
+                    '</li>';
+            });
+
+            var fulfillmentHtml = '';
+            fulfillmentOptions.forEach(function(opt, index) {
+                var id = 'fulfillmentOption_' + index;
+                var key = opt.key || '';
+                var checked = Array.isArray(state.fulfillmentOptions) && state.fulfillmentOptions.indexOf(key) !== -1;
+                fulfillmentHtml += '<li>' +
+                    '<label>' +
+                    '<input type="checkbox" id="' + id + '" data-action="fulfillment-filter" data-fulfillment-key="' + escapeHtml(key) + '"' + (checked ? ' checked' : '') + '>' +
+                    ' ' + escapeHtml(opt.label || '') +
+                    '</label>' +
+                    '</li>';
+            });
+
+            var loadCountValue = state.loadCountMin !== undefined && state.loadCountMin !== null ? String(state.loadCountMin) : '';
+
+            container.innerHTML = `
+                <div>
+                    <p>Category</p>
+                    <label for="categoryFilterSelect">Choose a category</label>
+                    <select id="categoryFilterSelect" name="categoryKey" data-action="category-change">
+                        ${buildCategoryOptionsHtml(state.categoryKey)}
+                    </select>
+                </div>
+                <div>
+                    <p>Price</p>
+                    <ul>
+                        ${priceRangesHtml}
+                    </ul>
+                    <div>
+                        <label for="customMinPrice">Min price</label>
+                        <input type="number" id="customMinPrice" name="minPrice" value="${state.minPrice !== undefined && state.minPrice !== null ? String(state.minPrice) : ''}">
+                    </div>
+                    <div>
+                        <label for="customMaxPrice">Max price</label>
+                        <input type="number" id="customMaxPrice" name="maxPrice" value="${state.maxPrice !== undefined && state.maxPrice !== null ? String(state.maxPrice) : ''}">
+                    </div>
+                    <p><a href="javascript:void(0)" data-action="apply-custom-price">Apply price</a></p>
+                </div>
+                <div>
+                    <p>Rating</p>
+                    <ul>
+                        ${ratingHtml}
+                    </ul>
+                </div>
+                <div>
+                    <p>Attributes</p>
+                    <ul>
+                        ${attributesHtml}
+                    </ul>
+                </div>
+                <div>
+                    <p>Fulfillment options</p>
+                    <ul>
+                        ${fulfillmentHtml}
+                    </ul>
+                </div>
+                <div>
+                    <p>Minimum load count</p>
+                    <label for="loadCountMinInput">Load count</label>
+                    <input type="number" id="loadCountMinInput" name="loadCountMin" value="${escapeHtml(loadCountValue)}">
+                    <p><a href="javascript:void(0)" data-action="apply-load-count">Apply load count</a></p>
+                </div>
+                <div>
+                    <p><a href="javascript:void(0)" data-action="clear-filters">Clear all filters</a></p>
+                </div>
+            `;
+        }
+
+        function renderSortBar(container, state) {
+            var sortBy = state.sortBy || 'relevance';
+            container.innerHTML = `
+                <form id="sortForm">
+                    <label for="sortSelect">Sort by:</label>
+                    <select id="sortSelect" name="sortBy" data-action="sort-change">
+                        <option value="relevance"${sortBy === 'relevance' ? ' selected' : ''}>Relevance</option>
+                        <option value="price_low_to_high"${sortBy === 'price_low_to_high' ? ' selected' : ''}>Price: Low to High</option>
+                        <option value="price_high_to_low"${sortBy === 'price_high_to_low' ? ' selected' : ''}>Price: High to Low</option>
+                        <option value="rating_desc"${sortBy === 'rating_desc' ? ' selected' : ''}>Rating: High to Low</option>
+                    </select>
+                </form>
+            `;
+        }
+
+        function renderSearchStatus(container, state, searchResult, searchError) {
+            if (searchError) {
+                container.innerHTML = '<p>There was a problem loading search results. <a href="javascript:void(0)" data-action="retry-search">Retry</a></p>';
+                return;
+            }
+            if (!state.query) {
+                container.innerHTML = '<p>Enter a search term above to see matching products.</p>';
+                return;
+            }
+            if (!searchResult) {
+                container.innerHTML = '';
+                return;
+            }
+            if (typeof searchResult.totalResults === 'number' && searchResult.totalResults === 0) {
+                container.innerHTML = '<p>No results found for \'' + escapeHtml(state.query) + '\'.</p>';
+                return;
+            }
+            container.innerHTML = '';
+        }
+
+        function renderProductGrid(container, state, searchResult, storeSummary) {
+            if (!state.query || !searchResult || searchResult.totalResults === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            var products = Array.isArray(searchResult.products) ? searchResult.products : [];
+            if (!products.length) {
+                container.innerHTML = '';
+                return;
+            }
+            var html = '<ul>';
+            products.forEach(function(product) {
+                var priceText = '';
+                if (product.isOnSale && product.salePrice !== undefined && product.salePrice !== null) {
+                    priceText = 'Sale: ' + formatPrice(product.salePrice, product.currency) + ' (Reg. ' + formatPrice(product.regularPrice, product.currency) + ')';
+                } else {
+                    priceText = 'Price: ' + formatPrice(product.regularPrice, product.currency);
+                }
+
+                var ratingText = '';
+                if (product.rating !== undefined && product.rating !== null) {
+                    ratingText = 'Rating: ' + product.rating;
+                    if (product.ratingCount !== undefined && product.ratingCount !== null) {
+                        ratingText += ' (' + product.ratingCount + ' reviews)';
+                    }
+                }
+
+                var sizeText = product.sizeDescription ? 'Size: ' + product.sizeDescription : '';
+                var loadCountText = product.loadCount !== undefined && product.loadCount !== null ? 'Load count: ' + product.loadCount : '';
+
+                var attributes = [];
+                if (product.isEcoFriendly) {
+                    attributes.push('Eco-friendly');
+                }
+                if (product.isFragranceFree) {
+                    attributes.push('Fragrance-free');
+                }
+                if (Array.isArray(product.attributes)) {
+                    product.attributes.forEach(function(attr) {
+                        if (attr) {
+                            attributes.push(attr);
+                        }
+                    });
+                }
+                var attributesText = attributes.length ? 'Attributes: ' + attributes.join(', ') : '';
+
+                var fulfillmentText = '';
+                if (Array.isArray(product.fulfillmentTags) && product.fulfillmentTags.length) {
+                    var tags = product.fulfillmentTags.map(function(tag) {
+                        return capitalizeWords(tag);
+                    });
+                    fulfillmentText = 'Fulfillment: ' + tags.join(', ');
+                }
+
+                var storeContext = '';
+                if (storeSummary && storeSummary.hasPreferredStore && product.isEligibleSameDayPickup) {
+                    storeContext = 'Eligible for same-day pickup at your preferred store.';
+                }
+
+                html += `
+                    <li data-product-tile="true" data-product-id="${escapeHtml(product.id)}">
+                        <a href="javascript:void(0)" data-action="view-product" data-product-id="${escapeHtml(product.id)}">${escapeHtml(product.name)}</a>
+                        ${product.brandName ? '<div>Brand: ' + escapeHtml(product.brandName) + '</div>' : ''}
+                        ${sizeText ? '<div>' + escapeHtml(sizeText) + '</div>' : ''}
+                        ${product.description ? '<div>' + escapeHtml(product.description) + '</div>' : ''}
+                        <div>${escapeHtml(priceText)}</div>
+                        ${ratingText ? '<div>' + escapeHtml(ratingText) + '</div>' : ''}
+                        ${loadCountText ? '<div>' + escapeHtml(loadCountText) + '</div>' : ''}
+                        ${attributesText ? '<div>' + escapeHtml(attributesText) + '</div>' : ''}
+                        ${fulfillmentText ? '<div>' + escapeHtml(fulfillmentText) + '</div>' : ''}
+                        ${storeContext ? '<div>' + escapeHtml(storeContext) + '</div>' : ''}
+                        <div>
+                            <label>Quantity
+                                <input type="number" min="1" value="1" data-role="quantity-input">
+                            </label>
+                        </div>
+                        <div>
+                            <a href="javascript:void(0)" data-action="add-to-shopping-list" data-product-id="${escapeHtml(product.id)}">Add to shopping list</a>
+                        </div>
+                    </li>
+                `;
+            });
+            html += '</ul>';
+            container.innerHTML = html;
+        }
+
+        function renderPagination(container, state, searchResult) {
+            if (!state.query || !searchResult || typeof searchResult.totalResults !== 'number' || typeof searchResult.pageSize !== 'number') {
+                container.innerHTML = '';
+                return;
+            }
+            var total = searchResult.totalResults;
+            var pageSize = searchResult.pageSize;
+            if (total <= pageSize) {
+                container.innerHTML = '';
+                return;
+            }
+            var currentPage = searchResult.page || 1;
+            var totalPages = Math.ceil(total / pageSize);
+            if (totalPages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+            var html = '<p>';
+            if (currentPage > 1) {
+                html += '<a href="javascript:void(0)" data-action="page-link" data-page="' + (currentPage - 1) + '">Previous</a> ';
+            }
+            for (var i = 1; i <= totalPages; i += 1) {
+                if (i === currentPage) {
+                    html += '<strong>' + i + '</strong> ';
+                } else {
+                    html += '<a href="javascript:void(0)" data-action="page-link" data-page="' + i + '">' + i + '</a> ';
+                }
+            }
+            if (currentPage < totalPages) {
+                html += '<a href="javascript:void(0)" data-action="page-link" data-page="' + (currentPage + 1) + '">Next</a>';
+            }
+            html += '</p>';
+            container.innerHTML = html;
+        }
+
+        function updateShoppingListShortcutDisplay() {
+            var container = document.getElementById('shoppingListShortcut');
+            if (!container) {
+                return;
+            }
+            renderShoppingListShortcut(container);
+            var actionElements = container.querySelectorAll('[data-action]');
+            actionElements.forEach(function(element) {
+                if (element.dataset.action === 'view-shopping-list') {
+                    element.addEventListener('click', handleViewShoppingList);
+                }
+            });
+        }
+
+        function updateShoppingListMessageDisplay(message) {
+            var container = document.getElementById('shoppingListMessage');
+            if (!container) {
+                return;
+            }
+            renderShoppingListMessage(container, message);
+        }
+
+        function handleSearchSubmit(event) {
+            event.preventDefault();
+            var form = event.currentTarget;
+            var input = form.querySelector('input[name="query"]');
+            var query = input ? input.value.trim() : '';
+            var changes = { query: query || undefined };
+            navigateToSearch(changes, { resetPage: true });
+        }
+
+        function handleCategoryChange(event) {
+            var select = event.currentTarget;
+            var value = select.value || undefined;
+            navigateToSearch({ categoryKey: value }, { resetPage: true });
+        }
+
+        function handlePriceRangeChange(event) {
+            var input = event.currentTarget;
+            var min = input.getAttribute('data-min');
+            var max = input.getAttribute('data-max');
+            var changes = {};
+            changes.minPrice = min !== null && min !== '' ? min : undefined;
+            changes.maxPrice = max !== null && max !== '' ? max : undefined;
+            navigateToSearch(changes, { resetPage: true });
+        }
+
+        function handleApplyCustomPrice(event) {
+            event.preventDefault();
+            var minInput = document.getElementById('customMinPrice');
+            var maxInput = document.getElementById('customMaxPrice');
+            var minValue = minInput && minInput.value !== '' ? minInput.value : undefined;
+            var maxValue = maxInput && maxInput.value !== '' ? maxInput.value : undefined;
+            navigateToSearch({ minPrice: minValue, maxPrice: maxValue }, { resetPage: true });
+        }
+
+        function handleRatingChange(event) {
+            var input = event.currentTarget;
+            var minRating = input.getAttribute('data-min-rating');
+            var value = minRating !== null && minRating !== '' ? minRating : undefined;
+            navigateToSearch({ minRating: value }, { resetPage: true });
+        }
+
+        function handleAttributeChange(event) {
+            var input = event.currentTarget;
+            var key = input.getAttribute('data-attribute-key');
+            var checked = input.checked;
+            var changes = {};
+            if (key === 'eco_friendly') {
+                changes.isEcoFriendly = checked ? 'true' : undefined;
+            } else if (key === 'fragrance_free') {
+                changes.isFragranceFree = checked ? 'true' : undefined;
+            }
+            if (Object.keys(changes).length) {
+                navigateToSearch(changes, { resetPage: true });
+            }
+        }
+
+        function handleFulfillmentChange(event) {
+            var input = event.currentTarget;
+            var key = input.getAttribute('data-fulfillment-key');
+            var params = new URLSearchParams(window.location.search);
+            var existingParam = params.get('fulfillmentOptions');
+            var list = existingParam ? existingParam.split(',').map(function(item) { return item.trim(); }).filter(function(item) { return item.length > 0; }) : [];
+            var index = list.indexOf(key);
+            if (input.checked) {
+                if (index === -1) {
+                    list.push(key);
+                }
+            } else if (index !== -1) {
+                list.splice(index, 1);
+            }
+            var newValue = list.length ? list.join(',') : undefined;
+            navigateToSearch({ fulfillmentOptions: newValue }, { resetPage: true });
+        }
+
+        function handleApplyLoadCount(event) {
+            event.preventDefault();
+            var input = document.getElementById('loadCountMinInput');
+            var value = input && input.value !== '' ? input.value : undefined;
+            navigateToSearch({ loadCountMin: value }, { resetPage: true });
+        }
+
+        function handleClearFilters(event) {
+            event.preventDefault();
+            var params = new URLSearchParams(window.location.search);
+            ['categoryKey', 'minPrice', 'maxPrice', 'minRating', 'isEcoFriendly', 'isFragranceFree', 'fulfillmentOptions', 'loadCountMin'].forEach(function(key) {
+                params.delete(key);
+            });
+            params.delete('page');
+            params.set('page', '1');
+            var queryString = params.toString();
+            var url = 'search_results.html' + (queryString ? '?' + queryString : '');
+            window.location.href = url;
+        }
+
+        function handleSortChange(event) {
+            var select = event.currentTarget;
+            var value = select.value || undefined;
+            navigateToSearch({ sortBy: value }, { resetPage: true });
+        }
+
+        function handlePageClick(event) {
+            event.preventDefault();
+            var link = event.currentTarget;
+            var page = link.getAttribute('data-page');
+            if (!page) {
+                return;
+            }
+            navigateToSearch({ page: page }, { resetPage: false });
+        }
+
+        function handleRetrySearch(event) {
+            event.preventDefault();
+            window.location.reload();
+        }
+
+        function handleViewProduct(event) {
+            event.preventDefault();
+            var link = event.currentTarget;
+            var productId = link.getAttribute('data-product-id');
+            if (!productId) {
+                return;
+            }
+            window.location.href = 'product.html?id=' + encodeURIComponent(productId);
+        }
+
+        function handleAddToShoppingList(event) {
+            event.preventDefault();
+            var link = event.currentTarget;
+            var productId = link.getAttribute('data-product-id');
+            if (!productId) {
+                return;
+            }
+            var tile = link.closest('[data-product-tile="true"]');
+            var quantityInput = tile ? tile.querySelector('input[data-role="quantity-input"]') : null;
+            var quantity = quantityInput && quantityInput.value ? parseInt(quantityInput.value, 10) : 1;
+            if (!quantity || quantity < 1) {
+                quantity = 1;
+            }
+            var response;
+            try {
+                response = WebsiteSDK.addProductToShoppingList(productId, quantity, currentShoppingListId || undefined, 'search_results');
+            } catch (error) {
+                updateShoppingListMessageDisplay('Unable to add item to shopping list.');
+                return;
+            }
+            if (response && response.success) {
+                if (response.shoppingListId) {
+                    currentShoppingListId = response.shoppingListId;
+                }
+                updateShoppingListShortcutDisplay();
+                if (response.message) {
+                    updateShoppingListMessageDisplay(response.message);
+                } else {
+                    updateShoppingListMessageDisplay('Item added to your shopping list.');
+                }
+            } else {
+                var message = response && response.message ? response.message : 'Unable to add item to shopping list.';
+                updateShoppingListMessageDisplay(message);
+            }
+        }
+
+        function handleViewShoppingList(event) {
+            event.preventDefault();
+            if (!currentShoppingListId) {
+                return;
+            }
+            window.location.href = 'shopping_list.html?shoppingListId=' + encodeURIComponent(currentShoppingListId);
+        }
+
+        function setupEventHandlers() {
+            var globalSearchForm = document.getElementById('globalSearchForm');
+            if (globalSearchForm) {
+                globalSearchForm.addEventListener('submit', handleSearchSubmit);
+            }
+
+            var actionElements = document.querySelectorAll('[data-action]');
+            actionElements.forEach(function(element) {
+                var action = element.dataset.action;
+                if (action === 'category-change') {
+                    element.addEventListener('change', handleCategoryChange);
+                } else if (action === 'price-range') {
+                    element.addEventListener('change', handlePriceRangeChange);
+                } else if (action === 'apply-custom-price') {
+                    element.addEventListener('click', handleApplyCustomPrice);
+                } else if (action === 'rating-filter') {
+                    element.addEventListener('change', handleRatingChange);
+                } else if (action === 'attribute-filter') {
+                    element.addEventListener('change', handleAttributeChange);
+                } else if (action === 'fulfillment-filter') {
+                    element.addEventListener('change', handleFulfillmentChange);
+                } else if (action === 'apply-load-count') {
+                    element.addEventListener('click', handleApplyLoadCount);
+                } else if (action === 'clear-filters') {
+                    element.addEventListener('click', handleClearFilters);
+                } else if (action === 'sort-change') {
+                    element.addEventListener('change', handleSortChange);
+                } else if (action === 'page-link') {
+                    element.addEventListener('click', handlePageClick);
+                } else if (action === 'retry-search') {
+                    element.addEventListener('click', handleRetrySearch);
+                } else if (action === 'view-product') {
+                    element.addEventListener('click', handleViewProduct);
+                } else if (action === 'add-to-shopping-list') {
+                    element.addEventListener('click', handleAddToShoppingList);
+                } else if (action === 'view-shopping-list') {
+                    element.addEventListener('click', handleViewShoppingList);
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            var urlParams = new URLSearchParams(window.location.search);
+            var state = getInitialStateFromUrl(urlParams);
+
+            var storeSummary = null;
+            try {
+                storeSummary = WebsiteSDK.getPreferredStoreSummary();
+            } catch (error) {
+                storeSummary = null;
+            }
+
+            var filterOptions = null;
+            try {
+                filterOptions = WebsiteSDK.getProductFilterOptions('search', undefined, state.query || undefined);
+            } catch (error) {
+                filterOptions = null;
+            }
+
+            var searchResult = null;
+            var searchError = null;
+            if (state.query) {
+                try {
+                    searchResult = WebsiteSDK.searchProducts(
+                        state.query,
+                        state.categoryKey || undefined,
+                        state.minPrice,
+                        state.maxPrice,
+                        state.minRating,
+                        state.isEcoFriendly,
+                        state.isFragranceFree,
+                        state.fulfillmentOptions,
+                        state.loadCountMin,
+                        state.sortBy || undefined,
+                        state.page || undefined,
+                        undefined
+                    );
+                } catch (error) {
+                    searchError = error;
+                }
+            }
+
+            var searchInput = document.getElementById('globalSearchInput');
+            if (searchInput) {
+                searchInput.value = state.query || '';
+            }
+
+            var populateElements = document.querySelectorAll('[data-populate]');
+            populateElements.forEach(function(element) {
+                var dataType = element.dataset.populate;
+                if (dataType === 'preferred-store-summary') {
+                    renderPreferredStoreSummary(element, storeSummary);
+                } else if (dataType === 'shopping-list-shortcut') {
+                    renderShoppingListShortcut(element);
+                } else if (dataType === 'shopping-list-message') {
+                    renderShoppingListMessage(element, null);
+                } else if (dataType === 'search-results-summary') {
+                    renderSearchResultsSummary(element, state, searchResult);
+                } else if (dataType === 'filter-sidebar') {
+                    renderFilterSidebar(element, state, filterOptions);
+                } else if (dataType === 'sort-bar') {
+                    renderSortBar(element, state);
+                } else if (dataType === 'search-status') {
+                    renderSearchStatus(element, state, searchResult, searchError);
+                } else if (dataType === 'product-grid') {
+                    renderProductGrid(element, state, searchResult, storeSummary);
+                } else if (dataType === 'pagination-controls') {
+                    renderPagination(element, state, searchResult);
+                }
+            });
+
+            setupEventHandlers();
+        });
+    })();
+    </script>
+</body>
+</html>
