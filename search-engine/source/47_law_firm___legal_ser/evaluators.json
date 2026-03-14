@@ -1,0 +1,100 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Uncontested CA Divorce Fee Estimate Evaluator",
+      "description": "Checks whether the user used the fee estimator for the Uncontested Divorce service in California with no minor children, no contested property, and a max budget of $2,000.",
+      "localStorage_variables": [
+        "services",
+        "service_fee_estimates",
+        "practice_areas"
+      ],
+      "evaluation_logic": "const checkpoints=[];const services=JSON.parse(localStorage.getItem('services')||'[]');const estimates=JSON.parse(localStorage.getItem('service_fee_estimates')||'[]');const divorceService=services.find(s=>s.practice_area_key==='family_law'&&s.slug==='uncontested-divorce'&&s.has_fee_estimator);let passed=false;if(divorceService){const matchingEstimates=estimates.filter(e=>{if(e.service_id!==divorceService.id)return false;const state=(e.state||'').toLowerCase();if(state!=='ca'&&state!=='california')return false;if(e.children_option!=='no_minor_children')return false;if(e.property_complexity!=='no_contested_property')return false;if(typeof e.max_budget!=='number'||e.max_budget>2000)return false;return true;});passed=matchingEstimates.length>0;}checkpoints.push({passed,weight:1.0});return checkpoints.reduce((sum,cp)=>sum+(cp.passed?cp.weight:0),0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Free Employment Phone Consultation Booking Evaluator",
+      "description": "Checks whether the user booked a free 20-minute Monday phone consultation between 10:00 and 12:00 with an employment lawyer charging at most $250/hour, using Alex Johnson's contact details, and whether it is the earliest matching slot.",
+      "localStorage_variables": [
+        "consultation_bookings",
+        "availability_slots",
+        "lawyers"
+      ],
+      "evaluation_logic": "const checkpoints=[];const bookings=JSON.parse(localStorage.getItem('consultation_bookings')||'[]');const slots=JSON.parse(localStorage.getItem('availability_slots')||'[]');const lawyers=JSON.parse(localStorage.getItem('lawyers')||'[]');const allCandidateSlots=slots.filter(s=>{if(s.consultation_type!=='phone'||!s.is_free)return false;if(s.day_of_week!=='monday')return false;if(typeof s.duration_minutes!=='number'||s.duration_minutes<20)return false;const start=(s.start_datetime||'');const timePart=start.split('T')[1]||'';const hm=timePart.slice(0,5);if(hm<'10:00'||hm>='12:00')return false;const lawyer=lawyers.find(l=>l.id===s.lawyer_id);if(!lawyer)return false;if(!Array.isArray(lawyer.practice_areas)||!lawyer.practice_areas.includes('employment_law'))return false;if(typeof lawyer.hourly_rate!=='number'||lawyer.hourly_rate>250)return false;return true;});allCandidateSlots.sort((a,b)=>new Date(a.start_datetime)-new Date(b.start_datetime));const earliestSlot=allCandidateSlots[0];const qualifyingBookings=bookings.filter(b=>{if(b.client_full_name!=='Alex Johnson'||b.client_email!=='alex@example.com'||b.client_phone!=='555-123-4567')return false;const slot=slots.find(s=>s.id===b.availability_slot_id);const lawyer=lawyers.find(l=>l.id===b.lawyer_id);if(!slot||!lawyer)return false;if(slot.consultation_type!=='phone'||!slot.is_free)return false;if(slot.day_of_week!=='monday')return false;if(slot.duration_minutes!==20)return false;const start=(slot.start_datetime||'');const timePart=start.split('T')[1]||'';const hm=timePart.slice(0,5);if(hm<'10:00'||hm>='12:00')return false;if(!Array.isArray(lawyer.practice_areas)||!lawyer.practice_areas.includes('employment_law'))return false;if(typeof lawyer.hourly_rate!=='number'||lawyer.hourly_rate>250)return false;return true;});const qualifyingEarliestBookings=qualifyingBookings.filter(b=>{const slot=slots.find(s=>s.id===b.availability_slot_id);return !!earliestSlot&&slot&&slot.id===earliestSlot.id;});checkpoints.push({passed:qualifyingBookings.length>0,weight:0.6});checkpoints.push({passed:qualifyingEarliestBookings.length>0,weight:0.4});return checkpoints.reduce((sum,cp)=>sum+(cp.passed?cp.weight:0),0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Chicago Business Lawyer Shortlist Evaluator",
+      "description": "Checks whether the user shortlisted the correct Chicago business lawyer: the more experienced of the first two business lawyers in Chicago when sorted by hourly rate low-to-high, with a visible hourly rate.",
+      "localStorage_variables": [
+        "lawyers",
+        "offices",
+        "lawyer_shortlists"
+      ],
+      "evaluation_logic": "const checkpoints=[];const lawyers=JSON.parse(localStorage.getItem('lawyers')||'[]');const offices=JSON.parse(localStorage.getItem('offices')||'[]');const chicagoOfficeIds=offices.filter(o=>o.city==='Chicago').map(o=>o.id);const bizChiLawyers=lawyers.filter(l=>Array.isArray(l.practice_areas)&&l.practice_areas.includes('business_law')&&chicagoOfficeIds.includes(l.primary_office_id));bizChiLawyers.sort((a,b)=>(a.hourly_rate||0)-(b.hourly_rate||0));const firstTwo=bizChiLawyers.slice(0,2);let expectedId=null;if(firstTwo.length===1){expectedId=firstTwo[0].id;}else if(firstTwo.length===2){const [l1,l2]=firstTwo;const cands=[l1,l2].filter(l=>typeof l.hourly_rate==='number');if(cands.length===1){expectedId=cands[0].id;}else if(cands.length===2){expectedId=(cands[0].years_of_experience||0)>=(cands[1].years_of_experience||0)?cands[0].id:cands[1].id;}}const shortlists=JSON.parse(localStorage.getItem('lawyer_shortlists')||'[]');const savedIds=new Set();shortlists.forEach(sl=>{if(Array.isArray(sl.lawyer_ids)){sl.lawyer_ids.forEach(id=>savedIds.add(id));}});checkpoints.push({passed:!!expectedId&&savedIds.has(expectedId),weight:1.0});return checkpoints.reduce((sum,cp)=>sum+(cp.passed?cp.weight:0),0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Save Most Recent Employment Non-Compete Article Evaluator",
+      "description": "Checks whether the user saved to their reading list the most recent Employment Law article matching 'non-compete agreement' from the last 12 months.",
+      "localStorage_variables": [
+        "reading_lists",
+        "articles"
+      ],
+      "evaluation_logic": "const checkpoints=[];const articles=JSON.parse(localStorage.getItem('articles')||'[]');const lists=JSON.parse(localStorage.getItem('reading_lists')||'[]');const now=new Date();const cutoff=new Date(now.getTime()-365*24*60*60*1000);const q='non-compete agreement';const filtered=articles.filter(a=>{if(a.content_type!=='articles')return false;if(a.topic!=='employment_law')return false;const blob=((a.title||'')+' '+(a.summary||'')+' '+(a.content_html||'')+' '+(Array.isArray(a.tags)?a.tags.join(' '):'')).toLowerCase();if(!blob.includes(q))return false;if(!a.publish_date)return false;const d=new Date(a.publish_date);if(d<cutoff||d>now)return false;return true;}).sort((a,b)=>new Date(b.publish_date)-new Date(a.publish_date));const top=filtered[0]||null;const savedIds=new Set();lists.forEach(l=>{if(Array.isArray(l.article_ids)){l.article_ids.forEach(id=>savedIds.add(id));}});checkpoints.push({passed:!!top&&savedIds.has(top.id),weight:1.0});return checkpoints.reduce((sum,cp)=>sum+(cp.passed?cp.weight:0),0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "TX Estate Package Builder Evaluator",
+      "description": "Checks whether the user built an individual Texas estate package including a will, financial power of attorney, and healthcare directive, with total price at or below $1,000.",
+      "localStorage_variables": [
+        "estate_packages",
+        "estate_document_templates",
+        "estate_add_on_options"
+      ],
+      "evaluation_logic": "const checkpoints=[];const packages=JSON.parse(localStorage.getItem('estate_packages')||'[]');const templates=JSON.parse(localStorage.getItem('estate_document_templates')||'[]');const requiredCodes=['last_will','durable_power_of_attorney','advance_healthcare_directive'];const qualifyingByDocs=packages.filter(p=>{if(p.client_type!=='individual')return false;if(p.state!=='TX')return false;const docCodes=(Array.isArray(p.selected_document_ids)?p.selected_document_ids:[]).map(id=>{const t=templates.find(tt=>tt.id===id);return t?t.code:null;}).filter(c=>!!c);return requiredCodes.every(code=>docCodes.includes(code));});const qualifyingFull=qualifyingByDocs.filter(p=>typeof p.total_price==='number'&&p.total_price<=1000);checkpoints.push({passed:qualifyingByDocs.length>0,weight:0.5});checkpoints.push({passed:qualifyingFull.length>0,weight:0.5});return checkpoints.reduce((sum,cp)=>sum+(cp.passed?cp.weight:0),0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "NY Tenant Security Deposit Contact Inquiry Evaluator",
+      "description": "Checks whether the user submitted a contact inquiry as a New York tenant with a $3,500 landlord–tenant dispute, preferring email, using Jamie Rivera’s details and mentioning a withheld security deposit.",
+      "localStorage_variables": [
+        "contact_inquiries"
+      ],
+      "evaluation_logic": "const checkSecurityMention=i=>{if(!i||typeof i.message!=='string')return false;const m=i.message.toLowerCase();return m.includes('security deposit');};const checkpoints=[];const inquiries=JSON.parse(localStorage.getItem('contact_inquiries')||'[]');const basicMatches=inquiries.filter(i=>i.type_of_issue==='landlord_tenant_dispute'&&i.user_role==='tenant'&&i.state==='NY'&&i.full_name==='Jamie Rivera'&&i.email==='jamie@example.com'&&i.phone==='555-987-6543'&&typeof i.amount_in_dispute==='number'&&i.amount_in_dispute===3500&&i.preferred_contact_method==='email');const fullMatches=basicMatches.filter(i=>checkSecurityMention(i));checkpoints.push({passed:basicMatches.length>0,weight:0.6});checkpoints.push({passed:fullMatches.length>0,weight:0.4});return checkpoints.reduce((sum,cp)=>sum+(cp.passed?cp.weight:0),0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Nearest Weekend Office Directions Evaluator",
+      "description": "Checks whether the user generated directions to the nearest office within 10 miles of ZIP 94103 that has weekend hours.",
+      "localStorage_variables": [
+        "offices",
+        "office_directions"
+      ],
+      "evaluation_logic": "const checkpoints=[];const offices=JSON.parse(localStorage.getItem('offices')||'[]');const directions=JSON.parse(localStorage.getItem('office_directions')||'[]');const candidates=offices.filter(o=>o.has_weekend_hours&&typeof o.distance_miles==='number'&&o.distance_miles<=10);candidates.sort((a,b)=>(a.distance_miles||Number.MAX_VALUE)-(b.distance_miles||Number.MAX_VALUE));const nearest=candidates[0]||null;const qualifyingDirections=directions.filter(d=>nearest&&d.office_id===nearest.id&&typeof d.origin_input==='string'&&d.origin_input.includes('94103'));checkpoints.push({passed:qualifyingDirections.length>0,weight:1.0});return checkpoints.reduce((sum,cp)=>sum+(cp.passed?cp.weight:0),0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Mutual NDA Generator Preview Evaluator",
+      "description": "Checks whether the user created a mutual NDA between BrightApps LLC and DataCore Inc., governed by California law with a 3-year term, including a non-solicitation clause, and generated a preview.",
+      "localStorage_variables": [
+        "nda_drafts"
+      ],
+      "evaluation_logic": "const checkpoints=[];const drafts=JSON.parse(localStorage.getItem('nda_drafts')||'[]');const matchingDrafts=drafts.filter(d=>d.nda_type==='mutual_nda'&&d.party_1_name==='BrightApps LLC'&&d.party_2_name==='DataCore Inc.'&&typeof d.governing_law_state==='string'&&d.governing_law_state.toLowerCase().startsWith('ca')&&d.term_years===3&&!!d.include_non_solicitation_clause);const withPreview=matchingDrafts.filter(d=>typeof d.generated_preview_html==='string'&&d.generated_preview_html.trim().length>0);checkpoints.push({passed:matchingDrafts.length>0,weight:0.6});checkpoints.push({passed:withPreview.length>0,weight:0.4});return checkpoints.reduce((sum,cp)=>sum+(cp.passed?cp.weight:0),0);"
+    }
+  ],
+  "static_data_types": [
+    "estate_add_on_options",
+    "estate_document_templates",
+    "offices",
+    "practice_areas",
+    "articles",
+    "lawyers",
+    "services",
+    "legal_tools",
+    "consultation_bookings",
+    "availability_slots",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

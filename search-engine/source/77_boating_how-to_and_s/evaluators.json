@@ -1,0 +1,101 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Beginner Safety Favorites Evaluator",
+      "description": "Checks whether the user favorited at least three beginner-level safety_basics articles with read time ≤ 8 minutes and rating ≥ 4.0.",
+      "localStorage_variables": [
+        "favorite_articles",
+        "articles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst favoritesRaw = localStorage.getItem('favorite_articles');\nconst articlesRaw = localStorage.getItem('articles');\nlet favorites = [];\nlet articles = [];\ntry { favorites = favoritesRaw ? JSON.parse(favoritesRaw) : []; } catch (e) { favorites = []; }\ntry { articles = articlesRaw ? JSON.parse(articlesRaw) : []; } catch (e) { articles = []; }\n\nconst qualifyingFavorites = favorites.filter(fav => {\n  const article = articles.find(a => a.id === fav.article_id);\n  if (!article) return false;\n  return (\n    article.category === 'safety_basics' &&\n    article.difficulty_level === 'beginner' &&\n    (article.read_time_minutes || 0) <= 8 &&\n    (article.rating || 0) >= 4.0\n  );\n});\n\n[1, 2, 3].forEach((n, idx) => {\n  const weight = idx < 2 ? 0.33 : 0.34; // 0.33 + 0.33 + 0.34 = 1.0\n  checkpoints.push({ passed: qualifyingFavorites.length >= n, weight });\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Pontoon Day Trip Checklist Evaluator",
+      "description": "Checks whether the user saved progress on the pontoon day trip checklist and marked the first five items as completed.",
+      "localStorage_variables": [
+        "checklists",
+        "checklist_sections",
+        "checklist_items",
+        "checklist_progress"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst checklists = JSON.parse(localStorage.getItem('checklists') || '[]');\nconst sections = JSON.parse(localStorage.getItem('checklist_sections') || '[]');\nconst items = JSON.parse(localStorage.getItem('checklist_items') || '[]');\nconst progressAll = JSON.parse(localStorage.getItem('checklist_progress') || '[]');\n\nconst targetChecklist = checklists.find(c =>\n  c.boat_type === 'pontoon' &&\n  c.trip_length === 'day_trip_4_8_hours' &&\n  c.passenger_range === 'passengers_4_6'\n);\n\nlet completedFirstFiveCount = 0;\n\nif (targetChecklist) {\n  const sectionsForChecklist = sections\n    .filter(s => s.checklist_id === targetChecklist.id)\n    .sort((a, b) => (a.order || 0) - (b.order || 0));\n\n  const orderedItemIds = [];\n  sectionsForChecklist.forEach(sec => {\n    const sectionItems = items\n      .filter(i => i.checklist_id === targetChecklist.id && i.section_id === sec.id)\n      .sort((a, b) => (a.order || 0) - (b.order || 0));\n    sectionItems.forEach(it => orderedItemIds.push(it.id));\n  });\n\n  const firstFiveIds = orderedItemIds.slice(0, 5);\n  const progress = progressAll.find(p => p.checklist_id === targetChecklist.id);\n\n  if (progress && Array.isArray(progress.completed_item_ids)) {\n    const completedSet = new Set(progress.completed_item_ids);\n    completedFirstFiveCount = firstFiveIds.filter(id => completedSet.has(id)).length;\n  }\n}\n\n// Award credit only for completing the correct first five checklist items on the correct checklist\ncheckpoints.push({ passed: completedFirstFiveCount >= 1, weight: 0.3 });\ncheckpoints.push({ passed: completedFirstFiveCount >= 3, weight: 0.3 });\ncheckpoints.push({ passed: completedFirstFiveCount >= 5, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Boat Capacity Trip Plan Evaluator",
+      "description": "Checks whether the user calculated capacity for an ~18×7 ft open motorboat on inland water and saved that calculation into a trip plan for 6 passengers.",
+      "localStorage_variables": [
+        "lastBoatCapacityCalculation",
+        "trip_plans"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nfunction safeParse(objStr) {\n  try { return objStr && objStr !== 'null' ? JSON.parse(objStr) : null; } catch (e) { return null; }\n}\n\nfunction isApprox(value, target, tolerance) {\n  if (typeof value !== 'number') return false;\n  return Math.abs(value - target) <= tolerance;\n}\n\nconst last = safeParse(localStorage.getItem('lastBoatCapacityCalculation'));\nconst tripPlans = JSON.parse(localStorage.getItem('trip_plans') || '[]');\n\nlet lastMatchesScenario = false;\nif (last) {\n  const lenOk = isApprox(last.boat_length_ft, 18, 1);\n  const widthOk = isApprox(last.boat_width_ft, 7, 0.5);\n  const typeStr = (last.boat_type || '').toLowerCase();\n  const typeOk = last.boat_type === 'open_motorboat' || typeStr.includes('open') && typeStr.includes('motorboat');\n  const waterStr = (last.water_type || '').toLowerCase();\n  const waterOk = last.water_type === 'inland_lake_river' || waterStr.includes('inland');\n  lastMatchesScenario = lenOk && widthOk && typeOk && waterOk;\n}\n\nconst candidatePlans = tripPlans.filter(p => {\n  const lenOk = isApprox(p.boat_length_ft, 18, 1);\n  const widthOk = isApprox(p.boat_width_ft, 7, 0.5);\n  const typeStr = (p.boat_type || '').toLowerCase();\n  const typeOk = p.boat_type === 'open_motorboat' || (typeStr.includes('open') && typeStr.includes('motorboat'));\n  const waterStr = (p.water_type || '').toLowerCase();\n  const waterOk = p.water_type === 'inland_lake_river' || waterStr.includes('inland');\n  const passengersOk = p.planned_passenger_count === 6;\n  return lenOk && widthOk && typeOk && waterOk && passengersOk;\n});\n\nlet hasPlanFromLast = false;\nif (last && lastMatchesScenario) {\n  hasPlanFromLast = candidatePlans.some(p =>\n    p.boat_length_ft === last.boat_length_ft &&\n    p.boat_width_ft === last.boat_width_ft &&\n    p.boat_type === last.boat_type &&\n    p.water_type === last.water_type &&\n    p.calculated_max_passengers === last.calculated_max_passengers\n  );\n}\n\n// CP1 (0.4): Last capacity calculation matches an ~18×7 ft open motorboat on inland water\ncheckpoints.push({ passed: lastMatchesScenario, weight: 0.4 });\n// CP2 (0.3): There is a saved trip plan for this scenario with planned_passenger_count === 6\ncheckpoints.push({ passed: candidatePlans.length >= 1, weight: 0.3 });\n// CP3 (0.3): At least one such trip plan is directly consistent with the last capacity calculation\ncheckpoints.push({ passed: hasPlanFromLast, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Newest Thunderstorm Emergency Print View Evaluator",
+      "description": "Checks whether the user opened the print view for the newest qualifying thunderstorm emergency article for boats up to 26 ft, published from 2022 onward.",
+      "localStorage_variables": [
+        "task4_lastPrintArticleId",
+        "articles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst printId = localStorage.getItem('task4_lastPrintArticleId');\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\n\nconst query = 'thunderstorm emergency';\nconst fromDate = new Date('2022-01-01T00:00:00Z');\n\nconst candidates = articles.filter(a => {\n  if (!a) return false;\n  if (a.category !== 'safety_basics') return false;\n  if (a.boat_size_category && a.boat_size_category !== 'up_to_26_ft') return false;\n  const pubDate = a.publish_date ? new Date(a.publish_date) : null;\n  if (pubDate && pubDate < fromDate) return false;\n  const haystack = [a.title || '', a.summary || '', a.content || ''].join(' ').toLowerCase();\n  return haystack.includes(query);\n});\n\nlet newestArticle = null;\nif (candidates.length > 0) {\n  newestArticle = candidates.reduce((latest, a) => {\n    const d = a.publish_date ? new Date(a.publish_date) : new Date(0);\n    if (!latest) return a;\n    const ld = latest.publish_date ? new Date(latest.publish_date) : new Date(0);\n    return d > ld ? a : latest;\n  }, null);\n}\n\nconst printedArticle = articles.find(a => a.id === printId);\nconst printedQualifies = !!(printedArticle && candidates.some(a => a.id === printedArticle.id));\nconst printedIsNewest = !!(printedArticle && newestArticle && printedArticle.id === newestArticle.id);\n\n// CP1 (0.5): User opened print view for a qualifying thunderstorm emergency article for boats up to 26 ft from 2022+\ncheckpoints.push({ passed: printedQualifies, weight: 0.5 });\n// CP2 (0.5): The printed article is the newest among all qualifying articles\ncheckpoints.push({ passed: printedIsNewest, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Cheapest Basic Safety Course Training Plan Evaluator",
+      "description": "Checks whether the user added the cheapest qualifying basic boating safety beginner course (≤$100, ≤25 miles) to their training plan with a June 2024 start month.",
+      "localStorage_variables": [
+        "courses",
+        "training_plan_entries"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst courses = JSON.parse(localStorage.getItem('courses') || '[]');\nconst entries = JSON.parse(localStorage.getItem('training_plan_entries') || '[]');\n\nconst qualifyingCourses = courses.filter(c => (\n  c.type === 'basic_boating_safety' &&\n  (c.price || 0) <= 100 &&\n  (c.distance_miles || 0) <= 25 &&\n  c.level === 'beginner'\n));\n\nconst cheapestPrice = qualifyingCourses.length\n  ? Math.min(...qualifyingCourses.map(c => c.price || 0))\n  : null;\n\nfunction isJune2024(entry) {\n  if (!entry) return false;\n  const label = (entry.planned_start_month_label || '').toLowerCase();\n  if (label.includes('june') && label.includes('2024')) return true;\n  if (entry.planned_start_month_date) {\n    const d = new Date(entry.planned_start_month_date);\n    if (!isNaN(d.getTime()) && d.getUTCFullYear() === 2024 && d.getUTCMonth() === 5) {\n      // UTCMonth 5 = June\n      return true;\n    }\n  }\n  return false;\n}\n\nconst qualifyingEntries = entries.filter(e => {\n  const course = courses.find(c => c.id === e.course_id);\n  if (!course) return false;\n  const isQualCourse = qualifyingCourses.some(qc => qc.id === course.id);\n  return isQualCourse && isJune2024(e);\n});\n\nconst hasAnyQualEntry = qualifyingEntries.length > 0;\n\nlet hasCheapestQualEntry = false;\nif (cheapestPrice != null) {\n  hasCheapestQualEntry = qualifyingEntries.some(e => {\n    const course = courses.find(c => c.id === e.course_id);\n    return course && (course.price || 0) === cheapestPrice;\n  });\n}\n\n// CP1 (0.4): User added at least one qualifying beginner basic safety course within 25 miles and ≤$100 with a June 2024 start month\ncheckpoints.push({ passed: hasAnyQualEntry, weight: 0.4 });\n// CP2 (0.6): At least one such entry is for the cheapest qualifying course\ncheckpoints.push({ passed: hasCheapestQualEntry, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Monthly 2-Stroke Saltwater Maintenance Schedule Evaluator",
+      "description": "Checks whether the user generated and saved a monthly engine maintenance schedule for a 2-stroke outboard used monthly in saltwater starting in July 2024.",
+      "localStorage_variables": [
+        "engine_maintenance_schedules",
+        "engine_maintenance_tasks",
+        "lastGeneratedMaintenanceSchedule"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst schedules = JSON.parse(localStorage.getItem('engine_maintenance_schedules') || '[]');\nconst tasks = JSON.parse(localStorage.getItem('engine_maintenance_tasks') || '[]');\n\nlet preview = null;\ntry {\n  const raw = localStorage.getItem('lastGeneratedMaintenanceSchedule');\n  preview = raw && raw !== 'null' ? JSON.parse(raw) : null;\n} catch (e) {\n  preview = null;\n}\n\nfunction isTwoStrokeOutboard(value) {\n  if (!value) return false;\n  const v = String(value).toLowerCase();\n  return v.includes('two_stroke_outboard') ||\n         (v.includes('2-stroke') && v.includes('outboard')) ||\n         (v.includes('2 stroke') && v.includes('outboard'));\n}\n\nfunction isUsedMonthly(value) {\n  if (!value) return false;\n  const v = String(value).toLowerCase();\n  return v.includes('used_monthly') || v.includes('used monthly');\n}\n\nfunction isSaltwater(value) {\n  if (!value) return false;\n  return String(value).toLowerCase().includes('saltwater');\n}\n\nfunction isEvery1Month(value) {\n  if (!value) return false;\n  const v = String(value).toLowerCase();\n  return v === 'every_1_month' || v.includes('1 month');\n}\n\nfunction isStartJuly2024(dateStr) {\n  if (!dateStr) return false;\n  const d = new Date(dateStr);\n  if (isNaN(d.getTime())) return false;\n  // Accept any date in July 2024\n  return d.getUTCFullYear() === 2024 && d.getUTCMonth() === 6; // July\n}\n\nconst matchingSchedules = schedules.filter(s => (\n  isTwoStrokeOutboard(s.engine_type) &&\n  isUsedMonthly(s.usage_frequency) &&\n  isSaltwater(s.water_type) &&\n  isEvery1Month(s.reminder_frequency) &&\n  isStartJuly2024(s.start_date)\n));\n\nconst hasSavedScheduleWithTasks = matchingSchedules.some(s =>\n  tasks.some(t => t.schedule_id === s.id)\n);\n\nlet previewMatches = false;\nif (preview && preview.schedule) {\n  const s = preview.schedule;\n  previewMatches = (\n    isTwoStrokeOutboard(s.engine_type) &&\n    isUsedMonthly(s.usage_frequency) &&\n    isSaltwater(s.water_type) &&\n    isEvery1Month(s.reminder_frequency) &&\n    isStartJuly2024(s.start_date)\n  );\n}\n\n// CP1 (0.6): There is a saved engine maintenance schedule matching the criteria with at least one associated task\ncheckpoints.push({ passed: hasSavedScheduleWithTasks, weight: 0.6 });\n// CP2 (0.4): The last generated maintenance schedule (preview cache) also matches the same criteria\ncheckpoints.push({ passed: previewMatches, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Three-Step Night Boating Learning Path Evaluator",
+      "description": "Checks whether the learning path contains one night navigation step, one beginner anchoring step, and one VHF radio step from the three distinct how-to categories.",
+      "localStorage_variables": [
+        "learning_paths",
+        "learning_path_items",
+        "articles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst learningPaths = JSON.parse(localStorage.getItem('learning_paths') || '[]');\nconst learningPathItems = JSON.parse(localStorage.getItem('learning_path_items') || '[]');\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\n\nconst learningPath = learningPaths[0] || null;\nlet itemsWithArticles = [];\n\nif (learningPath) {\n  const itemsForPath = learningPathItems.filter(i => i.learning_path_id === learningPath.id);\n  itemsWithArticles = itemsForPath\n    .map(item => {\n      const article = articles.find(a => a.id === item.article_id) || null;\n      return { item, article };\n    })\n    .filter(x => x.article && x.article.category === 'how_to_guides');\n}\n\nconst nightStepExists = itemsWithArticles.some(x => {\n  const a = x.article;\n  const tabOk = (a.category_tab || '').toLowerCase() === 'navigation';\n  const text = (\n    (a.title || '') + ' ' +\n    (a.summary || '') + ' ' +\n    (a.content || '') + ' ' +\n    (Array.isArray(a.tags) ? a.tags.join(' ') : '')\n  ).toLowerCase();\n  const hasNight = text.includes('night') || text.includes('after dark');\n  return tabOk && hasNight;\n});\n\nconst anchoringStepExists = itemsWithArticles.some(x => {\n  const a = x.article;\n  const tabOk = (a.category_tab || '').toLowerCase() === 'anchoring_mooring';\n  const title = (a.title || '').toLowerCase();\n  const diff = (a.difficulty_level || '').toLowerCase();\n  const hasBeginner = title.includes('beginner') || diff === 'beginner';\n  return tabOk && hasBeginner;\n});\n\nconst vhfStepExists = itemsWithArticles.some(x => {\n  const a = x.article;\n  const tabOk = (a.category_tab || '').toLowerCase() === 'communication_electronics';\n  const text = (\n    (a.title || '') + ' ' +\n    (a.summary || '') + ' ' +\n    (a.content || '') + ' ' +\n    (Array.isArray(a.tags) ? a.tags.join(' ') : '')\n  ).toLowerCase();\n  const hasVhf = text.includes('vhf');\n  return tabOk && hasVhf;\n});\n\n// CP1 (0.4): Night navigation article from Navigation tab in learning path\ncheckpoints.push({ passed: nightStepExists, weight: 0.4 });\n// CP2 (0.3): Beginner anchoring article from Anchoring & Mooring tab in learning path\ncheckpoints.push({ passed: anchoringStepExists, weight: 0.3 });\n// CP3 (0.3): VHF radio article from Communication & Electronics tab in learning path\ncheckpoints.push({ passed: vhfStepExists, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Radio Distress Calls Study List Evaluator",
+      "description": "Checks whether the user added three radio distress call glossary terms to their Study List.",
+      "localStorage_variables": [
+        "glossary_terms",
+        "study_list_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst terms = JSON.parse(localStorage.getItem('glossary_terms') || '[]');\nconst studyItems = JSON.parse(localStorage.getItem('study_list_items') || '[]');\n\nconst qualifyingStudyItems = studyItems.filter(si => {\n  const term = terms.find(t => t.id === si.term_id);\n  return term && term.category === 'radio_distress_calls';\n});\n\n[1, 2, 3].forEach((n, idx) => {\n  const weight = idx < 2 ? 0.33 : 0.34; // 0.33 + 0.33 + 0.34 = 1.0\n  checkpoints.push({ passed: qualifyingStudyItems.length >= n, weight });\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "articles",
+    "checklists",
+    "courses",
+    "glossary_terms",
+    "pages",
+    "checklist_sections",
+    "navigation_links",
+    "tools",
+    "checklist_items",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

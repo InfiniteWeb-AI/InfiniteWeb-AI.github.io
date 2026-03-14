@@ -1,0 +1,123 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Cheapest Light-Gray Scandinavian 3-Seater Sofa in Cart Evaluator",
+      "description": "Checks that the cart contains the cheapest qualifying light-gray Scandinavian 3-seater sofa under $900 with rating ≥4, added with quantity 1.",
+      "localStorage_variables": [
+        "products",
+        "carts",
+        "cart_items",
+        "subcategories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst carts = JSON.parse(localStorage.getItem('carts') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst subcategories = JSON.parse(localStorage.getItem('subcategories') || '[]');\n\n// Resolve sofas subcategory for living room dynamically\nconst sofasSubcat = subcategories.find(s => s.key === 'sofas_sectionals' && s.categoryId === 'living_room');\nconst sofasSubcatId = sofasSubcat ? sofasSubcat.id : null;\n\n// All products that meet the task criteria\nconst qualifyingProducts = products.filter(p => {\n  if (p.status !== 'active') return false;\n  if (p.categoryId !== 'living_room') return false;\n  if (sofasSubcatId && p.subcategoryId !== sofasSubcatId) return false;\n  if (p.styleKey !== 'scandinavian') return false;\n  if (p.seatingCapacity !== 3) return false;\n  if (p.colorName !== 'Light Gray') return false;\n  if (typeof p.price !== 'number' || p.price > 900) return false;\n  if (typeof p.ratingAverage !== 'number' || p.ratingAverage < 4) return false;\n  return true;\n});\n\nlet cheapestProduct = null;\nif (qualifyingProducts.length > 0) {\n  cheapestProduct = qualifyingProducts.slice().sort((a, b) => (a.price || 0) - (b.price || 0))[0];\n}\n\nconst cart = carts[0] || null;\nconst itemsForCart = cart ? cartItems.filter(ci => ci.cartId === cart.id) : [];\n\n// Items in the cart that are among qualifying products\nconst qualifyingCartItems = itemsForCart.filter(ci => qualifyingProducts.some(p => p.id === ci.productId));\n\n// CP1 (0.4): Cart includes at least one qualifying sofa with quantity exactly 1\nconst cp1Passed = qualifyingCartItems.some(ci => ci.quantity === 1);\ncheckpoints.push({ passed: cp1Passed, weight: 0.4 });\n\n// CP2 (0.6): The qualifying sofa in the cart with quantity 1 is the cheapest qualifying option\nlet cp2Passed = false;\nif (cheapestProduct) {\n  const cheapestInCart = qualifyingCartItems.find(ci => ci.productId === cheapestProduct.id && ci.quantity === 1);\n  cp2Passed = !!cheapestInCart;\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Home Office Desk, Chair, Lamp Under Budget Evaluator",
+      "description": "Checks that the user initially selected one qualifying desk, chair, and lamp with free shipping and correct constraints, and then applied the ≤$800 total rule by optionally removing the most expensive item.",
+      "localStorage_variables": [
+        "task2_initialCartProductIds",
+        "task2_removedProductId",
+        "products",
+        "carts",
+        "cart_items",
+        "subcategories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Instrumentation variables\nlet initialProductIds = null;\ntry {\n  const raw = localStorage.getItem('task2_initialCartProductIds');\n  initialProductIds = raw ? JSON.parse(raw) : null;\n} catch (e) {\n  initialProductIds = null;\n}\nconst removedProductId = localStorage.getItem('task2_removedProductId') || null;\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst carts = JSON.parse(localStorage.getItem('carts') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst subcategories = JSON.parse(localStorage.getItem('subcategories') || '[]');\n\n// Resolve subcategory ids dynamically\nconst deskSubcat = subcategories.find(s => s.key === 'desks');\nconst chairSubcat = subcategories.find(s => s.key === 'office_chairs');\nconst lampSubcat = subcategories.find(s => s.key === 'desk_lamps');\nconst deskSubcatId = deskSubcat ? deskSubcat.id : null;\nconst chairSubcatId = chairSubcat ? chairSubcat.id : null;\nconst lampSubcatId = lampSubcat ? lampSubcat.id : null;\n\n// Helper to get product by id\nconst getProduct = (id) => products.find(p => p.id === id) || null;\n\nlet initialProducts = [];\nif (Array.isArray(initialProductIds)) {\n  initialProducts = initialProductIds.map(id => getProduct(id)).filter(Boolean);\n}\n\n// ---------- CP1: Initial selection correctness (0.45) ----------\nlet cp1Passed = false;\nif (initialProducts.length === 3 && deskSubcatId && chairSubcatId && lampSubcatId) {\n  const deskProducts = initialProducts.filter(p => p.subcategoryId === deskSubcatId);\n  const chairProducts = initialProducts.filter(p => p.subcategoryId === chairSubcatId);\n  const lampProducts = initialProducts.filter(p => p.subcategoryId === lampSubcatId);\n\n  if (deskProducts.length === 1 && chairProducts.length === 1 && lampProducts.length === 1) {\n    const allHomeOffice = initialProducts.every(p => p.categoryId === 'home_office');\n    const allFreeShipping = initialProducts.every(p => !!p.freeShipping);\n\n    const deskOk = typeof deskProducts[0].price === 'number' && deskProducts[0].price < 400;\n    const lampOk = typeof lampProducts[0].price === 'number' && lampProducts[0].price < 80;\n    const chairRating = typeof chairProducts[0].ratingAverage === 'number' ? chairProducts[0].ratingAverage : 0;\n    const chairOk = chairRating >= 4.0;\n\n    cp1Passed = allHomeOffice && allFreeShipping && deskOk && lampOk && chairOk;\n  }\n}\ncheckpoints.push({ passed: cp1Passed, weight: 0.45 });\n\n// ---------- CP2: Budget rule applied with possible removal (0.30) ----------\nlet cp2Passed = false;\nif (initialProducts.length === 3) {\n  const initialTotal = initialProducts.reduce((sum, p) => sum + (p.price || 0), 0);\n\n  const cart = carts[0] || null;\n  const finalItems = cart ? cartItems.filter(ci => ci.cartId === cart.id) : [];\n  const finalItemsFromInitial = finalItems.filter(ci => Array.isArray(initialProductIds) && initialProductIds.includes(ci.productId));\n\n  if (initialTotal <= 800) {\n    // Should keep all three, quantity 1 each\n    const allPresent = finalItemsFromInitial.length === 3;\n    const qtyCorrect = allPresent && finalItemsFromInitial.every(ci => ci.quantity === 1);\n    cp2Passed = allPresent && qtyCorrect;\n  } else {\n    // Should remove the most expensive of the initial three and record it\n    const sortedByPriceDesc = initialProducts.slice().sort((a, b) => (b.price || 0) - (a.price || 0));\n    const mostExpensive = sortedByPriceDesc[0] || null;\n\n    if (mostExpensive) {\n      const remainingIds = finalItemsFromInitial.map(ci => ci.productId);\n      const removedIsCorrect = !remainingIds.includes(mostExpensive.id) && removedProductId === mostExpensive.id;\n      const remainingCountOk = finalItemsFromInitial.length === 2;\n      const qtyOk = finalItemsFromInitial.every(ci => ci.quantity === 1);\n\n      // Check remaining total is within budget\n      const remainingTotal = finalItemsFromInitial.reduce((sum, ci) => {\n        const p = getProduct(ci.productId);\n        return sum + (p ? p.price || 0 : 0);\n      }, 0);\n      const budgetOk = remainingTotal <= 800;\n\n      cp2Passed = remainingCountOk && removedIsCorrect && qtyOk && budgetOk;\n    }\n  }\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.30 });\n\n// ---------- CP3: Final cart still respects constraints for home office desk/chair/lamp items (0.25) ----------\nlet cp3Passed = false;\nif (carts.length > 0) {\n  const cart = carts[0];\n  const finalItems = cartItems.filter(ci => ci.cartId === cart.id);\n\n  const relevantItems = finalItems.filter(ci => {\n    const p = getProduct(ci.productId);\n    if (!p) return false;\n    if (p.categoryId !== 'home_office') return false;\n    return p.subcategoryId === deskSubcatId || p.subcategoryId === chairSubcatId || p.subcategoryId === lampSubcatId;\n  });\n\n  if (relevantItems.length > 0) {\n    cp3Passed = relevantItems.every(ci => {\n      const p = getProduct(ci.productId);\n      if (!p) return false;\n      if (!p.freeShipping) return false;\n      if (p.subcategoryId === deskSubcatId && !(p.price < 400)) return false;\n      if (p.subcategoryId === lampSubcatId && !(p.price < 80)) return false;\n      if (p.subcategoryId === chairSubcatId) {\n        const r = typeof p.ratingAverage === 'number' ? p.ratingAverage : 0;\n        if (r < 4.0) return false;\n      }\n      return true;\n    });\n  }\n}\ncheckpoints.push({ passed: cp3Passed, weight: 0.25 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Living Room Makeover Next Tuesday 3PM Video Call Booking Evaluator",
+      "description": "Checks that the user booked a Living Room Makeover consultation as a video call at a Tuesday 3:00 PM slot, specifically the earliest such slot available.",
+      "localStorage_variables": [
+        "design_services",
+        "appointment_slots",
+        "service_appointments"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst services = JSON.parse(localStorage.getItem('design_services') || '[]');\nconst slots = JSON.parse(localStorage.getItem('appointment_slots') || '[]');\nconst appointments = JSON.parse(localStorage.getItem('service_appointments') || '[]');\n\nconst livingService = services.find(s => s.key === 'living_room_makeover') || null;\n\nconst isTuesday3pmUTC = (iso) => {\n  if (!iso) return false;\n  const d = new Date(iso);\n  if (isNaN(d.getTime())) return false;\n  return d.getUTCDay() === 2 && d.getUTCHours() === 15 && d.getUTCMinutes() === 0;\n};\n\n// All booked video-call appointments for the Living Room Makeover service at Tuesday 3PM\nconst livingVideoApptsTue3 = appointments.filter(a => {\n  if (!livingService) return false;\n  if (a.serviceId !== livingService.id) return false;\n  if (a.appointmentType !== 'video_call') return false;\n  return isTuesday3pmUTC(a.startDateTime);\n});\n\n// CP1 (0.5): User booked a Living Room Makeover video-call appointment at some Tuesday 3:00 PM slot\nconst cp1Passed = livingVideoApptsTue3.length > 0;\ncheckpoints.push({ passed: cp1Passed, weight: 0.5 });\n\n// Determine the earliest Tuesday 3PM video-call slot for this service from all slots (regardless of current availability)\nlet earliestTue3Slot = null;\nif (livingService) {\n  const candidateSlots = slots.filter(sl => sl.serviceId === livingService.id && sl.appointmentType === 'video_call' && isTuesday3pmUTC(sl.startDateTime));\n  if (candidateSlots.length > 0) {\n    earliestTue3Slot = candidateSlots.slice().sort((a, b) => (a.startDateTime || '').localeCompare(b.startDateTime || ''))[0];\n  }\n}\n\n// CP2 (0.5): The booked appointment at Tuesday 3PM uses the earliest such slot\nlet cp2Passed = false;\nif (earliestTue3Slot && livingVideoApptsTue3.length > 0) {\n  cp2Passed = livingVideoApptsTue3.some(a => a.startDateTime === earliestTue3Slot.startDateTime);\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Account Creation and Small Apartment Living Room Article Favoriting Evaluator",
+      "description": "Checks that an account was created and that the first published article about small apartment living rooms or small spaces was saved to favorites.",
+      "localStorage_variables": [
+        "account_profiles",
+        "articles",
+        "favorite_articles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst profiles = JSON.parse(localStorage.getItem('account_profiles') || '[]');\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst favorites = JSON.parse(localStorage.getItem('favorite_articles') || '[]');\n\nconst profile = profiles[0] || null;\n\n// CP1 (0.4): An account exists with basic required fields (user successfully created an account)\nconst cp1Passed = !!(profile && profile.firstName && profile.lastName && profile.email);\ncheckpoints.push({ passed: cp1Passed, weight: 0.4 });\n\n// Determine qualifying \"small apartment/small space\" living room articles\nconst qualifyingArticles = articles.filter(a => {\n  if (a.status !== 'published') return false;\n  const title = (a.title || '').toLowerCase();\n  const topics = Array.isArray(a.topics) ? a.topics.map(t => String(t).toLowerCase()) : [];\n  const hasTopic = topics.includes('small_spaces') || topics.includes('living_room');\n  const hasTitlePhrase = title.includes('small apartment') || title.includes('small space');\n  return hasTopic && hasTitlePhrase;\n});\n\n// Sort by publishedAt desc to simulate the first article shown after filtering\nlet firstArticle = null;\nif (qualifyingArticles.length > 0) {\n  firstArticle = qualifyingArticles.slice().sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''))[0];\n}\n\n// CP2 (0.6): The first qualifying article was saved to favorites\nlet cp2Passed = false;\nif (firstArticle) {\n  cp2Passed = favorites.some(f => f.articleId === firstArticle.id);\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Style Quiz and Decor Cushion & Rug Under $60 Evaluator",
+      "description": "Checks that the user completed the style quiz and added one cushion and one rug under $60 matching the recommended style, chosen from the highest-rated qualifying items.",
+      "localStorage_variables": [
+        "style_quiz_results",
+        "products",
+        "carts",
+        "cart_items",
+        "categories",
+        "subcategories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst quizResults = JSON.parse(localStorage.getItem('style_quiz_results') || '[]');\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst carts = JSON.parse(localStorage.getItem('carts') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst categories = JSON.parse(localStorage.getItem('categories') || '[]');\nconst subcategories = JSON.parse(localStorage.getItem('subcategories') || '[]');\n\n// Latest quiz result\nlet latestResult = null;\nif (quizResults.length > 0) {\n  latestResult = quizResults.slice().sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''))[0];\n}\nconst recommendedStyleKey = latestResult ? latestResult.recommendedStyleKey : null;\n\n// CP1 (0.3): User has completed the style quiz (has at least one result)\nconst cp1Passed = !!recommendedStyleKey;\ncheckpoints.push({ passed: cp1Passed, weight: 0.3 });\n\n// Helper to find best (highest-rated) qualifying products for a subcategory\nconst decorCategory = categories.find(c => c.key === 'decor');\nconst decorCategoryId = decorCategory ? decorCategory.id : null;\n\nconst getBestProductsForSubcat = (subcatKey) => {\n  const subcat = subcategories.find(s => s.key === subcatKey);\n  if (!subcat || !decorCategoryId || !recommendedStyleKey) return [];\n  const candidates = products.filter(p => {\n    if (p.status !== 'active') return false;\n    if (p.categoryId !== decorCategoryId) return false;\n    if (p.subcategoryId !== subcat.id) return false;\n    if (p.styleKey !== recommendedStyleKey) return false;\n    if (typeof p.price !== 'number' || p.price > 60) return false;\n    return true;\n  });\n  if (candidates.length === 0) return [];\n  let maxRating = -1;\n  candidates.forEach(p => {\n    const r = typeof p.ratingAverage === 'number' ? p.ratingAverage : 0;\n    if (r > maxRating) maxRating = r;\n  });\n  return candidates.filter(p => {\n    const r = typeof p.ratingAverage === 'number' ? p.ratingAverage : 0;\n    return r === maxRating;\n  });\n};\n\nconst bestCushions = getBestProductsForSubcat('cushions');\nconst bestRugs = getBestProductsForSubcat('rugs');\n\n// CP2 (0.7): Cart contains one of the highest-rated qualifying cushions and one of the highest-rated qualifying rugs, qty ≥1 each\nlet cp2Passed = false;\nif (carts.length > 0 && bestCushions.length > 0 && bestRugs.length > 0) {\n  const cart = carts[0];\n  const items = cartItems.filter(ci => ci.cartId === cart.id);\n\n  const cushionChosen = items.find(ci => bestCushions.some(p => p.id === ci.productId) && ci.quantity >= 1);\n  const rugChosen = items.find(ci => bestRugs.some(p => p.id === ci.productId) && ci.quantity >= 1);\n\n  cp2Passed = !!cushionChosen && !!rugChosen;\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.7 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Custom Walnut Shelving Unit Saved Under $1200 Evaluator",
+      "description": "Checks that a walnut shelving configuration 250cm wide and 220cm high with at least 3 shelf modules and 1 cabinet module was created with total price ≤$1200 and saved.",
+      "localStorage_variables": [
+        "custom_shelving_configurations",
+        "shelving_modules"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst configs = JSON.parse(localStorage.getItem('custom_shelving_configurations') || '[]');\nconst modules = JSON.parse(localStorage.getItem('shelving_modules') || '[]');\n\nlet qualifyingConfig = null;\n\nfor (const c of configs) {\n  if (!c || !c.name) continue; // only saved configurations\n  if (c.finishKey !== 'walnut') continue;\n  if (c.widthCm !== 250) continue;\n  if (c.heightCm !== 220) continue;\n\n  const modulesForConfig = modules.filter(m => m.configurationId === c.id);\n  const shelfCount = modulesForConfig.filter(m => m.moduleType === 'shelf').length;\n  const cabinetCount = modulesForConfig.filter(m => m.moduleType === 'cabinet').length;\n\n  let totalPrice = typeof c.totalPrice === 'number' ? c.totalPrice : 0;\n  if (!totalPrice) {\n    totalPrice = modulesForConfig.reduce((sum, m) => sum + (m.price || 0), 0);\n  }\n\n  if (shelfCount >= 3 && cabinetCount >= 1 && totalPrice <= 1200) {\n    qualifyingConfig = c;\n    break;\n  }\n}\n\n// Single checkpoint (1.0): A saved configuration matches all dimensional, finish, module-count, and price constraints\nconst cp1Passed = !!qualifyingConfig;\ncheckpoints.push({ passed: cp1Passed, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Extendable Solid Wood Dining Table Longer-Length Choice Evaluator",
+      "description": "Checks that among qualifying extendable solid wood dining tables for 6+ people under $1500, the user added to the cart the one with the greater extended length between the first two price-sorted results, with quantity 1.",
+      "localStorage_variables": [
+        "products",
+        "categories",
+        "subcategories",
+        "carts",
+        "cart_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst categories = JSON.parse(localStorage.getItem('categories') || '[]');\nconst subcategories = JSON.parse(localStorage.getItem('subcategories') || '[]');\nconst carts = JSON.parse(localStorage.getItem('carts') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\n\nconst diningCategory = categories.find(c => c.key === 'dining_room');\nconst diningCategoryId = diningCategory ? diningCategory.id : null;\nconst diningTablesSubcat = subcategories.find(s => s.key === 'dining_tables');\nconst diningTablesSubcatId = diningTablesSubcat ? diningTablesSubcat.id : null;\n\n// Qualifying tables\nlet qualifyingTables = [];\nif (diningCategoryId && diningTablesSubcatId) {\n  qualifyingTables = products.filter(p => {\n    if (p.status !== 'active') return false;\n    if (p.categoryId !== diningCategoryId) return false;\n    if (p.subcategoryId !== diningTablesSubcatId) return false;\n    if (p.primaryMaterial !== 'solid_wood') return false;\n    if (!p.isExtendable) return false;\n    if (typeof p.seatingCapacity !== 'number' || p.seatingCapacity < 6) return false;\n    if (typeof p.price !== 'number' || p.price > 1500) return false;\n    return true;\n  });\n}\n\nlet chosenProductId = null;\nif (qualifyingTables.length >= 2) {\n  const sortedByPrice = qualifyingTables.slice().sort((a, b) => (a.price || 0) - (b.price || 0));\n  const firstTwo = sortedByPrice.slice(0, 2);\n  const t1 = firstTwo[0];\n  const t2 = firstTwo[1];\n\n  const len1 = typeof t1.extendedLengthCm === 'number' ? t1.extendedLengthCm : 0;\n  const len2 = typeof t2.extendedLengthCm === 'number' ? t2.extendedLengthCm : 0;\n\n  chosenProductId = len2 > len1 ? t2.id : t1.id;\n}\n\n// Single checkpoint (1.0): Cart contains the correctly chosen table with quantity 1\nlet cp1Passed = false;\nif (chosenProductId && carts.length > 0) {\n  const cart = carts[0];\n  const items = cartItems.filter(ci => ci.cartId === cart.id);\n  const matchingItem = items.find(ci => ci.productId === chosenProductId && ci.quantity === 1);\n  cp1Passed = !!matchingItem;\n}\ncheckpoints.push({ passed: cp1Passed, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Bedroom Design Package Neutral Standard Email Quote Evaluator",
+      "description": "Checks that a quote request was submitted for a bedroom design package configured for a 12–15 m² room with a neutral palette and standard tier, using email as the preferred contact method.",
+      "localStorage_variables": [
+        "design_packages",
+        "package_room_size_options",
+        "package_color_palette_options",
+        "package_tier_options",
+        "package_quote_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst packages = JSON.parse(localStorage.getItem('design_packages') || '[]');\nconst roomSizes = JSON.parse(localStorage.getItem('package_room_size_options') || '[]');\nconst palettes = JSON.parse(localStorage.getItem('package_color_palette_options') || '[]');\nconst tiers = JSON.parse(localStorage.getItem('package_tier_options') || '[]');\nconst quoteRequests = JSON.parse(localStorage.getItem('package_quote_requests') || '[]');\n\nlet candidate = null;\n\nfor (const q of quoteRequests) {\n  const pkg = packages.find(p => p.id === q.packageId) || null;\n  if (!pkg || pkg.roomType !== 'bedroom') continue;\n\n  const sizeOpt = roomSizes.find(r => r.id === q.roomSizeOptionId) || null;\n  if (!sizeOpt) continue;\n\n  const minA = typeof sizeOpt.minAreaM2 === 'number' ? sizeOpt.minAreaM2 : null;\n  const maxA = typeof sizeOpt.maxAreaM2 === 'number' ? sizeOpt.maxAreaM2 : null;\n  let covers12to15 = false;\n  if (minA != null && maxA != null) {\n    covers12to15 = (minA <= 12 && maxA >= 15);\n  } else if (sizeOpt.key) {\n    covers12to15 = sizeOpt.key === 'bedroom_10_15';\n  }\n  if (!covers12to15) continue;\n\n  if (q.preferredContactMethod !== 'email') continue;\n\n  candidate = q;\n  break;\n}\n\n// CP1 (0.5): A bedroom package quote request exists for a room size covering 12–15 m² with email as preferred contact\nconst cp1Passed = !!candidate;\ncheckpoints.push({ passed: cp1Passed, weight: 0.5 });\n\n// CP2 (0.5): That same request uses a neutral color palette and the standard tier\nlet cp2Passed = false;\nif (candidate) {\n  const paletteOpt = palettes.find(c => c.id === candidate.colorPaletteOptionId) || null;\n  const tierOpt = tiers.find(t => t.id === candidate.tierOptionId) || null;\n\n  const paletteOk = !!(paletteOpt && paletteOpt.key === 'neutral');\n  const tierOk = !!(tierOpt && tierOpt.key === 'standard');\n\n  cp2Passed = paletteOk && tierOk;\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "articles",
+    "categories",
+    "design_packages",
+    "design_services",
+    "styles",
+    "style_quiz_questions",
+    "appointment_slots",
+    "package_color_palette_options",
+    "package_room_size_options",
+    "package_tier_options",
+    "style_quiz_answer_options",
+    "subcategories",
+    "products",
+    "carts",
+    "cart_items",
+    "custom_shelving_configurations",
+    "shelving_modules",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

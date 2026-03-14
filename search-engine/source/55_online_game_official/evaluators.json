@@ -1,0 +1,91 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Newest PC Patch Notes (Last 14 Days) Reading List Evaluator",
+      "description": "Checks whether the user saved the newest PC patch notes article from the last 14 days to their reading list.",
+      "localStorage_variables": [
+        "articles",
+        "reading_list_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst readingListItems = JSON.parse(localStorage.getItem('reading_list_items') || '[]');\n\n// Determine qualifying PC patch notes within the last 14 days\nconst now = new Date();\nconst fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);\n\nconst qualifying = articles.filter(a => {\n  if (!a || a.contentType !== 'patch_notes' || a.platform !== 'pc' || !a.publishDate) return false;\n  const d = new Date(a.publishDate);\n  if (isNaN(d.getTime())) return false;\n  return d >= fourteenDaysAgo;\n});\n\nlet newest = null;\nif (qualifying.length > 0) {\n  qualifying.sort((a, b) => new Date(b.publishDate) - new Date(a.publishDate));\n  newest = qualifying[0];\n}\n\nconst hasNewestInReadingList = !!(newest && readingListItems.some(r => r.articleId === newest.id));\n\n// Single checkpoint: user has the correct newest qualifying article in reading list\ncheckpoints.push({ passed: hasNewestInReadingList, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Weekly Patch Notes & Esports Newsletter (NA) Evaluator",
+      "description": "Checks whether newsletter preferences are set to weekly, only Patch Notes and Esports topics enabled, region North America, and subscribed.",
+      "localStorage_variables": [
+        "newsletter_preferences"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst prefsList = JSON.parse(localStorage.getItem('newsletter_preferences') || '[]');\nconst pref = prefsList[0] || null;\n\nconst weeklyPatchEsportsOnlyNA = !!(pref &&\n  pref.frequency === 'weekly' &&\n  pref.isSubscribed === true &&\n  // Only Patch Notes and Esports enabled\n  pref.topicPatchNotesEnabled === true &&\n  pref.topicEsportsEnabled === true &&\n  (pref.topicPromotionsEnabled === false || !pref.topicPromotionsEnabled) &&\n  (pref.topicCommunityStoriesEnabled === false || !pref.topicCommunityStoriesEnabled) &&\n  (pref.topicGuidesEnabled === false || !pref.topicGuidesEnabled) &&\n  (pref.topicDevBlogEnabled === false || !pref.topicDevBlogEnabled) &&\n  (pref.topicServerStatusEnabled === false || !pref.topicServerStatusEnabled) &&\n  (pref.topicMaintenanceEnabled === false || !pref.topicMaintenanceEnabled) &&\n  // Region North America (enum value)\n  pref.region === 'north_america' &&\n  // Non-empty email address\n  typeof pref.email === 'string' && pref.email.trim().length > 0\n);\n\ncheckpoints.push({ passed: weeklyPatchEsportsOnlyNA, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Top 3 Most-Viewed 2025 Esports Tournament Favorites Evaluator",
+      "description": "Checks whether the user favorited the three most-viewed 2025 esports tournament announcement articles.",
+      "localStorage_variables": [
+        "articles",
+        "favorite_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst favorites = JSON.parse(localStorage.getItem('favorite_items') || '[]');\n\n// Qualifying esports tournament announcements in 2025\nconst start = new Date('2025-01-01T00:00:00Z');\nconst end = new Date('2025-12-31T23:59:59Z');\n\nconst qualifying = articles.filter(a => {\n  if (!a || a.contentType !== 'esports' || !a.isTournamentAnnouncement || !a.publishDate) return false;\n  const d = new Date(a.publishDate);\n  if (isNaN(d.getTime())) return false;\n  return d >= start && d <= end;\n});\n\nqualifying.sort((a, b) => (b.views || 0) - (a.views || 0));\nconst top3 = qualifying.slice(0, 3);\n\nconst favoritedTop = top3.filter(a => favorites.some(f => f.articleId === a.id));\n\n[1, 2, 3].forEach((n, index) => {\n  const weight = index === 2 ? 0.34 : 0.33; // 0.33 + 0.33 + 0.34 = 1.0\n  checkpoints.push({ passed: favoritedTop.length >= n, weight });\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Higher-Version Balance Patch Comment Evaluator",
+      "description": "Checks whether the user posted a new comment on the higher-version article among the two newest balance patch notes.",
+      "localStorage_variables": [
+        "articles",
+        "article_comments"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst comments = JSON.parse(localStorage.getItem('article_comments') || '[]');\n\n// Find balance patch notes (contentType=patch_notes, tag includes 'balance_patch')\nconst candidates = articles.filter(a => {\n  if (!a || a.contentType !== 'patch_notes' || !Array.isArray(a.tags) || !a.publishDate) return false;\n  const tagsLower = a.tags.map(t => String(t).toLowerCase());\n  return tagsLower.includes('balance_patch');\n});\n\ncandidates.sort((a, b) => new Date(b.publishDate) - new Date(a.publishDate));\nconst twoNewest = candidates.slice(0, 2);\n\nlet targetArticle = null;\nif (twoNewest.length === 1) {\n  targetArticle = twoNewest[0];\n} else if (twoNewest.length === 2) {\n  const compareVersion = (x, y) => {\n    const xv = [x.versionMajor || 0, x.versionMinor || 0, x.versionPatch || 0];\n    const yv = [y.versionMajor || 0, y.versionMinor || 0, y.versionPatch || 0];\n    for (let i = 0; i < 3; i++) {\n      if (xv[i] !== yv[i]) return xv[i] - yv[i];\n    }\n    return 0;\n  };\n  // Pick the article with the higher version\n  targetArticle = twoNewest.reduce((best, art) => {\n    if (!best) return art;\n    return compareVersion(art, best) > 0 ? art : best;\n  }, null);\n}\n\n// New user comments have authorDisplayName === null (per BusinessLogic.postArticleComment)\nconst userCommentOnTarget = !!(targetArticle && comments.some(c =>\n  c.articleId === targetArticle.id &&\n  c.isDeleted !== true &&\n  (c.authorDisplayName === null || typeof c.authorDisplayName === 'undefined')\n));\n\ncheckpoints.push({ passed: userCommentOnTarget, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Server Status & Maintenance Only Notifications Evaluator",
+      "description": "Checks whether only server status and maintenance categories are enabled, in-site on, email and mobile push off, with do-not-disturb from 22:00 to 08:00.",
+      "localStorage_variables": [
+        "notification_settings"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst list = JSON.parse(localStorage.getItem('notification_settings') || '[]');\nconst settings = list[0] || null;\n\nconst categoriesCorrect = !!(settings &&\n  settings.categoryServerStatusEnabled === true &&\n  settings.categoryMaintenanceEnabled === true &&\n  (settings.categoryPromotionalOffersEnabled === false || !settings.categoryPromotionalOffersEnabled) &&\n  (settings.categoryEsportsNewsEnabled === false || !settings.categoryEsportsNewsEnabled) &&\n  (settings.categoryPatchNotesEnabled === false || !settings.categoryPatchNotesEnabled) &&\n  (settings.categoryCommunityStoriesEnabled === false || !settings.categoryCommunityStoriesEnabled) &&\n  (settings.categoryGuidesEnabled === false || !settings.categoryGuidesEnabled)\n);\n\nconst deliveryCorrect = !!(settings &&\n  settings.deliveryInSiteEnabled === true &&\n  (settings.deliveryEmailEnabled === false || !settings.deliveryEmailEnabled) &&\n  (settings.deliveryMobilePushEnabled === false || !settings.deliveryMobilePushEnabled)\n);\n\nconst quietHoursCorrect = !!(settings &&\n  settings.quietHoursEnabled === true &&\n  settings.quietHoursStartTime === '22:00' &&\n  settings.quietHoursEndTime === '08:00'\n);\n\ncheckpoints.push({ passed: categoriesCorrect, weight: 0.4 });\ncheckpoints.push({ passed: deliveryCorrect, weight: 0.3 });\ncheckpoints.push({ passed: quietHoursCorrect, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Roadmap Reading Collection Evaluator",
+      "description": "Checks whether a 'Roadmap Reading' collection contains the three oldest roadmap dev blogs from the last six months.",
+      "localStorage_variables": [
+        "articles",
+        "collections",
+        "collection_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst collections = JSON.parse(localStorage.getItem('collections') || '[]');\nconst collectionItems = JSON.parse(localStorage.getItem('collection_items') || '[]');\n\nconst now = new Date();\nconst sixMonthsAgo = new Date(now);\nsixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);\n\nconst roadmapArticles = articles.filter(a => {\n  if (!a || a.contentType !== 'dev_blog' || !Array.isArray(a.tags) || !a.publishDate) return false;\n  const tagsLower = a.tags.map(t => String(t).toLowerCase());\n  const d = new Date(a.publishDate);\n  if (isNaN(d.getTime())) return false;\n  return tagsLower.includes('roadmap') && d >= sixMonthsAgo;\n});\n\nroadmapArticles.sort((a, b) => new Date(a.publishDate) - new Date(b.publishDate));\nconst oldestThree = roadmapArticles.slice(0, 3);\n\nconst roadmapCollections = collections.filter(c => c && c.name === 'Roadmap Reading');\n\nlet maxCount = 0;\nif (oldestThree.length > 0 && roadmapCollections.length > 0) {\n  roadmapCollections.forEach(col => {\n    const articleIdsInCol = collectionItems\n      .filter(ci => ci.collectionId === col.id)\n      .map(ci => ci.articleId);\n    const count = oldestThree.filter(a => articleIdsInCol.includes(a.id)).length;\n    if (count > maxCount) maxCount = count;\n  });\n}\n\n[1, 2, 3].forEach((n, index) => {\n  const weight = index === 2 ? 0.34 : 0.33;\n  checkpoints.push({ passed: maxCount >= n, weight });\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Earliest EU Shadow Siege Announcement Bookmark Evaluator",
+      "description": "Checks whether the earliest European Shadow Siege update announcement is bookmarked in either favorites or reading list.",
+      "localStorage_variables": [
+        "articles",
+        "reading_list_items",
+        "favorite_items"
+      ],
+      "evaluation_logic": "const checklists = [];\nconst checkpoints = checklists; // alias for consistency\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst readingListItems = JSON.parse(localStorage.getItem('reading_list_items') || '[]');\nconst favoriteItems = JSON.parse(localStorage.getItem('favorite_items') || '[]');\n\nconst shadowSiegeEU = articles.filter(a => {\n  if (!a || a.contentType !== 'update_announcement' || !a.publishDate) return false;\n  if (a.region !== 'europe') return false;\n  if (!Array.isArray(a.tags)) return false;\n  const tagsLower = a.tags.map(t => String(t).toLowerCase());\n  return tagsLower.includes('shadow_siege');\n});\n\nshadowSiegeEU.sort((a, b) => new Date(a.publishDate) - new Date(b.publishDate));\nconst earliest = shadowSiegeEU[0] || null;\n\nconst isBookmarked = !!(earliest && (\n  readingListItems.some(r => r.articleId === earliest.id) ||\n  favoriteItems.some(f => f.articleId === earliest.id)\n));\n\ncheckpoints.push({ passed: isBookmarked, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "New Players Collection Beginner Guides Evaluator",
+      "description": "Checks whether a 'New Players' collection contains the two highest-rated beginner/new-player guides with 10–30 minute reading time.",
+      "localStorage_variables": [
+        "articles",
+        "collections",
+        "collection_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst collections = JSON.parse(localStorage.getItem('collections') || '[]');\nconst collectionItems = JSON.parse(localStorage.getItem('collection_items') || '[]');\n\nconst guides = articles.filter(a => {\n  if (!a || a.contentType !== 'guide') return false;\n  if (a.audienceLevel !== 'beginner' && a.audienceLevel !== 'new_players') return false;\n  const m = a.estimatedReadingTimeMinutes;\n  if (m === null || m === undefined) return false;\n  const val = Number(m);\n  if (isNaN(val)) return false;\n  return val >= 10 && val <= 30;\n});\n\nguides.sort((a, b) => {\n  const aRating = a.averageRating || 0;\n  const bRating = b.averageRating || 0;\n  if (bRating !== aRating) return bRating - aRating; // highest rating first\n  const aViews = a.views || 0;\n  const bViews = b.views || 0;\n  return bViews - aViews; // tie-breaker: most viewed\n});\n\nconst top2 = guides.slice(0, 2);\n\nconst newPlayersCollections = collections.filter(c => c && c.name === 'New Players');\n\nlet maxCount = 0;\nif (top2.length > 0 && newPlayersCollections.length > 0) {\n  newPlayersCollections.forEach(col => {\n    const articleIdsInCol = collectionItems\n      .filter(ci => ci.collectionId === col.id)\n      .map(ci => ci.articleId);\n    const count = top2.filter(a => articleIdsInCol.includes(a.id)).length;\n    if (count > maxCount) maxCount = count;\n  });\n}\n\n[1, 2].forEach((n, index) => {\n  const weight = 0.5; // 0.5 + 0.5 = 1.0\n  checkpoints.push({ passed: maxCount >= n, weight });\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "articles",
+    "article_comments",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

@@ -1,0 +1,117 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Cheapest Qualifying Business Laptop x2 in Cart",
+      "description": "Checks that the user added two units of the cheapest qualifying business laptop (under $1200, >=16GB RAM, 512GB SSD, 14–15.6\", rating>=4.0) to the cart.",
+      "localStorage_variables": [
+        "current_cart_id",
+        "carts",
+        "cart_items",
+        "products"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst carts = JSON.parse(localStorage.getItem('carts') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst currentCartId = localStorage.getItem('current_cart_id');\n\n// Determine which cart to inspect\nlet cartId = null;\nif (currentCartId) {\n  const cur = carts.find(c => c.id === currentCartId);\n  if (cur) cartId = cur.id;\n}\nif (!cartId && carts.length > 0) {\n  // Fallback: most recently created cart\n  const sorted = carts.slice().sort((a, b) => {\n    const da = new Date(a.createdAt || 0).getTime();\n    const db = new Date(b.createdAt || 0).getTime();\n    return db - da;\n  });\n  cartId = sorted[0].id;\n}\n\nconst itemsForCart = cartItems.filter(ci => ci.cartId === cartId);\n\n// All products that qualify per task criteria\nconst qualifyingProducts = products.filter(p => {\n  if (!p) return false;\n  if (p.categorySlug !== 'laptops') return false;\n  if (p.usageType !== 'business') return false;\n  if (typeof p.price !== 'number' || p.price > 1200) return false;\n  if (typeof p.ramGB !== 'number' || p.ramGB < 16) return false;\n  if (typeof p.storageCapacityGB !== 'number' || p.storageCapacityGB < 512) return false;\n  if (p.storageType !== 'ssd') return false;\n  if (typeof p.screenSizeInches !== 'number' || p.screenSizeInches < 14 || p.screenSizeInches > 15.6) return false;\n  if (typeof p.rating !== 'number' || p.rating < 4.0) return false;\n  return true;\n});\n\nlet cheapestPrice = null;\nif (qualifyingProducts.length > 0) {\n  cheapestPrice = qualifyingProducts.reduce((min, p) => (min === null || p.price < min ? p.price : min), null);\n}\n\nconst qualifyingProductIds = new Set(qualifyingProducts.map(p => p.id));\n\n// Helper: items in cart for qualifying products\nconst qualifyingItemsAnyQty = itemsForCart.filter(ci => {\n  const p = products.find(pr => pr.id === ci.productId);\n  return p && qualifyingProductIds.has(p.id) && (ci.quantity || 0) >= 1;\n});\n\nconst qualifyingItemsQty2 = itemsForCart.filter(ci => {\n  const p = products.find(pr => pr.id === ci.productId);\n  return p && qualifyingProductIds.has(p.id) && (ci.quantity || 0) >= 2;\n});\n\n// Items that are for the cheapest qualifying product and have quantity >= 2\nconst cheapestQualifyingItemsQty2 = qualifyingItemsQty2.filter(ci => {\n  const p = products.find(pr => pr.id === ci.productId);\n  return p && cheapestPrice !== null && p.price === cheapestPrice;\n});\n\n// CP1 (0.30): Cart contains at least one qualifying business laptop (specs match) with quantity >=1\ncheckpoints.push({\n  passed: qualifyingItemsAnyQty.length > 0,\n  weight: 0.30\n});\n\n// CP2 (0.30): Cart contains at least one qualifying business laptop with quantity >=2\ncheckpoints.push({\n  passed: qualifyingItemsQty2.length > 0,\n  weight: 0.30\n});\n\n// CP3 (0.40): The laptop with quantity >=2 is the cheapest qualifying option\ncheckpoints.push({\n  passed: cheapestQualifyingItemsQty2.length > 0,\n  weight: 0.40\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Custom CRM Integration Quote Request",
+      "description": "Checks that the user submitted a CRM integration software quote request with the correct budget range, next-month start date, and phone as preferred contact.",
+      "localStorage_variables": [
+        "software_quote_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst requests = JSON.parse(localStorage.getItem('software_quote_requests') || '[]');\n\n// Target window: next month (April 5–20, 2026) given baseline March 2026\nconst windowStart = new Date('2026-04-05T00:00:00Z');\nconst windowEnd = new Date('2026-04-20T23:59:59Z');\n\n// Stepwise filters\nconst svcAndType = requests.filter(r => r && r.serviceCategory === 'crm_integration' && r.projectType === 'custom_crm_integration');\n\nconst budgetFiltered = svcAndType.filter(r => {\n  const min = typeof r.estimatedBudgetMin === 'number' ? r.estimatedBudgetMin : 0;\n  const max = typeof r.estimatedBudgetMax === 'number' ? r.estimatedBudgetMax : 0;\n  return min >= 15000 && max <= 25000 && min <= max;\n});\n\nconst dateAndContactFiltered = budgetFiltered.filter(r => {\n  const d = new Date(r.desiredStartDate || '');\n  if (isNaN(d.getTime())) return false;\n  if (!(d >= windowStart && d <= windowEnd)) return false;\n  if (r.preferredContactMethod !== 'phone') return false;\n  if (!r.phone || String(r.phone).trim().length === 0) return false;\n  return true;\n});\n\nconst fullMatch = dateAndContactFiltered.filter(r => {\n  const desc = (r.projectDescription || '').toLowerCase();\n  const hasCRM = desc.includes('crm');\n  const hasBilling = desc.includes('billing');\n  return hasCRM && hasBilling;\n});\n\n// CP1 (0.25): A request exists for the CRM integration category and custom CRM integration project type\ncheckpoints.push({\n  passed: svcAndType.length > 0,\n  weight: 0.25\n});\n\n// CP2 (0.25): Such a request uses a budget range fully between $15k and $25k\ncheckpoints.push({\n  passed: budgetFiltered.length > 0,\n  weight: 0.25\n});\n\n// CP3 (0.25): Such a request has a desired start date between April 5–20, 2026 and prefers phone contact with a phone number\ncheckpoints.push({\n  passed: dateAndContactFiltered.length > 0,\n  weight: 0.25\n});\n\n// CP4 (0.25): Such a request describes integrating CRM with billing (project description mentions CRM and billing)\ncheckpoints.push({\n  passed: fullMatch.length > 0,\n  weight: 0.25\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "On-site Workstation Maintenance Booking",
+      "description": "Checks that the user booked workstation maintenance for 10–20 devices next month, on a morning timeslot between the 10th and 20th, with office location details.",
+      "localStorage_variables": [
+        "onsite_maintenance_bookings",
+        "time_slots"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst bookings = JSON.parse(localStorage.getItem('onsite_maintenance_bookings') || '[]');\nconst timeSlots = JSON.parse(localStorage.getItem('time_slots') || '[]');\n\n// Date window: April 10–20, 2026 (next month from March 2026)\nconst windowStart = new Date('2026-04-10T00:00:00Z');\nconst windowEnd = new Date('2026-04-20T23:59:59Z');\n\nconst svcAndDevices = bookings.filter(b => {\n  if (!b) return false;\n  if (b.serviceType !== 'workstation_maintenance') return false;\n  const n = typeof b.numDevices === 'number' ? b.numDevices : 0;\n  return n >= 10 && n <= 20;\n});\n\nconst withDate = svcAndDevices.filter(b => {\n  const d = new Date(b.preferredDate || '');\n  if (isNaN(d.getTime())) return false;\n  return d >= windowStart && d <= windowEnd;\n});\n\nconst withMorningSlot = withDate.filter(b => {\n  const slot = timeSlots.find(ts => ts.id === b.timeSlotId);\n  return slot && slot.timeOfDay === 'morning';\n});\n\nconst withLocation = withMorningSlot.filter(b => {\n  const addr1 = (b.officeAddressLine1 || '').trim();\n  const city = (b.city || '').trim();\n  const postal = (b.postalCode || '').trim();\n  const contactName = (b.contactName || '').trim();\n  const contactEmail = (b.contactEmail || '').trim();\n  return addr1.length > 0 && city.length > 0 && postal.length > 0 && contactName.length > 0 && contactEmail.length > 0;\n});\n\n// CP1 (0.25): Booking for workstation_maintenance with 10–20 devices\ncheckpoints.push({\n  passed: svcAndDevices.length > 0,\n  weight: 0.25\n});\n\n// CP2 (0.25): Such a booking scheduled between April 10–20, 2026\ncheckpoints.push({\n  passed: withDate.length > 0,\n  weight: 0.25\n});\n\n// CP3 (0.25): Such a booking uses a morning time slot\ncheckpoints.push({\n  passed: withMorningSlot.length > 0,\n  weight: 0.25\n});\n\n// CP4 (0.25): Such a booking includes non-empty office address, city, postal code, and contact details\ncheckpoints.push({\n  passed: withLocation.length > 0,\n  weight: 0.25\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Cheapest 24/7 + On-site IT Support Plan Signup",
+      "description": "Checks that the user started sign-up for the cheapest active IT support plan that includes both 24/7 support and on-site visits, and filled initial company info.",
+      "localStorage_variables": [
+        "it_support_plans",
+        "it_support_signups"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst plans = JSON.parse(localStorage.getItem('it_support_plans') || '[]');\nconst signups = JSON.parse(localStorage.getItem('it_support_signups') || '[]');\n\n// Active plans that meet feature requirements\nconst qualifyingPlans = plans.filter(p => p && p.status === 'active' && p.has24x7Support && p.includesOnSiteVisits);\n\nlet cheapestPrice = null;\nif (qualifyingPlans.length > 0) {\n  cheapestPrice = qualifyingPlans.reduce((min, p) => (min === null || p.monthlyPrice < min ? p.monthlyPrice : min), null);\n}\n\nconst qualifyingPlanIds = new Set(qualifyingPlans.map(p => p.id));\n\nconst signupsForQualifyingPlans = signups.filter(s => {\n  const plan = plans.find(p => p.id === s.planId);\n  return plan && qualifyingPlanIds.has(plan.id);\n});\n\nconst signupsForCheapestPlan = signupsForQualifyingPlans.filter(s => {\n  const plan = plans.find(p => p.id === s.planId);\n  return plan && cheapestPrice !== null && plan.monthlyPrice === cheapestPrice;\n});\n\nconst detailedSignup = signupsForCheapestPlan.find(s => {\n  const nameOk = (s.companyName || '').trim().length > 0;\n  const phoneOk = (s.businessPhone || '').trim().length > 0;\n  const email = (s.businessEmail || '').trim();\n  const emailOk = email.includes('@');\n  return nameOk && phoneOk && emailOk && s.status === 'started';\n});\n\n// CP1 (0.40): There is a signup whose plan includes 24/7 support and on-site visits\ncheckpoints.push({\n  passed: signupsForQualifyingPlans.length > 0,\n  weight: 0.40\n});\n\n// CP2 (0.40): That signup is for the cheapest such qualifying plan\ncheckpoints.push({\n  passed: signupsForCheapestPlan.length > 0,\n  weight: 0.40\n});\n\n// CP3 (0.20): The signup for the cheapest qualifying plan has basic company/contact info filled and status 'started'\ncheckpoints.push({\n  passed: !!detailedSignup,\n  weight: 0.20\n});\n\nreturn checkoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Save Overheating Server KB Article in Folder",
+      "description": "Checks that the user saved a troubleshooting knowledge base article about server overheating for a server model, and organized it into a 'Server Issues' folder.",
+      "localStorage_variables": [
+        "knowledge_base_articles",
+        "hardware_models",
+        "saved_articles",
+        "knowledge_base_folders"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('knowledge_base_articles') || '[]');\nconst models = JSON.parse(localStorage.getItem('hardware_models') || '[]');\nconst saved = JSON.parse(localStorage.getItem('saved_articles') || '[]');\nconst folders = JSON.parse(localStorage.getItem('knowledge_base_folders') || '[]');\n\n// Saved articles that are about server overheating and tied to a server hardware model\nconst qualifyingSaved = saved.filter(sa => {\n  const art = articles.find(a => a.id === sa.articleId);\n  if (!art || !art.isPublished) return false;\n  const model = models.find(m => m.id === art.modelId);\n  if (!model || model.type !== 'server') return false;\n  const text = ((art.title || '') + ' ' + (art.content || '') + ' ' + (art.excerpt || '') + ' ' + ((art.keywords || []).join(' '))).toLowerCase();\n  return text.includes('server overheating');\n});\n\nconst serverIssuesFolder = folders.find(f => (f.name || '').toLowerCase() === 'server issues');\nlet qualifyingInServerIssuesFolder = [];\nif (serverIssuesFolder) {\n  qualifyingInServerIssuesFolder = qualifyingSaved.filter(sa => sa.folderId === serverIssuesFolder.id);\n}\n\n// CP1 (0.70): User has saved at least one KB article about server overheating for a server model\ncheckpoints.push({\n  passed: qualifyingSaved.length > 0,\n  weight: 0.70\n});\n\n// CP2 (0.30): Such an article is saved inside a folder named 'Server Issues'\ncheckpoints.push({\n  passed: serverIssuesFolder != null && qualifyingInServerIssuesFolder.length > 0,\n  weight: 0.30\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Accessories Cart with Keyboard, Mouse, Cable and SAVE10",
+      "description": "Checks that the user added one qualifying keyboard, mouse, and cable accessory (each under $50, >=4 stars, free shipping) to the cart and applied the SAVE10 promo code.",
+      "localStorage_variables": [
+        "current_cart_id",
+        "carts",
+        "cart_items",
+        "products",
+        "promo_codes",
+        "shipping_methods"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst carts = JSON.parse(localStorage.getItem('carts') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst promoCodes = JSON.parse(localStorage.getItem('promo_codes') || '[]');\nconst currentCartId = localStorage.getItem('current_cart_id');\n\n// Determine cart to inspect\nlet cartId = null;\nif (currentCartId) {\n  const cur = carts.find(c => c.id === currentCartId);\n  if (cur) cartId = cur.id;\n}\nif (!cartId && carts.length > 0) {\n  const sorted = carts.slice().sort((a, b) => {\n    const da = new Date(a.createdAt || 0).getTime();\n    const db = new Date(b.createdAt || 0).getTime();\n    return db - da;\n  });\n  cartId = sorted[0].id;\n}\n\nconst itemsForCart = cartItems.filter(ci => ci.cartId === cartId);\n\nfunction lowerTags(p) {\n  return Array.isArray(p.tags) ? p.tags.map(t => String(t).toLowerCase()) : [];\n}\n\nfunction qualifyingItemsForRole(roleFn) {\n  return itemsForCart.filter(ci => {\n    const p = products.find(pr => pr.id === ci.productId);\n    if (!p) return false;\n    if (p.categorySlug !== 'accessories') return false;\n    if (typeof p.price !== 'number' || p.price >= 50) return false;\n    if (typeof p.rating !== 'number' || p.rating < 4.0) return false;\n    if (!p.freeShipping) return false;\n    const tags = lowerTags(p);\n    if (!roleFn(tags)) return false;\n    return (ci.quantity || 0) >= 1;\n  });\n}\n\nconst keyboardItems = qualifyingItemsForRole(tags => tags.includes('keyboard') || tags.includes('keyboards'));\nconst mouseItems = qualifyingItemsForRole(tags => tags.includes('mouse') || tags.includes('mice'));\nconst cableItems = qualifyingItemsForRole(tags => tags.includes('cable') || tags.includes('cables'));\n\nconst cart = carts.find(c => c.id === cartId) || null;\nconst save10 = promoCodes.find(p => (p.code || '').toUpperCase() === 'SAVE10');\nconst promoApplied = !!(cart && save10 && cart.promoCodeId === save10.id);\n\n// CP1 (0.30): Cart includes at least one qualifying keyboard accessory line (under $50, >=4 stars, free shipping)\ncheckpoints.push({\n  passed: keyboardItems.length > 0,\n  weight: 0.30\n});\n\n// CP2 (0.30): Cart includes at least one qualifying mouse accessory line with same constraints\ncheckpoints.push({\n  passed: mouseItems.length > 0,\n  weight: 0.30\n});\n\n// CP3 (0.30): Cart includes at least one qualifying cable accessory line with same constraints\ncheckpoints.push({\n  passed: cableItems.length > 0,\n  weight: 0.30\n});\n\n// CP4 (0.10): SAVE10 promo code is applied to the cart\ncheckpoints.push({\n  passed: promoApplied,\n  weight: 0.10\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Cloud Migration Training/Webinar Registration",
+      "description": "Checks that the user registered one seat for a future cloud migration training/webinar, with Eastern Time (UTC-05:00) and Intermediate level.",
+      "localStorage_variables": [
+        "training_events",
+        "event_registrations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst events = JSON.parse(localStorage.getItem('training_events') || '[]');\nconst regs = JSON.parse(localStorage.getItem('event_registrations') || '[]');\nconst now = new Date();\n\nconst matchingEventRegs = regs.filter(r => {\n  const ev = events.find(e => e.id === r.eventId);\n  if (!ev) return false;\n  const topic = (ev.topic || '').toLowerCase();\n  if (!topic.includes('cloud migration')) return false;\n  if (ev.status !== 'scheduled') return false;\n  const start = new Date(ev.startDateTime || '');\n  if (isNaN(start.getTime()) || start <= now) return false;\n  if (r.numSeats !== 1) return false;\n  // training or webinar session (webinar, training_session, or workshop)\n  const et = ev.eventType;\n  if (et !== 'webinar' && et !== 'training_session' && et !== 'workshop') return false;\n  return true;\n});\n\nconst matchingWithPrefs = matchingEventRegs.filter(r => {\n  return r.attendeeTimeZone === 'utc_minus_05_00' && r.experienceLevel === 'intermediate';\n});\n\n// CP1 (0.50): Registration for exactly one seat on a future scheduled cloud migration training/webinar/workshop event\ncheckpoints.push({\n  passed: matchingEventRegs.length > 0,\n  weight: 0.50\n});\n\n// CP2 (0.50): That registration uses Eastern Time (utc_minus_05_00) and Intermediate experience level\ncheckpoints.push({\n  passed: matchingWithPrefs.length > 0,\n  weight: 0.50\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Custom Rack Server Configured and Quoted",
+      "description": "Checks that the user configured a rack server with >=32GB RAM, >=2TB storage, a 3-year maintenance plan, total price between $3,000 and $4,000, added it to a quote cart, and submitted a server quote request.",
+      "localStorage_variables": [
+        "current_quote_cart_id",
+        "quote_carts",
+        "quote_cart_items",
+        "server_configurations",
+        "server_base_models",
+        "server_memory_options",
+        "server_storage_options",
+        "maintenance_plans",
+        "server_quote_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst quoteCarts = JSON.parse(localStorage.getItem('quote_carts') || '[]');\nconst quoteCartItems = JSON.parse(localStorage.getItem('quote_cart_items') || '[]');\nconst configs = JSON.parse(localStorage.getItem('server_configurations') || '[]');\nconst baseModels = JSON.parse(localStorage.getItem('server_base_models') || '[]');\nconst memOptions = JSON.parse(localStorage.getItem('server_memory_options') || '[]');\nconst storageOptions = JSON.parse(localStorage.getItem('server_storage_options') || '[]');\nconst maintenancePlans = JSON.parse(localStorage.getItem('maintenance_plans') || '[]');\nconst serverQuoteRequests = JSON.parse(localStorage.getItem('server_quote_requests') || '[]');\n\nfunction isConfigQualifying(conf) {\n  if (!conf) return false;\n  const base = baseModels.find(b => b.id === conf.baseModelId);\n  if (!base || base.formFactor !== 'rack') return false;\n\n  const mem = memOptions.find(m => m.id === conf.memoryOptionId);\n  if (!mem || typeof mem.sizeGB !== 'number' || mem.sizeGB < 32) return false;\n\n  const storageIds = Array.isArray(conf.storageOptionIds) ? conf.storageOptionIds : [];\n  const storageList = storageIds.map(id => storageOptions.find(s => s.id === id)).filter(Boolean);\n  const totalTb = storageList.reduce((sum, s) => sum + (typeof s.capacityTB === 'number' ? s.capacityTB : 0), 0);\n  if (totalTb < 2) return false;\n\n  const plan = maintenancePlans.find(mp => mp.id === conf.maintenancePlanId);\n  if (!plan || plan.durationYears !== 3) return false;\n\n  const totalPrice = typeof conf.totalPrice === 'number' ? conf.totalPrice : 0;\n  if (totalPrice < 3000 || totalPrice > 4000) return false;\n\n  return true;\n}\n\nconst qualifyingConfigs = configs.filter(isConfigQualifying);\n\nlet configInQuoteCart = null;\nlet configQuoteCartId = null;\n\nfor (const conf of qualifyingConfigs) {\n  const item = quoteCartItems.find(qi => qi.serverConfigurationId === conf.id);\n  if (item) {\n    configInQuoteCart = conf;\n    configQuoteCartId = item.quoteCartId;\n    break;\n  }\n}\n\nlet hasQuoteRequest = false;\nif (configQuoteCartId) {\n  hasQuoteRequest = serverQuoteRequests.some(r => r.quoteCartId === configQuoteCartId && r.status === 'submitted');\n}\n\n// CP1 (0.40): A server configuration exists that meets rack form factor, >=32GB RAM, >=2TB storage, 3-year maintenance, and total price between $3,000 and $4,000\ncheckpoints.push({\n  passed: qualifyingConfigs.length > 0,\n  weight: 0.40\n});\n\n// CP2 (0.30): At least one such configuration has been added to a quote cart\ncheckpoints.push({\n  passed: !!configInQuoteCart && !!configQuoteCartId,\n  weight: 0.30\n});\n\n// CP3 (0.30): A server quote request has been submitted for the quote cart containing the qualifying configuration\ncheckpoints.push({\n  passed: hasQuoteRequest,\n  weight: 0.30\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "hardware_models",
+    "it_support_plans",
+    "maintenance_plans",
+    "product_categories",
+    "promo_codes",
+    "server_base_models",
+    "server_memory_options",
+    "server_optional_components",
+    "server_storage_options",
+    "shipping_methods",
+    "time_slots",
+    "knowledge_base_articles",
+    "products",
+    "training_events",
+    "event_registrations",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

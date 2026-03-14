@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Management &amp; Talent Agency</title>
+
+    <!-- Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&amp;family=Libre+Franklin:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+
+    <!-- Global Stylesheet -->
+    
+    <!-- Page Stylesheet -->
+    <link rel="stylesheet" href="event_detail.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a href="index.html" class="brand" aria-label="Agency homepage">
+                <span class="brand-title">SPECS</span>
+                <span class="brand-tagline">MODEL MANAGEMENT &amp; TALENT AGENCY</span>
+            </a>
+
+            <nav class="primary-nav" aria-label="Primary">
+                <ul class="primary-nav-list">
+                    <li class="nav-item"><a href="index.html">Home</a></li>
+                    <li class="nav-item"><a href="talent_search.html">Find Talent</a></li>
+                    <li class="nav-item"><a href="casting_create.html">Post a Casting</a></li>
+                    <li class="nav-item"><a href="favorites.html">Favorites &amp; Lists</a></li>
+                    <li class="nav-item"><a href="messages.html">Messages</a></li>
+                    <li class="nav-item"><a href="events.html">Events</a></li>
+                    <li class="nav-item"><a href="plans.html">Pricing</a></li>
+                    <li class="nav-item nav-item-cta"><a class="nav-link-cta" href="talent_profile_setup.html">Join as Talent</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id="content" class="site-main" role="main">
+        <section class="event-detail-page" data-component="event-detail-root">
+            <!-- Navigation strip -->
+            <div class="event-nav-strip" data-component="event-navigation-links" data-populate="event-navigation">
+                <!-- Populated via JS -->
+            </div>
+
+            <!-- Hero / summary -->
+            <section class="event-hero" data-component="event-summary-panel" data-populate="event-summary">
+                <!-- Populated via JS -->
+            </section>
+
+            <!-- Main content area: errors, registration form, confirmation -->
+            <section class="event-main">
+                <div class="event-main-inner">
+                    <!-- Error state panel -->
+                    <div class="event-error-panel" data-component="event-error-state" data-populate="event-error">
+                        <!-- Populated via JS -->
+                    </div>
+
+                    <!-- Registration form / card -->
+                    <section class="event-registration-section" data-component="event-registration-form" data-populate="event-registration-form">
+                        <!-- Populated via JS -->
+                    </section>
+
+                    <!-- Confirmation panel -->
+                    <section class="event-confirmation-section" data-component="event-registration-confirmation" data-populate="event-registration-confirmation">
+                        <!-- Populated via JS -->
+                    </section>
+                </div>
+            </section>
+
+            <!-- Full-page loader overlay -->
+            <div class="event-loader-overlay" data-component="event-detail-loader" data-populate="event-loader" aria-hidden="true">
+                <!-- Populated via JS -->
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <div class="footer-brand-block">
+                <div class="footer-brand-mark">SPECS</div>
+                <p class="footer-tagline">Model management &amp; talent agency</p>
+                <p class="footer-meta">&copy; 2024 Specs Model Management. All rights reserved.</p>
+            </div>
+
+            <nav class="footer-nav" aria-label="Footer">
+                <ul class="footer-links">
+                    <li><a href="about.html">About</a></li>
+                    <li><a href="contact.html">Contact</a></li>
+                    <li><a href="help.html">Help &amp; FAQ</a></li>
+                    <li><a href="events.html">Events &amp; Workshops</a></li>
+                    <li><a href="plans.html">Pricing &amp; Plans</a></li>
+                    <li><a href="terms.html">Terms &amp; Conditions</a></li>
+                    <li><a href="privacy.html">Privacy Policy</a></li>
+                </ul>
+            </nav>
+        </div>
+    </footer>
+
+    <!-- SDK / business logic -->
+    <script src="business_logic.js"></script>
+
+    <!-- Page UI Logic -->
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const eventId = urlParams.get('id');
+
+        const state = {
+            currentEvent: null,
+            isInitialLoading: false,
+            loadErrorType: null, // 'missingId', 'loadError', 'unpublished'
+            formState: {
+                seats: 1,
+                paymentOption: ''
+            },
+            registration: null,
+            registrationErrorMessage: '',
+            isSubmitting: false
+        };
+
+        const PAYMENT_OPTION_LABELS = {
+            pay_on_site: 'Pay on site',
+            pay_online: 'Pay online',
+            pay_later: 'Pay later'
+        };
+
+        const root = document.querySelector('[data-component="event-detail-root"]');
+        const navContainer = document.querySelector('[data-populate="event-navigation"]');
+        const summaryContainer = document.querySelector('[data-populate="event-summary"]');
+        const errorContainer = document.querySelector('[data-populate="event-error"]');
+        const registrationContainer = document.querySelector('[data-populate="event-registration-form"]');
+        const confirmationContainer = document.querySelector('[data-populate="event-registration-confirmation"]');
+        const loaderContainer = document.querySelector('[data-populate="event-loader"]');
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) return '';
+            return String(value).replace(/[&<>"']/g, function(c) {
+                switch (c) {
+                    case '&': return '&amp;';
+                    case '<': return '&lt;';
+                    case '>': return '&gt;';
+                    case '"': return '&quot;';
+                    case "'": return '&#39;';
+                    default: return c;
+                }
+            });
+        }
+
+        function formatDateRange(event) {
+            if (!event || !event.start_datetime) return '';
+            const start = new Date(event.start_datetime);
+            const end = event.end_datetime ? new Date(event.end_datetime) : null;
+            const dateOptions = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
+            const timeOptions = { hour: 'numeric', minute: '2-digit' };
+            const datePart = start.toLocaleDateString(undefined, dateOptions);
+            const startTime = start.toLocaleTimeString(undefined, timeOptions);
+            if (!end) {
+                return datePart + ' · ' + startTime;
+            }
+            const sameDay = start.toDateString() === end.toDateString();
+            const endTime = end.toLocaleTimeString(undefined, timeOptions);
+            if (sameDay) {
+                return datePart + ' · ' + startTime + ' – ' + endTime;
+            }
+            const endDatePart = end.toLocaleDateString(undefined, dateOptions);
+            return datePart + ' · ' + startTime + ' – ' + endDatePart + ' · ' + endTime;
+        }
+
+        function getEventLocationDisplay(event) {
+            if (!event) return '';
+            if (event.location_display) return event.location_display;
+            const parts = [];
+            if (event.location_city) parts.push(event.location_city);
+            if (event.location_state) parts.push(event.location_state);
+            const first = parts.join(', ');
+            if (event.location_country) {
+                return first ? first + ', ' + event.location_country : event.location_country;
+            }
+            return first;
+        }
+
+        function computeCapacityStatus(event) {
+            if (!event) return { label: '', tone: 'neutral', isSoldOut: false };
+            const total = typeof event.capacity_total === 'number' ? event.capacity_total : null;
+            const remaining = typeof event.capacity_remaining === 'number' ? event.capacity_remaining : null;
+
+            if (remaining !== null && remaining <= 0) {
+                return { label: 'Sold out', tone: 'closed', isSoldOut: true };
+            }
+            if (remaining === null) {
+                return { label: 'Registration open', tone: 'open', isSoldOut: false };
+            }
+            let threshold = 0;
+            if (total && total > 0) {
+                threshold = Math.max(1, Math.round(total * 0.2));
+            } else {
+                threshold = 5;
+            }
+            if (remaining <= threshold) {
+                return { label: 'Few seats left', tone: 'warning', isSoldOut: false };
+            }
+            return { label: remaining + ' seats left', tone: 'open', isSoldOut: false };
+        }
+
+        function isRegistrationOpen(event) {
+            if (!event) return false;
+            if (!event.is_published) return false;
+            const remaining = typeof event.capacity_remaining === 'number' ? event.capacity_remaining : null;
+            if (remaining !== null && remaining <= 0) return false;
+            return true;
+        }
+
+        function renderLoader(container, isVisible, message) {
+            if (!container) return;
+            if (!isVisible) {
+                container.innerHTML = '';
+                container.classList.remove('is-visible');
+                container.setAttribute('aria-hidden', 'true');
+                return;
+            }
+            const safeMessage = message ? escapeHtml(message) : 'Loading event details...';
+            container.innerHTML = `
+                <div class="event-loader-backdrop"></div>
+                <div class="event-loader-content" role="status" aria-live="polite">
+                    <div class="spinner"></div>
+                    <p class="event-loader-text">${safeMessage}</p>
+                </div>
+            `;
+            container.classList.add('is-visible');
+            container.setAttribute('aria-hidden', 'false');
+        }
+
+        function renderNavigation(container, event) {
+            if (!container) return;
+            const hasLocation = !!(event && getEventLocationDisplay(event));
+            const hasCategory = !!(event && event.category);
+            const locationLabel = hasLocation ? escapeHtml(getEventLocationDisplay(event)) : 'All locations';
+            const categoryLabel = hasCategory ? escapeHtml(event.category) : 'Similar workshops';
+
+            container.innerHTML = `
+                <div class="event-nav-inner">
+                    <div class="event-nav-left">
+                        <button type="button" class="link-like" data-action="back-to-city-events">
+                            &larr; Back to all events in this city
+                        </button>
+                    </div>
+                    <div class="event-nav-right">
+                        <button type="button" class="link-strong" data-action="find-similar-talent" ${hasCategory ? '' : 'disabled aria-disabled="true"'}>
+                            Find talent attending similar workshops
+                        </button>
+                    </div>
+                </div>
+                <div class="event-nav-meta">
+                    <span class="event-nav-location">${escapeHtml(locationLabel)}</span>
+                    ${hasCategory ? `<span class="event-nav-separator">·</span><span class="event-nav-category">${escapeHtml(categoryLabel)}</span>` : ''}
+                </div>
+            `;
+        }
+
+        function renderSummary(container, event, loadErrorType) {
+            if (!container) return;
+            if (!event || loadErrorType === 'missingId' || loadErrorType === 'loadError') {
+                container.innerHTML = '';
+                return;
+            }
+
+            const title = escapeHtml(event.title || 'Event');
+            const eventType = event.event_type ? escapeHtml(event.event_type) : '';
+            const category = event.category ? escapeHtml(event.category) : '';
+            const dateRange = escapeHtml(formatDateRange(event));
+            const locationDisplay = escapeHtml(getEventLocationDisplay(event));
+            const venue = event.venue_name ? escapeHtml(event.venue_name) : '';
+            const description = event.description ? escapeHtml(event.description) : '';
+            const capacityStatus = computeCapacityStatus(event);
+
+            const pillClass = capacityStatus.tone === 'closed' ? 'status-pill--closed' : (capacityStatus.tone === 'warning' ? 'status-pill--warning' : 'status-pill--open');
+            const pillLabel = escapeHtml(capacityStatus.label);
+
+            container.innerHTML = `
+                <div class="event-hero-background">
+                    <div class="event-hero-inner">
+                        <div class="event-hero-header">
+                            <h1 class="event-title">${title}</h1>
+                            <div class="event-hero-meta-row">
+                                <div class="event-meta-primary">
+                                    ${eventType ? `<span class="event-type">${eventType}</span>` : ''}
+                                    ${category ? `<span class="event-meta-separator">·</span><span class="event-category">${category}</span>` : ''}
+                                </div>
+                                ${pillLabel ? `<div class="event-capacity-status status-pill ${pillClass}"><span>${pillLabel}</span></div>` : ''}
+                            </div>
+                            <div class="event-hero-secondary-meta">
+                                ${dateRange ? `<div class="event-datetime">${dateRange}</div>` : ''}
+                                ${locationDisplay ? `<div class="event-location">${locationDisplay}${venue ? ` · ${venue}` : ''}</div>` : ''}
+                            </div>
+                        </div>
+                        ${description ? `<div class="event-hero-description"><p>${description}</p></div>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderErrorState(container, loadErrorType, event) {
+            if (!container) return;
+            if (!loadErrorType) {
+                container.innerHTML = '';
+                container.classList.remove('has-error');
+                return;
+            }
+
+            let title = '';
+            let message = '';
+            let showBackButton = true;
+
+            if (loadErrorType === 'missingId') {
+                title = 'No event specified';
+                message = 'We couldn\'t find an event to display. Please return to the events list and choose an event.';
+            } else if (loadErrorType === 'loadError') {
+                title = 'Unable to load this event';
+                message = 'There was a problem loading this event. It may have been removed or is temporarily unavailable.';
+            } else if (loadErrorType === 'unpublished') {
+                title = 'This event is not available for registration';
+                message = 'Details are visible for reference, but registrations are currently closed for this event.';
+                showBackButton = true;
+            }
+
+            container.innerHTML = `
+                <div class="event-error-card" role="alert">
+                    <h2 class="event-error-title">${escapeHtml(title)}</h2>
+                    <p class="event-error-message">${escapeHtml(message)}</p>
+                    <div class="event-error-actions">
+                        ${showBackButton ? `<button type="button" class="btn-primary" data-action="back-to-city-events">Back to events</button>` : ''}
+                    </div>
+                </div>
+            `;
+            container.classList.add('has-error');
+        }
+
+        function computeTotalPrice(event, seats) {
+            if (!event || typeof event.price_per_seat !== 'number') return null;
+            const price = event.price_per_seat * seats;
+            return price;
+        }
+
+        function renderRegistrationForm(container, event, loadErrorType, formState, registrationErrorMessage, isSubmitting) {
+            if (!container) return;
+
+            if (!event || loadErrorType === 'missingId' || loadErrorType === 'loadError') {
+                container.innerHTML = '';
+                return;
+            }
+
+            const open = isRegistrationOpen(event) && loadErrorType !== 'unpublished';
+            const capacityStatus = computeCapacityStatus(event);
+            const remaining = typeof event.capacity_remaining === 'number' ? event.capacity_remaining : null;
+            const hasPaymentOptions = Array.isArray(event.payment_options) && event.payment_options.length > 0;
+
+            if (!open) {
+                const message = capacityStatus.isSoldOut ? 'This event is fully booked. Registration is closed.' : 'Registration is currently closed for this event.';
+                container.innerHTML = `
+                    <article class="event-card event-registration-card event-registration-card--closed">
+                        <header class="event-card-header">
+                            <h2 class="event-card-title">Registration closed</h2>
+                        </header>
+                        <p class="event-card-text">${escapeHtml(message)}</p>
+                    </article>
+                `;
+                return;
+            }
+
+            const seats = formState.seats || 1;
+            const totalPrice = computeTotalPrice(event, seats);
+            const currency = event.currency || '';
+
+            const priceSection = totalPrice !== null ? `
+                <div class="event-total-price" aria-live="polite">
+                    <span class="event-total-label">Total</span>
+                    <span class="event-total-value">${currency ? escapeHtml(currency) + ' ' : ''}${totalPrice.toFixed(2)}</span>
+                </div>
+            ` : `
+                <div class="event-total-price event-total-price--muted" aria-live="polite">
+                    <span class="event-total-label">Total</span>
+                    <span class="event-total-value">To be confirmed</span>
+                </div>
+            `;
+
+            let paymentOptionsHtml = '';
+            if (hasPaymentOptions) {
+                paymentOptionsHtml = event.payment_options.map(function(option) {
+                    const value = String(option);
+                    const label = PAYMENT_OPTION_LABELS[value] || value;
+                    const checked = formState.paymentOption === value ? 'checked' : '';
+                    const id = 'payment_option_' + value;
+                    return `
+                        <div class="form-radio-option">
+                            <input type="radio" id="${escapeHtml(id)}" name="payment_option" value="${escapeHtml(value)}" ${checked} data-action="select-payment-option">
+                            <label for="${escapeHtml(id)}">${escapeHtml(label)}</label>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                paymentOptionsHtml = `
+                    <p class="form-helper-text">
+                        No payment options are currently available for this event. Please check back later.
+                    </p>
+                `;
+            }
+
+            const errorHtml = registrationErrorMessage ? `
+                <div class="form-message form-message--error" role="alert">
+                    ${escapeHtml(registrationErrorMessage)}
+                </div>
+            ` : '';
+
+            const capacityHint = remaining !== null ? `You can reserve up to ${remaining} seat${remaining === 1 ? '' : 's'}.` : 'Enter the number of seats you want to reserve.';
+
+            container.innerHTML = `
+                <article class="event-card event-registration-card">
+                    <header class="event-card-header">
+                        <h2 class="event-card-title">Register for this event</h2>
+                        ${event.price_per_seat ? `<p class="event-card-subtitle">${escapeHtml(event.currency || '')} ${event.price_per_seat.toFixed(2)} per seat</p>` : ''}
+                    </header>
+
+                    ${errorHtml}
+
+                    <form class="event-form" data-role="registration-form" novalidate>
+                        <div class="form-field">
+                            <label for="seatsInput">Number of seats</label>
+                            <div class="seats-input-group">
+                                <button type="button" class="seats-stepper seats-stepper--decrease" data-action="decrement-seats" aria-label="Decrease seats">−</button>
+                                <input
+                                    id="seatsInput"
+                                    class="seats-input"
+                                    data-role="seats-input"
+                                    type="number"
+                                    min="1"
+                                    ${remaining !== null ? 'max="' + escapeHtml(String(remaining)) + '"' : ''}
+                                    step="1"
+                                    value="${escapeHtml(String(seats))}"
+                                    inputmode="numeric">
+                                <button type="button" class="seats-stepper seats-stepper--increase" data-action="increment-seats" aria-label="Increase seats">+</button>
+                            </div>
+                            <p class="form-helper-text">${escapeHtml(capacityHint)}</p>
+                        </div>
+
+                        <fieldset class="form-field">
+                            <legend>Payment option</legend>
+                            <div class="form-radio-group">
+                                ${paymentOptionsHtml}
+                            </div>
+                        </fieldset>
+
+                        <div class="form-footer">
+                            ${priceSection}
+                            <button type="submit" class="btn-primary" data-action="submit-registration" ${!hasPaymentOptions || isSubmitting ? 'disabled' : ''}>
+                                ${isSubmitting ? 'Submitting…' : 'Reserve seats'}
+                            </button>
+                        </div>
+
+                        ${!hasPaymentOptions ? `<p class="form-helper-text form-helper-text--warning">Registration submission is disabled until payment options are available.</p>` : ''}
+                    </form>
+                </article>
+            `;
+        }
+
+        function renderConfirmation(container, event, registration) {
+            if (!container) return;
+            if (!registration || !event) {
+                container.innerHTML = '';
+                container.classList.remove('is-visible');
+                return;
+            }
+
+            const title = escapeHtml(event.title || 'Event');
+            const dateRange = escapeHtml(formatDateRange(event));
+            const locationDisplay = escapeHtml(getEventLocationDisplay(event));
+            const seats = registration.seats_reserved != null ? registration.seats_reserved : '';
+            const paymentOptionRaw = registration.payment_option || '';
+            const paymentLabel = PAYMENT_OPTION_LABELS[paymentOptionRaw] || paymentOptionRaw;
+            const totalPrice = registration.total_price;
+            const currency = registration.currency || event.currency || '';
+            const statusRaw = registration.status || '';
+            const statusLabel = statusRaw === 'confirmed' ? 'Confirmed' : (statusRaw === 'pending' ? 'Pending' : escapeHtml(statusRaw));
+            const registeredAt = registration.registered_at ? new Date(registration.registered_at).toLocaleString() : '';
+
+            const totalHtml = totalPrice != null ? `
+                <div class="confirmation-row">
+                    <span class="confirmation-label">Total</span>
+                    <span class="confirmation-value">${currency ? escapeHtml(currency) + ' ' : ''}${totalPrice.toFixed(2)}</span>
+                </div>
+            ` : '';
+
+            container.innerHTML = `
+                <article class="event-card event-confirmation-card" role="status" aria-live="polite">
+                    <header class="event-card-header">
+                        <h2 class="event-card-title">You\'re registered</h2>
+                        <p class="event-card-subtitle">We\'ve reserved your seat${seats && seats > 1 ? 's' : ''} for this event.</p>
+                    </header>
+
+                    <div class="confirmation-body">
+                        <div class="confirmation-section">
+                            <h3 class="confirmation-heading">Event</h3>
+                            <div class="confirmation-row">
+                                <span class="confirmation-label">Title</span>
+                                <span class="confirmation-value">${title}</span>
+                            </div>
+                            ${dateRange ? `<div class="confirmation-row"><span class="confirmation-label">When</span><span class="confirmation-value">${dateRange}</span></div>` : ''}
+                            ${locationDisplay ? `<div class="confirmation-row"><span class="confirmation-label">Where</span><span class="confirmation-value">${locationDisplay}</span></div>` : ''}
+                        </div>
+
+                        <div class="confirmation-section">
+                            <h3 class="confirmation-heading">Registration</h3>
+                            ${seats ? `<div class="confirmation-row"><span class="confirmation-label">Seats</span><span class="confirmation-value">${escapeHtml(String(seats))}</span></div>` : ''}
+                            ${paymentLabel ? `<div class="confirmation-row"><span class="confirmation-label">Payment</span><span class="confirmation-value">${escapeHtml(paymentLabel)}</span></div>` : ''}
+                            ${totalHtml}
+                            ${statusLabel ? `<div class="confirmation-row"><span class="confirmation-label">Status</span><span class="confirmation-value">${escapeHtml(statusLabel)}</span></div>` : ''}
+                            ${registeredAt ? `<div class="confirmation-row"><span class="confirmation-label">Registered</span><span class="confirmation-value">${escapeHtml(registeredAt)}</span></div>` : ''}
+                        </div>
+                    </div>
+
+                    <footer class="confirmation-footer">
+                        <button type="button" class="link-like" data-action="dismiss-confirmation">Hide confirmation</button>
+                        <div class="confirmation-secondary-actions">
+                            <button type="button" class="link-like" data-action="back-to-city-events">View all events in this city</button>
+                            <button type="button" class="link-like" data-action="find-similar-talent">Find similar talent</button>
+                        </div>
+                    </footer>
+                </article>
+            `;
+            container.classList.add('is-visible');
+        }
+
+        function renderAll() {
+            renderLoader(loaderContainer, state.isInitialLoading || state.isSubmitting, state.isSubmitting ? 'Submitting your registration…' : 'Loading event details…');
+            renderNavigation(navContainer, state.currentEvent);
+            renderSummary(summaryContainer, state.currentEvent, state.loadErrorType);
+            renderErrorState(errorContainer, state.loadErrorType, state.currentEvent);
+
+            const shouldShowForm = !state.loadErrorType || state.loadErrorType === 'unpublished';
+            if (shouldShowForm) {
+                renderRegistrationForm(
+                    registrationContainer,
+                    state.currentEvent,
+                    state.loadErrorType,
+                    state.formState,
+                    state.registrationErrorMessage,
+                    state.isSubmitting
+                );
+            } else {
+                registrationContainer.innerHTML = '';
+            }
+
+            renderConfirmation(confirmationContainer, state.currentEvent, state.registration);
+        }
+
+        function loadEventDetails(id) {
+            if (!id) {
+                state.loadErrorType = 'missingId';
+                state.currentEvent = null;
+                state.isInitialLoading = false;
+                renderAll();
+                return;
+            }
+
+            state.isInitialLoading = true;
+            state.loadErrorType = null;
+            state.currentEvent = null;
+            state.registration = null;
+            state.registrationErrorMessage = '';
+            renderAll();
+
+            try {
+                const response = WebsiteSDK.getEventDetails(id);
+                if (!response || !response.event) {
+                    state.loadErrorType = 'loadError';
+                    state.currentEvent = null;
+                } else {
+                    state.currentEvent = response.event;
+                    if (!state.currentEvent.is_published) {
+                        state.loadErrorType = 'unpublished';
+                    } else {
+                        state.loadErrorType = null;
+                    }
+                    state.formState.seats = 1;
+                    state.formState.paymentOption = '';
+                    state.registration = null;
+                    state.registrationErrorMessage = '';
+                }
+            } catch (error) {
+                state.loadErrorType = 'loadError';
+                state.currentEvent = null;
+            } finally {
+                state.isInitialLoading = false;
+                renderAll();
+            }
+        }
+
+        function handleBackToCityEvents() {
+            const event = state.currentEvent;
+            const location = event ? getEventLocationDisplay(event) : '';
+            const params = new URLSearchParams();
+            if (location) {
+                params.set('location', location);
+            }
+            const query = params.toString();
+            const url = 'events.html' + (query ? '?' + encodeURI(query) : '');
+            window.location.href = url;
+        }
+
+        function handleFindSimilarTalent() {
+            const event = state.currentEvent;
+            if (!event) return;
+            const location = getEventLocationDisplay(event) || '';
+            const category = event.category || '';
+            const params = new URLSearchParams();
+            if (location) params.set('location', location);
+            if (category) params.set('primary_category', category);
+            const query = params.toString();
+            const url = 'talent_search.html' + (query ? '?' + encodeURI(query) : '');
+            window.location.href = url;
+        }
+
+        function clampSeats(rawValue, event) {
+            let value = parseInt(rawValue, 10);
+            if (isNaN(value) || value < 1) value = 1;
+            const remaining = event && typeof event.capacity_remaining === 'number' ? event.capacity_remaining : null;
+            if (remaining !== null && value > remaining) {
+                value = remaining;
+            }
+            return value;
+        }
+
+        function handleSeatsChange(delta) {
+            if (!state.currentEvent) return;
+            const current = state.formState.seats || 1;
+            const next = clampSeats(current + delta, state.currentEvent);
+            state.formState.seats = next;
+            state.registrationErrorMessage = '';
+            renderAll();
+        }
+
+        function handleSeatsInputChange(value) {
+            if (!state.currentEvent) return;
+            const next = clampSeats(value, state.currentEvent);
+            state.formState.seats = next;
+            state.registrationErrorMessage = '';
+            renderAll();
+        }
+
+        function handlePaymentOptionSelect(value) {
+            if (!state.currentEvent || !Array.isArray(state.currentEvent.payment_options)) return;
+            if (!state.currentEvent.payment_options.includes(value)) return;
+            state.formState.paymentOption = value;
+            state.registrationErrorMessage = '';
+            renderAll();
+        }
+
+        function validateForm() {
+            const event = state.currentEvent;
+            if (!event) {
+                return 'Event details are not available.';
+            }
+            const seats = clampSeats(state.formState.seats, event);
+            state.formState.seats = seats;
+            if (!seats || seats < 1) {
+                return 'Please select at least one seat.';
+            }
+            const remaining = typeof event.capacity_remaining === 'number' ? event.capacity_remaining : null;
+            if (remaining !== null && seats > remaining) {
+                return 'The number of seats selected exceeds the remaining capacity.';
+            }
+            if (!Array.isArray(event.payment_options) || event.payment_options.length === 0) {
+                return 'No payment options are currently available for this event.';
+            }
+            if (!state.formState.paymentOption) {
+                return 'Please select a payment option.';
+            }
+            if (!event.payment_options.includes(state.formState.paymentOption)) {
+                return 'The selected payment option is not valid for this event.';
+            }
+            if (!isRegistrationOpen(event)) {
+                return 'Registration is currently closed for this event.';
+            }
+            return '';
+        }
+
+        function handleSubmitRegistration() {
+            const event = state.currentEvent;
+            if (!event) return;
+
+            const validationMessage = validateForm();
+            if (validationMessage) {
+                state.registrationErrorMessage = validationMessage;
+                renderAll();
+                return;
+            }
+
+            const seats = state.formState.seats;
+            const paymentOption = state.formState.paymentOption;
+
+            state.isSubmitting = true;
+            state.registrationErrorMessage = '';
+            renderAll();
+
+            try {
+                const response = WebsiteSDK.createEventRegistration(event.id, seats, paymentOption);
+                if (response && response.success) {
+                    state.registration = response.registration || null;
+                    state.registrationErrorMessage = '';
+                    if (typeof event.capacity_remaining === 'number') {
+                        const remaining = event.capacity_remaining - seats;
+                        event.capacity_remaining = remaining < 0 ? 0 : remaining;
+                    }
+                } else {
+                    state.registration = null;
+                    state.registrationErrorMessage = response && response.message ? response.message : 'Unable to complete registration. Please try again.';
+                }
+            } catch (error) {
+                state.registration = null;
+                state.registrationErrorMessage = 'An unexpected error occurred while submitting your registration. Please try again.';
+            } finally {
+                state.isSubmitting = false;
+                renderAll();
+            }
+        }
+
+        function handleDismissConfirmation() {
+            state.registration = null;
+            renderAll();
+        }
+
+        document.addEventListener('click', function(event) {
+            const actionEl = event.target.closest('[data-action]');
+            if (!actionEl) return;
+            const action = actionEl.getAttribute('data-action');
+
+            if (action === 'back-to-city-events') {
+                event.preventDefault();
+                handleBackToCityEvents();
+            } else if (action === 'find-similar-talent') {
+                event.preventDefault();
+                handleFindSimilarTalent();
+            } else if (action === 'decrement-seats') {
+                event.preventDefault();
+                handleSeatsChange(-1);
+            } else if (action === 'increment-seats') {
+                event.preventDefault();
+                handleSeatsChange(1);
+            } else if (action === 'submit-registration') {
+                event.preventDefault();
+                handleSubmitRegistration();
+            } else if (action === 'dismiss-confirmation') {
+                event.preventDefault();
+                handleDismissConfirmation();
+            } else if (action === 'select-payment-option') {
+                const value = actionEl.value || actionEl.getAttribute('value');
+                handlePaymentOptionSelect(value);
+            }
+        });
+
+        document.addEventListener('input', function(event) {
+            const target = event.target;
+            if (target && target.matches('[data-role="seats-input"]')) {
+                handleSeatsInputChange(target.value);
+            }
+        });
+
+        document.addEventListener('change', function(event) {
+            const target = event.target;
+            if (target && target.matches('input[name="payment_option"]')) {
+                const value = target.value;
+                handlePaymentOptionSelect(value);
+            }
+        });
+
+        document.addEventListener('submit', function(event) {
+            const form = event.target;
+            if (form && form.matches('[data-role="registration-form"]')) {
+                event.preventDefault();
+                handleSubmitRegistration();
+            }
+        });
+
+        loadEventDetails(eventId);
+    });
+    </script>
+</body>
+</html>

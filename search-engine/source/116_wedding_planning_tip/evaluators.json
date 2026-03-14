@@ -1,0 +1,99 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Save 3 popular under-$10k budget articles from last 12 months to reading list",
+      "description": "Checks that the user saved at least 3 of the most popular budget_money articles with overall_budget_max ≤ $10,000 and published within the last 12 months to their reading list.",
+      "localStorage_variables": [
+        "articles",
+        "saved_articles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst savedArticles = JSON.parse(localStorage.getItem('saved_articles') || '[]');\n\n// Determine 12-month window based on current date\nconst now = new Date();\nconst cutoff = new Date(now);\ncutoff.setMonth(cutoff.getMonth() - 12);\n\n// All qualifying budget articles (category, budget, date)\nconst qualifyingArticles = articles.filter(a => {\n  if (!a || a.category_id !== 'budget_money') return false;\n  if (typeof a.overall_budget_max !== 'number' || a.overall_budget_max > 10000) return false;\n  if (!a.published_at) return false;\n  const d = new Date(a.published_at);\n  if (isNaN(d.getTime())) return false;\n  return d >= cutoff && d <= now;\n});\n\n// Rank qualifying articles by popularity\nconst sortedQualifying = qualifyingArticles.slice().sort((a, b) => {\n  const ap = typeof a.popularity_score === 'number' ? a.popularity_score : 0;\n  const bp = typeof b.popularity_score === 'number' ? b.popularity_score : 0;\n  return bp - ap;\n});\nconst topN = 3;\nconst topArticles = sortedQualifying.slice(0, topN);\nconst topIds = topArticles.map(a => a.id);\n\n// Saved articles that meet the budget + date + category criteria\nconst qualifyingSaved = savedArticles.filter(sa => {\n  const art = articles.find(a => a.id === sa.article_id);\n  if (!art) return false;\n  if (art.category_id !== 'budget_money') return false;\n  if (typeof art.overall_budget_max !== 'number' || art.overall_budget_max > 10000) return false;\n  if (!art.published_at) return false;\n  const d = new Date(art.published_at);\n  if (isNaN(d.getTime())) return false;\n  if (d < cutoff || d > now) return false;\n  return true;\n});\n\n// CP1-3 (0.20 each): At least 1, 2, 3 qualifying budget articles saved\n[1, 2, 3].forEach(n => {\n  checkpoints.push({\n    passed: qualifyingSaved.length >= n,\n    weight: 0.2\n  });\n});\n\n// CP4 (0.40): At least 3 of the saved qualifying articles are among the top 3 most popular qualifying ones\nconst popularQualifyingSaved = qualifyingSaved.filter(sa => topIds.includes(sa.article_id));\ncheckpoints.push({\n  passed: popularQualifyingSaved.length >= 3,\n  weight: 0.4\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Save summer 8-hour outdoor 4 PM timeline (50–150 guests) to planning board",
+      "description": "Checks that the user has at least one planning board item for a summer, outdoor ceremony & reception timeline template with 8-hour length, 4:00 PM ceremony, and a 50–150 guest range.",
+      "localStorage_variables": [
+        "timeline_templates",
+        "planning_board_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst templates = JSON.parse(localStorage.getItem('timeline_templates') || '[]');\nconst boardItems = JSON.parse(localStorage.getItem('planning_board_items') || '[]');\n\n// Find qualifying timeline templates\nconst qualifyingTemplates = templates.filter(t => {\n  if (!t) return false;\n  if (t.season !== 'summer') return false;\n  if (t.location_type !== 'outdoor_ceremony_reception') return false;\n  if (t.length_hours !== 8) return false;\n  if (t.ceremony_time !== '4:00 PM') return false;\n  if (typeof t.guest_count_min !== 'number' || typeof t.guest_count_max !== 'number') return false;\n  // Require the template's range to cover 50–150 guests\n  return t.guest_count_min <= 50 && t.guest_count_max >= 150;\n});\n\n// Planning board items that save one of these templates\nconst qualifyingSavedItems = boardItems.filter(item => {\n  if (!item || item.item_type !== 'timeline_template') return false;\n  return qualifyingTemplates.some(t => t.id === item.item_id);\n});\n\n// Single checkpoint: at least one qualifying timeline template saved\ncheckpoints.push({\n  passed: qualifyingSavedItems.length >= 1,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Create moodboard with 4 sage-and-gold neutral palettes",
+      "description": "Checks that there is a moodboard containing at least 4 color palettes tagged with both 'Sage Green' and 'Gold' and with palette_type 'includes_neutrals'.",
+      "localStorage_variables": [
+        "color_palettes",
+        "moodboards"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst palettes = JSON.parse(localStorage.getItem('color_palettes') || '[]');\nconst moodboards = JSON.parse(localStorage.getItem('moodboards') || '[]');\n\n// IDs of palettes that match the tag and palette_type criteria\nconst qualifyingPaletteIds = palettes\n  .filter(p => {\n    if (!p) return false;\n    if (p.palette_type !== 'includes_neutrals') return false;\n    const tags = Array.isArray(p.tags) ? p.tags : [];\n    return tags.includes('Sage Green') && tags.includes('Gold');\n  })\n  .map(p => p.id);\n\n// For each moodboard, count how many qualifying palettes it contains\nlet maxQualifyingOnBoard = 0;\n(moodboards || []).forEach(mb => {\n  if (!mb || !Array.isArray(mb.palette_ids)) return;\n  const count = mb.palette_ids.filter(id => qualifyingPaletteIds.includes(id)).length;\n  if (count > maxQualifyingOnBoard) maxQualifyingOnBoard = count;\n});\n\n// CP1-4 (0.25 each): At least 1, 2, 3, 4 qualifying palettes on the same moodboard\n[1, 2, 3, 4].forEach(n => {\n  checkpoints.push({\n    passed: maxQualifyingOnBoard >= n,\n    weight: 0.25\n  });\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Save a ~150 guest barn/ballroom venue guide with backup indoor space",
+      "description": "Checks that the reading list includes at least one venues article for around 150 guests that has barn or hotel ballroom style and explicitly has a backup indoor space.",
+      "localStorage_variables": [
+        "articles",
+        "saved_articles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst savedArticles = JSON.parse(localStorage.getItem('saved_articles') || '[]');\n\n// Qualifying venue guides\nconst qualifyingVenueArticles = articles.filter(a => {\n  if (!a) return false;\n  if (a.category_id !== 'venues') return false;\n  if (!a.has_backup_indoor_space) return false;\n  const tags = Array.isArray(a.venue_style_tags) ? a.venue_style_tags : [];\n  const hasStyle = tags.includes('barn') || tags.includes('hotel_ballroom');\n  if (!hasStyle) return false;\n  // Approximate \"around 150 guests\" as overlapping 120–180\n  if (typeof a.guest_count_min !== 'number' || typeof a.guest_count_max !== 'number') return false;\n  const rangeMin = 120;\n  const rangeMax = 180;\n  return a.guest_count_max >= rangeMin && a.guest_count_min <= rangeMax;\n});\n\n// Saved articles that are in the qualifying set\nconst qualifyingSaved = savedArticles.filter(sa => qualifyingVenueArticles.some(a => a.id === sa.article_id));\n\n// Single checkpoint: at least one qualifying venue guide saved\ncheckpoints.push({\n  passed: qualifyingSaved.length >= 1,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Save a mixed round/long seating layout for 100–150 guests",
+      "description": "Checks that the planning board contains at least one seating layout template for 100–150 guests that uses mixed round and long tables.",
+      "localStorage_variables": [
+        "seating_layouts",
+        "planning_board_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst layouts = JSON.parse(localStorage.getItem('seating_layouts') || '[]');\nconst boardItems = JSON.parse(localStorage.getItem('planning_board_items') || '[]');\n\n// Qualifying seating layouts\nconst qualifyingLayouts = layouts.filter(l => {\n  if (!l) return false;\n  if (typeof l.guest_count_min !== 'number' || typeof l.guest_count_max !== 'number') return false;\n  // Specifically intended for the 100–150 guest range\n  if (l.guest_count_min < 100 || l.guest_count_max > 150) return false;\n  if (!l.is_mixed_tables) return false;\n  const opts = Array.isArray(l.layout_type_options) ? l.layout_type_options : [];\n  return opts.includes('round_tables') && opts.includes('long_tables');\n});\n\n// Planning board items that save one of these layouts\nconst qualifyingSaved = boardItems.filter(item => {\n  if (!item || item.item_type !== 'seating_layout') return false;\n  return qualifyingLayouts.some(l => l.id === item.item_id);\n});\n\n// Single checkpoint: at least one qualifying seating layout saved\ncheckpoints.push({\n  passed: qualifyingSaved.length >= 1,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Generate 6-month under-$15k checklist and add first 5 'This Month' tasks to to-dos",
+      "description": "Checks that the first 5 checklist tasks from the 'This Month' section of a 6-month, under-$15,000, 80–120 guest checklist template have been added as todos.",
+      "localStorage_variables": [
+        "checklist_templates",
+        "checklist_task_templates",
+        "todos"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst templates = JSON.parse(localStorage.getItem('checklist_templates') || '[]');\nconst taskTemplates = JSON.parse(localStorage.getItem('checklist_task_templates') || '[]');\nconst todos = JSON.parse(localStorage.getItem('todos') || '[]');\n\n// Identify appropriate checklist template(s): 6 months, budget under 15k, 80–120 guests\nconst targetTemplates = templates.filter(t => {\n  if (!t) return false;\n  if (t.timeline_months !== 6) return false;\n  // Budget under 15k\n  if (typeof t.budget_max === 'number' && t.budget_max > 15000) return false;\n  if (typeof t.budget_min === 'number' && t.budget_min > 15000) return false;\n  // Guest count range overlaps 80–120\n  if (typeof t.guest_count_min === 'number' && t.guest_count_min > 120) return false;\n  if (typeof t.guest_count_max === 'number' && t.guest_count_max < 80) return false;\n  return true;\n});\n\nlet matchingTodosCount = 0;\nif (targetTemplates.length > 0) {\n  const template = targetTemplates[0];\n  const thisMonthTasks = taskTemplates\n    .filter(ct => ct.checklist_template_id === template.id && ct.section_name === 'This Month')\n    .sort((a, b) => {\n      const ao = typeof a.order === 'number' ? a.order : 0;\n      const bo = typeof b.order === 'number' ? b.order : 0;\n      return ao - bo;\n    });\n\n  const firstFive = thisMonthTasks.slice(0, 5);\n  const firstFiveIds = firstFive.map(t => t.id);\n\n  const matchingTodos = todos.filter(td => td.source_type === 'checklist_task' && firstFiveIds.includes(td.source_id));\n  matchingTodosCount = matchingTodos.length;\n}\n\n// CP1-5 (0.20 each): At least 1,2,3,4,5 of the specific first-five tasks added as todos\n[1, 2, 3, 4, 5].forEach(n => {\n  checkpoints.push({\n    passed: matchingTodosCount >= n,\n    weight: 0.2\n  });\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Add a qualifying catering budget breakdown article to budget planner under catering",
+      "description": "Checks that at least one food & drink budget breakdown article with per-guest catering cost ≤ $60 (and within the $40–$60 per-guest range when specified) has been linked under the Catering budget category.",
+      "localStorage_variables": [
+        "articles",
+        "budget_article_links"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst links = JSON.parse(localStorage.getItem('budget_article_links') || '[]');\n\n// Links under Catering whose articles meet the criteria\nconst qualifyingLinks = links.filter(link => {\n  if (!link || link.category_slug !== 'catering') return false;\n  const art = articles.find(a => a.id === link.article_id);\n  if (!art) return false;\n  if (art.category_id !== 'food_drink') return false;\n  if (!art.is_budget_breakdown) return false;\n  if (typeof art.average_catering_cost_per_guest !== 'number') return false;\n  if (art.average_catering_cost_per_guest > 60) return false;\n\n  // If per-guest budget range is specified, ensure it intersects $40–$60\n  const min = typeof art.budget_per_guest_min === 'number' ? art.budget_per_guest_min : null;\n  const max = typeof art.budget_per_guest_max === 'number' ? art.budget_per_guest_max : null;\n  if (min !== null && max !== null) {\n    if (max < 40 || min > 60) return false;\n  }\n  return true;\n});\n\n// Single checkpoint: at least one qualifying catering article linked\ncheckpoints.push({\n  passed: qualifyingLinks.length >= 1,\n  weight: 1.0\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Save 3 beginner DIY decor projects under 2 hours and under $100",
+      "description": "Checks that at least 3 saved DIY projects are beginner level, require ≤120 minutes, and cost < $100.",
+      "localStorage_variables": [
+        "diy_projects",
+        "saved_projects"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst projects = JSON.parse(localStorage.getItem('diy_projects') || '[]');\nconst saved = JSON.parse(localStorage.getItem('saved_projects') || '[]');\n\n// IDs of projects that meet time, cost, and difficulty requirements\nconst qualifyingProjectIds = projects\n  .filter(p => {\n    if (!p) return false;\n    if (p.difficulty !== 'beginner') return false;\n    if (typeof p.time_required_minutes !== 'number' || p.time_required_minutes > 120) return false;\n    if (typeof p.cost_estimate !== 'number' || p.cost_estimate >= 100) return false; // strictly < $100\n    return true;\n  })\n  .map(p => p.id);\n\n// Saved projects that are in the qualifying set\nconst qualifyingSaved = saved.filter(sp => qualifyingProjectIds.includes(sp.diy_project_id));\n\n// CP1-3 (≈0.3333 each): At least 1,2,3 qualifying DIY projects saved\n[1, 2, 3].forEach(n => {\n  checkpoints.push({\n    passed: qualifyingSaved.length >= n,\n    weight: 1.0 / 3.0\n  });\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "articles",
+    "budget_categories",
+    "checklist_templates",
+    "color_palettes",
+    "diy_projects",
+    "timeline_templates",
+    "budget_category_allocations",
+    "checklist_task_templates",
+    "planning_board_items",
+    "seating_layouts",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

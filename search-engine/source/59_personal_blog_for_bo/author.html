@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Advance the Plot &mdash; Book &amp; Movie Reviews</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&amp;family=Lora:wght@400;500;600&amp;family=Great+Vibes&amp;family=Source+Code+Pro:wght@400;600&amp;display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="author.css">
+</head>
+<body>
+  <header class="site-header" role="banner">
+    <div class="site-header-inner">
+      <div class="site-branding">
+        <a href="index.html" class="site-title">Advance the Plot</a>
+      </div>
+      <nav class="primary-nav" aria-label="Main navigation">
+        <ul class="primary-nav-list">
+          <li class="primary-nav-item"><a href="index.html" class="nav-link">Home</a></li>
+          <li class="primary-nav-item"><a href="reviews.html?content_type=books" class="nav-link">Books</a></li>
+          <li class="primary-nav-item"><a href="reviews.html?content_type=movies" class="nav-link">Movies</a></li>
+          <li class="primary-nav-item"><a href="reading_lists.html" class="nav-link">Reading Lists</a></li>
+          <li class="primary-nav-item"><a href="account.html" class="nav-link">Sign Up</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <div class="site-main">
+    <div class="site-main-inner">
+      <main id="content" class="content-main" role="main">
+        <article class="author-profile card" data-component="author-profile-page-controller">
+          <div class="author-profile-status">
+            <section class="status-block status-loading" data-component="author-profile-loading-state" aria-live="polite">
+              <p class="status-text">Loading author profile...</p>
+            </section>
+            <section class="status-block status-error" data-component="author-profile-error-state" aria-live="polite" hidden></section>
+          </div>
+
+          <div class="author-profile-content">
+            <header class="author-header card-section" data-component="author-header" data-populate="author-header"></header>
+
+            <section class="author-stats card-section" data-component="author-stats-summary" data-populate="author-stats"></section>
+
+            <section class="author-reviews-section card-section" data-component="author-reviews-section">
+              <div class="author-reviews-header">
+                <h2 class="section-title" data-populate="author-reviews-heading"></h2>
+                <p class="section-subtitle" data-populate="author-reviews-subtitle"></p>
+              </div>
+
+              <div class="author-reviews-controls">
+                <div class="filter-group">
+                  <label for="filterContentType">Filter by type</label>
+                  <select id="filterContentType"
+                          name="filterContentType"
+                          data-action="change-filter-content-type">
+                    <option value="all">All</option>
+                    <option value="books">Books</option>
+                    <option value="movies">Movies</option>
+                  </select>
+                </div>
+                <div class="filter-group">
+                  <label for="sortReviews">Sort by</label>
+                  <select id="sortReviews"
+                          name="sortReviews"
+                          data-action="change-sort">
+                    <option value="newest">Newest first</option>
+                    <option value="oldest">Oldest first</option>
+                    <option value="highest_rating">Highest rating</option>
+                    <option value="lowest_rating">Lowest rating</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="author-review-list" data-component="author-review-list" data-populate="author-review-list"></div>
+            </section>
+          </div>
+        </article>
+      </main>
+
+      <aside id="sidebar" class="content-sidebar" aria-label="Sidebar">
+        <!-- Optional sidebar content (e.g., author bio, archives) -->
+      </aside>
+    </div>
+  </div>
+
+  <footer class="site-footer" role="contentinfo">
+    <div class="site-footer-inner">
+      <div class="footer-left">
+        <p class="footer-meta">&copy; 2024 Advance the Plot. All rights reserved.</p>
+      </div>
+      <nav class="footer-nav" aria-label="Footer navigation">
+        <ul class="footer-nav-list">
+          <li class="footer-nav-item"><a href="about.html">About</a></li>
+          <li class="footer-nav-item"><a href="contact.html">Contact</a></li>
+          <li class="footer-nav-item"><a href="newsletter.html">Newsletter</a></li>
+        </ul>
+      </nav>
+    </div>
+  </footer>
+
+  <script src="business_logic.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const mainController = document.querySelector('[data-component="author-profile-page-controller"]');
+      if (!mainController) {
+        return;
+      }
+
+      const elements = {
+        loading: mainController.querySelector('[data-component="author-profile-loading-state"]'),
+        error: mainController.querySelector('[data-component="author-profile-error-state"]'),
+        content: mainController.querySelector('.author-profile-content')
+      };
+
+      const populateMap = {};
+      mainController.querySelectorAll('[data-populate]').forEach(function(el) {
+        const key = el.dataset.populate;
+        if (key && !populateMap[key]) {
+          populateMap[key] = el;
+        }
+      });
+
+      const state = {
+        currentAuthorId: null,
+        author: null,
+        reviews: [],
+        loading: false,
+        errorMessage: '',
+        invalidAuthorId: false,
+        sortBy: 'newest',
+        filterContentType: 'all',
+        followPending: false,
+        followErrorMessage: ''
+      };
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return '';
+        }
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function getInitials(name) {
+        if (!name) return '';
+        const parts = String(name).trim().split(/\s+/);
+        const first = parts[0] ? parts[0].charAt(0).toUpperCase() : '';
+        const second = parts.length > 1 ? parts[1].charAt(0).toUpperCase() : '';
+        return first + second;
+      }
+
+      function formatDate(isoString) {
+        if (!isoString) return '';
+        const date = new Date(isoString);
+        if (Number.isNaN(date.getTime())) {
+          return '';
+        }
+        return date.toLocaleDateString(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        });
+      }
+
+      function formatRating(rating) {
+        if (typeof rating !== 'number') return '';
+        if (Number.isInteger(rating)) {
+          return rating.toString();
+        }
+        return rating.toFixed(1);
+      }
+
+      function formatContentTypeLabel(contentType) {
+        if (contentType === 'books') {
+          return 'Book';
+        }
+        if (contentType === 'movies') {
+          return 'Movie';
+        }
+        return '';
+      }
+
+      function getVisibleReviews() {
+        let items = Array.isArray(state.reviews) ? state.reviews.slice() : [];
+
+        if (state.filterContentType === 'books' || state.filterContentType === 'movies') {
+          items = items.filter(function(review) {
+            return review && review.contentType === state.filterContentType;
+          });
+        }
+
+        items.sort(function(a, b) {
+          if (state.sortBy === 'highest_rating') {
+            const aRating = typeof a.rating === 'number' ? a.rating : -Infinity;
+            const bRating = typeof b.rating === 'number' ? b.rating : -Infinity;
+            return bRating - aRating;
+          }
+          if (state.sortBy === 'lowest_rating') {
+            const aRating = typeof a.rating === 'number' ? a.rating : Infinity;
+            const bRating = typeof b.rating === 'number' ? b.rating : Infinity;
+            return aRating - bRating;
+          }
+          const aDate = new Date(a.publishedAt || 0).getTime();
+          const bDate = new Date(b.publishedAt || 0).getTime();
+          if (state.sortBy === 'oldest') {
+            return aDate - bDate;
+          }
+          // default newest
+          return bDate - aDate;
+        });
+
+        return items;
+      }
+
+      function renderLoadingState() {
+        if (!elements.loading) return;
+        elements.loading.hidden = !state.loading;
+      }
+
+      function renderErrorState() {
+        const container = elements.error;
+        if (!container) return;
+
+        if (!state.errorMessage && !state.invalidAuthorId) {
+          container.hidden = true;
+          container.innerHTML = '';
+          return;
+        }
+
+        const message = state.errorMessage || 'Something went wrong while loading this author.';
+        const showRetry = !state.invalidAuthorId;
+
+        container.hidden = false;
+        container.innerHTML = `
+          <div class="status-inner">
+            <h2 class="status-title">Unable to load author profile</h2>
+            <p class="status-message">${escapeHtml(message)}</p>
+            ${showRetry ? `
+              <button type="button" class="button button-primary" data-action="retry-load-author">
+                Retry
+              </button>
+            ` : ''}
+          </div>
+        `;
+      }
+
+      function renderAuthorHeader() {
+        const container = populateMap['author-header'];
+        if (!container) return;
+
+        if (!state.author) {
+          container.innerHTML = '';
+          return;
+        }
+
+        const author = state.author;
+        const initials = getInitials(author.name);
+        const isFollowed = !!author.isFollowed;
+        const buttonLabel = isFollowed ? 'Unfollow' : 'Follow';
+        const buttonAria = isFollowed ? 'Unfollow this author' : 'Follow this author';
+        const pending = !!state.followPending;
+        const pendingLabel = isFollowed ? 'Unfollowing...' : 'Following...';
+
+        container.innerHTML = `
+          <div class="author-header-inner">
+            <div class="author-identity">
+              <div class="author-avatar">
+                ${author.avatarUrl ? `
+                  <img src="${escapeHtml(author.avatarUrl)}"
+                       alt="Portrait of ${escapeHtml(author.name)}"
+                       class="author-avatar-image">
+                ` : `
+                  <div class="author-avatar-placeholder" aria-hidden="true">
+                    ${escapeHtml(initials)}
+                  </div>
+                `}
+              </div>
+              <div class="author-text">
+                <h1 id="author-profile-title" class="author-name">
+                  ${escapeHtml(author.name || 'Unknown author')}
+                </h1>
+                ${author.bio ? `
+                  <p class="author-bio">
+                    ${escapeHtml(author.bio)}
+                  </p>
+                ` : `
+                  <p class="author-bio author-bio--empty">
+                    This author has not added a bio yet.
+                  </p>
+                `}
+              </div>
+            </div>
+            <div class="author-actions">
+              <button type="button"
+                      class="button button-primary author-follow-button"
+                      data-component="follow-author-button"
+                      data-action="toggle-follow-author"
+                      ${pending ? 'disabled' : ''}
+                      aria-pressed="${isFollowed ? 'true' : 'false'}"
+                      aria-label="${escapeHtml(buttonAria)}">
+                ${escapeHtml(pending ? pendingLabel : buttonLabel)}
+              </button>
+              <p class="author-follow-error" aria-live="polite">
+                ${state.followErrorMessage ? escapeHtml(state.followErrorMessage) : ''}
+              </p>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderAuthorStats() {
+        const container = populateMap['author-stats'];
+        if (!container) return;
+
+        if (!state.author) {
+          container.innerHTML = '';
+          return;
+        }
+
+        const author = state.author;
+        const reviewCount = typeof author.reviewCount === 'number' ? author.reviewCount : 0;
+        const avgRating = typeof author.averageRating === 'number' ? formatRating(author.averageRating) : '–';
+        const followers = typeof author.followersCount === 'number' ? author.followersCount : 0;
+
+        container.innerHTML = `
+          <div class="author-stats-inner">
+            <div class="author-stat">
+              <div class="author-stat-label">Reviews</div>
+              <div class="author-stat-value">${escapeHtml(String(reviewCount))}</div>
+            </div>
+            <div class="author-stat">
+              <div class="author-stat-label">Average rating</div>
+              <div class="author-stat-value">${escapeHtml(String(avgRating))}</div>
+            </div>
+            <div class="author-stat">
+              <div class="author-stat-label">Followers</div>
+              <div class="author-stat-value">${escapeHtml(String(followers))}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderAuthorReviewsHeading() {
+        const headingContainer = populateMap['author-reviews-heading'];
+        if (!headingContainer) return;
+
+        if (!state.author) {
+          headingContainer.innerHTML = '';
+          return;
+        }
+
+        headingContainer.textContent = 'Reviews by ' + (state.author.name || 'this author');
+      }
+
+      function renderAuthorReviewsSubtitle() {
+        const subtitleContainer = populateMap['author-reviews-subtitle'];
+        if (!subtitleContainer) return;
+
+        if (!state.author) {
+          subtitleContainer.innerHTML = '';
+          return;
+        }
+
+        const total = Array.isArray(state.reviews) ? state.reviews.length : 0;
+        const visible = getVisibleReviews().length;
+
+        let filterLabel = '';
+        if (state.filterContentType === 'books') {
+          filterLabel = ' (books only)';
+        } else if (state.filterContentType === 'movies') {
+          filterLabel = ' (movies only)';
+        }
+
+        const text = total === 0
+          ? 'No reviews to display yet.'
+          : `Showing ${visible} of ${total} review${total === 1 ? '' : 's'}${filterLabel}.`;
+
+        subtitleContainer.textContent = text;
+      }
+
+      function renderAuthorReviewList() {
+        const container = populateMap['author-review-list'];
+        if (!container) return;
+
+        if (!state.author) {
+          container.innerHTML = '';
+          return;
+        }
+
+        const reviews = getVisibleReviews();
+
+        if (!reviews.length) {
+          container.innerHTML = `
+            <p class="empty-state">
+              This author has not published any reviews that match your filters yet.
+            </p>
+          `;
+          return;
+        }
+
+        const authorId = state.author.id || '';
+
+        const itemsHtml = reviews.map(function(review) {
+          const title = review.title || 'Untitled review';
+          const contentTypeLabel = formatContentTypeLabel(review.contentType);
+          const genre = review.genre || '';
+          const rating = typeof review.rating === 'number' ? formatRating(review.rating) : '';
+          const publishedAt = formatDate(review.publishedAt);
+          const thumbUrl = review.thumbnailUrl || '';
+
+          const metaParts = [];
+          if (contentTypeLabel) metaParts.push(contentTypeLabel);
+          if (genre) metaParts.push(genre);
+          if (rating) metaParts.push(rating + ' ★');
+          const metaText = metaParts.join(' • ');
+
+          return `
+            <article class="review-list-item" data-component="author-review-list-item" data-review-id="${escapeHtml(review.reviewId || '')}">
+              <div class="review-list-item-inner">
+                ${thumbUrl ? `
+                  <div class="review-thumbnail">
+                    <img src="${escapeHtml(thumbUrl)}"
+                         alt="Thumbnail for ${escapeHtml(title)}"
+                         class="review-thumbnail-image">
+                  </div>
+                ` : ''}
+                <div class="review-content">
+                  <h3 class="review-title">
+                    <a href="javascript:void(0)"
+                       class="review-title-link"
+                       data-action="open-review"
+                       data-review-id="${escapeHtml(review.reviewId || '')}"
+                       data-author-id="${escapeHtml(authorId)}">
+                      ${escapeHtml(title)}
+                    </a>
+                  </h3>
+                  ${metaText ? `
+                    <p class="review-meta">${escapeHtml(metaText)}</p>
+                  ` : ''}
+                  ${publishedAt ? `
+                    <p class="review-date">Published ${escapeHtml(publishedAt)}</p>
+                  ` : ''}
+                </div>
+              </div>
+            </article>
+          `;
+        }).join('');
+
+        container.innerHTML = itemsHtml;
+      }
+
+      function renderFiltersState() {
+        const contentTypeSelect = mainController.querySelector('select[data-action="change-filter-content-type"]');
+        const sortSelect = mainController.querySelector('select[data-action="change-sort"]');
+
+        if (contentTypeSelect) {
+          contentTypeSelect.value = state.filterContentType;
+        }
+        if (sortSelect) {
+          sortSelect.value = state.sortBy;
+        }
+      }
+
+      function renderPage() {
+        const hasError = !!state.errorMessage || state.invalidAuthorId;
+
+        if (elements.content) {
+          elements.content.hidden = state.loading || hasError;
+        }
+
+        renderLoadingState();
+        renderErrorState();
+
+        if (!hasError && !state.loading) {
+          renderAuthorHeader();
+          renderAuthorStats();
+          renderAuthorReviewsHeading();
+          renderAuthorReviewsSubtitle();
+          renderAuthorReviewList();
+          renderFiltersState();
+        }
+      }
+
+      function loadAuthorProfile() {
+        if (!state.currentAuthorId) {
+          return;
+        }
+
+        state.loading = true;
+        state.errorMessage = '';
+        state.invalidAuthorId = false;
+        state.author = null;
+        state.reviews = [];
+        state.followPending = false;
+        state.followErrorMessage = '';
+        renderPage();
+
+        try {
+          const response = WebsiteSDK.getAuthorProfile(state.currentAuthorId);
+          if (!response || !response.author) {
+            state.errorMessage = 'Author not found.';
+            state.author = null;
+            state.reviews = [];
+          } else {
+            state.author = response.author;
+            state.reviews = Array.isArray(response.reviews) ? response.reviews : [];
+          }
+        } catch (error) {
+          state.errorMessage = 'We could not load this author right now. Please try again.';
+          state.author = null;
+          state.reviews = [];
+        } finally {
+          state.loading = false;
+          renderPage();
+        }
+      }
+
+      function initializeFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const idParam = params.get('id');
+        const trimmed = idParam ? idParam.trim() : '';
+
+        if (!trimmed) {
+          state.currentAuthorId = null;
+          state.invalidAuthorId = true;
+          state.errorMessage = 'Missing or invalid author ID in the URL. Please return to the previous page and choose an author.';
+          state.author = null;
+          state.reviews = [];
+          state.loading = false;
+          renderPage();
+          return;
+        }
+
+        state.currentAuthorId = trimmed;
+        state.invalidAuthorId = false;
+        state.errorMessage = '';
+        loadAuthorProfile();
+      }
+
+      function handleFilterChange(value) {
+        const allowed = ['all', 'books', 'movies'];
+        if (allowed.indexOf(value) === -1) {
+          return;
+        }
+        state.filterContentType = value;
+        renderPage();
+      }
+
+      function handleSortChange(value) {
+        const allowed = ['newest', 'oldest', 'highest_rating', 'lowest_rating'];
+        if (allowed.indexOf(value) === -1) {
+          return;
+        }
+        state.sortBy = value;
+        renderPage();
+      }
+
+      function handleToggleFollow() {
+        if (!state.author || !state.currentAuthorId || state.followPending) {
+          return;
+        }
+
+        const desiredState = !state.author.isFollowed;
+
+        state.followPending = true;
+        state.followErrorMessage = '';
+        renderPage();
+
+        try {
+          const result = WebsiteSDK.followAuthor(state.currentAuthorId, desiredState);
+
+          if (!result || result.success === false) {
+            state.followErrorMessage = (result && result.message) ? result.message : 'Unable to update follow status.';
+          } else {
+            state.author.isFollowed = !!result.isFollowed;
+            if (typeof result.followersCount === 'number') {
+              state.author.followersCount = result.followersCount;
+            }
+          }
+        } catch (error) {
+          state.followErrorMessage = 'Something went wrong while updating follow status.';
+        } finally {
+          state.followPending = false;
+          renderPage();
+        }
+      }
+
+      function handleRetry() {
+        if (!state.currentAuthorId) {
+          return;
+        }
+        loadAuthorProfile();
+      }
+
+      function handleOpenReview(reviewId) {
+        if (!reviewId) return;
+        const authorId = state.currentAuthorId;
+        const returnUrl = 'author.html?id=' + encodeURIComponent(authorId || '');
+        const targetUrl = 'review_detail.html?id=' +
+          encodeURIComponent(reviewId) +
+          '&from=author&returnUrl=' +
+          encodeURIComponent(returnUrl);
+        window.location.href = targetUrl;
+      }
+
+      // Event listeners
+      mainController.addEventListener('click', function(event) {
+        const actionElement = event.target.closest('[data-action]');
+        if (!actionElement) {
+          return;
+        }
+        const action = actionElement.dataset.action;
+        if (!action) return;
+
+        if (action === 'toggle-follow-author') {
+          event.preventDefault();
+          handleToggleFollow();
+        } else if (action === 'retry-load-author') {
+          event.preventDefault();
+          handleRetry();
+        } else if (action === 'open-review') {
+          event.preventDefault();
+          const reviewId = actionElement.getAttribute('data-review-id');
+          handleOpenReview(reviewId);
+        }
+      });
+
+      mainController.addEventListener('change', function(event) {
+        const target = event.target;
+        const action = target.dataset.action;
+        if (!action) return;
+
+        if (action === 'change-filter-content-type') {
+          handleFilterChange(target.value);
+        } else if (action === 'change-sort') {
+          handleSortChange(target.value);
+        }
+      });
+
+      window.addEventListener('popstate', function() {
+        const params = new URLSearchParams(window.location.search);
+        const idParam = params.get('id');
+        const trimmed = idParam ? idParam.trim() : '';
+        if (trimmed === state.currentAuthorId) {
+          return;
+        }
+        state.currentAuthorId = null;
+        state.author = null;
+        state.reviews = [];
+        state.errorMessage = '';
+        state.invalidAuthorId = false;
+        initializeFromUrl();
+      });
+
+      initializeFromUrl();
+    });
+  </script>
+</body>
+</html>

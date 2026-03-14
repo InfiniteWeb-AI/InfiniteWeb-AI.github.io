@@ -1,0 +1,127 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Cheapest Full-Leg Wax at Specific Time Evaluator",
+      "description": "Checks if the user booked the cheapest qualifying full-leg waxing service (duration ≥45 min) at next Wednesday 2:30 PM and added it to the current cart.",
+      "localStorage_variables": [
+        "services",
+        "appointments",
+        "carts",
+        "cart_items",
+        "current_cart_id"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst services = JSON.parse(localStorage.getItem('services') || '[]');\nconst appointments = JSON.parse(localStorage.getItem('appointments') || '[]');\nconst carts = JSON.parse(localStorage.getItem('carts') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst currentCartId = localStorage.getItem('current_cart_id') || '';\n\n// Find all qualifying full-leg services (legs, full_leg, duration >=45)\nconst candidateServices = services.filter(s => s && s.is_active && s.main_area_group === 'legs' && s.area_key === 'full_leg' && (Number(s.duration_minutes) || 0) >= 45);\n\nlet cheapestService = null;\nif (candidateServices.length > 0) {\n  cheapestService = candidateServices.slice().sort((a, b) => (Number(a.base_price) || 0) - (Number(b.base_price) || 0))[0];\n}\n\n// Appointments that are in the current cart, are single_service full-leg, meet duration, and at the exact target datetime\nconst targetYear = 2026;\nconst targetMonth = 3; // March (1-based for comparison)\nconst targetDay = 4;   // Next Wednesday (2026-03-04)\nconst targetHour = 14;\nconst targetMinute = 30;\n\nconst apptsAtCorrectTime = appointments.filter(appt => {\n  if (!appt || appt.appointment_type !== 'single_service') return false;\n  // Must be in current cart as an appointment item\n  const inCart = cartItems.find(ci => ci.cart_id === currentCartId && ci.item_type === 'appointment' && ci.appointment_id === appt.id);\n  if (!inCart) return false;\n  const svc = services.find(s => s.id === appt.service_id);\n  if (!svc) return false;\n  // Must be a qualifying full-leg service (legs/full_leg, duration>=45)\n  if (!candidateServices.some(cs => cs.id === svc.id)) return false;\n  const dt = new Date(appt.start_datetime);\n  if (isNaN(dt.getTime())) return false;\n  const year = dt.getFullYear();\n  const month = dt.getMonth() + 1; // 1-based\n  const day = dt.getDate();\n  const hour = dt.getHours();\n  const minute = dt.getMinutes();\n  const correctDate = year === targetYear && month === targetMonth && day === targetDay;\n  const correctTime = hour === targetHour && minute === targetMinute;\n  return correctDate && correctTime;\n});\n\n// CP1 (0.5): User booked a qualifying full-leg service (duration>=45) at the specified datetime in the current cart\ncheckpoints.push({ passed: apptsAtCorrectTime.length > 0, weight: 0.5 });\n\n// CP2 (0.5): Among qualifying options, the booked service is the CHEAPEST qualifying full-leg service\nlet bookedCheapest = false;\nif (cheapestService && apptsAtCorrectTime.length > 0) {\n  bookedCheapest = apptsAtCorrectTime.some(appt => appt.service_id === cheapestService.id);\n}\ncheckpoints.push({ passed: !!cheapestService && bookedCheapest, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Custom Session 80–100 Minutes Under $150 Evaluator",
+      "description": "Checks if the user built and booked a custom waxing session (in cart) with 1 major area and 2–3 smaller areas, total duration 80–100 minutes, total price under $150.",
+      "localStorage_variables": [
+        "sessions",
+        "session_services",
+        "services",
+        "appointments",
+        "carts",
+        "cart_items",
+        "current_session_id"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst sessions = JSON.parse(localStorage.getItem('sessions') || '[]');\nconst sessionServices = JSON.parse(localStorage.getItem('session_services') || '[]');\nconst services = JSON.parse(localStorage.getItem('services') || '[]');\nconst appointments = JSON.parse(localStorage.getItem('appointments') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst currentCartId = localStorage.getItem('current_cart_id') || '';\n\n// Custom-session appointments that are in the current cart\nconst customApptsInCart = appointments.filter(appt => {\n  if (!appt || appt.appointment_type !== 'custom_session') return false;\n  const inCart = cartItems.find(ci => ci.cart_id === currentCartId && ci.item_type === 'appointment' && ci.appointment_id === appt.id);\n  return !!inCart;\n});\n\n// Appointments whose underlying session has duration 80–100 and total price <=150\nconst durationPriceAppts = customApptsInCart.filter(appt => {\n  const session = sessions.find(s => s.id === appt.session_id);\n  if (!session) return false;\n  const totalDuration = Number(session.total_duration_minutes) || 0;\n  const totalPrice = Number(session.total_price) || 0;\n  if (totalDuration < 80 || totalDuration > 100) return false;\n  if (totalPrice > 150) return false;\n  return true;\n});\n\n// Among those, require exactly 1 major-area service and 2–3 additional non-major services\nconst qualifyingAppts = durationPriceAppts.filter(appt => {\n  const session = sessions.find(s => s.id === appt.session_id);\n  if (!session) return false;\n  const lines = sessionServices.filter(ss => ss.session_id === session.id);\n  if (!lines || lines.length === 0) return false;\n  let majorCount = 0;\n  let nonMajorCount = 0;\n  for (const line of lines) {\n    const svc = services.find(s => s.id === line.service_id);\n    if (!svc) continue;\n    if (svc.is_major_area) majorCount += 1; else nonMajorCount += 1;\n  }\n  // Exactly one major area, and 2–3 additional areas\n  if (majorCount !== 1) return false;\n  if (nonMajorCount < 2 || nonMajorCount > 3) return false;\n  return true;\n});\n\n// CP1 (0.5): A custom session in the cart with total duration 80–100 minutes and total price <=150\ncheckpoints.push({ passed: durationPriceAppts.length > 0, weight: 0.5 });\n\n// CP2 (0.5): Such a session also has exactly 1 major area and 2–3 smaller areas\ncheckpoints.push({ passed: qualifyingAppts.length > 0, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Brazilian+Underarm Package Under $120 Next Week Evaluator",
+      "description": "Checks if the user booked, into the current cart, the lowest-priced package that includes both Brazilian and underarm, costs under $120, lasts at least 60 minutes, and is scheduled next week between 10 AM and 4 PM.",
+      "localStorage_variables": [
+        "packages",
+        "package_services",
+        "services",
+        "appointments",
+        "carts",
+        "cart_items",
+        "current_cart_id"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst packages = JSON.parse(localStorage.getItem('packages') || '[]');\nconst packageServices = JSON.parse(localStorage.getItem('package_services') || '[]');\nconst appointments = JSON.parse(localStorage.getItem('appointments') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst currentCartId = localStorage.getItem('current_cart_id') || '';\n\nfunction packageIncludesServiceName(pkgId, serviceName) {\n  return packageServices.some(ps => ps.package_id === pkgId && ps.service_name === serviceName);\n}\n\n// All packages that meet the content & price/duration criteria\nconst qualifyingPackages = packages.filter(p => {\n  if (!p || !p.is_active) return false;\n  const price = Number(p.price) || 0;\n  const dur = Number(p.total_duration_minutes) || 0;\n  if (price >= 120) return false; // must be under $120\n  if (dur < 60) return false;\n  const hasBrazilian = packageIncludesServiceName(p.id, 'Brazilian');\n  const hasUnderarm = packageIncludesServiceName(p.id, 'Underarm');\n  if (!hasBrazilian || !hasUnderarm) return false;\n  return true;\n});\n\nlet cheapestQualifying = null;\nif (qualifyingPackages.length > 0) {\n  cheapestQualifying = qualifyingPackages.slice().sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0))[0];\n}\n\n// Date range: next week: 2026-03-09 to 2026-03-15\nconst rangeStart = new Date('2026-03-09T00:00:00');\nconst rangeEnd = new Date('2026-03-15T23:59:59');\n\n// Package appointments in current cart that meet all criteria\nconst validApptsInCart = appointments.filter(appt => {\n  if (!appt || appt.appointment_type !== 'package') return false;\n  const ci = cartItems.find(ci => ci.cart_id === currentCartId && ci.item_type === 'appointment' && ci.appointment_id === appt.id);\n  if (!ci) return false;\n  const pkg = packages.find(p => p.id === appt.package_id);\n  if (!pkg) return false;\n  // Content & price/duration constraints\n  const price = Number(pkg.price) || 0;\n  const dur = Number(pkg.total_duration_minutes) || 0;\n  const hasBrazilian = packageIncludesServiceName(pkg.id, 'Brazilian');\n  const hasUnderarm = packageIncludesServiceName(pkg.id, 'Underarm');\n  if (!hasBrazilian || !hasUnderarm) return false;\n  if (price >= 120) return false;\n  if (dur < 60) return false;\n  // Schedule constraints\n  const dt = new Date(appt.start_datetime);\n  if (isNaN(dt.getTime())) return false;\n  if (dt < rangeStart || dt > rangeEnd) return false;\n  const hour = dt.getHours();\n  // Any start time between 10:00 and 16:00 inclusive\n  if (hour < 10 || hour > 16) return false;\n  return true;\n});\n\n// CP1 (0.5): User booked a qualifying Brazilian+Underarm package under $120, >=60 min, next week between 10 AM–4 PM, in current cart\ncheckpoints.push({ passed: validApptsInCart.length > 0, weight: 0.5 });\n\n// CP2 (0.5): The booked package is the CHEAPEST among all qualifying packages\nlet bookedCheapest = false;\nif (cheapestQualifying && validApptsInCart.length > 0) {\n  bookedCheapest = validApptsInCart.some(appt => appt.package_id === cheapestQualifying.id);\n}\ncheckpoints.push({ passed: !!cheapestQualifying && bookedCheapest, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Three Saturday Eyebrow Appointments Same Technician Evaluator",
+      "description": "Checks if the user booked three separate Saturday eyebrow waxing appointments within the next three months, between 9–11 AM, all with the same technician, and added them to the current cart.",
+      "localStorage_variables": [
+        "services",
+        "technicians",
+        "appointments",
+        "carts",
+        "cart_items",
+        "current_cart_id"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst services = JSON.parse(localStorage.getItem('services') || '[]');\nconst appointments = JSON.parse(localStorage.getItem('appointments') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst currentCartId = localStorage.getItem('current_cart_id') || '';\n\n// Eyebrow service ids\nconst eyebrowServiceIds = services.filter(s => s && s.area_key === 'eyebrow' && s.is_active).map(s => s.id);\n\n// Baseline and 3-month window\nconst baseline = new Date('2026-03-03T00:00:00');\nconst maxDate = new Date(baseline.getTime());\nmaxDate.setMonth(maxDate.getMonth() + 3);\n\n// Qualifying eyebrow appointments in current cart\nconst qualifyingAppts = appointments.filter(appt => {\n  if (!appt || appt.appointment_type !== 'single_service') return false;\n  if (!eyebrowServiceIds.includes(appt.service_id)) return false;\n  // Must be in current cart\n  const ci = cartItems.find(ci => ci.cart_id === currentCartId && ci.item_type === 'appointment' && ci.appointment_id === appt.id);\n  if (!ci) return false;\n  const dt = new Date(appt.start_datetime);\n  if (isNaN(dt.getTime())) return false;\n  if (dt < baseline || dt > maxDate) return false;\n  // Saturday (0=Sun,...,6=Sat)\n  if (dt.getDay() !== 6) return false;\n  const hour = dt.getHours();\n  // Between 9:00 and 11:00 (start times 9:00–10:59 allowed)\n  if (hour < 9 || hour >= 11) return false;\n  // Must have a technician, and we will enforce same-tech across appointments via grouping\n  if (!appt.technician_id) return false;\n  return true;\n});\n\n// Count how many such appointments exist per technician\nconst countsByTech = {};\nfor (const appt of qualifyingAppts) {\n  const techId = appt.technician_id;\n  countsByTech[techId] = (countsByTech[techId] || 0) + 1;\n}\n\nconst counts = Object.values(countsByTech);\nconst maxSameTechCount = counts.length ? Math.max(...counts) : 0;\n\n// CP1–CP3: 1, 2, and 3 qualifying appointments with the SAME technician\ncheckpoints.push({ passed: maxSameTechCount >= 1, weight: 0.33 });\ncheckpoints.push({ passed: maxSameTechCount >= 2, weight: 0.33 });\ncheckpoints.push({ passed: maxSameTechCount >= 3, weight: 0.34 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Same-Day Men’s Chest & Back Custom Session After 5 PM Evaluator",
+      "description": "Checks if the user created a same-day custom session appointment that includes both men’s chest and men’s back services and scheduled it for today at or after 5:00 PM in the current cart.",
+      "localStorage_variables": [
+        "services",
+        "sessions",
+        "session_services",
+        "appointments",
+        "carts",
+        "cart_items",
+        "current_session_id"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst services = JSON.parse(localStorage.getItem('services') || '[]');\nconst sessions = JSON.parse(localStorage.getItem('sessions') || '[]');\nconst sessionServices = JSON.parse(localStorage.getItem('session_services') || '[]');\nconst appointments = JSON.parse(localStorage.getItem('appointments') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst currentCartId = localStorage.getItem('current_cart_id') || '';\n\n// Identify men’s chest and back service IDs\nconst mensChestIds = services.filter(s => s && s.gender_segment === 'men' && s.area_key === 'chest').map(s => s.id);\nconst mensBackIds = services.filter(s => s && s.gender_segment === 'men' && s.area_key === 'back').map(s => s.id);\n\n// Same-day date: 2026-03-03\nconst targetYear = 2026;\nconst targetMonth = 3; // March (1-based)\nconst targetDay = 3;\n\nconst customApptsInCart = appointments.filter(appt => {\n  if (!appt || appt.appointment_type !== 'custom_session') return false;\n  // Must be in current cart\n  const ci = cartItems.find(ci => ci.cart_id === currentCartId && ci.item_type === 'appointment' && ci.appointment_id === appt.id);\n  if (!ci) return false;\n  const dt = new Date(appt.start_datetime);\n  if (isNaN(dt.getTime())) return false;\n  const year = dt.getFullYear();\n  const month = dt.getMonth() + 1;\n  const day = dt.getDate();\n  if (year !== targetYear || month !== targetMonth || day !== targetDay) return false;\n  const hour = dt.getHours();\n  if (hour < 17) return false; // at or after 5 PM\n  // Check session contents for men’s chest and men’s back\n  const session = sessions.find(s => s.id === appt.session_id);\n  if (!session) return false;\n  const lines = sessionServices.filter(ss => ss.session_id === session.id);\n  if (!lines || lines.length === 0) return false;\n  let hasChest = false;\n  let hasBack = false;\n  for (const line of lines) {\n    const svc = services.find(s => s.id === line.service_id);\n    if (!svc) continue;\n    if (mensChestIds.includes(svc.id)) hasChest = true;\n    if (mensBackIds.includes(svc.id)) hasBack = true;\n  }\n  if (!hasChest || !hasBack) return false;\n  return true;\n});\n\n// Single combined checkpoint: a qualifying custom session exists in the current cart\ncheckpoints.push({ passed: customApptsInCart.length > 0, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Two Qualifying Aftercare Products Evaluator",
+      "description": "Checks if the user added at least two different aftercare products to the current cart, each under $30, with rating ≥4.0 and free in-store pickup.",
+      "localStorage_variables": [
+        "products",
+        "carts",
+        "cart_items",
+        "current_cart_id"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst currentCartId = localStorage.getItem('current_cart_id') || '';\n\n// Product-type items in the current cart that meet ALL criteria\nconst qualifyingProductIds = new Set();\nfor (const ci of cartItems) {\n  if (!ci || ci.cart_id !== currentCartId || ci.item_type !== 'product') continue;\n  if (!ci.product_id || (Number(ci.quantity) || 0) <= 0) continue;\n  const prod = products.find(p => p.id === ci.product_id);\n  if (!prod) continue;\n  const price = Number(prod.price) || 0;\n  const rating = Number(prod.rating) || 0;\n  if (prod.category_key !== 'aftercare') continue;\n  if (price >= 30) continue;\n  if (rating < 4.0) continue;\n  if (!prod.is_free_in_store_pickup) continue;\n  qualifyingProductIds.add(prod.id);\n}\n\nconst qualifyingCount = qualifyingProductIds.size;\n\n// CP1 (0.5): At least one qualifying aftercare product added\ncheckpoints.push({ passed: qualifyingCount >= 1, weight: 0.5 });\n\n// CP2 (0.5): At least two DIFFERENT qualifying aftercare products added\ncheckpoints.push({ passed: qualifyingCount >= 2, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Waxing-Only $100 Scheduled Email Gift Card Evaluator",
+      "description": "Checks if the user created a waxing-only digital gift card for $100, scheduled email delivery exactly 14 days from 2026-03-03, and added it to the current cart.",
+      "localStorage_variables": [
+        "gift_card_templates",
+        "gift_card_purchases",
+        "carts",
+        "cart_items",
+        "current_cart_id"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst templates = JSON.parse(localStorage.getItem('gift_card_templates') || '[]');\nconst purchases = JSON.parse(localStorage.getItem('gift_card_purchases') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst currentCartId = localStorage.getItem('current_cart_id') || '';\n\n// Baseline date and expected scheduled send date (+14 days)\nconst baseline = new Date('2026-03-03T00:00:00');\nconst expected = new Date(baseline.getTime());\nexpected.setDate(expected.getDate() + 14);\nconst expYear = expected.getFullYear();\nconst expMonth = expected.getMonth(); // 0-based\nconst expDay = expected.getDate();\n\nconst qualifyingPurchases = purchases.filter(p => {\n  if (!p) return false;\n  const template = templates.find(t => t.id === p.template_id);\n  if (!template) return false;\n  // Must be waxing-only usage\n  if (template.usage_type !== 'waxing_only') return false;\n  if ((Number(p.amount) || 0) !== 100) return false;\n  if (p.delivery_method !== 'email_delivery') return false;\n  if (p.send_timing !== 'schedule_for_later') return false;\n  if (!p.scheduled_send_date) return false;\n  const dt = new Date(p.scheduled_send_date);\n  if (isNaN(dt.getTime())) return false;\n  if (dt.getFullYear() !== expYear || dt.getMonth() !== expMonth || dt.getDate() !== expDay) return false;\n  if (!p.recipient_name || !p.recipient_email) return false;\n  // Must be present as a gift_card item in the current cart\n  const ci = cartItems.find(ci => ci.cart_id === currentCartId && ci.item_type === 'gift_card' && ci.gift_card_purchase_id === p.id);\n  if (!ci) return false;\n  return true;\n});\n\n// Single checkpoint: qualifying waxing-only $100 scheduled email gift card is in the current cart\ncheckpoints.push({ passed: qualifyingPurchases.length > 0, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "10% Off Waxing Package Promo Applied Evaluator",
+      "description": "Checks if the user booked at least one waxing package over the promo’s minimum price into the current cart and successfully applied a 10% off waxing-package promotion to that cart.",
+      "localStorage_variables": [
+        "promotions",
+        "applied_promotions",
+        "packages",
+        "appointments",
+        "carts",
+        "cart_items",
+        "current_cart_id"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst promotions = JSON.parse(localStorage.getItem('promotions') || '[]');\nconst appliedPromotions = JSON.parse(localStorage.getItem('applied_promotions') || '[]');\nconst packages = JSON.parse(localStorage.getItem('packages') || '[]');\nconst appointments = JSON.parse(localStorage.getItem('appointments') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst currentCartId = localStorage.getItem('current_cart_id') || '';\n\n// Find a 10% off waxing-package promotion with min_package_price >= 100\nconst promo = promotions.find(p => p && p.is_active && p.target_type === 'waxing_package' && p.promo_type === 'percentage_off' && (Number(p.discount_value) || 0) === 10 && (Number(p.min_package_price) || 0) >= 100);\n\nlet eligiblePackageAppts = [];\nlet appliedForCart = [];\n\nif (promo) {\n  const minPackagePrice = Number(promo.min_package_price) || 100;\n\n  const packageApptsInCart = appointments.filter(appt => {\n    if (!appt || appt.appointment_type !== 'package') return false;\n    const ci = cartItems.find(ci => ci.cart_id === currentCartId && ci.item_type === 'appointment' && ci.appointment_id === appt.id);\n    return !!ci;\n  });\n\n  eligiblePackageAppts = packageApptsInCart.filter(appt => {\n    const pkg = packages.find(p => p.id === appt.package_id);\n    if (!pkg) return false;\n    const price = Number(pkg.price) || 0;\n    return price >= minPackagePrice;\n  });\n\n  appliedForCart = appliedPromotions.filter(ap => ap && ap.cart_id === currentCartId && ap.promotion_id === promo.id && (Number(ap.discount_amount) || 0) > 0);\n}\n\n// CP1 (0.5): At least one eligible waxing package (price >= promo min) is booked in the current cart\ncheckpoints.push({ passed: promo != null && eligiblePackageAppts.length > 0, weight: 0.5 });\n\n// CP2 (0.5): The 10% waxing-package promo is applied to the current cart with a non-zero discount\ncheckpoints.push({ passed: promo != null && eligiblePackageAppts.length > 0 && appliedForCart.length > 0, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "gift_card_templates",
+    "products",
+    "promotions",
+    "services",
+    "technicians",
+    "package_services",
+    "packages",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

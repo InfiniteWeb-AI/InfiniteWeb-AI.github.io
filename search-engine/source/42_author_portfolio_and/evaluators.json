@@ -1,0 +1,105 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Newest Fantasy Novel Under $18 on Main Reading List",
+      "description": "Checks whether the user added the newest qualifying fantasy novel under $18 to their main reading list.",
+      "localStorage_variables": [
+        "books",
+        "library_lists",
+        "library_list_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst books = JSON.parse(localStorage.getItem('books') || '[]');\nconst lists = JSON.parse(localStorage.getItem('library_lists') || '[]');\nconst items = JSON.parse(localStorage.getItem('library_list_items') || '[]');\n// Find all qualifying fantasy novels under $18\nconst qualifyingFantasy = books.filter(b => b && b.genre === 'fantasy' && b.work_type === 'novel' && typeof b.price === 'number' && b.price < 18 && !!b.publication_date);\nqualifyingFantasy.sort((a, b) => new Date(b.publication_date) - new Date(a.publication_date));\nconst newest = qualifyingFantasy[0] || null;\n// Identify main reading list(s)\nconst mainReadingLists = lists.filter(l => l && l.list_type === 'book_reading_list' && (l.is_default || (l.name || '').toLowerCase() === 'main reading list'));\nconst mainListIds = mainReadingLists.map(l => l.id);\n// Any qualifying fantasy novel under $18 added to main reading list?\nlet anyQualifyingInMain = false;\nif (mainListIds.length && qualifyingFantasy.length) {\n  anyQualifyingInMain = items.some(it => {\n    if (!it || it.item_type !== 'book' || !mainListIds.includes(it.listId)) return false;\n    const b = books.find(bb => bb.id === it.bookId);\n    return !!b && b.genre === 'fantasy' && b.work_type === 'novel' && typeof b.price === 'number' && b.price < 18;\n  });\n}\n// Specifically, is the newest qualifying fantasy novel on main reading list?\nlet hasNewestInMain = false;\nif (mainListIds.length && newest) {\n  hasNewestInMain = items.some(it => it && it.item_type === 'book' && mainListIds.includes(it.listId) && it.bookId === newest.id);\n}\n// CP1 (0.4): User added at least one qualifying fantasy novel under $18 to the main reading list\ncheckpoints.push({ passed: anyQualifyingInMain, weight: 0.4 });\n// CP2 (0.6): That qualifying book is specifically the newest fantasy novel under $18\ncheckpoints.push({ passed: hasNewestInMain, weight: 0.6 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Favorite Longer of First Two Mystery Novels Under $20",
+      "description": "Checks whether the user compared two qualifying mystery novels and favorited only the one with the higher page count.",
+      "localStorage_variables": [
+        "books",
+        "compare_sets",
+        "compare_set_items",
+        "library_lists",
+        "library_list_items",
+        "activeCompareSetId"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst books = JSON.parse(localStorage.getItem('books') || '[]');\nconst compareSets = JSON.parse(localStorage.getItem('compare_sets') || '[]');\nconst compareSetItems = JSON.parse(localStorage.getItem('compare_set_items') || '[]');\nconst lists = JSON.parse(localStorage.getItem('library_lists') || '[]');\nconst listItems = JSON.parse(localStorage.getItem('library_list_items') || '[]');\nlet activeCompareSetId = localStorage.getItem('activeCompareSetId') || '';\nlet compareSet = compareSets.find(cs => cs.id === activeCompareSetId) || null;\nif (!compareSet) {\n  compareSet = compareSets.find(cs => cs && cs.is_active) || null;\n}\nlet firstTwo = [];\nlet longerBook = null;\nlet shorterBook = null;\nif (compareSet) {\n  const itemsForSet = compareSetItems.filter(it => it && it.compareSetId === compareSet.id);\n  const withBooks = itemsForSet.map(it => ({ ...it, book: books.find(b => b.id === it.bookId) || null }));\n  const mysteryUnder20 = withBooks.filter(it => {\n    const b = it.book;\n    return b && b.genre === 'mystery' && b.work_type === 'novel' && typeof b.price === 'number' && b.price < 20;\n  });\n  mysteryUnder20.sort((a, b) => new Date(a.addedAt || 0) - new Date(b.addedAt || 0));\n  firstTwo = mysteryUnder20.slice(0, 2);\n  if (firstTwo.length === 2 && firstTwo[0].book && firstTwo[1].book) {\n    const b1 = firstTwo[0].book;\n    const b2 = firstTwo[1].book;\n    if ((b1.page_count || 0) >= (b2.page_count || 0)) {\n      longerBook = b1;\n      shorterBook = b2;\n    } else {\n      longerBook = b2;\n      shorterBook = b1;\n    }\n  }\n}\n// Favorites list(s)\nconst favoritesLists = lists.filter(l => l && l.list_type === 'favorites');\nconst favoritesListIds = favoritesLists.map(l => l.id);\nconst favoriteBookItems = listItems.filter(it => it && it.item_type === 'book' && favoritesListIds.includes(it.listId));\n// Books from the first two compare candidates that ended up in favorites\nconst candidateFavoriteIds = favoriteBookItems.map(it => it.bookId).filter(id => firstTwo.some(c => c.book && c.book.id === id));\nconst includesLonger = !!(longerBook && candidateFavoriteIds.includes(longerBook.id));\nconst includesShorter = !!(shorterBook && candidateFavoriteIds.includes(shorterBook.id));\n// CP1 (0.4): User has at least two qualifying mystery novels (< $20) in the active compare set\ncheckpoints.push({ passed: firstTwo.length === 2, weight: 0.4 });\n// CP2 (0.3): User favorited at least one of those two compared mystery novels\ncheckpoints.push({ passed: candidateFavoriteIds.length > 0, weight: 0.3 });\n// CP3 (0.3): The favorited choice is only the longer of the two (includes longer, does not include only-shorter)\ncheckpoints.push({ passed: includesLonger && !includesShorter, weight: 0.3 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Review Highly Rated Short-Form Work with 4 Stars and Comment",
+      "description": "Checks whether the user left a 4-star review with text on a qualifying short-form book (novella/short story) that previously had an average rating of at least 4.5 and under 120 pages.",
+      "localStorage_variables": [
+        "books",
+        "reviews"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst books = JSON.parse(localStorage.getItem('books') || '[]');\nconst reviews = JSON.parse(localStorage.getItem('reviews') || '[]');\nconst isShortForm = (b) => !!b && (b.work_type === 'novella' || b.work_type === 'short_story');\n// Attach books to reviews\nconst reviewsWithBook = reviews.map(r => ({ ...r, book: books.find(b => b.id === r.bookId) || null }));\n// Candidate reviews: 4-star on a short-form book under 120 pages\nconst candidateReviews = reviewsWithBook.filter(rb => {\n  const b = rb.book;\n  return b && rb.rating === 4 && isShortForm(b) && typeof b.page_count === 'number' && b.page_count <= 120;\n});\n// Of those, require that BEFORE this review, the book's average rating was at least 4.5\nconst qualifyingRatingReviews = candidateReviews.filter(rb => {\n  const prior = reviews.filter(r2 => r2.bookId === rb.bookId && new Date(r2.createdAt || 0) < new Date(rb.createdAt || 0));\n  if (!prior.length) return false;\n  const sumPrev = prior.reduce((sum, r2) => sum + (typeof r2.rating === 'number' ? r2.rating : 0), 0);\n  const avgPrev = sumPrev / prior.length;\n  return avgPrev >= 4.5;\n});\n// Among those, require sufficient comment length\nconst qualifyingWithComment = qualifyingRatingReviews.filter(rb => typeof rb.body === 'string' && rb.body.trim().length >= 10);\n// CP1 (0.6): User left a 4-star review on a qualifying short-form book (under 120 pages, prior avg >= 4.5)\ncheckpoints.push({ passed: qualifyingRatingReviews.length > 0, weight: 0.6 });\n// CP2 (0.4): At least one such review includes a written comment of at least 10 characters\ncheckpoints.push({ passed: qualifyingWithComment.length > 0, weight: 0.4 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Register for Earliest March 2025 Online Event with Note",
+      "description": "Checks whether the user registered for the earliest online-only event in March 2025 and included a note containing 'Ask about sequel'.",
+      "localStorage_variables": [
+        "events",
+        "event_registrations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst regs = JSON.parse(localStorage.getItem('event_registrations') || '[]');\nconst from = new Date('2025-03-01T00:00:00Z');\nconst to = new Date('2025-03-31T23:59:59Z');\n// All online events in March 2025\nconst marchOnline = events.filter(ev => {\n  if (!ev || ev.event_type !== 'online' || !ev.start_datetime) return false;\n  const d = new Date(ev.start_datetime);\n  return d >= from && d <= to;\n});\nmarchOnline.sort((a, b) => new Date(a.start_datetime || 0) - new Date(b.start_datetime || 0));\nconst earliest = marchOnline[0] || null;\n// Helper map for event lookup\nconst eventsById = new Map(events.map(ev => [ev.id, ev]));\n// Registrations for any March 2025 online event\nconst regsForMarchOnline = regs.filter(r => {\n  const ev = eventsById.get(r.eventId);\n  if (!ev) return false;\n  if (ev.event_type !== 'online' || !ev.start_datetime) return false;\n  const d = new Date(ev.start_datetime);\n  return d >= from && d <= to;\n});\n// Registrations for the earliest such event\nlet regsForEarliest = [];\nif (earliest) {\n  regsForEarliest = regs.filter(r => r.eventId === earliest.id);\n}\n// Among those, check for correct note\nconst hasNoteAskAboutSequel = regsForEarliest.some(r => {\n  const notes = (r.notes || '').toLowerCase();\n  return notes.includes('ask about sequel');\n});\n// CP1 (0.3): User registered for at least one online event in March 2025\ncheckpoints.push({ passed: regsForMarchOnline.length > 0, weight: 0.3 });\n// CP2 (0.3): User registered specifically for the earliest qualifying March 2025 online event\ncheckpoints.push({ passed: regsForEarliest.length > 0, weight: 0.3 });\n// CP3 (0.4): At least one registration for that earliest event includes a note containing 'Ask about sequel'\ncheckpoints.push({ passed: hasNoteAskAboutSequel, weight: 0.4 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Create 3-Book Sci-Fi eBook Bundle and Add to Cart",
+      "description": "Checks whether the user created a bundle of the three highest-rated science fiction eBooks under $10 and added that bundle to the cart.",
+      "localStorage_variables": [
+        "books",
+        "bundles",
+        "bundle_items",
+        "cart",
+        "cart_items",
+        "activeBundleId",
+        "activeCartId"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst books = JSON.parse(localStorage.getItem('books') || '[]');\nconst bundles = JSON.parse(localStorage.getItem('bundles') || '[]');\nconst bundleItems = JSON.parse(localStorage.getItem('bundle_items') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\n// All qualifying sci-fi eBooks under $10\nconst sciFiEbooksUnder10 = books.filter(b => b && b.genre === 'science_fiction' && b.format === 'ebook' && typeof b.price === 'number' && b.price < 10);\n// Sort by rating descending to get highest-rated\nsciFiEbooksUnder10.sort((a, b) => (b.rating || 0) - (a.rating || 0));\nconst topThree = sciFiEbooksUnder10.slice(0, 3);\nconst topIds = topThree.map(b => b.id);\nlet correctBundle = null;\nif (topThree.length === 3 && bundles.length) {\n  for (const bu of bundles) {\n    if (!bu || !bu.id) continue;\n    const items = bundleItems.filter(it => it && it.bundleId === bu.id);\n    // Unique sci-fi eBooks under $10 actually in this bundle\n    const sfIdsInBundleSet = new Set();\n    for (const it of items) {\n      const bk = books.find(b => b.id === it.bookId);\n      if (!bk) continue;\n      if (bk.genre === 'science_fiction' && bk.format === 'ebook' && typeof bk.price === 'number' && bk.price < 10) {\n        sfIdsInBundleSet.add(bk.id);\n      }\n    }\n    const sfIdsInBundle = Array.from(sfIdsInBundleSet);\n    if (sfIdsInBundle.length === topIds.length && topIds.every(id => sfIdsInBundle.includes(id))) {\n      correctBundle = bu;\n      break;\n    }\n  }\n}\n// Did such a bundle get added to the cart?\nlet bundleInCart = false;\nif (correctBundle) {\n  bundleInCart = cartItems.some(ci => ci && ci.item_type === 'bundle' && ci.bundleId === correctBundle.id && ci.quantity > 0);\n}\n// CP1 (0.6): User created a bundle whose sci-fi eBook-under-$10 contents exactly match the top 3 highest-rated options\ncheckpoints.push({ passed: !!correctBundle, weight: 0.6 });\n// CP2 (0.4): That correct bundle has been added to the cart\ncheckpoints.push({ passed: !!bundleInCart, weight: 0.4 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Send Bulk Order Contact Message for 25 Paperbacks",
+      "description": "Checks whether the user submitted a contact message with the Bulk Orders topic, mentioning 25 paperbacks in the subject and including a sufficiently long message body.",
+      "localStorage_variables": [
+        "contact_messages"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst messages = JSON.parse(localStorage.getItem('contact_messages') || '[]');\n// Messages specifically about bulk orders\nconst bulkMsgs = messages.filter(m => m && m.topic === 'bulk_orders');\n// Among those, look for required subject phrase and message length\nconst goodBulkMsgs = bulkMsgs.filter(m => {\n  const subj = (m.subject || '').toLowerCase();\n  const body = (m.message || '');\n  const has25 = subj.includes('25');\n  const hasPaperback = subj.includes('paperback'); // matches 'paperback' or 'paperbacks'\n  const longEnough = body.trim().length >= 20;\n  return has25 && hasPaperback && longEnough;\n});\n// CP1 (0.4): User submitted at least one message with the Bulk Orders topic\ncheckpoints.push({ passed: bulkMsgs.length > 0, weight: 0.4 });\n// CP2 (0.6): At least one Bulk Orders message mentions 25 paperbacks in the subject and has a body of at least 20 characters\ncheckpoints.push({ passed: goodBulkMsgs.length > 0, weight: 0.6 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Add Two Cheapest Highly Rated YA Books (2018–2020) to Summer 2025 Wishlist",
+      "description": "Checks whether the user added the two cheapest qualifying young adult books (2018–2020, rating ≥ 4.0) to a wishlist named 'Summer 2025'.",
+      "localStorage_variables": [
+        "books",
+        "library_lists",
+        "library_list_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst books = JSON.parse(localStorage.getItem('books') || '[]');\nconst lists = JSON.parse(localStorage.getItem('library_lists') || '[]');\nconst items = JSON.parse(localStorage.getItem('library_list_items') || '[]');\nconst from = new Date('2018-01-01T00:00:00Z');\nconst to = new Date('2020-12-31T23:59:59Z');\n// Qualifying YA books\nconst yaCandidates = books.filter(b => {\n  if (!b || b.genre !== 'young_adult' || typeof b.rating !== 'number' || b.rating < 4.0 || !b.publication_date) return false;\n  const d = new Date(b.publication_date);\n  return d >= from && d <= to;\n});\nyaCandidates.sort((a, b) => (a.price || 0) - (b.price || 0));\nconst topTwo = yaCandidates.slice(0, 2);\n// Summer 2025 wishlist(s)\nconst summerLists = lists.filter(l => l && l.list_type === 'book_wishlist' && (l.name || '').toLowerCase() === 'summer 2025');\nconst summerListIds = summerLists.map(l => l.id);\nconst summerBookItems = items.filter(it => it && it.item_type === 'book' && summerListIds.includes(it.listId));\nlet countAdded = 0;\nif (topTwo.length === 2 && summerBookItems.length) {\n  countAdded = topTwo.filter(b => summerBookItems.some(it => it.bookId === b.id)).length;\n}\n// CP1 (0.5): At least one of the two cheapest qualifying YA books was added to a 'Summer 2025' wishlist\ncheckpoints.push({ passed: countAdded >= 1, weight: 0.5 });\n// CP2 (0.5): Both of the two cheapest qualifying YA books were added to the 'Summer 2025' wishlist\ncheckpoints.push({ passed: countAdded >= 2, weight: 0.5 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Save Most Recent Writing Process Post with 5+ Comments to Reading List",
+      "description": "Checks whether the user saved the most recent blog post tagged 'writing_process' with at least 5 comments to an article reading list.",
+      "localStorage_variables": [
+        "blog_posts",
+        "library_lists",
+        "library_list_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst posts = JSON.parse(localStorage.getItem('blog_posts') || '[]');\nconst lists = JSON.parse(localStorage.getItem('library_lists') || '[]');\nconst items = JSON.parse(localStorage.getItem('library_list_items') || '[]');\n// All published posts tagged writing_process with at least 5 comments\nconst writingProcessWithComments = posts.filter(p => p && p.status === 'published' && Array.isArray(p.tags) && p.tags.includes('writing_process') && typeof p.comment_count === 'number' && p.comment_count >= 5);\nwritingProcessWithComments.sort((a, b) => new Date(b.published_at || 0) - new Date(a.published_at || 0));\nconst target = writingProcessWithComments[0] || null;\n// Article reading lists\nconst readingLists = lists.filter(l => l && l.list_type === 'article_reading_list');\nconst readingListIds = readingLists.map(l => l.id);\nconst articleItems = items.filter(it => it && it.item_type === 'article' && readingListIds.includes(it.listId));\n// Any writing_process post saved at all?\nconst anyWritingProcessSaved = articleItems.some(it => {\n  const p = posts.find(pp => pp.id === it.articleId);\n  return p && Array.isArray(p.tags) && p.tags.includes('writing_process');\n});\n// Specifically, is the target most-recent 5+ comment post saved?\nlet targetSaved = false;\nif (target) {\n  targetSaved = articleItems.some(it => it.articleId === target.id);\n}\n// CP1 (0.4): User saved at least one 'writing_process'-tagged post to an article reading list\ncheckpoints.push({ passed: anyWritingProcessSaved, weight: 0.4 });\n// CP2 (0.6): User saved the most recent 'writing_process' post with 5+ comments to an article reading list\ncheckpoints.push({ passed: targetSaved, weight: 0.6 });\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "events",
+    "library_lists",
+    "reviews",
+    "books",
+    "blog_posts",
+    "comments",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

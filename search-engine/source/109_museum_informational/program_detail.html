@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='program_detail.css'>
+
+<div class='program-detail-shell' data-component='page-state-manager'>
+    <div id='program-detail-loader' class='program-detail-loader' data-component='program-detail-loader'>
+        <div class='loader-inner'>
+            <div class='loader-spinner' aria-hidden='true'></div>
+            <p class='loader-text'>Loading program details...</p>
+        </div>
+    </div>
+
+    <div id='program-detail-error' class='program-detail-error' data-component='load-error-state-panel' hidden>
+        <h1 class='error-title'>Program could not be loaded</h1>
+        <p id='program-detail-error-message' class='error-message'>We were not able to display this tour or workshop.</p>
+        <div class='error-actions'>
+            <button type='button' class='btn btn-secondary' data-action='retry-load'>Try again</button>
+            <a href='javascript:void(0)' class='link-back' data-action='navigate-back'>Back to Tours &amp; Workshops</a>
+        </div>
+    </div>
+
+    <div id='program-detail-main' class='program-detail-main' hidden>
+        <nav id='breadcrumb-navigation' class='breadcrumb-navigation' aria-label='Breadcrumb' data-component='breadcrumb-navigation'></nav>
+
+        <section id='program-info-panel' class='program-info-panel' data-component='program-info-panel'></section>
+
+        <section id='session-list-section' class='session-list-section'>
+            <div id='session-list' class='session-list' data-component='session-list-selector'></div>
+        </section>
+
+        <section id='participant-selection-form' class='participant-selection-form' data-component='participant-selection-form'></section>
+
+        <div id='booking-validation' class='booking-validation' data-component='booking-validation-controller' aria-live='polite'></div>
+
+        <section id='price-summary-section' class='price-summary-section'>
+            <div id='price-summary-panel' class='price-summary-panel' data-component='price-summary-panel'></div>
+            <div id='booking-actions' class='booking-actions'>
+                <button type='button' id='primary-action-button' class='btn btn-primary' data-component='primary-action-button' data-action='submit-booking' disabled></button>
+                <p id='booking-error-message' class='booking-error-message' aria-live='polite'></p>
+            </div>
+        </section>
+    </div>
+
+    <div id='booking-submit-overlay' class='booking-submit-overlay' data-component='booking-submit-controller' hidden>
+        <div class='booking-submit-message'>
+            <div class='loader-spinner loader-spinner-small' aria-hidden='true'></div>
+            <p>Processing your booking…</p>
+        </div>
+    </div>
+</div>
+
+<script src='business_logic.js'></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var urlParams = new URLSearchParams(window.location.search);
+    var initialProgramId = urlParams.get('id');
+
+    var loaderEl = document.getElementById('program-detail-loader');
+    var errorEl = document.getElementById('program-detail-error');
+    var errorMessageEl = document.getElementById('program-detail-error-message');
+    var mainEl = document.getElementById('program-detail-main');
+
+    var breadcrumbContainer = document.getElementById('breadcrumb-navigation');
+    var programInfoContainer = document.getElementById('program-info-panel');
+    var sessionListContainer = document.getElementById('session-list');
+    var participantFormContainer = document.getElementById('participant-selection-form');
+    var validationContainer = document.getElementById('booking-validation');
+    var priceSummaryContainer = document.getElementById('price-summary-panel');
+    var primaryActionButton = document.getElementById('primary-action-button');
+    var bookingErrorMessageEl = document.getElementById('booking-error-message');
+    var submitOverlayEl = document.getElementById('booking-submit-overlay');
+    var shellEl = document.querySelector('.program-detail-shell');
+
+    if (!shellEl) {
+        return;
+    }
+
+    var state = {
+        programId: initialProgramId,
+        program: null,
+        sessions: [],
+        selectedSessionId: null,
+        participants: {
+            adult: 1,
+            child: 0,
+            senior: 0
+        },
+        groupName: '',
+        validationMessages: [],
+        isReadyToBook: false,
+        isSubmitting: false
+    };
+
+    function escapeHtml(value) {
+        if (value === undefined || value === null) {
+            return '';
+        }
+        var div = document.createElement('div');
+        div.textContent = String(value);
+        return div.innerHTML;
+    }
+
+    function formatLanguage(lang) {
+        if (!lang) return '';
+        if (lang === 'english') return 'English';
+        if (lang === 'french') return 'French';
+        if (lang === 'german') return 'German';
+        if (lang === 'spanish') return 'Spanish';
+        if (lang === 'italian') return 'Italian';
+        return 'Other language';
+    }
+
+    function formatAudienceType(audience) {
+        if (!audience) return '';
+        if (audience === 'general_public') return 'General public';
+        if (audience === 'family_kids') return 'Families and children';
+        if (audience === 'ages_8_12') return 'Ages 8–12';
+        if (audience === 'teens') return 'Teens';
+        if (audience === 'adults_only') return 'Adults only';
+        return '';
+    }
+
+    function formatAgeRange(minAge, maxAge) {
+        if (typeof minAge === 'number' && typeof maxAge === 'number') {
+            return minAge + '+, recommended up to ' + maxAge + ' years';
+        }
+        if (typeof minAge === 'number') {
+            return minAge + ' years and older';
+        }
+        if (typeof maxAge === 'number') {
+            return 'Up to ' + maxAge + ' years';
+        }
+        return '';
+    }
+
+    function formatCurrency(amount, currency) {
+        if (typeof amount !== 'number' || isNaN(amount)) {
+            amount = 0;
+        }
+        var symbol = '';
+        if (currency === 'eur') symbol = '€';
+        else if (currency === 'usd') symbol = '$';
+        else symbol = currency || '';
+        return symbol + ' ' + amount.toFixed(2);
+    }
+
+    function formatSessionDate(dateObj) {
+        if (!dateObj) return '';
+        var opts = { day: 'numeric', month: 'short', year: 'numeric' };
+        try {
+            return dateObj.toLocaleDateString('en-GB', opts);
+        } catch (e) {
+            return dateObj.toDateString();
+        }
+    }
+
+    function formatSessionTime(dateObj) {
+        if (!dateObj) return '';
+        var opts = { hour: '2-digit', minute: '2-digit' };
+        try {
+            return dateObj.toLocaleTimeString('en-GB', opts);
+        } catch (e) {
+            var h = dateObj.getHours();
+            var m = dateObj.getMinutes();
+            var hh = h < 10 ? '0' + h : '' + h;
+            var mm = m < 10 ? '0' + m : '' + m;
+            return hh + ':' + mm;
+        }
+    }
+
+    function evaluateSessionAvailability(session) {
+        var total = typeof session.capacity_total === 'number' ? session.capacity_total : null;
+        var booked = typeof session.capacity_booked === 'number' ? session.capacity_booked : 0;
+        if (total === null) {
+            return { isAvailable: true, isNearCapacity: false, remaining: null };
+        }
+        var remaining = total - booked;
+        if (remaining <= 0) {
+            return { isAvailable: false, isNearCapacity: false, remaining: 0 };
+        }
+        var ratio = total > 0 ? booked / total : 0;
+        var isNear = ratio >= 0.8;
+        return { isAvailable: true, isNearCapacity: isNear, remaining: remaining };
+    }
+
+    function evaluateOverallAvailability(sessions) {
+        if (!sessions || !sessions.length) {
+            return { status: 'none', label: 'No sessions scheduled', detail: '' };
+        }
+        var availableCount = 0;
+        var nearFullCount = 0;
+        sessions.forEach(function(session) {
+            var a = evaluateSessionAvailability(session);
+            if (a.isAvailable) {
+                availableCount += 1;
+                if (a.isNearCapacity) {
+                    nearFullCount += 1;
+                }
+            }
+        });
+        if (!availableCount) {
+            return { status: 'full', label: 'Fully booked', detail: 'No sessions currently available.' };
+        }
+        if (nearFullCount > 0) {
+            return { status: 'limited', label: 'Limited availability', detail: 'Some sessions have only a few places left.' };
+        }
+        return { status: 'available', label: 'Sessions available', detail: '' };
+    }
+
+    function getSelectedSession(stateObj) {
+        if (!stateObj || !stateObj.sessions || !stateObj.sessions.length || !stateObj.selectedSessionId) {
+            return null;
+        }
+        var found = null;
+        stateObj.sessions.forEach(function(session) {
+            if (session.id === stateObj.selectedSessionId) {
+                found = session;
+            }
+        });
+        return found;
+    }
+
+    function showLoader() {
+        if (loaderEl) loaderEl.hidden = false;
+        if (errorEl) errorEl.hidden = true;
+        if (mainEl) mainEl.hidden = true;
+        if (submitOverlayEl) submitOverlayEl.hidden = true;
+    }
+
+    function showError(message) {
+        if (loaderEl) loaderEl.hidden = false;
+        if (loaderEl) loaderEl.hidden = true;
+        if (errorEl) {
+            errorEl.hidden = false;
+        }
+        if (errorMessageEl && message) {
+            errorMessageEl.textContent = message;
+        }
+        if (mainEl) mainEl.hidden = true;
+        if (submitOverlayEl) submitOverlayEl.hidden = true;
+    }
+
+    function showMain() {
+        if (loaderEl) loaderEl.hidden = true;
+        if (errorEl) errorEl.hidden = true;
+        if (mainEl) mainEl.hidden = false;
+    }
+
+    function renderBreadcrumb(container, stateObj) {
+        var program = stateObj.program || {};
+        var title = program.title || 'Program detail';
+        container.innerHTML = (
+            "" +
+            '<div class=' + '"' + 'breadcrumb-line' + '"' + '>'
+        );
+    }
+
+    // The above attempt uses double quotes and breaks JSON; re-implement renderBreadcrumb without any double quotes inside the string.
+});
+</script>

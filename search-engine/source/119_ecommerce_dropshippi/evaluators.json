@@ -1,0 +1,105 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Store Setup Shipping Policy Template Share URL Evaluator",
+      "description": "Checks if the user copied the share URL of the most popular 'shipping policy template' article in the Store setup category.",
+      "localStorage_variables": [
+        "task1_shareUrlCopy",
+        "help_articles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Load instrumentation and articles\nlet copy = null;\ntry {\n  const raw = localStorage.getItem('task1_shareUrlCopy');\n  copy = raw ? JSON.parse(raw) : null;\n} catch (e) {\n  copy = null;\n}\nconst articles = JSON.parse(localStorage.getItem('help_articles') || '[]');\n\n// Helper: does article match 'shipping policy template' topic?\nconst matchesTopic = (article) => {\n  const keyword = 'shipping policy template';\n  const parts = [];\n  if (article.title) parts.push(article.title);\n  if (article.summary) parts.push(article.summary);\n  if (article.content) parts.push(article.content);\n  if (Array.isArray(article.search_keywords)) parts.push(article.search_keywords.join(' '));\n  const haystack = parts.join(' ').toLowerCase();\n  return haystack.indexOf(keyword) !== -1;\n};\n\n// Find candidate articles in Store setup that match the topic\nconst candidates = articles.filter(a => a && a.category_id === 'store_setup' && matchesTopic(a));\nlet topArticle = null;\nif (candidates.length > 0) {\n  topArticle = candidates\n    .slice()\n    .sort((a, b) => (b.popularity_score || 0) - (a.popularity_score || 0))[0];\n}\n\nconst copiedArticle = copy ? articles.find(a => a && a.id === copy.article_id) : null;\n\n// CP1 (0.40): Copied share URL for a Store setup article that matches the shipping policy template topic and uses the correct share URL.\nconst cp1Passed = !!(\n  copy &&\n  copy.success === true &&\n  copiedArticle &&\n  copiedArticle.category_id === 'store_setup' &&\n  matchesTopic(copiedArticle) &&\n  copiedArticle.has_share_link &&\n  typeof copy.share_url === 'string' &&\n  copy.share_url &&\n  copy.share_url === (copiedArticle.share_url || copiedArticle.url || '')\n);\ncheckpoints.push({ passed: cp1Passed, weight: 0.40 });\n\n// CP2 (0.60): The copied article is the most popular among all qualifying Store setup shipping policy template articles.\nconst cp2Passed = !!(\n  cp1Passed &&\n  topArticle &&\n  copiedArticle &&\n  topArticle.id === copiedArticle.id\n);\ncheckpoints.push({ passed: cp2Passed, weight: 0.60 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Fastest US Carrier Under $10 for ≤2 kg Evaluator",
+      "description": "Checks if the user used the carrier comparison with correct filters, selected the fastest qualifying US option under $10 for up to 2 kg, and viewed its setup instructions.",
+      "localStorage_variables": [
+        "task2_lastComparison",
+        "task2_selectedCarrierOptionId",
+        "carrier_options",
+        "carriers",
+        "help_articles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Load instrumentation\nlet lastComparison = null;\ntry {\n  const raw = localStorage.getItem('task2_lastComparison');\n  lastComparison = raw ? JSON.parse(raw) : null;\n} catch (e) {\n  lastComparison = null;\n}\nconst selectedId = localStorage.getItem('task2_selectedCarrierOptionId') || null;\n\n// Load data\nconst articles = JSON.parse(localStorage.getItem('help_articles') || '[]');\nconst allOptions = JSON.parse(localStorage.getItem('carrier_options') || '[]');\nconst carriers = JSON.parse(localStorage.getItem('carriers') || '[]');\n\n// Find the carrier comparison article dynamically\nconst comparisonArticle = articles.find(a => a && a.has_carrier_comparison);\n\n// Build carrier index\nconst carrierIndex = {};\ncarriers.forEach(c => { if (c && c.id) carrierIndex[c.id] = c; });\n\n// Determine filtered options based on the recorded comparison filters\nlet filteredOptions = [];\nif (comparisonArticle && lastComparison) {\n  const regionCode = lastComparison.regionCode;\n  const minWeightKg = typeof lastComparison.minWeightKg === 'number' ? lastComparison.minWeightKg : null;\n  const maxWeightKg = typeof lastComparison.maxWeightKg === 'number' ? lastComparison.maxWeightKg : null;\n  const maxCostUsd = typeof lastComparison.maxCostUsd === 'number' ? lastComparison.maxCostUsd : null;\n\n  filteredOptions = allOptions.filter(o => {\n    if (!o || !o.is_active) return false;\n    if (o.article_id !== comparisonArticle.id) return false;\n    if (regionCode && o.region_code !== regionCode) return false;\n    // Weight overlap logic matches BusinessLogic\n    const minW = o.min_weight_kg;\n    const maxW = o.max_weight_kg;\n    const minCheck = (typeof minWeightKg === 'number') ? (maxW >= minWeightKg) : true;\n    const maxCheck = (typeof maxWeightKg === 'number') ? (minW <= maxWeightKg) : true;\n    if (!minCheck || !maxCheck) return false;\n    if (typeof maxCostUsd === 'number' && o.price_usd > maxCostUsd) return false;\n    // Require an active carrier record\n    const carrier = carrierIndex[o.carrier_id];\n    if (!carrier || carrier.is_active === false) return false;\n    return true;\n  });\n\n  // Sort as in getCarrierComparisonOptions for delivery_time_asc\n  filteredOptions.sort((a, b) => {\n    if (a.delivery_time_min_days !== b.delivery_time_min_days) {\n      return a.delivery_time_min_days - b.delivery_time_min_days;\n    }\n    return a.price_usd - b.price_usd;\n  });\n}\n\nconst fastestOption = filteredOptions.length > 0 ? filteredOptions[0] : null;\n\n// CP1 (0.35): User ran a comparison on the carrier comparison article with correct filters for US, ≤2 kg, under $10, sorted by fastest delivery, and the first option matches the computed fastest option.\nconst cp1Passed = !!(\n  comparisonArticle &&\n  lastComparison &&\n  lastComparison.article_id === comparisonArticle.id &&\n  lastComparison.regionCode === 'united_states' &&\n  typeof lastComparison.maxWeightKg === 'number' && lastComparison.maxWeightKg <= 2.0001 &&\n  typeof lastComparison.maxCostUsd === 'number' && lastComparison.maxCostUsd <= 10.0001 &&\n  lastComparison.sortBy === 'delivery_time_asc' &&\n  fastestOption &&\n  lastComparison.first_option_id === fastestOption.id\n);\ncheckpoints.push({ passed: cp1Passed, weight: 0.35 });\n\n// CP2 (0.35): User selected the same carrier option as the fastest qualifying option returned by the comparison.\nconst selectedOption = fastestOption && selectedId ? filteredOptions.find(o => o.id === selectedId) : null;\nconst cp2Passed = !!(\n  cp1Passed &&\n  selectedOption &&\n  selectedId === lastComparison.first_option_id &&\n  selectedId === fastestOption.id\n);\ncheckpoints.push({ passed: cp2Passed, weight: 0.35 });\n\n// CP3 (0.30): The selected carrier option has active carrier setup instructions available (indicating the user could view setup).\nlet cp3Passed = false;\nif (cp2Passed && selectedOption) {\n  const carrier = carrierIndex[selectedOption.carrier_id];\n  const setupArticle = carrier && carrier.setup_article_id\n    ? articles.find(a => a && a.id === carrier.setup_article_id)\n    : null;\n  cp3Passed = !!(carrier && carrier.is_active !== false && setupArticle);\n}\ncheckpoints.push({ passed: cp3Passed, weight: 0.30 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Shopify Integration Video Start Evaluator",
+      "description": "Checks if the user started a video under 10 minutes from a Shopify integration article in the Store Integrations category.",
+      "localStorage_variables": [
+        "task3_lastVideoStart",
+        "article_videos",
+        "help_articles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Load instrumentation\nlet lastVideoStart = null;\ntry {\n  const raw = localStorage.getItem('task3_lastVideoStart');\n  lastVideoStart = raw ? JSON.parse(raw) : null;\n} catch (e) {\n  lastVideoStart = null;\n}\n\nconst videos = JSON.parse(localStorage.getItem('article_videos') || '[]');\nconst articles = JSON.parse(localStorage.getItem('help_articles') || '[]');\n\nconst video = lastVideoStart ? videos.find(v => v && v.id === lastVideoStart.video_id) : null;\nconst article = lastVideoStart ? articles.find(a => a && a.id === lastVideoStart.article_id) : null;\n\n// CP1 (0.40): Video start event is tied to a Shopify integration article in the Store Integrations category that has a video tutorial.\nconst cp1Passed = !!(\n  lastVideoStart &&\n  article &&\n  article.category_id === 'store_integrations' &&\n  article.integration_platform === 'shopify' &&\n  article.has_video_tutorial &&\n  video &&\n  video.article_id === article.id\n);\ncheckpoints.push({ passed: cp1Passed, weight: 0.40 });\n\n// CP2 (0.60): The started video exists, is under or equal to 600 seconds, and the recorded duration matches the stored metadata.\nconst cp2Passed = !!(\n  cp1Passed &&\n  typeof video.duration_seconds === 'number' &&\n  video.duration_seconds <= 600 &&\n  typeof lastVideoStart.duration_seconds === 'number' &&\n  lastVideoStart.duration_seconds === video.duration_seconds\n);\ncheckpoints.push({ passed: cp2Passed, weight: 0.60 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Billing Downgrade Request Evaluator",
+      "description": "Checks if the user submitted a billing support request to downgrade from Pro to Basic with a $30/month maximum budget, using the Manage Subscriptions and Plan Changes article.",
+      "localStorage_variables": [
+        "support_requests",
+        "help_articles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst supportRequests = JSON.parse(localStorage.getItem('support_requests') || '[]');\nconst articles = JSON.parse(localStorage.getItem('help_articles') || '[]');\n\n// Find the billing article that links to the support form (plan changes guide)\nconst planArticle = articles.find(a => a && a.category_id === 'billing_subscriptions' && a.contains_support_form_link);\n\nlet candidateRequests = [];\nif (planArticle) {\n  candidateRequests = supportRequests.filter(r => (\n    r &&\n    r.source_article_id === planArticle.id &&\n    r.category === 'billing_subscriptions' &&\n    r.topic === 'downgrade_to_basic_plan'\n  ));\n}\n\n// CP1 (0.40): At least one support request is submitted from the plan changes article with correct category and topic.\nconst cp1Passed = candidateRequests.length > 0;\ncheckpoints.push({ passed: cp1Passed, weight: 0.40 });\n\n// CP2 (0.60): The request message includes both required phrases about downgrading from Pro to Basic and the $30/month budget.\nconst phrase1 = 'downgrade from pro to basic';\nconst phrase2 = 'maximum budget is $30/month';\nconst cp2Passed = candidateRequests.some(r => {\n  const text = ((r.subject || '') + ' ' + (r.message || '')).toLowerCase();\n  return text.indexOf(phrase1) !== -1 && text.indexOf(phrase2) !== -1;\n});\ncheckpoints.push({ passed: cp2Passed, weight: 0.60 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Auto-Cancel Unfulfilled Orders After 7 Days Evaluator",
+      "description": "Checks if order automation settings were updated so that auto-cancellation of unfulfilled orders is enabled after 7 days, with changes applied after the baseline date.",
+      "localStorage_variables": [
+        "order_automation_settings",
+        "_metadata"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Load settings (may be stored as array or single object)\nlet settings = null;\ntry {\n  const raw = localStorage.getItem('order_automation_settings');\n  if (raw && raw !== 'null') {\n    const parsed = JSON.parse(raw);\n    if (Array.isArray(parsed)) {\n      settings = parsed.length > 0 ? parsed[parsed.length - 1] : null;\n    } else {\n      settings = parsed;\n    }\n  }\n} catch (e) {\n  settings = null;\n}\n\n// Load baseline date if available\nlet baselineTime = null;\ntry {\n  const mdRaw = localStorage.getItem('_metadata');\n  const md = mdRaw ? JSON.parse(mdRaw) : null;\n  if (md && md.baselineDate) {\n    const t = Date.parse(md.baselineDate);\n    if (!isNaN(t)) baselineTime = t;\n  }\n} catch (e) {\n  baselineTime = baselineTime; // ignore\n}\n\nlet updatedTime = null;\nif (settings && settings.updated_at) {\n  const t = Date.parse(settings.updated_at);\n  if (!isNaN(t)) updatedTime = t;\n} else if (settings && settings.created_at) {\n  const t = Date.parse(settings.created_at);\n  if (!isNaN(t)) updatedTime = t;\n}\n\nconst meetsConfig = !!(settings && settings.auto_cancel_unfulfilled_enabled === true && settings.auto_cancel_after_days === 7);\nlet afterBaseline = true;\nif (baselineTime != null) {\n  afterBaseline = !!(updatedTime != null && updatedTime >= baselineTime);\n}\n\n// CP1 (1.00): Auto-cancel is enabled with a 7-day limit, and the setting was last updated on or after the baseline date (when available).\nconst cp1Passed = meetsConfig && afterBaseline;\ncheckpoints.push({ passed: cp1Passed, weight: 1.00 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Defective Item Return Canned Response Creation Evaluator",
+      "description": "Checks if the user created a canned response 'Defective item return - template A' in the 'Returns & refunds' folder from the defective-item template and replaced the discount placeholder with '10% discount'.",
+      "localStorage_variables": [
+        "canned_responses",
+        "article_template_snippets",
+        "_metadata"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst canned = JSON.parse(localStorage.getItem('canned_responses') || '[]');\nconst snippets = JSON.parse(localStorage.getItem('article_template_snippets') || '[]');\n\n// Baseline date\nlet baselineTime = null;\ntry {\n  const mdRaw = localStorage.getItem('_metadata');\n  const md = mdRaw ? JSON.parse(mdRaw) : null;\n  if (md && md.baselineDate) {\n    const t = Date.parse(md.baselineDate);\n    if (!isNaN(t)) baselineTime = t;\n  }\n} catch (e) {\n  baselineTime = baselineTime; // ignore\n}\n\n// Identify defective-item return template snippet IDs\nconst defectiveSnippetIds = snippets\n  .filter(s => s && s.snippet_type === 'defective_item_return')\n  .map(s => s.id);\n\n// Candidate canned responses created from the defective template with correct title/folder\nlet candidates = canned.filter(r => (\n  r &&\n  r.title === 'Defective item return - template A' &&\n  r.folder === 'Returns & refunds' &&\n  defectiveSnippetIds.indexOf(r.source_template_snippet_id || '') !== -1\n));\n\n// Only consider responses created/updated on or after the baseline date (if available)\nif (baselineTime != null) {\n  candidates = candidates.filter(r => {\n    const tsStr = r.updated_at || r.created_at || '';\n    const t = Date.parse(tsStr);\n    return !isNaN(t) && t >= baselineTime;\n  });\n}\n\n// CP1 (0.60): A qualifying canned response from the defective-item template exists in the 'Returns & refunds' folder with the correct title, created after the baseline date.\nconst cp1Passed = candidates.length > 0;\ncheckpoints.push({ passed: cp1Passed, weight: 0.60 });\n\n// CP2 (0.40): Its body contains '10% discount' and no remaining [DISCOUNT] placeholder.\nconst cp2Passed = candidates.some(r => {\n  const body = r.body || '';\n  const lower = body.toLowerCase();\n  const hasDiscount = lower.indexOf('10% discount') !== -1;\n  const hasPlaceholder = body.indexOf('[DISCOUNT]') !== -1;\n  return hasDiscount && !hasPlaceholder;\n});\ncheckpoints.push({ passed: cp2Passed, weight: 0.40 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "SYNC_409 Product Feed Incident Report Evaluator",
+      "description": "Checks if the user submitted an incident report for a Product Sync incident describing SYNC_409 product feed update issues with medium severity.",
+      "localStorage_variables": [
+        "incident_reports",
+        "status_incidents",
+        "status_services"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst incidentReports = JSON.parse(localStorage.getItem('incident_reports') || '[]');\nconst incidents = JSON.parse(localStorage.getItem('status_incidents') || '[]');\nconst services = JSON.parse(localStorage.getItem('status_services') || '[]');\n\n// Find Product Sync service IDs\nconst productSyncServiceIds = services\n  .filter(s => s && s.slug === 'product_sync')\n  .map(s => s.id);\n\n// Incidents that affect Product Sync\nconst productSyncIncidentIds = incidents\n  .filter(inc => inc && Array.isArray(inc.affected_service_ids) && inc.affected_service_ids.some(id => productSyncServiceIds.indexOf(id) !== -1))\n  .map(inc => inc.id);\n\n// Reports tied to Product Sync incidents\nconst relevantReports = incidentReports.filter(r => r && productSyncIncidentIds.indexOf(r.incident_id) !== -1);\n\n// CP1 (0.40): At least one report is tied to a Product Sync incident with medium severity.\nconst cp1Passed = relevantReports.some(r => r.severity === 'medium');\ncheckpoints.push({ passed: cp1Passed, weight: 0.40 });\n\n// CP2 (0.60): The report subject and description include the required SYNC_409 phrases with medium severity.\nconst subjPhrase = 'sync_409 product feed not updating';\nconst descPhrase = 'sync_409 error for product feed updates';\nconst cp2Passed = relevantReports.some(r => {\n  if (r.severity !== 'medium') return false;\n  const subject = (r.subject || '').toLowerCase();\n  const desc = (r.description || '').toLowerCase();\n  return subject.indexOf(subjPhrase) !== -1 && desc.indexOf(descPhrase) !== -1;\n});\ncheckpoints.push({ passed: cp2Passed, weight: 0.60 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Weekly Payouts with $100 USD Threshold Evaluator",
+      "description": "Checks if payout settings were updated to weekly frequency with a $100 minimum payout amount in USD, after the baseline date.",
+      "localStorage_variables": [
+        "payout_settings",
+        "_metadata"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Load settings (may be array or single object)\nlet settings = null;\ntry {\n  const raw = localStorage.getItem('payout_settings');\n  if (raw && raw !== 'null') {\n    const parsed = JSON.parse(raw);\n    if (Array.isArray(parsed)) {\n      settings = parsed.length > 0 ? parsed[parsed.length - 1] : null;\n    } else {\n      settings = parsed;\n    }\n  }\n} catch (e) {\n  settings = null;\n}\n\n// Load baseline date\nlet baselineTime = null;\ntry {\n  const mdRaw = localStorage.getItem('_metadata');\n  const md = mdRaw ? JSON.parse(mdRaw) : null;\n  if (md && md.baselineDate) {\n    const t = Date.parse(md.baselineDate);\n    if (!isNaN(t)) baselineTime = t;\n  }\n} catch (e) {\n  baselineTime = baselineTime; // ignore\n}\n\nlet updatedTime = null;\nif (settings && settings.updated_at) {\n  const t = Date.parse(settings.updated_at);\n  if (!isNaN(t)) updatedTime = t;\n} else if (settings && settings.created_at) {\n  const t = Date.parse(settings.created_at);\n  if (!isNaN(t)) updatedTime = t;\n}\n\nconst meetsConfig = !!(settings && settings.payout_frequency === 'weekly' && settings.minimum_payout_amount === 100 && settings.currency === 'usd');\nlet afterBaseline = true;\nif (baselineTime != null) {\n  afterBaseline = !!(updatedTime != null && updatedTime >= baselineTime);\n}\n\n// CP1 (1.00): Payouts are set to weekly with a $100 USD threshold, and the settings were updated on or after the baseline date (when available).\nconst cp1Passed = meetsConfig && afterBaseline;\ncheckpoints.push({ passed: cp1Passed, weight: 1.00 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "carriers",
+    "help_categories",
+    "order_automation_settings",
+    "payout_settings",
+    "status_services",
+    "status_incidents",
+    "carrier_options",
+    "article_template_snippets",
+    "canned_responses",
+    "article_videos",
+    "help_articles",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

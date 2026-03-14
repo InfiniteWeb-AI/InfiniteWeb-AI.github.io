@@ -1,0 +1,99 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Start Cheapest Qualifying 14-Day Meal-Plan Trial Evaluator",
+      "description": "Checks that the user started a trial for the cheapest subscription plan priced $15–$25/month that includes meal plans and a 14-day free trial, and completed the signup with the correct name, email, and fitness goal.",
+      "localStorage_variables": [
+        "subscription_plans",
+        "trial_signups"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst plans = JSON.parse(localStorage.getItem('subscription_plans') || '[]');\nconst signups = JSON.parse(localStorage.getItem('trial_signups') || '[]');\n\n// Find all plans that match the price, meal plan, and 14-day trial criteria\nconst qualifyingPlans = plans.filter(p => {\n  return p && p.status === 'active' &&\n    typeof p.baseMonthlyPrice === 'number' && p.baseMonthlyPrice >= 15 && p.baseMonthlyPrice <= 25 &&\n    !!p.includesMealPlans &&\n    !!p.trialAvailable &&\n    typeof p.trialDurationDays === 'number' && p.trialDurationDays === 14;\n});\n\n// Determine the cheapest qualifying plan by baseMonthlyPrice\nlet cheapestPlan = null;\nif (qualifyingPlans.length > 0) {\n  cheapestPlan = qualifyingPlans.reduce((min, p) => {\n    if (!min) return p;\n    return (p.baseMonthlyPrice < min.baseMonthlyPrice) ? p : min;\n  }, null);\n}\n\n// All trial signups where the plan itself matches the criteria\nconst signupsOnQualifyingPlans = signups.filter(s => {\n  const plan = qualifyingPlans.find(p => p.id === s.planId);\n  return !!plan;\n});\n\n// CP1 (0.30): User submitted at least one trial signup for a plan that meets the price + meal plan + 14-day trial criteria\ncheckpoints.push({\n  passed: signupsOnQualifyingPlans.length > 0,\n  weight: 0.30\n});\n\n// CP2 (0.30): User submitted at least one trial signup for the CHEAPEST qualifying plan\nlet signupsOnCheapest = [];\nif (cheapestPlan) {\n  signupsOnCheapest = signups.filter(s => s.planId === cheapestPlan.id);\n}\ncheckpoints.push({\n  passed: !!cheapestPlan && signupsOnCheapest.length > 0,\n  weight: 0.30\n});\n\n// CP3 (0.40): For the cheapest qualifying plan, there is a signup with the correct name, email, and fitness goal\nconst correctSignup = signupsOnCheapest.find(s =>\n  s.fullName === 'Alex Trial' &&\n  s.email === 'alex.trial@example.com' &&\n  s.primaryFitnessGoal === 'lose_weight'\n);\ncheckpoints.push({\n  passed: !!correctSignup,\n  weight: 0.40\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Save Beginner No-Equipment Home Plan (≥3 Sessions) Evaluator",
+      "description": "Checks that the user searched workouts with beginner, no-equipment, home filters and saved at least one matching plan with at least 3 sessions per week.",
+      "localStorage_variables": [
+        "task2_filterParams",
+        "workout_plans",
+        "saved_workout_plans"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Instrumented search filters\nlet filterParams = null;\ntry {\n  filterParams = JSON.parse(localStorage.getItem('task2_filterParams') || 'null');\n} catch (e) {\n  filterParams = null;\n}\n\nconst plans = JSON.parse(localStorage.getItem('workout_plans') || '[]');\nconst saved = JSON.parse(localStorage.getItem('saved_workout_plans') || '[]');\n\n// CP1 (0.50): User used filters that include beginner level, no_equipment, home, and minSessionsPerWeek ≥ 3\nlet usedCorrectFilters = false;\nif (filterParams && typeof filterParams === 'object') {\n  const levels = Array.isArray(filterParams.levels) ? filterParams.levels : [];\n  const equipments = Array.isArray(filterParams.equipments) ? filterParams.equipments : [];\n  const locations = Array.isArray(filterParams.locations) ? filterParams.locations : [];\n  const minSessions = typeof filterParams.minSessionsPerWeek === 'number' ? filterParams.minSessionsPerWeek : null;\n\n  usedCorrectFilters =\n    levels.includes('beginner') &&\n    equipments.includes('no_equipment') &&\n    locations.includes('home') &&\n    minSessions !== null && minSessions >= 3;\n}\ncheckpoints.push({\n  passed: usedCorrectFilters,\n  weight: 0.50\n});\n\n// CP2 (0.50): User saved at least one workout plan that is beginner, no_equipment, home, with ≥3 sessions/week\nconst qualifyingSaved = saved.filter(s => {\n  const plan = plans.find(p => p.id === s.workoutPlanId);\n  if (!plan) return false;\n  return plan.status === 'active' &&\n    plan.level === 'beginner' &&\n    plan.equipment === 'no_equipment' &&\n    plan.location === 'home' &&\n    typeof plan.sessionsPerWeek === 'number' && plan.sessionsPerWeek >= 3;\n});\n\ncheckpoints.push({\n  passed: qualifyingSaved.length > 0,\n  weight: 0.50\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Weekly Planner Strength/Cardio/Yoga Under 45 Evaluator",
+      "description": "Checks that in the week labeled 'Mon 4 – Sun 10' the user scheduled a ≤45 min strength session on Monday, cardio on Wednesday, and yoga on Friday.",
+      "localStorage_variables": [
+        "planner_weeks",
+        "weekly_workout_entries",
+        "workout_session_templates"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst weeks = JSON.parse(localStorage.getItem('planner_weeks') || '[]');\nconst entries = JSON.parse(localStorage.getItem('weekly_workout_entries') || '[]');\nconst templates = JSON.parse(localStorage.getItem('workout_session_templates') || '[]');\n\n// Find the planner week whose label contains 'Mon 4' and 'Sun 10'\nconst targetWeek = weeks.find(w => {\n  const label = w.weekLabel || '';\n  return label.indexOf('Mon 4') !== -1 && label.indexOf('Sun 10') !== -1;\n});\n\nlet monQualified = false;\nlet wedQualified = false;\nlet friQualified = false;\n\nif (targetWeek) {\n  const weekEntries = entries.filter(e => e.plannerWeekId === targetWeek.id);\n\n  const hasQualified = (dayKey, category) => {\n    return weekEntries.some(e => {\n      if (e.dayOfWeek !== dayKey) return false;\n      const tmpl = templates.find(t => t.id === e.workoutSessionTemplateId);\n      if (!tmpl || tmpl.status !== 'active') return false;\n      const dur = typeof tmpl.durationMinutes === 'number' ? tmpl.durationMinutes : null;\n      return tmpl.category === category && dur !== null && dur <= 45;\n    });\n  };\n\n  monQualified = hasQualified('mon', 'strength');\n  wedQualified = hasQualified('wed', 'cardio');\n  friQualified = hasQualified('fri', 'yoga');\n}\n\n// CP1 (0.20): Monday has a ≤45 min strength session\ncheckpoints.push({ passed: monQualified, weight: 0.20 });\n\n// CP2 (0.20): Wednesday has a ≤45 min cardio session\ncheckpoints.push({ passed: wedQualified, weight: 0.20 });\n\n// CP3 (0.20): Friday has a ≤45 min yoga session\ncheckpoints.push({ passed: friQualified, weight: 0.20 });\n\n// CP4 (0.40): All three (Mon strength, Wed cardio, Fri yoga) are present\ncheckpoints.push({ passed: monQualified && wedQualified && friQualified, weight: 0.40 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Calorie Calculation and Email Plan Evaluator",
+      "description": "Checks that the user calculated calories for a 30-year-old, 65 kg, 170 cm female, moderately active, with goal to lose 0.5 kg/week, and then emailed that plan to the specified address.",
+      "localStorage_variables": [
+        "calorie_calculations",
+        "email_plan_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst calcs = JSON.parse(localStorage.getItem('calorie_calculations') || '[]');\nconst emailReqs = JSON.parse(localStorage.getItem('email_plan_requests') || '[]');\n\n// All calculations that match the required input parameters\nconst targetCalcs = calcs.filter(c =>\n  c.age === 30 &&\n  c.weightKg === 65 &&\n  c.heightCm === 170 &&\n  c.gender === 'female' &&\n  c.activityLevel === 'moderately_active' &&\n  c.goal === 'lose_0_5_kg_per_week'\n);\n\n// CP1 (0.50): User performed at least one calorie calculation with the exact required parameters\ncheckpoints.push({\n  passed: targetCalcs.length > 0,\n  weight: 0.50\n});\n\n// CP2 (0.50): There is an email plan request referencing one of these calculations, sent to the correct email\nlet hasCorrectEmail = false;\nif (targetCalcs.length > 0) {\n  const targetIds = targetCalcs.map(c => c.id);\n  hasCorrectEmail = emailReqs.some(r =>\n    r.status === 'sent' &&\n    r.email === 'cal.plan@example.com' &&\n    targetIds.includes(r.calorieCalculationId)\n  );\n}\n\ncheckpoints.push({\n  passed: hasCorrectEmail,\n  weight: 0.50\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Select Annual Plan Under $40 with Max 1:1 Coaching Evaluator",
+      "description": "Checks that the user started checkout on an annual plan whose effective monthly cost is ≤$40 and that has the highest number of 1:1 coaching sessions per month among such plans.",
+      "localStorage_variables": [
+        "subscription_plans",
+        "checkout_sessions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst plans = JSON.parse(localStorage.getItem('subscription_plans') || '[]');\nconst sessions = JSON.parse(localStorage.getItem('checkout_sessions') || '[]');\n\n// All active plans with annual effective monthly price ≤ 40\nconst qualifyingPlans = plans.filter(p =>\n  p && p.status === 'active' &&\n  typeof p.annualEffectiveMonthlyPrice === 'number' &&\n  p.annualEffectiveMonthlyPrice <= 40\n);\n\n// Determine the maximum number of 1:1 sessions among qualifying plans\nlet maxSessions = null;\nqualifyingPlans.forEach(p => {\n  const val = typeof p.oneOnOneSessionsPerMonth === 'number' ? p.oneOnOneSessionsPerMonth : 0;\n  if (maxSessions === null || val > maxSessions) {\n    maxSessions = val;\n  }\n});\n\nconst optimalPlanIds = qualifyingPlans\n  .filter(p => typeof p.oneOnOneSessionsPerMonth === 'number' && p.oneOnOneSessionsPerMonth === maxSessions)\n  .map(p => p.id);\n\n// All checkout sessions that are annual and meet the ≤$40/month constraint\nconst annualSessionsUnder40 = sessions.filter(s =>\n  s && s.billingPeriod === 'annual' &&\n  typeof s.equivalentMonthlyPrice === 'number' && s.equivalentMonthlyPrice <= 40\n);\n\n// CP1 (0.40): User initiated checkout for at least one annual plan under $40/month\ncheckpoints.push({\n  passed: annualSessionsUnder40.length > 0,\n  weight: 0.40\n});\n\n// CP2 (0.60): At least one such annual checkout session uses a plan with the maximum 1:1 sessions within the price constraint\nconst hasOptimal = annualSessionsUnder40.some(s => optimalPlanIds.includes(s.planId));\ncheckpoints.push({\n  passed: optimalPlanIds.length > 0 && hasOptimal,\n  weight: 0.60\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Book Qualifying Evening Live Class for Tomorrow Evaluator",
+      "description": "Checks that the user searched tomorrow’s live classes with a 6–10 PM, ≤45 min, ≥4.5 rating filter and booked a matching class under their name.",
+      "localStorage_variables": [
+        "task6_searchParams",
+        "live_classes",
+        "live_class_bookings"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Helper to convert HH:MM to minutes\nconst timeStringToMinutes = (t) => {\n  if (!t || typeof t !== 'string') return null;\n  const parts = t.split(':');\n  if (parts.length < 2) return null;\n  const h = parseInt(parts[0], 10);\n  const m = parseInt(parts[1], 10);\n  if (isNaN(h) || isNaN(m)) return null;\n  return h * 60 + m;\n};\n\nlet searchParams = null;\ntry {\n  searchParams = JSON.parse(localStorage.getItem('task6_searchParams') || 'null');\n} catch (e) {\n  searchParams = null;\n}\n\nconst classes = JSON.parse(localStorage.getItem('live_classes') || '[]');\nconst bookings = JSON.parse(localStorage.getItem('live_class_bookings') || '[]');\n\n// With system date 2026-03-03, tomorrow is 2026-03-04\nconst expectedDate = '2026-03-04';\n\n// CP1 (0.40): User searched with date=tomorrow and filters for 18:00–22:00, maxDurationMinutes ≤45, minRating ≥4.5\nlet usedCorrectSearch = false;\nif (searchParams && typeof searchParams === 'object') {\n  const dateStr = (searchParams.date || '').substring(0, 10);\n  const filters = searchParams.filters || {};\n  const range = filters.startTimeRange || {};\n  const maxDur = filters.maxDurationMinutes;\n  const minRating = filters.minRating;\n\n  usedCorrectSearch =\n    dateStr === expectedDate &&\n    range.fromTime === '18:00' &&\n    range.toTime === '22:00' &&\n    typeof maxDur === 'number' && maxDur <= 45 &&\n    typeof minRating === 'number' && minRating >= 4.5;\n}\ncheckpoints.push({\n  passed: usedCorrectSearch,\n  weight: 0.40\n});\n\n// Determine which classes truly match the criteria\nconst qualifyingClasses = classes.filter(c => {\n  if (!c || c.status !== 'scheduled') return false;\n  const classDate = (c.date || '').substring(0, 10) || (c.startDateTime || '').substring(0, 10);\n  if (classDate !== expectedDate) return false;\n\n  const startIso = c.startDateTime;\n  const timePart = startIso && typeof startIso === 'string' && startIso.indexOf('T') !== -1\n    ? startIso.split('T')[1].substring(0, 5)\n    : null;\n  const startMinutes = timeStringToMinutes(timePart);\n  const fromMinutes = timeStringToMinutes('18:00');\n  const toMinutes = timeStringToMinutes('22:00');\n  if (startMinutes === null || fromMinutes === null || toMinutes === null) return false;\n  if (startMinutes < fromMinutes || startMinutes > toMinutes) return false;\n\n  if (typeof c.durationMinutes === 'number' && c.durationMinutes > 45) return false;\n  if (typeof c.rating === 'number' && c.rating < 4.5) return false;\n  return true;\n});\n\nconst qualifyingIds = qualifyingClasses.map(c => c.id);\n\n// CP2 (0.60): User booked at least one of these qualifying classes with the attendee name 'Sam Evening'\nconst qualifyingBookings = bookings.filter(b =>\n  qualifyingIds.includes(b.liveClassId) &&\n  b.attendeeName === 'Sam Evening'\n);\n\ncheckpoints.push({\n  passed: qualifyingBookings.length > 0,\n  weight: 0.60\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Newsletter Strength & Mobility 3x/Week Evaluator",
+      "description": "Checks that the user subscribed with the given email and name, chose strength and mobility/flexibility focus areas, set frequency to 3 times per week, and enabled only training tips & workout reminders.",
+      "localStorage_variables": [
+        "newsletter_subscriptions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst subs = JSON.parse(localStorage.getItem('newsletter_subscriptions') || '[]');\n\n// All subscriptions with the correct email and first name\nconst subsEmailName = subs.filter(s =>\n  s.email === 'strength.mobility@example.com' &&\n  s.firstName === 'Jordan'\n);\n\n// CP1 (0.40): There is a subscription with the correct email and first name\ncheckpoints.push({\n  passed: subsEmailName.length > 0,\n  weight: 0.40\n});\n\n// CP2 (0.30): Among those, at least one has focusAreas including strength and mobility_flexibility and frequency three_times_per_week\nconst subsFocusFreq = subsEmailName.filter(s => {\n  const focus = Array.isArray(s.focusAreas) ? s.focusAreas : [];\n  const hasStrength = focus.includes('strength');\n  const hasMobility = focus.includes('mobility_flexibility');\n  return hasStrength && hasMobility && s.emailFrequency === 'three_times_per_week';\n});\n\ncheckpoints.push({\n  passed: subsFocusFreq.length > 0,\n  weight: 0.30\n});\n\n// CP3 (0.30): Among those, at least one has ONLY 'training_tips_workout_reminders' enabled as notificationTopics\nconst subsTopicsCorrect = subsFocusFreq.filter(s => {\n  const topics = Array.isArray(s.notificationTopics) ? s.notificationTopics : [];\n  const allowed = 'training_tips_workout_reminders';\n  if (!topics.includes(allowed)) return false;\n  // Ensure no disallowed topics like promotions or product_updates are enabled\n  const disallowed = ['promotions', 'product_updates'];\n  const hasDisallowed = topics.some(t => disallowed.includes(t));\n  return !hasDisallowed && topics.every(t => t === allowed);\n});\n\ncheckpoints.push({\n  passed: subsTopicsCorrect.length > 0,\n  weight: 0.30\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Pause Membership FAQ and Chat Question Evaluator",
+      "description": "Checks that the user searched the FAQ for pausing membership and then, from the FAQ chat widget, asked whether they can pause for 2 weeks starting next Monday without losing progress data.",
+      "localStorage_variables": [
+        "task8_lastFaqSearchQuery",
+        "faq_items",
+        "chat_sessions",
+        "chat_messages"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// last FAQ search query (instrumented)\nlet rawQuery = localStorage.getItem('task8_lastFaqSearchQuery');\nlet searchQuery = null;\nif (rawQuery != null) {\n  try {\n    searchQuery = JSON.parse(rawQuery);\n  } catch (e) {\n    searchQuery = rawQuery;\n  }\n}\n\nconst chatSessions = JSON.parse(localStorage.getItem('chat_sessions') || '[]');\nconst chatMessages = JSON.parse(localStorage.getItem('chat_messages') || '[]');\n\n// CP1 (0.30): Last FAQ search query contains 'pause membership'\nlet searchedPauseMembership = false;\nif (typeof searchQuery === 'string') {\n  const q = searchQuery.toLowerCase();\n  searchedPauseMembership = q.indexOf('pause membership') !== -1;\n}\ncheckpoints.push({\n  passed: searchedPauseMembership,\n  weight: 0.30\n});\n\n// Identify chat sessions started from the FAQ page\nconst faqChatSessions = chatSessions.filter(s => s.source === 'faq_page');\nconst faqChatSessionIds = faqChatSessions.map(s => s.id);\n\n// CP2 (0.30): There is at least one chat session whose source is 'faq_page'\ncheckpoints.push({\n  passed: faqChatSessions.length > 0,\n  weight: 0.30\n});\n\n// CP3 (0.40): Within an FAQ-page chat session, the user sent the specified question about pausing membership for 2 weeks starting next Monday without losing progress data\nconst targetPhrase = 'can i pause my membership for 2 weeks starting next monday without losing my progress data?';\nconst userFaqMessages = chatMessages.filter(m =>\n  faqChatSessionIds.includes(m.chatSessionId) &&\n  m.senderType === 'user' &&\n  typeof m.messageText === 'string'\n);\n\nconst askedCorrectQuestion = userFaqMessages.some(m => {\n  const text = m.messageText.trim().toLowerCase();\n  return text.indexOf('pause my membership for 2 weeks starting next monday') !== -1 &&\n         text.indexOf('without losing my progress data') !== -1;\n});\n\ncheckpoints.push({\n  passed: askedCorrectQuestion,\n  weight: 0.40\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "faq_items",
+    "planner_weeks",
+    "subscription_plans",
+    "workout_plans",
+    "workout_session_templates",
+    "live_classes",
+    "live_class_bookings",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

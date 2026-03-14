@@ -1,0 +1,102 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Reading List Anxiety Devotionals Evaluator",
+      "description": "Checks if the user saved at least 3 qualifying anxiety devotionals (last 12 months, ≤10 minutes, published) to their reading list.",
+      "localStorage_variables": [
+        "devotionals",
+        "reading_lists",
+        "reading_list_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst devotionals = JSON.parse(localStorage.getItem('devotionals') || '[]');\nconst items = JSON.parse(localStorage.getItem('reading_list_items') || '[]');\nconst lists = JSON.parse(localStorage.getItem('reading_lists') || '[]');\n\nlet listId = null;\nif (lists.length > 0) {\n  listId = lists[0].id;\n}\n// Items on the primary reading list that are not removed\nconst savedItems = items.filter(i => (!listId || i.reading_list_id === listId) && i.status !== 'removed');\n\n// Time window: last 12 months from now\nconst now = new Date();\nconst twelveMonthsAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);\n\n// Saved devotionals that meet all task criteria\nconst qualifyingSaved = savedItems.filter(i => {\n  const d = devotionals.find(dev => dev.id === i.devotional_id);\n  if (!d) return false;\n  if (d.status !== 'published') return false;\n  if (typeof d.reading_time_minutes !== 'number' || d.reading_time_minutes > 10) return false;\n  if (!Array.isArray(d.topic_tags) || !d.topic_tags.some(t => String(t).toLowerCase() === 'anxiety')) return false;\n  const pubDate = new Date(d.date_published);\n  if (!(pubDate >= twelveMonthsAgo && pubDate <= now)) return false;\n  return true;\n});\n\n// Checkpoints for having 1, 2, and 3+ qualifying saved devotionals\n[1, 2, 3].forEach((n, idx) => {\n  const weights = [0.2, 0.3, 0.5];\n  checkpoints.push({ passed: qualifyingSaved.length >= n, weight: weights[idx] });\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Next Sunday 9AM Service Reservation Evaluator",
+      "description": "Checks if the user reserved seats for the next upcoming 9:00 AM Sunday service for 2 adults and 1 child age 7 with front-section seating and contact info.",
+      "localStorage_variables": [
+        "sunday_services",
+        "service_reservations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst services = JSON.parse(localStorage.getItem('sunday_services') || '[]');\nconst reservations = JSON.parse(localStorage.getItem('service_reservations') || '[]');\n\nconst now = new Date();\n\n// Find the next upcoming non-cancelled Sunday 9:00 AM service\nconst upcoming = services\n  .filter(s => {\n    if (s.status === 'cancelled') return false;\n    if (s.start_time_label !== '9:00 AM') return false;\n    const dt = new Date(s.start_datetime);\n    return dt >= now;\n  })\n  .sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));\n\nconst targetService = upcoming.length > 0 ? upcoming[0] : null;\n\n// Reservations for that service\nlet matchingReservations = [];\nif (targetService) {\n  matchingReservations = reservations.filter(r => r.sunday_service_id === targetService.id && r.status !== 'cancelled');\n}\n\nlet anyCorrectCount = false;\nlet anyCorrectWithFront = false;\nlet anyCorrectWithContact = false;\n\nif (targetService && matchingReservations.length > 0) {\n  matchingReservations.forEach(r => {\n    const totalAttendees = (r.num_adults || 0) + (r.num_children || 0);\n    const hasChildAge7 = Array.isArray(r.children_ages) && r.children_ages.some(a => a === 7);\n    const countsMatch = r.num_adults === 2 && r.num_children === 1 && totalAttendees === 3 && hasChildAge7;\n    if (countsMatch) {\n      anyCorrectCount = true;\n      if (r.seating_preference === 'front_section') {\n        anyCorrectWithFront = true;\n        const hasContact = typeof r.contact_full_name === 'string' && r.contact_full_name.trim().length > 0 &&\n                           typeof r.contact_email === 'string' && r.contact_email.trim().length > 0;\n        if (hasContact) {\n          anyCorrectWithContact = true;\n        }\n      }\n    }\n  });\n}\n\n// CP1: Reservation for the correct service with correct attendee counts and a child age 7\ncheckpoints.push({ passed: anyCorrectCount, weight: 0.35 });\n// CP2: Same, with front-section seating\ncheckpoints.push({ passed: anyCorrectWithFront, weight: 0.35 });\n// CP3: Same, with contact name and email provided\ncheckpoints.push({ passed: anyCorrectWithContact, weight: 0.30 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Old Testament Reading Plan Builder Evaluator",
+      "description": "Checks if the user created a 30-day Old Testament reading plan starting 2026-06-01 with 4 chapters/day and 7:00 AM reminders, and that 30 days were generated.",
+      "localStorage_variables": [
+        "bible_reading_plans",
+        "reading_plan_days"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst plans = JSON.parse(localStorage.getItem('bible_reading_plans') || '[]');\nconst days = JSON.parse(localStorage.getItem('reading_plan_days') || '[]');\n\nfunction toDateOnly(iso) {\n  if (!iso) return null;\n  try {\n    return new Date(iso).toISOString().slice(0, 10);\n  } catch (e) {\n    return null;\n  }\n}\n\nconst targetStartDate = '2026-06-01';\n\n// Plans matching core content and schedule criteria\nconst matchingCore = plans.filter(p =>\n  p.content_scope === 'old_testament' &&\n  p.duration_days === 30 &&\n  p.chapters_per_day === 4 &&\n  toDateOnly(p.start_date) === targetStartDate\n);\n\nconst plan = matchingCore.length > 0 ? matchingCore[0] : null;\n\n// CP1: Created OT-only 30-day plan starting on 2026-06-01 with 4 chapters/day\ncheckpoints.push({ passed: !!plan, weight: 0.4 });\n\n// CP2: Reminders enabled at 07:00\nconst remindersCorrect = !!(plan && plan.daily_reminder_enabled && plan.daily_reminder_time === '07:00');\ncheckpoints.push({ passed: remindersCorrect, weight: 0.3 });\n\n// CP3: At least 30 generated reading days for that plan\nlet daysCorrect = false;\nif (plan) {\n  const planDays = days.filter(d => d.plan_id === plan.id);\n  const has30 = planDays.length >= 30;\n  daysCorrect = has30;\n}\ncheckpoints.push({ passed: daysCorrect, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Anonymous Health Prayer Request Evaluator",
+      "description": "Checks if the user submitted an anonymous health-related prayer request with newsletter opt-in and received a weekly prayer newsletter subscription.",
+      "localStorage_variables": [
+        "prayer_requests",
+        "newsletter_subscriptions"
+      ],
+      "evaluation_logic": "const checkoints = [];\n\nconst requests = JSON.parse(localStorage.getItem('prayer_requests') || '[]');\nconst subs = JSON.parse(localStorage.getItem('newsletter_subscriptions') || '[]');\n\n// Find most recent health-related request\nconst healthRequests = requests.filter(r => String(r.category).toLowerCase() === 'health');\nhealthRequests.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));\nconst latestHealth = healthRequests.length > 0 ? healthRequests[0] : null;\n\n// CP1: Latest health request is anonymous, opted into newsletter, and submitted\nconst requestCorrect = !!(latestHealth &&\n  latestHealth.is_anonymous === true &&\n  latestHealth.newsletter_opt_in === true &&\n  latestHealth.status === 'submitted'\n);\ncheckoints.push({ passed: requestCorrect, weight: 0.5 });\n\n// CP2: Weekly prayer newsletter subscription created at/after that request\nlet subscriptionCorrect = false;\nif (latestHealth) {\n  const reqTime = new Date(latestHealth.created_at).getTime();\n  subscriptionCorrect = subs.some(s =>\n    s.newsletter_type === 'weekly_prayer' &&\n    s.is_subscribed === true &&\n    s.subscribed_at &&\n    new Date(s.subscribed_at).getTime() >= reqTime\n  );\n}\ncheckoints.push({ passed: subscriptionCorrect, weight: 0.5 });\n\nreturn checkoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Missions Fund Donation with Processing Fee Evaluator",
+      "description": "Checks if the user made a one-time $50 credit card donation to the Missions Fund, covered the 2.5% fee, and marked it in honor of someone with correct fee totals.",
+      "localStorage_variables": [
+        "donation_funds",
+        "donations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst funds = JSON.parse(localStorage.getItem('donation_funds') || '[]');\nconst donations = JSON.parse(localStorage.getItem('donations') || '[]');\n\n// Find Missions Fund dynamically\nconst missionsFund = funds.find(f =>\n  f.is_active &&\n  (f.code === 'missions_fund' || /missions/i.test(f.name || ''))\n);\nconst missionsFundId = missionsFund ? missionsFund.id : null;\n\n// Most recent succeeded donation to Missions Fund\nlet targetDonation = null;\nif (missionsFundId) {\n  const relevant = donations.filter(d => d.fund_id === missionsFundId && d.status === 'succeeded');\n  relevant.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));\n  if (relevant.length > 0) targetDonation = relevant[0];\n}\n\nfunction approxEqual(a, b, epsilon) {\n  return typeof a === 'number' && Math.abs(a - b) <= (epsilon || 0.01);\n}\n\n// CP1: Basics correct — fund, amount, frequency, payment method, and covering fee\nconst basicsCorrect = !!(targetDonation &&\n  targetDonation.amount === 50 &&\n  targetDonation.frequency === 'one_time' &&\n  targetDonation.cover_processing_fee === true &&\n  targetDonation.payment_method === 'credit_card'\n);\ncheckpoints.push({ passed: basicsCorrect, weight: 0.4 });\n\n// CP2: Fee rate and amounts approximately 2.5%, $1.25, total $51.25\nconst feesCorrect = !!(targetDonation &&\n  approxEqual(targetDonation.processing_fee_percent, 2.5, 0.01) &&\n  approxEqual(targetDonation.processing_fee_amount, 1.25, 0.01) &&\n  approxEqual(targetDonation.total_charge_amount, 51.25, 0.01)\n);\ncheckpoints.push({ passed: feesCorrect, weight: 0.3 });\n\n// CP3: Dedication is marked in honor of someone with non-empty name\nconst dedicationCorrect = !!(targetDonation &&\n  targetDonation.dedication_type === 'in_honor_of' &&\n  typeof targetDonation.dedication_name === 'string' &&\n  targetDonation.dedication_name.trim().length > 0\n);\ncheckpoints.push({ passed: dedicationCorrect, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Young Adults Online Wednesday Group Registration Evaluator",
+      "description": "Checks if the user registered for an online young adults Wednesday group between 6–8 PM and specifically chose the earliest-starting qualifying group.",
+      "localStorage_variables": [
+        "small_groups",
+        "group_registrations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst groups = JSON.parse(localStorage.getItem('small_groups') || '[]');\nconst regs = JSON.parse(localStorage.getItem('group_registrations') || '[]');\n\nfunction timeBetween(t, from, to) {\n  if (!t) return false;\n  return t >= from && t <= to;\n}\n\n// Qualifying groups: young adults, online, Wednesday, 18:00–20:00, open\nconst qualifyingGroups = groups.filter(g =>\n  g.audience === 'young_adults' &&\n  g.meeting_format === 'online' &&\n  g.meeting_day === 'wednesday' &&\n  g.status === 'open' &&\n  timeBetween(g.meeting_time_start, '18:00', '20:00')\n);\n\n// Earliest such group by start_date\nlet earliestGroup = null;\nif (qualifyingGroups.length > 0) {\n  const sorted = qualifyingGroups.slice().sort((a, b) => new Date(a.start_date) - new Date(b.start_date));\n  earliestGroup = sorted[0];\n}\n\n// Registrations whose group matches the qualifying criteria\nconst qualifyingRegistrations = regs.filter(r => {\n  if (r.status === 'cancelled') return false;\n  const g = groups.find(gg => gg.id === r.small_group_id);\n  if (!g) return false;\n  return (\n    g.audience === 'young_adults' &&\n    g.meeting_format === 'online' &&\n    g.meeting_day === 'wednesday' &&\n    g.status === 'open' &&\n    timeBetween(g.meeting_time_start, '18:00', '20:00')\n  );\n});\n\n// CP1: Registered for some qualifying group with contact name and email\nlet anyQualifyingWithContact = false;\nqualifyingRegistrations.forEach(r => {\n  if (!anyQualifyingWithContact) {\n    const hasContact = typeof r.full_name === 'string' && r.full_name.trim().length > 0 &&\n                       typeof r.email === 'string' && r.email.trim().length > 0;\n    if (hasContact) anyQualifyingWithContact = true;\n  }\n});\ncheckpoints.push({ passed: anyQualifyingWithContact, weight: 0.4 });\n\n// CP2: Specifically registered for the earliest-starting qualifying group\nlet earliestRegistered = false;\nif (earliestGroup) {\n  earliestRegistered = qualifyingRegistrations.some(r => r.small_group_id === earliestGroup.id);\n}\ncheckpoints.push({ passed: earliestRegistered, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Highest-Rated Forgiveness Sermon Watch Later Evaluator",
+      "description": "Checks if the user added a qualifying forgiveness sermon (last 2 years, ≥4.5 rating, <35 minutes) to Watch Later and chose the highest-rated one with correct tie-breaking.",
+      "localStorage_variables": [
+        "sermons",
+        "watch_later_lists",
+        "watch_later_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst sermons = JSON.parse(localStorage.getItem('sermons') || '[]');\nconst watchLaterItems = JSON.parse(localStorage.getItem('watch_later_items') || '[]');\n\nconst now = new Date();\nconst twoYearsAgo = new Date(now.getTime() - 2 * 365 * 24 * 60 * 60 * 1000);\n\n// Qualifying forgiveness sermons\nconst qualifyingSermons = sermons.filter(s => {\n  if (s.status !== 'published') return false;\n  if (!Array.isArray(s.topics) || !s.topics.some(t => String(t).toLowerCase() === 'forgiveness')) return false;\n  if (typeof s.rating_average !== 'number' || s.rating_average < 4.5) return false;\n  if (typeof s.duration_minutes !== 'number' || s.duration_minutes > 35) return false;\n  const d = new Date(s.date_published);\n  if (!(d >= twoYearsAgo && d <= now)) return false;\n  return true;\n});\n\n// Highest-rated qualifying sermon, tie-broken by most recent\nlet targetSermon = null;\nif (qualifyingSermons.length > 0) {\n  const sorted = qualifyingSermons.slice().sort((a, b) => {\n    const ra = typeof a.rating_average === 'number' ? a.rating_average : 0;\n    const rb = typeof b.rating_average === 'number' ? b.rating_average : 0;\n    if (rb !== ra) return rb - ra;\n    return new Date(b.date_published) - new Date(a.date_published);\n  });\n  targetSermon = sorted[0];\n}\n\nconst savedSermonIds = watchLaterItems.map(i => i.sermon_id);\nconst savedQualifying = qualifyingSermons.filter(s => savedSermonIds.includes(s.id));\n\n// CP1: Saved at least one qualifying forgiveness sermon to Watch Later\ncheckpoints.push({ passed: savedQualifying.length >= 1, weight: 0.4 });\n\n// CP2: Saved the highest-rated qualifying sermon (with tie-breaker)\nconst targetSaved = !!(targetSermon && savedSermonIds.includes(targetSermon.id));\ncheckpoints.push({ passed: targetSaved, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Marriage Books and Free Devotional with Free Shipping Evaluator",
+      "description": "Checks if the user added 2 physical marriage books under $20 each and 1 free devotional resource to the cart, then selected an eligible free shipping option for orders over the minimum.",
+      "localStorage_variables": [
+        "resource_categories",
+        "products",
+        "carts",
+        "cart_items",
+        "shipping_options"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst categories = JSON.parse(localStorage.getItem('resource_categories') || '[]');\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst carts = JSON.parse(localStorage.getItem('carts') || '[]');\nconst cartItemsAll = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst shippingOptions = JSON.parse(localStorage.getItem('shipping_options') || '[]');\n\n// Active cart\nconst activeCart = carts.find(c => c.status === 'active') || null;\nconst cartItems = activeCart ? cartItemsAll.filter(i => i.cart_id === activeCart.id) : [];\n\n// Marriage-related category ids (by code or name)\nconst marriageCategoryIds = categories\n  .filter(c => /marriage/i.test(c.code || '') || /marriage/i.test(c.name || ''))\n  .map(c => c.id);\n\n// Count qualifying marriage books (physical, book, shippable, price < 20)\nlet marriageBookCount = 0;\ncartItems.forEach(ci => {\n  const p = products.find(pr => pr.id === ci.product_id);\n  if (!p) return;\n  if (\n    marriageCategoryIds.includes(p.category_id) &&\n    p.type === 'book' &&\n    p.format === 'physical' &&\n    p.is_physical_shippable === true &&\n    typeof p.price === 'number' &&\n    p.price < 20\n  ) {\n    marriageBookCount += (ci.quantity || 0);\n  }\n});\n\n// Count qualifying free devotional resources (type devotional, price 0, is_free true)\nlet freeDevotionalCount = 0;\ncartItems.forEach(ci => {\n  const p = products.find(pr => pr.id === ci.product_id);\n  if (!p) return;\n  if (\n    p.type === 'devotional' &&\n    p.is_free === true &&\n    typeof p.price === 'number' &&\n    p.price === 0\n  ) {\n    freeDevotionalCount += (ci.quantity || 0);\n  }\n});\n\n// Cart subtotal\nlet subtotal = 0;\ncartItems.forEach(ci => {\n  subtotal += ci.total_price || 0;\n});\n\n// Selected shipping option\nlet selectedShipping = null;\nif (activeCart && activeCart.shipping_option_id) {\n  selectedShipping = shippingOptions.find(o => o.id === activeCart.shipping_option_id) || null;\n}\n\n// CP1: At least 2 qualifying physical marriage books under $20\ncheckpoints.push({ passed: marriageBookCount >= 2, weight: 0.4 });\n\n// CP2: At least 1 qualifying free devotional resource\ncheckpoints.push({ passed: freeDevotionalCount >= 1, weight: 0.3 });\n\n// CP3: Selected a free shipping option that becomes free above a minimum, and cart meets that minimum\nlet freeShippingCorrect = false;\nif (selectedShipping) {\n  const isFreeCode = selectedShipping.code === 'free_shipping' || selectedShipping.is_free === true;\n  const hasMin = typeof selectedShipping.min_order_total_for_free === 'number';\n  if (isFreeCode && hasMin && subtotal >= selectedShipping.min_order_total_for_free) {\n    freeShippingCorrect = true;\n  }\n}\ncheckpoints.push({ passed: freeShippingCorrect, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "devotionals",
+    "donation_funds",
+    "resource_categories",
+    "sermons",
+    "shipping_options",
+    "small_groups",
+    "products",
+    "sunday_services",
+    "service_reservations",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

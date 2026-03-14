@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>HYIP Programs Forum</title>
+    <link rel='stylesheet' href='framework.css'>
+    <link rel='stylesheet' href='forum_new_thread.css'>
+    <script src='business_logic.js'></script>
+</head>
+<body>
+    <div id='page'>
+        <header class='site-header'>
+            <div class='site-header__title-row'>
+                <h1 class='site-title'>Full version: <a href='index.html'>Hyip'S</a></h1>
+            </div>
+
+            <nav class='site-header__nav-bar' aria-label='Main navigation'>
+                <ul class='main-nav'>
+                    <li class='main-nav__item'><a href='index.html'>Home</a></li>
+                    <li class='main-nav__item'><a href='programs.html?view=all_programs'>HYIP Listings</a></li>
+                    <li class='main-nav__item'><a href='programs.html?view=problematic_programs'>Problematic Programs</a></li>
+                    <li class='main-nav__item'><a href='forum.html'>Forum</a></li>
+                    <li class='main-nav__item'><a href='dashboard.html'>Dashboard</a></li>
+                    <li class='main-nav__item'><a href='saved_programs.html'>Saved Programs</a></li>
+                    <li class='main-nav__item'><a href='settings.html'>Settings</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id='content' class='site-content' role='main'>
+            <div class='content-box'>
+                <div class='global-search-bar-row' data-component='global-search-bar'>
+                    <form id='globalSearchForm' data-action='submit-global-search'>
+                        <label for='globalSearchQuery'>Search:</label>
+                        <input type='text' id='globalSearchQuery' name='query' size='30'>
+                        <select id='globalSearchType' name='type_filter'>
+                            <option value='all'>All</option>
+                            <option value='programs'>Programs</option>
+                            <option value='forum' selected>Forum</option>
+                        </select>
+                        <input type='submit' value='Search'>
+                    </form>
+                </div>
+
+                <div class='breadcrumb-row' data-component='category-navigation-controls' data-populate='forum-category-breadcrumb'></div>
+
+                <div class='thread-form-box' data-component='thread-creation-form'>
+                    <div id='categoryStatus' class='category-status'></div>
+                    <div class='thread-form-inner'>
+                        <h2 class='thread-form-title'>New Forum Thread</h2>
+                        <div class='submission-status' data-component='submission-status-handler' aria-live='polite'></div>
+
+                        <form id='newThreadForm' data-action='submit-create-thread'>
+                            <div class='form-row'>
+                                <label for='threadTitle'>Title:</label>
+                                <input type='text' id='threadTitle' name='title' size='60' maxlength='200' data-action='title-input'>
+                            </div>
+
+                            <div class='form-row'>
+                                <label for='threadPrefix'>Prefix:</label>
+                                <select id='threadPrefix' name='prefix' data-action='prefix-change'>
+                                    <option value='none'>(none)</option>
+                                    <option value='high_risk'>high_risk</option>
+                                    <option value='new' selected>new</option>
+                                    <option value='announcement'>announcement</option>
+                                    <option value='scam_warning'>scam_warning</option>
+                                </select>
+                            </div>
+
+                            <div class='duplicate-checker' data-component='duplicate-thread-checker'></div>
+
+                            <div class='form-row form-row--body'>
+                                <label for='threadBody'>Message:</label><br>
+                                <textarea id='threadBody' name='body' rows='12' cols='80' data-action='body-input'></textarea>
+                            </div>
+
+                            <div class='form-row disclaimer-row' data-component='disclaimer-toggle-panel'>
+                                <label>
+                                    <input type='checkbox' id='disclaimerIncluded' name='disclaimer_included' data-action='toggle-disclaimer'>
+                                    Include standard high-risk HYIP disclaimer line
+                                </label>
+                            </div>
+
+                            <div class='form-row form-row--actions'>
+                                <input type='submit' value='Post Thread'>
+                                <button type='button' data-action='toggle-preview'>Show/Hide Preview</button>
+                                <button type='button' data-action='cancel-thread'>Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class='thread-preview-box' data-component='thread-preview-panel' style='display:none;'></div>
+            </div>
+        </main>
+
+        <footer class='site-footer'>
+            <nav class='footer-nav' aria-label='Footer navigation'>
+                <ul class='footer-nav__list'>
+                    <li class='footer-nav__item'><a href='about.html'>About</a></li>
+                    <li class='footer-nav__item'><a href='help.html'>Help / FAQ</a></li>
+                    <li class='footer-nav__item'><a href='contact.html'>Contact</a></li>
+                    <li class='footer-nav__item'><a href='terms.html'>Terms of Use</a></li>
+                    <li class='footer-nav__item'><a href='privacy.html'>Privacy Policy</a></li>
+                </ul>
+            </nav>
+            <p class='footer-meta'>&copy; <span class='footer-year'>2026</span> HYIP Programs Forum.</p>
+        </footer>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var urlParams = new URLSearchParams(window.location.search);
+        var categoryIdParam = urlParams.get('categoryId') || '';
+
+        var state = {
+            categoryId: categoryIdParam,
+            categoryName: '',
+            categoryValid: false,
+            title: '',
+            prefix: 'new',
+            body: '',
+            disclaimerIncluded: false,
+            isSubmitting: false,
+            showPreview: false,
+            duplicateSearchTimeoutId: null
+        };
+
+        var categoryStatusEl = document.getElementById('categoryStatus');
+        var breadcrumbContainer = document.querySelector('[data-populate="forum-category-breadcrumb"]');
+        var duplicateCheckerContainer = document.querySelector('[data-component="duplicate-thread-checker"]');
+        var previewContainer = document.querySelector('[data-component="thread-preview-panel"]');
+        var statusContainer = document.querySelector('[data-component="submission-status-handler"]');
+        var newThreadForm = document.getElementById('newThreadForm');
+        var titleInput = document.getElementById('threadTitle');
+        var prefixSelect = document.getElementById('threadPrefix');
+        var bodyInput = document.getElementById('threadBody');
+        var disclaimerCheckbox = document.getElementById('disclaimerIncluded');
+
+        function loadCategoryInfo() {
+            var categories = [];
+            try {
+                var stored = localStorage.getItem('forum_categories');
+                if (stored) {
+                    categories = JSON.parse(stored);
+                }
+            } catch (e) {
+                categories = [];
+            }
+            if (!state.categoryId) {
+                state.categoryValid = false;
+                state.categoryName = '';
+                return;
+            }
+            var match = null;
+            for (var i = 0; i < categories.length; i++) {
+                if (categories[i].id === state.categoryId) {
+                    match = categories[i];
+                    break;
+                }
+            }
+            if (match) {
+                state.categoryValid = true;
+                state.categoryName = match.name || '';
+            } else {
+                state.categoryValid = false;
+                state.categoryName = '';
+            }
+        }
+
+        function renderCategoryStatus() {
+            if (!categoryStatusEl) return;
+            if (state.categoryValid) {
+                categoryStatusEl.textContent = '';
+                categoryStatusEl.className = 'category-status';
+            } else if (state.categoryId) {
+                categoryStatusEl.textContent = 'The specified forum category could not be found. You can still browse categories from the Forum page.';
+                categoryStatusEl.className = 'category-status category-status--error';
+            } else {
+                categoryStatusEl.textContent = 'No forum category was specified. Please navigate from a forum category to post a new thread.';
+                categoryStatusEl.className = 'category-status category-status--error';
+            }
+        }
+
+        function renderBreadcrumb(container) {
+            if (!container) return;
+            container.innerHTML = '';
+            var wrapper = document.createElement('span');
+
+            var forumLink = document.createElement('a');
+            forumLink.href = 'forum.html';
+            forumLink.textContent = 'Forum';
+            wrapper.appendChild(forumLink);
+
+            if (state.categoryId) {
+                var sep1 = document.createTextNode(' > ');
+                wrapper.appendChild(sep1);
+                var catLink = document.createElement('a');
+                if (state.categoryValid) {
+                    catLink.href = 'forum_category.html?categoryId=' + encodeURIComponent(state.categoryId);
+                } else {
+                    catLink.href = 'forum_category.html?categoryId=' + encodeURIComponent(state.categoryId);
+                }
+                catLink.textContent = state.categoryName || (state.categoryValid ? 'Category' : 'Unknown category');
+                catLink.dataset.action = 'back-to-category-breadcrumb';
+                wrapper.appendChild(catLink);
+            }
+
+            var sep2 = document.createTextNode(' > ');
+            wrapper.appendChild(sep2);
+            var currentSpan = document.createElement('span');
+            currentSpan.className = 'breadcrumb-current';
+            currentSpan.textContent = 'New Thread';
+            wrapper.appendChild(currentSpan);
+
+            container.appendChild(wrapper);
+        }
+
+        function setFormEnabled(enabled) {
+            if (!newThreadForm) return;
+            var elements = newThreadForm.querySelectorAll('input, select, textarea, button');
+            elements.forEach(function(el) {
+                if (el.dataset && (el.dataset.action === 'cancel-thread' || el.dataset.action === 'toggle-preview')) {
+                    return;
+                }
+                el.disabled = !enabled;
+            });
+        }
+
+        function renderStatus(message, type) {
+            if (!statusContainer) return;
+            statusContainer.textContent = message || '';
+            statusContainer.className = 'submission-status';
+            if (message) {
+                if (type === 'error') {
+                    statusContainer.className += ' submission-status--error';
+                } else if (type === 'success') {
+                    statusContainer.className += ' submission-status--success';
+                } else if (type === 'info') {
+                    statusContainer.className += ' submission-status--info';
+                }
+            }
+        }
+
+        function renderDuplicateResults(container, results, query) {
+            if (!container) return;
+            container.innerHTML = '';
+            var statusDiv = document.createElement('div');
+            statusDiv.className = 'duplicate-checker__status';
+            var trimmedQuery = (query || '').trim();
+            if (!trimmedQuery || trimmedQuery.length < 4) {
+                statusDiv.textContent = 'Start typing a title (at least 4 characters) to check for similar existing threads.';
+                container.appendChild(statusDiv);
+                return;
+            }
+            if (!results || results.length === 0) {
+                statusDiv.textContent = 'No similar threads found for ' + trimmedQuery + '.';
+                container.appendChild(statusDiv);
+                return;
+            }
+            statusDiv.textContent = 'Similar existing threads (check to avoid duplicates):';
+            container.appendChild(statusDiv);
+            var list = document.createElement('ul');
+            list.className = 'duplicate-checker__list';
+            for (var i = 0; i < results.length; i++) {
+                var thread = results[i];
+                var li = document.createElement('li');
+                var a = document.createElement('a');
+                a.href = 'forum_thread.html?threadId=' + encodeURIComponent(thread.id);
+                a.target = '_blank';
+                var prefixLabel = '';
+                if (thread.prefix && thread.prefix !== 'none') {
+                    prefixLabel = '[' + thread.prefix + '] ';
+                }
+                a.textContent = prefixLabel + (thread.title || 'Untitled thread');
+                a.dataset.action = 'open-suggested-thread';
+                a.dataset.threadId = thread.id;
+                li.appendChild(a);
+                list.appendChild(li);
+            }
+            container.appendChild(list);
+        }
+
+        function runDuplicateSearch(title) {
+            if (!duplicateCheckerContainer) return;
+            var value = title || '';
+            var trimmed = value.trim();
+            if (trimmed.length < 4) {
+                renderDuplicateResults(duplicateCheckerContainer, [], '');
+                return;
+            }
+            try {
+                var response = WebsiteSDK.searchSite(trimmed, 'forum', 1, 5);
+                var results = (response && response.forum_thread_results) ? response.forum_thread_results : [];
+                renderDuplicateResults(duplicateCheckerContainer, results, trimmed);
+            } catch (e) {
+                renderDuplicateResults(duplicateCheckerContainer, [], trimmed);
+            }
+        }
+
+        function scheduleDuplicateSearch() {
+            if (!titleInput) return;
+            var value = titleInput.value || '';
+            state.title = value;
+            updatePreview();
+            if (state.duplicateSearchTimeoutId) {
+                window.clearTimeout(state.duplicateSearchTimeoutId);
+            }
+            if (value.trim().length < 4) {
+                runDuplicateSearch(value);
+                return;
+            }
+            state.duplicateSearchTimeoutId = window.setTimeout(function() {
+                runDuplicateSearch(value);
+            }, 400);
+        }
+
+        function updatePreview() {
+            if (!previewContainer || !state.showPreview) return;
+            var title = titleInput ? (titleInput.value || '') : state.title;
+            var prefix = prefixSelect ? (prefixSelect.value || 'none') : state.prefix;
+            var body = bodyInput ? (bodyInput.value || '') : state.body;
+            var disclaimer = state.disclaimerIncluded;
+
+            previewContainer.innerHTML = '';
+
+            var headerDiv = document.createElement('div');
+            headerDiv.className = 'thread-preview-header';
+            var headerStrong = document.createElement('strong');
+            headerStrong.textContent = 'Preview:';
+            headerDiv.appendChild(headerStrong);
+
+            var titleDiv = document.createElement('div');
+            titleDiv.className = 'thread-preview-title';
+            var titleStrong = document.createElement('strong');
+            var prefixLabel = '';
+            if (prefix && prefix !== 'none') {
+                prefixLabel = '[' + prefix + '] ';
+            }
+            titleStrong.textContent = prefixLabel + (title || '');
+            titleDiv.appendChild(titleStrong);
+
+            var bodyDiv = document.createElement('div');
+            bodyDiv.className = 'thread-preview-body';
+            if (body) {
+                var lines = body.split('\n');
+                for (var i = 0; i < lines.length; i++) {
+                    bodyDiv.appendChild(document.createTextNode(lines[i]));
+                    if (i < lines.length - 1) {
+                        bodyDiv.appendChild(document.createElement('br'));
+                    }
+                }
+            } else {
+                var emptyEm = document.createElement('em');
+                emptyEm.textContent = '(No content)';
+                bodyDiv.appendChild(emptyEm);
+            }
+
+            previewContainer.appendChild(headerDiv);
+            previewContainer.appendChild(titleDiv);
+            previewContainer.appendChild(bodyDiv);
+
+            if (disclaimer) {
+                var disclaimerDiv = document.createElement('div');
+                disclaimerDiv.className = 'thread-preview-disclaimer';
+                var em = document.createElement('em');
+                em.textContent = 'Disclaimer: HYIP investments are extremely high-risk. You may lose all of your deposited funds.';
+                disclaimerDiv.appendChild(em);
+                previewContainer.appendChild(disclaimerDiv);
+            }
+        }
+
+        function setPreviewVisible(visible) {
+            state.showPreview = visible;
+            if (!previewContainer) return;
+            previewContainer.style.display = visible ? 'block' : 'none';
+            if (visible) {
+                updatePreview();
+            }
+        }
+
+        function handleDisclaimerToggle() {
+            state.disclaimerIncluded = !!(disclaimerCheckbox && disclaimerCheckbox.checked);
+            updatePreview();
+        }
+
+        function handleBackToCategory() {
+            if (state.categoryId) {
+                window.location.href = 'forum_category.html?categoryId=' + encodeURIComponent(state.categoryId);
+            } else {
+                window.location.href = 'forum.html';
+            }
+        }
+
+        function handleGlobalSearchSubmit(event) {
+            if (event) {
+                event.preventDefault();
+            }
+            var form = event ? event.currentTarget : document.getElementById('globalSearchForm');
+            if (!form) return;
+            var queryInput = form.querySelector('input[name="query"]');
+            var typeSelect = form.querySelector('select[name="type_filter"]');
+            var query = queryInput ? (queryInput.value || '').trim() : '';
+            var typeFilter = typeSelect ? (typeSelect.value || 'all') : 'all';
+            if (!query) {
+                return;
+            }
+            try {
+                WebsiteSDK.searchSite(query, typeFilter, 1, 20);
+            } catch (e) {
+                // ignore errors; still navigate
+            }
+            var targetUrl = 'search.html?query=' + encodeURIComponent(query) + '&type_filter=' + encodeURIComponent(typeFilter);
+            window.location.href = targetUrl;
+        }
+
+        function handleThreadFormSubmit(event) {
+            if (event) {
+                event.preventDefault();
+            }
+            if (!newThreadForm) return;
+            if (!state.categoryId || !state.categoryValid) {
+                renderStatus('Cannot post thread because the forum category is missing or invalid.', 'error');
+                return;
+            }
+            var titleValue = titleInput ? (titleInput.value || '').trim() : '';
+            var bodyValue = bodyInput ? (bodyInput.value || '').trim() : '';
+            var prefixValue = prefixSelect ? (prefixSelect.value || 'new') : 'new';
+            var disclaimerValue = disclaimerCheckbox ? !!disclaimerCheckbox.checked : false;
+
+            if (!titleValue) {
+                renderStatus('Please enter a thread title.', 'error');
+                if (titleInput) {
+                    titleInput.focus();
+                }
+                return;
+            }
+            if (!bodyValue) {
+                renderStatus('Please enter a message body for your thread.', 'error');
+                if (bodyInput) {
+                    bodyInput.focus();
+                }
+                return;
+            }
+            if (state.isSubmitting) {
+                return;
+            }
+            state.isSubmitting = true;
+            renderStatus('Posting thread, please wait...', 'info');
+            setFormEnabled(true);
+            try {
+                var response = WebsiteSDK.createForumThread(state.categoryId, titleValue, prefixValue, bodyValue, disclaimerValue);
+                if (response && response.success && response.thread && response.thread.id) {
+                    renderStatus('Thread created successfully. Redirecting...', 'success');
+                    var target = 'forum_thread.html?threadId=' + encodeURIComponent(response.thread.id);
+                    window.location.href = target;
+                    return;
+                }
+                var message = (response && response.message) ? response.message : 'Unable to create thread. Please correct any errors and try again.';
+                renderStatus(message, 'error');
+            } catch (e) {
+                renderStatus('A technical error occurred while creating the thread. Please try again.', 'error');
+            } finally {
+                state.isSubmitting = false;
+                setFormEnabled(true);
+            }
+        }
+
+        // Initialize category info and breadcrumb
+        loadCategoryInfo();
+        renderCategoryStatus();
+        if (breadcrumbContainer) {
+            renderBreadcrumb(breadcrumbContainer);
+        }
+        if (!state.categoryValid) {
+            setFormEnabled(false);
+        }
+
+        // Attach event listeners via data-action attributes
+        var actionElements = document.querySelectorAll('[data-action]');
+        actionElements.forEach(function(el) {
+            var action = el.dataset.action;
+            if (!action) return;
+            if (action === 'submit-global-search' && el.tagName === 'FORM') {
+                el.addEventListener('submit', handleGlobalSearchSubmit);
+            } else if (action === 'submit-create-thread' && el.tagName === 'FORM') {
+                el.addEventListener('submit', handleThreadFormSubmit);
+            } else if (action === 'title-input' && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+                el.addEventListener('input', scheduleDuplicateSearch);
+                el.addEventListener('blur', function() {
+                    runDuplicateSearch(el.value || '');
+                });
+            } else if (action === 'prefix-change' && el.tagName === 'SELECT') {
+                el.addEventListener('change', function() {
+                    state.prefix = el.value || 'new';
+                    updatePreview();
+                });
+            } else if (action === 'toggle-disclaimer' && (el.type === 'checkbox' || el.type === 'radio')) {
+                el.addEventListener('change', handleDisclaimerToggle);
+            } else if (action === 'toggle-preview' && el.tagName === 'BUTTON') {
+                el.addEventListener('click', function() {
+                    setPreviewVisible(!state.showPreview);
+                });
+            } else if (action === 'cancel-thread') {
+                el.addEventListener('click', function() {
+                    handleBackToCategory();
+                });
+            } else if (action === 'back-to-category-breadcrumb') {
+                el.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    handleBackToCategory();
+                });
+            } else if (action === 'body-input' && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {
+                el.addEventListener('input', function() {
+                    state.body = el.value || '';
+                    updatePreview();
+                });
+            }
+        });
+
+        // Initial duplicate checker text
+        if (duplicateCheckerContainer) {
+            renderDuplicateResults(duplicateCheckerContainer, [], '');
+        }
+
+        // Ensure preview is hidden initially
+        setPreviewVisible(false);
+    });
+    </script>
+</body>
+</html>

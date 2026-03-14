@@ -1,0 +1,102 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Beginner Leadership Courses Cart Evaluator",
+      "description": "Checks if the user added the two cheapest qualifying beginner-level leadership courses (≤$100, rating ≥4.0) to their cart.",
+      "localStorage_variables": [
+        "courses",
+        "cart",
+        "cart_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst courses = JSON.parse(localStorage.getItem('courses') || '[]');\nconst cart = JSON.parse(localStorage.getItem('cart') || 'null');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\n\n// Determine qualifying beginner leadership courses under $100 with rating >= 4.0\nlet qualifyingCourses = courses.filter(c => {\n  if (!c || c.status !== 'active') return false;\n  if (c.level !== 'beginner') return false;\n  if (typeof c.price !== 'number' || c.price > 100) return false;\n  if (typeof c.rating !== 'number' || c.rating < 4.0) return false;\n  const topics = Array.isArray(c.topics) ? c.topics : [];\n  return topics.includes('leadership');\n});\n\nqualifyingCourses.sort((a, b) => (a.price || 0) - (b.price || 0));\nconst cheapestTwo = qualifyingCourses.slice(0, 2);\n\nlet qualifyingInCartCount = 0;\nif (cart && cart.id && Array.isArray(cartItems)) {\n  const itemsForCart = cartItems.filter(ci => ci.cart_id === cart.id && ci.item_type === 'course' && (ci.quantity || 0) > 0);\n  const idsInCart = new Set(itemsForCart.map(ci => ci.item_ref_id));\n  cheapestTwo.forEach(c => {\n    if (c && idsInCart.has(c.id)) {\n      qualifyingInCartCount++;\n    }\n  });\n}\n\n// CP1 (0.4): At least the single cheapest qualifying course is in the cart\ncheckpoints.push({ passed: cheapestTwo.length >= 1 && qualifyingInCartCount >= 1, weight: 0.4 });\n// CP2 (0.6): Both cheapest qualifying courses are in the cart\ncheckpoints.push({ passed: cheapestTwo.length >= 2 && qualifyingInCartCount >= 2, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Small-Business Consulting Proposal Evaluator",
+      "description": "Checks if the user submitted a proposal request for a qualifying small-business consulting package (≥10 hours/month, < $1,200) and chose the cheapest such package.",
+      "localStorage_variables": [
+        "consulting_packages",
+        "proposal_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst packages = JSON.parse(localStorage.getItem('consulting_packages') || '[]');\nconst requests = JSON.parse(localStorage.getItem('proposal_requests') || '[]');\n\n// Qualifying packages: small business, active, >=10 hours/month, < $1200/month\nconst qualifyingPackages = packages.filter(p => {\n  if (!p || p.status !== 'active') return false;\n  if (p.audience !== 'small_business_1_50') return false;\n  if (typeof p.hours_per_month !== 'number' || p.hours_per_month < 10) return false;\n  if (typeof p.monthly_price !== 'number' || p.monthly_price >= 1200) return false;\n  return true;\n});\n\nlet selectedRequest = null;\nlet selectedPackage = null;\nif (Array.isArray(requests) && requests.length > 0 && qualifyingPackages.length > 0) {\n  const validRequests = requests.filter(r => r && r.source_type === 'consulting_package' && r.consulting_package_id);\n  validRequests.sort((a, b) => {\n    const da = a.created_at ? Date.parse(a.created_at) : 0;\n    const db = b.created_at ? Date.parse(b.created_at) : 0;\n    return db - da;\n  });\n  if (validRequests.length > 0) {\n    selectedRequest = validRequests[0];\n    selectedPackage = packages.find(p => p.id === selectedRequest.consulting_package_id) || null;\n  }\n}\n\nconst packageQualifies = !!selectedPackage && qualifyingPackages.some(p => p.id === selectedPackage.id);\n\nlet cheapestQualifying = null;\nif (qualifyingPackages.length > 0) {\n  cheapestQualifying = [...qualifyingPackages].sort((a, b) => (a.monthly_price || 0) - (b.monthly_price || 0))[0];\n}\n\nconst isCheapest = !!selectedPackage && !!cheapestQualifying && selectedPackage.id === cheapestQualifying.id;\n\n// CP1 (0.4): Latest consulting-package proposal is for a qualifying small-business package\ncheckpoints.push({ passed: packageQualifies, weight: 0.4 });\n// CP2 (0.6): That package is the cheapest among all qualifying options\ncheckpoints.push({ passed: packageQualifies && isCheapest, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Top In-Person Workshops Training Plan Evaluator",
+      "description": "Checks if the user saved the top three in-person leadership/change-management workshops (1–2 days, highest rating) into their training plan.",
+      "localStorage_variables": [
+        "workshops",
+        "training_plan",
+        "training_plan_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst workshops = JSON.parse(localStorage.getItem('workshops') || '[]');\nconst trainingPlan = JSON.parse(localStorage.getItem('training_plan') || 'null');\nconst trainingPlanItems = JSON.parse(localStorage.getItem('training_plan_items') || '[]');\n\n// Qualifying workshops: active, in-person, 1_day or 2_day, category includes leadership or change_management\nlet qualifying = workshops.filter(w => {\n  if (!w || w.status !== 'active') return false;\n  if (w.format !== 'in_person') return false;\n  if (!['1_day', '2_day'].includes(w.duration_type)) return false;\n  const cats = Array.isArray(w.categories) ? w.categories : [];\n  return cats.includes('leadership') || cats.includes('change_management');\n});\n\nqualifying.sort((a, b) => (b.rating || 0) - (a.rating || 0));\nconst top3 = qualifying.slice(0, 3);\nconst top3Ids = top3.map(w => w.id);\n\nlet countInPlan = 0;\nif (trainingPlan && trainingPlan.id && Array.isArray(trainingPlanItems)) {\n  const itemsForPlan = trainingPlanItems.filter(i => i.training_plan_id === trainingPlan.id);\n  const idsInPlan = new Set(itemsForPlan.map(i => i.workshop_id));\n  top3Ids.forEach(id => {\n    if (idsInPlan.has(id)) {\n      countInPlan++;\n    }\n  });\n}\n\n// CP1 (0.3): Training plan includes at least the highest-rated qualifying workshop\ncheckpoints.push({ passed: top3Ids.length >= 1 && countInPlan >= 1, weight: 0.3 });\n// CP2 (0.3): Training plan includes at least the top two qualifying workshops\ncheckpoints.push({ passed: top3Ids.length >= 2 && countInPlan >= 2, weight: 0.3 });\n// CP3 (0.4): Training plan includes all top three qualifying workshops\ncheckpoints.push({ passed: top3Ids.length >= 3 && countInPlan >= 3, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Earliest Morning Coaching Booking Evaluator",
+      "description": "Checks if the user booked a 60-minute coaching session in the earliest available morning slot next week between 09:00 and 12:00.",
+      "localStorage_variables": [
+        "services",
+        "availability_slots",
+        "bookings",
+        "_metadata"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst services = JSON.parse(localStorage.getItem('services') || '[]');\nconst slots = JSON.parse(localStorage.getItem('availability_slots') || '[]');\nconst bookings = JSON.parse(localStorage.getItem('bookings') || '[]');\nconst metadata = JSON.parse(localStorage.getItem('_metadata') || 'null');\n\n// Find an active coaching session service\nconst coachingService = services.find(s => s && s.service_type === 'coaching_session' && s.is_active);\n\nlet baselineDateStr = metadata && metadata.baselineDate ? metadata.baselineDate : null;\nlet weekStart = null;\nlet weekEnd = null;\nif (baselineDateStr) {\n  const base = new Date(baselineDateStr + 'T00:00:00Z');\n  if (!isNaN(base.getTime())) {\n    const dayOfWeek = base.getUTCDay(); // 0=Sun..6=Sat\n    const daysUntilNextMonday = ((1 - dayOfWeek + 7) % 7) || 7; // at least 1, at most 7\n    const nextMonday = new Date(base.getTime());\n    nextMonday.setUTCDate(nextMonday.getUTCDate() + daysUntilNextMonday);\n    weekStart = new Date(Date.UTC(nextMonday.getUTCFullYear(), nextMonday.getUTCMonth(), nextMonday.getUTCDate()));\n    weekEnd = new Date(weekStart.getTime());\n    weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);\n  }\n}\n\nlet candidateSlots = [];\nif (coachingService && weekStart && weekEnd && Array.isArray(slots)) {\n  candidateSlots = slots.filter(s => {\n    if (!s || s.service_id !== coachingService.id) return false;\n    if (s.time_of_day !== 'morning') return false;\n    if (s.is_booked) return false; // available-only for \"earliest available\" logic\n    const start = new Date(s.start_datetime);\n    if (isNaN(start.getTime())) return false;\n    if (start < weekStart || start >= weekEnd) return false;\n    const hour = start.getUTCHours();\n    if (hour < 9 || hour >= 12) return false; // 09:00-12:00 window\n    return true;\n  });\n}\n\ncandidateSlots.sort((a, b) => {\n  const sa = new Date(a.start_datetime).getTime();\n  const sb = new Date(b.start_datetime).getTime();\n  return sa - sb;\n});\nconst earliestAvailableSlot = candidateSlots[0] || null;\n\n// Find bookings that are 60-minute coaching sessions in the target next-week morning window\nlet qualifyingBookings = [];\nif (coachingService && weekStart && weekEnd && Array.isArray(bookings)) {\n  qualifyingBookings = bookings.filter(b => {\n    if (!b || b.service_id !== coachingService.id) return false;\n    if (b.status && b.status !== 'confirmed') return false;\n    if (b.duration_minutes !== 60) return false;\n    const start = new Date(b.start_datetime);\n    if (isNaN(start.getTime())) return false;\n    if (start < weekStart || start >= weekEnd) return false;\n    const slot = slots.find(s => s.id === b.slot_id);\n    if (!slot || slot.time_of_day !== 'morning') return false;\n    const hour = start.getUTCHours();\n    if (hour < 9 || hour >= 12) return false;\n    return true;\n  });\n}\n\nqualifyingBookings.sort((a, b) => {\n  const sa = new Date(a.start_datetime).getTime();\n  const sb = new Date(b.start_datetime).getTime();\n  return sa - sb;\n});\nconst earliestBooked = qualifyingBookings[0] || null;\n\n// CP1 (0.4): User booked any 60-minute coaching session in the correct next-week morning window\ncheckpoints.push({ passed: !!earliestBooked, weight: 0.4 });\n// CP2 (0.6): That booking is for the earliest available qualifying slot\ncheckpoints.push({ passed: !!earliestBooked && !!earliestAvailableSlot && earliestBooked.slot_id === earliestAvailableSlot.id, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Technology Case Studies Saved Items Evaluator",
+      "description": "Checks if the user saved three technology case studies with budget > $20,000 and duration < 6 months.",
+      "localStorage_variables": [
+        "case_studies",
+        "saved_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst caseStudies = JSON.parse(localStorage.getItem('case_studies') || '[]');\nconst savedItems = JSON.parse(localStorage.getItem('saved_items') || '[]');\n\n// Qualifying case studies: technology, published, budget > 20000, duration_bucket 'less_than_6_months'\nconst qualifyingIds = caseStudies.filter(c => {\n  if (!c || c.status !== 'published') return false;\n  if (c.industry !== 'technology') return false;\n  if (typeof c.budget !== 'number' || c.budget <= 20000) return false;\n  if (c.duration_bucket !== 'less_than_6_months') return false;\n  return true;\n}).map(c => c.id);\n\nconst qualifyingSaved = savedItems.filter(s => s && s.content_type === 'case_study' && qualifyingIds.includes(s.content_id));\nconst count = qualifyingSaved.length;\n\n// CP1 (0.2): At least one qualifying technology case study saved\ncheckpoints.push({ passed: count >= 1, weight: 0.2 });\n// CP2 (0.3): At least two qualifying technology case studies saved\ncheckpoints.push({ passed: count >= 2, weight: 0.3 });\n// CP3 (0.5): At least three qualifying technology case studies saved\ncheckpoints.push({ passed: count >= 3, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Remote Teams Newsletter Subscription Evaluator",
+      "description": "Checks if the user subscribed for weekly emails about remote leadership and team productivity from the third most popular remote-teams article.",
+      "localStorage_variables": [
+        "articles",
+        "newsletter_subscriptions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst subscriptions = JSON.parse(localStorage.getItem('newsletter_subscriptions') || '[]');\n\n// Find remote-teams articles (tag includes 'remote_teams') and sort by popularity descending\nlet remoteArticles = articles.filter(a => {\n  if (!a || a.status !== 'published') return false;\n  const tags = Array.isArray(a.tags) ? a.tags : [];\n  return tags.includes('remote_teams');\n});\n\nremoteArticles.sort((a, b) => (b.popularity_score || b.views || 0) - (a.popularity_score || a.views || 0));\nconst thirdArticle = remoteArticles[2] || null;\n\n// Subscriptions that are weekly and include both 'remote_leadership' and 'team_productivity'\nconst qualifyingSubs = subscriptions.filter(s => {\n  if (!s || s.frequency !== 'weekly') return false;\n  const topics = Array.isArray(s.topics) ? s.topics : [];\n  const hasRemoteLeadership = topics.includes('remote_leadership');\n  const hasTeamProductivity = topics.includes('team_productivity');\n  return hasRemoteLeadership && hasTeamProductivity;\n});\n\nconst qualifyingSubsOnThird = qualifyingSubs.filter(s => thirdArticle && s.article_id === thirdArticle.id);\n\n// CP1 (0.4): At least one weekly subscription with both remote_leadership and team_productivity topics\ncheckpoints.push({ passed: qualifyingSubs.length > 0, weight: 0.4 });\n// CP2 (0.6): Such a subscription originated from the 3rd most popular remote-teams article\ncheckpoints.push({ passed: qualifyingSubsOnThird.length > 0, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "On-Site Workshop Pricing Configuration Evaluator",
+      "description": "Checks if the user configured an on-site 2-day workshop for 25 participants with follow-up group coaching under $8,000 and used it in a proposal request.",
+      "localStorage_variables": [
+        "custom_training_configurations",
+        "pricing_calculator_settings",
+        "proposal_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst configs = JSON.parse(localStorage.getItem('custom_training_configurations') || '[]');\nconst proposals = JSON.parse(localStorage.getItem('proposal_requests') || '[]');\n// settings are stored but not strictly required for evaluation since estimate is already on config\n\nconst config = Array.isArray(configs) && configs.length > 0 ? configs[0] : null;\n\nlet configuredOk = false;\nif (config) {\n  const isOnSite = config.delivery_format === 'on_site_at_office' || config.delivery_format === 'in_house_training';\n  const has2Days = config.workshop_length_days === 2;\n  const has25Participants = config.num_participants === 25;\n  const hasCoaching = !!config.include_followup_group_coaching && (config.followup_group_coaching_sessions || 0) > 0;\n  const noPrework = !config.include_online_prework_modules;\n  const underBudget = typeof config.estimated_total === 'number' && config.estimated_total < 8000;\n  configuredOk = isOnSite && has2Days && has25Participants && hasCoaching && noPrework && underBudget;\n}\n\nconst hasProposal = !!config && Array.isArray(proposals) && proposals.some(p => {\n  return p && p.source_type === 'custom_training_configuration' && p.custom_training_configuration_id === config.id && p.status === 'submitted';\n});\n\n// CP1 (0.4): Configuration matches on-site, 2-day, 25 participants, includes follow-up coaching, excludes prework, and is under $8,000\ncheckpoints.push({ passed: configuredOk, weight: 0.4 });\n// CP2 (0.6): A submitted proposal request references this qualifying configuration\ncheckpoints.push({ passed: configuredOk && hasProposal, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "North America Leadership Consultant Contact Evaluator",
+      "description": "Checks if the user contacted a North America–based leadership development consultant with ≥10 years experience and ≥5 clients, and whether they contacted the most experienced such consultant.",
+      "localStorage_variables": [
+        "consultants",
+        "consultant_contact_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst consultants = JSON.parse(localStorage.getItem('consultants') || '[]');\nconst contactRequests = JSON.parse(localStorage.getItem('consultant_contact_requests') || '[]');\n\n// Qualifying consultants: active, North America, expertise includes leadership_development, >=10 years, >=5 clients\nconst qualifyingConsultants = consultants.filter(c => {\n  if (!c || c.status !== 'active') return false;\n  if (c.region !== 'north_america') return false;\n  const expertise = Array.isArray(c.expertise_areas) ? c.expertise_areas : [];\n  if (!expertise.includes('leadership_development')) return false;\n  if (typeof c.years_experience !== 'number' || c.years_experience < 10) return false;\n  const clientLogosCount = Array.isArray(c.client_logos) ? c.client_logos.length : 0;\n  const clientNamesCount = Array.isArray(c.client_names) ? c.client_names.length : 0;\n  const clientCount = Math.max(clientLogosCount, clientNamesCount);\n  if (clientCount < 5) return false;\n  return true;\n});\n\nconst qualifyingIds = qualifyingConsultants.map(c => c.id);\n\nconst qualifyingRequests = contactRequests.filter(r => r && qualifyingIds.includes(r.consultant_id));\n\nconst mostExperienced = qualifyingConsultants.slice().sort((a, b) => (b.years_experience || 0) - (a.years_experience || 0))[0] || null;\nconst requestsToMostExperienced = qualifyingRequests.filter(r => mostExperienced && r.consultant_id === mostExperienced.id);\n\n// CP1 (0.6): At least one contact request targets a qualifying North America leadership-development consultant with >=10 years and >=5 clients\ncheckpoints.push({ passed: qualifyingRequests.length > 0, weight: 0.6 });\n// CP2 (0.4): At least one such request targets the most experienced qualifying consultant\ncheckpoints.push({ passed: requestsToMostExperienced.length > 0, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "articles",
+    "services",
+    "case_studies",
+    "consultants",
+    "consulting_packages",
+    "courses",
+    "pricing_calculator_settings",
+    "workshops",
+    "availability_slots",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

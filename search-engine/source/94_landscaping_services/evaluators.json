@@ -1,0 +1,109 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Monthly Lawn Mowing Quote Evaluator",
+      "description": "Checks whether the user requested a quote for a qualifying small-yard ongoing mowing plan under $120/month and chose the highest-rated such plan.",
+      "localStorage_variables": [
+        "quote_requests",
+        "services"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst services = JSON.parse(localStorage.getItem('services') || '[]');\nconst quoteRequests = JSON.parse(localStorage.getItem('quote_requests') || '[]');\n\n// Candidate services: ongoing lawn mowing, monthly, small yard, under $120, supports quote, lawn mowing feature\nconst candidateServices = services.filter(s => {\n  if (!s || !s.isActive) return false;\n  if (s.serviceType !== 'ongoing_lawn_mowing') return false;\n  if (s.priceUnit !== 'per_month') return false;\n  if (typeof s.basePrice !== 'number' || s.basePrice > 120) return false;\n  const sizes = Array.isArray(s.availablePropertySizes) ? s.availablePropertySizes : [];\n  if (!sizes.includes('small_up_to_quarter_acre')) return false;\n  const feats = Array.isArray(s.featureCodes) ? s.featureCodes : [];\n  if (!feats.includes('lawn_mowing')) return false;\n  if (s.supportsQuoteRequest !== true) return false;\n  return true;\n});\n\nlet cp1Passed = false; // At least one quote request for a qualifying service with correct small yard & price cap\nlet cp2Passed = false; // That request uses a highest-rated qualifying service\n\nif (candidateServices.length > 0 && quoteRequests.length > 0) {\n  const qualifyingRequests = quoteRequests.filter(q => {\n    if (!q) return false;\n    const svc = candidateServices.find(s => s.id === q.serviceId);\n    if (!svc) return false;\n    if (q.propertySizeCode !== 'small_up_to_quarter_acre') return false;\n    if (typeof q.maxMonthlyPrice !== 'number' || q.maxMonthlyPrice > 120) return false;\n    return true;\n  });\n\n  cp1Passed = qualifyingRequests.length > 0;\n\n  if (cp1Passed) {\n    let maxRating = -Infinity;\n    candidateServices.forEach(s => {\n      const r = typeof s.rating === 'number' ? s.rating : 0;\n      if (r > maxRating) maxRating = r;\n    });\n    const topServices = candidateServices.filter(s => (s.rating || 0) === maxRating);\n    cp2Passed = qualifyingRequests.some(q => topServices.some(s => s.id === q.serviceId));\n  }\n}\n\ncheckpoints.push({ passed: cp1Passed, weight: 0.5 });\ncheckpoints.push({ passed: cp2Passed, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Spring Cleanup Booking Evaluator",
+      "description": "Checks whether the user booked the one-time spring yard cleanup on March 15 at the first time slot starting at or after 3:00 PM with pay-on-site payment.",
+      "localStorage_variables": [
+        "bookings",
+        "time_slots",
+        "services"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst services = JSON.parse(localStorage.getItem('services') || '[]');\nconst bookings = JSON.parse(localStorage.getItem('bookings') || '[]');\nconst timeSlots = JSON.parse(localStorage.getItem('time_slots') || '[]');\n\nconst springServices = services.filter(s => s && s.serviceType === 'spring_yard_cleanup_one_time' && s.isBookableOnline);\nlet cp1 = false; // Correct service, date, and pay-on-site\nlet cp2 = false; // Chosen slot is earliest starting at or after 3 PM\n\nif (springServices.length > 0 && bookings.length > 0) {\n  const serviceId = springServices[0].id;\n  const targetBookings = bookings.filter(b => {\n    if (!b || b.serviceId !== serviceId) return false;\n    const dateStr = (b.scheduledDate || '').slice(0, 10);\n    if (dateStr !== '2026-03-15') return false;\n    if (b.paymentOption !== 'pay_on_site') return false;\n    return true;\n  });\n\n  cp1 = targetBookings.length > 0;\n\n  if (cp1 && timeSlots.length > 0) {\n    const daySlots = timeSlots\n      .filter(ts => {\n        if (!ts || ts.serviceId !== serviceId) return false;\n        const dStr = (ts.date || '').slice(0, 10);\n        if (dStr !== '2026-03-15') return false;\n        const start = ts.startTime || '';\n        // Consider all slots on that date whose start is at or after 3 PM\n        return start >= '2026-03-15T15:00:00Z';\n      })\n      .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));\n\n    const earliest = daySlots[0] || null;\n    if (earliest) {\n      cp2 = targetBookings.some(b => b.timeSlotId === earliest.id);\n    }\n  }\n}\n\ncheckpoints.push({ passed: cp1, weight: 0.5 });\ncheckpoints.push({ passed: cp2, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Custom Landscaping Package Evaluator",
+      "description": "Checks whether the user built a custom package with exactly lawn mowing, hedge trimming, and flower bed mulching at the specified frequencies, total between $300–$400, and finalized it for review.",
+      "localStorage_variables": [
+        "custom_packages",
+        "custom_package_service_items",
+        "services"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst packages = JSON.parse(localStorage.getItem('custom_packages') || '[]');\nconst items = JSON.parse(localStorage.getItem('custom_package_service_items') || '[]');\nconst services = JSON.parse(localStorage.getItem('services') || '[]');\n\nlet cp1 = false; // Package with exactly 3 services: mowing, hedge trimming, mulching with correct frequencies\nlet cp2 = false; // Same package has total and target range between $300–$400 and is finalized for review\n\nif (packages.length > 0 && items.length > 0 && services.length > 0) {\n  packages.forEach(pkg => {\n    if (!pkg) return;\n    const pkgItems = items.filter(it => it && it.packageId === pkg.id);\n    if (pkgItems.length !== 3) return;\n\n    const detailedItems = pkgItems\n      .map(it => ({ item: it, service: services.find(s => s && s.id === it.serviceId) || null }))\n      .filter(x => x.service);\n\n    if (detailedItems.length !== 3) return;\n\n    let hasMowing = false;\n    let hasHedge = false;\n    let hasMulch = false;\n    let mowingFreqOk = false;\n    let hedgeFreqOk = false;\n    let mulchFreqOk = false;\n\n    detailedItems.forEach(({ item, service }) => {\n      const feats = Array.isArray(service.featureCodes) ? service.featureCodes : [];\n      if (feats.includes('lawn_mowing')) {\n        hasMowing = true;\n        if (item.frequency === 'every_2_weeks') mowingFreqOk = true;\n      }\n      if (feats.includes('hedge_trimming')) {\n        hasHedge = true;\n        if (item.frequency === 'once_per_month') hedgeFreqOk = true;\n      }\n      if (feats.includes('flower_bed_mulching')) {\n        hasMulch = true;\n        if (item.frequency === 'one_time') mulchFreqOk = true;\n      }\n    });\n\n    const servicesOk = hasMowing && hasHedge && hasMulch;\n    const freqOk = mowingFreqOk && hedgeFreqOk && mulchFreqOk;\n\n    if (servicesOk && freqOk) {\n      cp1 = true;\n      const total = typeof pkg.totalEstimatedPrice === 'number' ? pkg.totalEstimatedPrice : 0;\n      const totalOk = total >= 300 && total <= 400;\n      const hasTargets = typeof pkg.targetPriceMin === 'number' && typeof pkg.targetPriceMax === 'number';\n      const targetRangeOk = hasTargets && pkg.targetPriceMin <= 300 && pkg.targetPriceMax >= 400;\n      const statusOk = pkg.status === 'saved' || pkg.status === 'ready_for_checkout';\n      if (totalOk && targetRangeOk && statusOk) {\n        cp2 = true;\n      }\n    }\n  });\n}\n\ncheckpoints.push({ passed: cp1, weight: 0.5 });\ncheckpoints.push({ passed: cp2, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Residential Mow & Leaf Plan Evaluator",
+      "description": "Checks whether the user chose the best qualifying residential maintenance plan (with mowing & leaf removal, ≤$150/month) with the most visits and proceeded to checkout with monthly billing.",
+      "localStorage_variables": [
+        "maintenance_plans",
+        "cart",
+        "cart_items",
+        "orders"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst plans = JSON.parse(localStorage.getItem('maintenance_plans') || '[]');\nconst carts = JSON.parse(localStorage.getItem('cart') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst orders = JSON.parse(localStorage.getItem('orders') || '[]');\n\nconst candidatePlans = plans.filter(p => {\n  if (!p || !p.isActive) return false;\n  if (p.planType !== 'residential') return false;\n  if (!p.includesLawnMowing || !p.includesLeafRemoval) return false;\n  if (typeof p.pricePerMonth !== 'number' || p.pricePerMonth > 150) return false;\n  return true;\n});\n\nlet cp1 = false; // Cart has the best qualifying plan with monthly billing\nlet cp2 = false; // Checkout order created that includes that best plan with monthly billing\n\nif (candidatePlans.length > 0) {\n  let maxVisits = -Infinity;\n  candidatePlans.forEach(p => {\n    const v = typeof p.visitsPerMonth === 'number' ? p.visitsPerMonth : 0;\n    if (v > maxVisits) maxVisits = v;\n  });\n  const bestPlans = candidatePlans.filter(p => (p.visitsPerMonth || 0) === maxVisits);\n  const bestPlanIds = bestPlans.map(p => p.id);\n\n  const qualifyingCartItem = cartItems.find(ci => {\n    if (!ci || ci.sourceType !== 'maintenance_plan') return false;\n    if (ci.billingFrequency !== 'monthly') return false;\n    if (!bestPlanIds.includes(ci.sourceId)) return false;\n    return ci.quantity > 0;\n  });\n\n  cp1 = !!qualifyingCartItem;\n\n  if (cp1 && orders.length > 0) {\n    cp2 = orders.some(order => {\n      if (!order || order.status !== 'pending_payment') return false;\n      const items = Array.isArray(order.itemsSnapshot) ? order.itemsSnapshot : [];\n      return items.some(it => it.sourceType === 'maintenance_plan' &&\n        it.billingFrequency === 'monthly' &&\n        bestPlanIds.includes(it.sourceId));\n    });\n  }\n}\n\ncheckpoints.push({ passed: cp1, weight: 0.5 });\ncheckpoints.push({ passed: cp2, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Drought-Tolerant Front Yard Consultation Evaluator",
+      "description": "Checks whether the user requested a consultation for the highest-rated drought-tolerant service within the $200–$600 range and mentioned the front yard in the request.",
+      "localStorage_variables": [
+        "consultation_requests",
+        "services"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst services = JSON.parse(localStorage.getItem('services') || '[]');\nconst consultationRequests = JSON.parse(localStorage.getItem('consultation_requests') || '[]');\n\n// Candidate services: drought-tolerant design, price range 200–600, rating >= 4\nconst candidateServices = services.filter(s => {\n  if (!s || !s.isActive) return false;\n  const feats = Array.isArray(s.featureCodes) ? s.featureCodes : [];\n  if (!feats.includes('drought_tolerant_design')) return false;\n  if (typeof s.minPrice !== 'number' || typeof s.maxPrice !== 'number') return false;\n  if (s.minPrice < 200 || s.maxPrice > 600) return false;\n  if (typeof s.rating !== 'number' || s.rating < 4.0) return false;\n  return true;\n});\n\nlet cp1 = false; // Consultation requested for a highest-rated qualifying drought-tolerant service\nlet cp2 = false; // The consultation message mentions the front yard\n\nif (candidateServices.length > 0 && consultationRequests.length > 0) {\n  let maxRating = -Infinity;\n  candidateServices.forEach(s => {\n    const r = typeof s.rating === 'number' ? s.rating : 0;\n    if (r > maxRating) maxRating = r;\n  });\n  const topServices = candidateServices.filter(s => (s.rating || 0) === maxRating);\n  const topIds = topServices.map(s => s.id);\n\n  const qualifyingRequests = consultationRequests.filter(r => r && topIds.includes(r.serviceId));\n  cp1 = qualifyingRequests.length > 0;\n\n  if (cp1) {\n    cp2 = qualifyingRequests.some(r => {\n      const msg = (r.message || '').toLowerCase();\n      return msg.includes('front yard');\n    });\n  }\n}\n\ncheckpoints.push({ passed: cp1, weight: 0.7 });\ncheckpoints.push({ passed: cp2, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "First-Time Promo on One-Time Mowing Evaluator",
+      "description": "Checks whether the user added a one-time lawn mowing service, correctly applied the 10% first-time customer promo in the cart, and proceeded to the payment step (pending_payment order).",
+      "localStorage_variables": [
+        "promotions",
+        "cart",
+        "cart_items",
+        "orders",
+        "services"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst services = JSON.parse(localStorage.getItem('services') || '[]');\nconst promotions = JSON.parse(localStorage.getItem('promotions') || '[]');\nconst carts = JSON.parse(localStorage.getItem('cart') || '[]');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst orders = JSON.parse(localStorage.getItem('orders') || '[]');\n\nconst mowingService = services.find(s => s && s.serviceType === 'one_time_mowing');\nlet cp1 = false; // Cart has one-time mowing with correct 10% first-time promo applied\nlet cp2 = false; // An order in pending_payment status was created from such a cart\n\nif (mowingService && promotions.length > 0 && carts.length > 0 && cartItems.length > 0) {\n  const promo = promotions.find(p => {\n    if (!p || p.discountType !== 'percentage' || p.discountValue !== 10 || !p.firstTimeCustomerOnly) return false;\n    const svcIds = Array.isArray(p.applicableServiceIds) ? p.applicableServiceIds : [];\n    return svcIds.includes(mowingService.id);\n  });\n\n  if (promo) {\n    const qualifyingCarts = carts.filter(cart => {\n      if (!cart) return false;\n      const code = (cart.promotionCode || '').trim().toLowerCase();\n      const promoCode = (promo.promoCode || '').trim().toLowerCase();\n      if (!code || code !== promoCode) return false;\n\n      const itemsForCart = cartItems.filter(ci => ci && ci.cartId === cart.id && ci.sourceType === 'service');\n      const mowingItem = itemsForCart.find(ci => ci.sourceId === mowingService.id && ci.quantity > 0);\n      if (!mowingItem) return false;\n\n      const unitPrice = typeof mowingService.basePrice === 'number' ? mowingService.basePrice : (mowingService.minPrice || 0);\n      const expectedSubtotal = unitPrice * mowingItem.quantity;\n      const lineSubtotal = typeof mowingItem.lineSubtotal === 'number' ? mowingItem.lineSubtotal : expectedSubtotal;\n      const lineDiscount = typeof mowingItem.lineDiscount === 'number' ? mowingItem.lineDiscount : 0;\n      const lineTotal = typeof mowingItem.lineTotal === 'number' ? mowingItem.lineTotal : (lineSubtotal - lineDiscount);\n\n      const expectedDiscount = expectedSubtotal * 0.10;\n      const expectedTotal = expectedSubtotal - expectedDiscount;\n      const eps = 1e-2;\n      const discountOk = (Math.abs(lineDiscount - expectedDiscount) < eps) || (Math.abs(lineTotal - expectedTotal) < eps);\n      return discountOk;\n    });\n\n    cp1 = qualifyingCarts.length > 0;\n\n    if (cp1 && orders.length > 0) {\n      const qualifyingCartIds = qualifyingCarts.map(c => c.id);\n      cp2 = orders.some(o => o && o.status === 'pending_payment' && qualifyingCartIds.includes(o.cartId));\n    }\n  }\n}\n\ncheckpoints.push({ passed: cp1, weight: 0.6 });\ncheckpoints.push({ passed: cp2, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Backyard Patio with Fire Pit Design Request Evaluator",
+      "description": "Checks whether the user favorited the third backyard medium patio+fire pit project and submitted a design request referencing that specific project.",
+      "localStorage_variables": [
+        "favorite_projects",
+        "project_design_requests",
+        "projects"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst projects = JSON.parse(localStorage.getItem('projects') || '[]');\nconst favArr = JSON.parse(localStorage.getItem('favorite_projects') || '[]');\nconst designRequests = JSON.parse(localStorage.getItem('project_design_requests') || '[]');\n\nlet cp1 = false; // Third qualifying project is in favorites\nlet cp2 = false; // Design request submitted for that project, message includes its reference code and appropriate type\n\nif (projects.length > 0) {\n  const filtered = projects.filter(p => {\n    if (!p) return false;\n    if (p.spaceType !== 'backyard') return false;\n    if (p.yardSizeCode !== 'medium_quarter_to_half_acre') return false;\n    const feats = Array.isArray(p.featureCodes) ? p.featureCodes : [];\n    return feats.includes('patio') && feats.includes('fire_pit');\n  });\n\n  if (filtered.length >= 3) {\n    const thirdProject = filtered[2];\n    const favRecord = favArr.find(f => f && f.id === 'default_favorites');\n    const favIds = favRecord && Array.isArray(favRecord.projectIds) ? favRecord.projectIds : [];\n\n    cp1 = favIds.includes(thirdProject.id);\n\n    if (designRequests.length > 0) {\n      cp2 = designRequests.some(r => {\n        if (!r || r.projectId !== thirdProject.id) return false;\n        const msg = (r.message || '').toUpperCase();\n        const ref = (thirdProject.referenceCode || '').toUpperCase();\n        const referenceMentioned = ref && msg.includes(ref);\n        const typeOk = !r.requestedProjectType || r.requestedProjectType === 'backyard_patio_with_fire_pit';\n        return referenceMentioned && typeOk;\n      });\n    }\n  }\n}\n\ncheckpoints.push({ passed: cp1, weight: 0.4 });\ncheckpoints.push({ passed: cp2, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Service Area & Cancellation FAQ Contact Evaluator",
+      "description": "Checks whether the user searched and viewed the Service Areas and Cancellation Policy FAQ articles, then submitted a contact form asking about service availability in ZIP 60610 and how the cancellation policy applies.",
+      "localStorage_variables": [
+        "task8_serviceAreaFAQSearch",
+        "task8_cancellationFAQSearch",
+        "task8_serviceAreaFAQArticleViewed",
+        "task8_cancellationFAQArticleViewed",
+        "contact_form_submissions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst serviceSearchRaw = localStorage.getItem('task8_serviceAreaFAQSearch');\nconst cancellationSearchRaw = localStorage.getItem('task8_cancellationFAQSearch');\nlet serviceSearch = null;\nlet cancellationSearch = null;\ntry { serviceSearch = serviceSearchRaw ? JSON.parse(serviceSearchRaw) : null; } catch (e) { serviceSearch = null; }\ntry { cancellationSearch = cancellationSearchRaw ? JSON.parse(cancellationSearchRaw) : null; } catch (e) { cancellationSearch = null; }\n\nconst saArticleViewed = localStorage.getItem('task8_serviceAreaFAQArticleViewed');\nconst cancelArticleViewed = localStorage.getItem('task8_cancellationFAQArticleViewed');\nconst submissions = JSON.parse(localStorage.getItem('contact_form_submissions') || '[]');\n\nlet cp1 = false; // Searched and viewed Service Areas FAQ\nlet cp2 = false; // Searched and viewed Cancellation Policy FAQ\nlet cp3 = false; // Submitted contact form asking about 60610 and cancellation policy\n\nif (serviceSearch && Array.isArray(serviceSearch.resultArticleIds)) {\n  const hasServiceAreasResult = serviceSearch.resultArticleIds.includes('service_areas');\n  const viewedCorrect = saArticleViewed === 'service_areas';\n  cp1 = hasServiceAreasResult && viewedCorrect;\n}\n\nif (cancellationSearch && Array.isArray(cancellationSearch.resultArticleIds)) {\n  const hasCancellationResult = cancellationSearch.resultArticleIds.includes('cancellation_policy');\n  const viewedCorrect = cancelArticleViewed === 'cancellation_policy';\n  cp2 = hasCancellationResult && viewedCorrect;\n}\n\nif (submissions.length > 0) {\n  cp3 = submissions.some(s => {\n    if (!s || s.subject !== 'service_availability') return false;\n    const msgLower = (s.message || '').toLowerCase();\n    return msgLower.includes('60610') && msgLower.includes('cancellation');\n  });\n}\n\ncheckpoints.push({ passed: cp1, weight: 0.35 });\ncheckpoints.push({ passed: cp2, weight: 0.35 });\ncheckpoints.push({ passed: cp3, weight: 0.30 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "service_categories",
+    "service_features",
+    "yard_size_options",
+    "maintenance_plans",
+    "projects",
+    "services",
+    "promotions",
+    "time_slots",
+    "faq_articles",
+    "service_areas",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

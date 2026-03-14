@@ -1,0 +1,104 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Bookmark Affordable European AI Conference (Late 2025)",
+      "description": "Checks whether the user bookmarked at least one international AI-related conference in Europe between September and December 2025 that offers a student registration option under 250 in its registration currency.",
+      "localStorage_variables": [
+        "conference_bookmarks",
+        "conferences",
+        "conference_fees"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nfunction parseDate(value) {\n  if (!value) return null;\n  const d = new Date(value);\n  return isNaN(d.getTime()) ? null : d;\n}\n\nconst conferences = JSON.parse(localStorage.getItem('conferences') || '[]');\nconst fees = JSON.parse(localStorage.getItem('conference_fees') || '[]');\nconst bookmarks = JSON.parse(localStorage.getItem('conference_bookmarks') || '[]');\n\n// Identify conferences that match all task criteria\nconst dateFrom = new Date('2025-09-01T00:00:00Z');\nconst dateTo = new Date('2025-12-31T23:59:59Z');\n\nconst qualifyingConferenceIds = conferences\n  .filter((c) => {\n    if (!c) return false;\n    if (c.region !== 'europe') return false;\n    if (!c.isInternational) return false;\n\n    const start = parseDate(c.startDate);\n    if (!start || start < dateFrom || start > dateTo) return false;\n\n    const topics = Array.isArray(c.topics)\n      ? c.topics.map((t) => String(t).toLowerCase())\n      : [];\n    const hasAI = topics.some((t) => t.includes('artificial intelligence'));\n    if (!hasAI) return false;\n\n    // Check for a student registration fee under or equal to 250 in any currency\n    const studentFees = fees.filter(\n      (f) => f && f.conferenceId === c.id && f.attendeeType === 'student' && typeof f.amount === 'number'\n    );\n    if (studentFees.length === 0) return false;\n    const minAmount = studentFees.reduce((min, f) => (f.amount < min ? f.amount : min), studentFees[0].amount);\n    if (minAmount > 250) return false;\n\n    return true;\n  })\n  .map((c) => c.id);\n\n// Bookmarks that are actually for qualifying conferences\nconst qualifyingBookmarks = bookmarks.filter((b) => b && qualifyingConferenceIds.includes(b.conferenceId));\n\n// Single checkpoint: at least one qualifying conference is bookmarked\ncheckpoints.push({ passed: qualifyingBookmarks.length >= 1, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "One-Day Multi-Track Climate Schedule Evaluator",
+      "description": "Checks whether the user added at least three climate-related sessions between 09:00 and 17:00, all on the same conference day and spanning at least two different tracks, to their personal schedule.",
+      "localStorage_variables": [
+        "personal_schedule_items",
+        "conference_sessions",
+        "conference_tracks"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nfunction parseDate(value) {\n  if (!value) return null;\n  const d = new Date(value);\n  return isNaN(d.getTime()) ? null : d;\n}\n\nconst scheduleItems = JSON.parse(localStorage.getItem('personal_schedule_items') || '[]');\nconst sessions = JSON.parse(localStorage.getItem('conference_sessions') || '[]');\n\n// Group qualifying scheduled sessions by dayIndex\nconst qualifyingByDay = {};\n\nscheduleItems.forEach((item) => {\n  const session = sessions.find((s) => s.id === item.sessionId);\n  if (!session) return;\n\n  // Climate-related: explicit flag or keyword containing 'climate'\n  let isClimate = session.isClimateRelated === true;\n  if (!isClimate && Array.isArray(session.keywords)) {\n    isClimate = session.keywords.some((k) => String(k).toLowerCase().includes('climate'));\n  }\n  if (!isClimate) return;\n\n  // Time between 09:00 and 17:00 (inclusive) in UTC\n  const start = parseDate(session.startDateTime);\n  const end = parseDate(session.endDateTime);\n  if (!start || !end) return;\n  const startM = start.getUTCHours() * 60 + start.getUTCMinutes();\n  const endM = end.getUTCHours() * 60 + end.getUTCMinutes();\n  if (startM < 9 * 60 || endM > 17 * 60) return;\n\n  const dayIndex = session.dayIndex;\n  if (typeof dayIndex !== 'number') return;\n\n  if (!qualifyingByDay[dayIndex]) {\n    qualifyingByDay[dayIndex] = [];\n  }\n  qualifyingByDay[dayIndex].push(session);\n});\n\n// For each day, only count sessions if there are at least two distinct tracks\nlet maxQualifyingInDayWithMultiTracks = 0;\nObject.keys(qualifyingByDay).forEach((dayKey) => {\n  const daySessions = qualifyingByDay[dayKey];\n  if (!Array.isArray(daySessions) || daySessions.length === 0) return;\n  const trackIds = new Set(daySessions.map((s) => s.trackId).filter(Boolean));\n  if (trackIds.size < 2) return; // require multi-track\n  if (daySessions.length > maxQualifyingInDayWithMultiTracks) {\n    maxQualifyingInDayWithMultiTracks = daySessions.length;\n  }\n});\n\n// Checkpoints: 1, 2, and 3 qualifying sessions within a single day AND across >=2 tracks\n[1, 2, 3].forEach((n, idx) => {\n  const weight = n === 3 ? 0.34 : 0.33;\n  checkpoints.push({\n    passed: maxQualifyingInDayWithMultiTracks >= n,\n    weight\n  });\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Follow Canadian ML-for-Healthcare Researcher Evaluator",
+      "description": "Checks whether the user followed at least one researcher based in Canada whose expertise includes machine learning for healthcare and whose h-index is between 30 and 60.",
+      "localStorage_variables": [
+        "followed_researchers",
+        "researchers"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst follows = JSON.parse(localStorage.getItem('followed_researchers') || '[]');\nconst researchers = JSON.parse(localStorage.getItem('researchers') || '[]');\n\nconst qualifyingFollows = follows.filter((f) => {\n  const r = researchers.find((rr) => rr.id === f.researcherId);\n  if (!r) return false;\n\n  const country = (r.country || '').toLowerCase();\n  const affCountry = (r.affiliationCountry || '').toLowerCase();\n  if (country !== 'canada' && affCountry !== 'canada') return false;\n\n  if (typeof r.hIndex !== 'number' || r.hIndex < 30 || r.hIndex > 60) return false;\n\n  const expertise = Array.isArray(r.expertiseKeywords)\n    ? r.expertiseKeywords.map((e) => String(e).toLowerCase())\n    : [];\n  const hasMLHealthcare = expertise.some((e) => e.includes('machine learning for healthcare'));\n  if (!hasMLHealthcare) return false;\n\n  return true;\n});\n\n// Single checkpoint: at least one qualifying researcher followed\ncheckpoints.push({ passed: qualifyingFollows.length >= 1, weight: 1.0 });\n\nreturn checkoints = checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Save Three Most Recent Open-Access Renewable Energy Policy Papers",
+      "description": "Checks whether the user added to their reading list the three most recent open-access publications on renewable energy policy from 2021–2024 in journals with impact factor > 5.",
+      "localStorage_variables": [
+        "reading_list_items",
+        "publications",
+        "journals"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nfunction parseDate(value) {\n  if (!value) return null;\n  const d = new Date(value);\n  return isNaN(d.getTime()) ? null : d;\n}\n\nconst readingList = JSON.parse(localStorage.getItem('reading_list_items') || '[]');\nconst publications = JSON.parse(localStorage.getItem('publications') || '[]');\nconst journals = JSON.parse(localStorage.getItem('journals') || '[]');\n\nfunction getImpactFactor(pub) {\n  if (typeof pub.journalImpactFactor === 'number') return pub.journalImpactFactor;\n  if (pub.journalId) {\n    const j = journals.find((jj) => jj.id === pub.journalId);\n    if (j && typeof j.impactFactor === 'number') return j.impactFactor;\n  }\n  return null;\n}\n\n// Find all qualifying publications per task criteria\nconst qualifyingPubs = publications.filter((p) => {\n  if (!p || typeof p.year !== 'number') return false;\n  if (p.year < 2021 || p.year > 2024) return false;\n\n  const textParts = [p.title, p.abstract].filter(Boolean).join(' ').toLowerCase();\n  const kw = Array.isArray(p.keywords)\n    ? p.keywords.map((k) => String(k).toLowerCase())\n    : [];\n  const hasKeyword = kw.some((k) => k.includes('renewable energy policy')) || textParts.includes('renewable energy policy');\n  if (!hasKeyword) return false;\n\n  const isOpen = p.accessType === 'open_access' || p.isOpenAccess === true || (p.accessType === 'hybrid' && p.isOpenAccess === true);\n  if (!isOpen) return false;\n\n  const impact = getImpactFactor(p);\n  if (impact == null || impact <= 5) return false;\n\n  return true;\n});\n\n// Sort by most recent: year desc, then createdAt desc\nqualifyingPubs.sort((a, b) => {\n  const ya = typeof a.year === 'number' ? a.year : 0;\n  const yb = typeof b.year === 'number' ? b.year : 0;\n  if (yb !== ya) return yb - ya;\n  const da = parseDate(a.createdAt) || new Date(0);\n  const db = parseDate(b.createdAt) || new Date(0);\n  return db - da;\n});\n\nconst top3 = qualifyingPubs.slice(0, 3);\nconst top3Ids = top3.map((p) => p.id);\n\n// How many of these top 3 are in the reading list?\nconst savedTopCount = top3Ids.filter((pid) => readingList.some((r) => r.publicationId === pid)).length;\n\n// Checkpoints for saving 1, 2, and 3 of the correct top-3 qualifying publications\n[1, 2, 3].forEach((n, idx) => {\n  const weight = n === 3 ? 0.34 : 0.33;\n  checkpoints.push({\n    passed: savedTopCount >= n,\n    weight\n  });\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Pre-Register for Affordable Half-Day Data Visualization Workshop",
+      "description": "Checks whether the user pre-registered as a guest for a half-day data visualization workshop costing under 150, selecting the morning time slot when multiple sessions are available and avoiding immediate online payment.",
+      "localStorage_variables": [
+        "event_registrations",
+        "events",
+        "event_time_slots"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nfunction parseDate(value) {\n  if (!value) return null;\n  const d = new Date(value);\n  return isNaN(d.getTime()) ? null : d;\n}\n\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst slots = JSON.parse(localStorage.getItem('event_time_slots') || '[]');\nconst regs = JSON.parse(localStorage.getItem('event_registrations') || '[]');\n\n// Events that match topic, type, duration, and fee criteria\nconst candidateEvents = events.filter((e) => {\n  if (!e) return false;\n  if (e.eventType !== 'workshop') return false;\n  if (e.durationType !== 'half_day') return false;\n  if (typeof e.baseFeeAmount !== 'number' || e.baseFeeAmount > 150) return false;\n  const topics = Array.isArray(e.topics)\n    ? e.topics.map((t) => String(t).toLowerCase())\n    : [];\n  const hasDataViz = topics.some((t) => t.includes('data visualization'));\n  if (!hasDataViz) return false;\n  return true;\n});\n\nconst candidateEventIds = candidateEvents.map((e) => e.id);\n\nconst qualifyingRegs = regs.filter((r) => {\n  if (!r) return false;\n  if (!candidateEventIds.includes(r.eventId)) return false;\n\n  // Must be guest registration\n  if (r.registrationType !== 'guest') return false;\n\n  // Avoid immediate online payment\n  if (r.paymentOption === 'pay_online') return false;\n\n  // Pre-registration indicator (BusinessLogic defaults this to true for drafts)\n  if (r.isPreRegistration === false) return false;\n\n  const eventSlots = slots.filter((s) => s.eventId === r.eventId);\n\n  // If multiple time slots exist, require earliest (morning) slot\n  if (eventSlots.length > 1) {\n    if (!r.timeSlotId) return false;\n    let earliestMinutes = null;\n    eventSlots.forEach((s) => {\n      const d = parseDate(s.startDateTime);\n      if (!d) return;\n      const m = d.getUTCHours() * 60 + d.getUTCMinutes();\n      if (earliestMinutes === null || m < earliestMinutes) {\n        earliestMinutes = m;\n      }\n    });\n    if (earliestMinutes === null) return false;\n    const earliestSlotIds = eventSlots\n      .filter((s) => {\n        const d = parseDate(s.startDateTime);\n        if (!d) return false;\n        const m = d.getUTCHours() * 60 + d.getUTCMinutes();\n        return m === earliestMinutes;\n      })\n      .map((s) => s.id);\n    if (!earliestSlotIds.includes(r.timeSlotId)) return false;\n  }\n\n  return true;\n});\n\n// Single checkpoint: at least one qualifying pre-registration matching all criteria\ncheckpoints.push({ passed: qualifyingRegs.length >= 1, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Subscribe to Weekly AI Ethics and Climate Policy Newsletters in HTML",
+      "description": "Checks whether the user used a single email address to subscribe to weekly AI ethics and climate policy newsletters in HTML format.",
+      "localStorage_variables": [
+        "newsletter_subscriptions",
+        "newsletter_topics"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst subs = JSON.parse(localStorage.getItem('newsletter_subscriptions') || '[]');\n\nlet hasQualifyingEmail = false;\n\n// Group by email and check for both topics with correct settings\nconst byEmail = {};\nsubs.forEach((s) => {\n  if (!s || !s.email) return;\n  if (!byEmail[s.email]) byEmail[s.email] = [];\n  byEmail[s.email].push(s);\n});\n\nObject.keys(byEmail).forEach((email) => {\n  const list = byEmail[email];\n  const ai = list.find(\n    (s) => s.topic === 'ai_ethics' && s.isActive && s.frequency === 'weekly' && s.format === 'html'\n  );\n  const climate = list.find(\n    (s) => s.topic === 'climate_policy' && s.isActive && s.frequency === 'weekly' && s.format === 'html'\n  );\n  if (ai && climate) {\n    hasQualifyingEmail = true;\n  }\n});\n\n// Single checkpoint: at least one email address with both required subscriptions configured correctly\ncheckpoints.push({ passed: hasQualifyingEmail, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "One-Time Anonymous $75 Early-Career Grants Donation Draft",
+      "description": "Checks whether the user created a one-time 75 USD donation draft to the Early Career Research Grants program, marked as anonymous and opted out of physical mail, stopping before payment completion.",
+      "localStorage_variables": [
+        "donations",
+        "donation_programs"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst donations = JSON.parse(localStorage.getItem('donations') || '[]');\nconst programs = JSON.parse(localStorage.getItem('donation_programs') || '[]');\n\n// Identify early-career research grants programs\nconst earlyCareerProgramIds = programs\n  .filter((p) => p && (p.code === 'early_career_research_grants' || String(p.name || '').toLowerCase().includes('early career research grants')))\n  .map((p) => p.id);\n\nconst qualifyingDonations = donations.filter((d) => {\n  if (!d) return false;\n  if (d.donationType !== 'one_time') return false;\n  if (d.amount !== 75) return false;\n  if (d.currency !== 'usd') return false;\n  if (!earlyCareerProgramIds.includes(d.programId)) return false;\n  if (!d.isAnonymous) return false;\n  // Opt out of physical mail\n  if (d.communicationPreference !== 'no_postal_mail') return false;\n  // Draft/pending payment only (no completed donation)\n  if (d.status !== 'pending_payment' && d.status !== 'draft') return false;\n  return true;\n});\n\n// Single checkpoint: at least one qualifying donation draft created\ncheckpoints.push({ passed: qualifyingDonations.length >= 1, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Choose Most Economical Eligible Membership Plan",
+      "description": "Checks whether the user started a membership application for the cheaper of the student and professional plans that both include member-only webinars and discounted conference fees.",
+      "localStorage_variables": [
+        "membership_plans",
+        "membership_applications"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst plans = JSON.parse(localStorage.getItem('membership_plans') || '[]');\nconst applications = JSON.parse(localStorage.getItem('membership_applications') || '[]');\n\n// Relevant individual plans that include both required benefits\nconst relevantPlans = plans.filter((p) => {\n  if (!p) return false;\n  if (p.isActive === false) return false;\n  if (p.planType !== 'student' && p.planType !== 'professional') return false;\n  if (!p.includesMemberWebinars) return false;\n  if (!p.includesDiscountedConferenceFees) return false;\n  return true;\n});\n\nlet chosenCorrectly = false;\n\nif (relevantPlans.length > 0) {\n  // Determine the cheapest eligible plan\n  let cheapest = relevantPlans[0];\n  relevantPlans.slice(1).forEach((p) => {\n    if (typeof p.annualPriceAmount === 'number' && p.annualPriceAmount < cheapest.annualPriceAmount) {\n      cheapest = p;\n    }\n  });\n\n  // Check if there is an application for this cheapest plan\n  const hasAppForCheapest = applications.some(\n    (a) => a && a.planId === cheapest.id && a.status === 'in_progress'\n  );\n\n  if (hasAppForCheapest) {\n    chosenCorrectly = true;\n  }\n}\n\n// Single checkpoint: user started an application for the correct (cheapest qualifying) plan\ncheckpoints.push({ passed: chosenCorrectly, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "conferences",
+    "donation_programs",
+    "events",
+    "journals",
+    "membership_plans",
+    "newsletter_topics",
+    "researchers",
+    "conference_fees",
+    "conference_tracks",
+    "event_time_slots",
+    "publications",
+    "conference_sessions",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

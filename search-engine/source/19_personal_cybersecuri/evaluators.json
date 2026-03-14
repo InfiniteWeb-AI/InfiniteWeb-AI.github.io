@@ -1,0 +1,118 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Bookmark Three Beginner Wi‑Fi Security Articles to Reading List Evaluator",
+      "description": "Checks that the user bookmarked at least three beginner Wi‑Fi Security articles (>=2023, <=8 min reading time) into the default Reading List.",
+      "localStorage_variables": [
+        "articles",
+        "categories",
+        "tags",
+        "article_tags",
+        "collections",
+        "collection_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Load data\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst tags = JSON.parse(localStorage.getItem('tags') || '[]');\nconst articleTags = JSON.parse(localStorage.getItem('article_tags') || '[]');\nconst collections = JSON.parse(localStorage.getItem('collections') || '[]');\nconst collectionItems = JSON.parse(localStorage.getItem('collection_items') || '[]');\n\n// Find Wi-Fi Security tag\nconst wifiTag = tags.find(t => t && t.slug === 'wifi_security');\nconst wifiTagId = wifiTag ? wifiTag.id : null;\n\n// Identify qualifying beginner Wi-Fi security articles\nconst qualifyingArticleIds = [];\nif (wifiTagId) {\n  for (let i = 0; i < articles.length; i++) {\n    const a = articles[i];\n    if (!a || a.category_id !== 'beginner') continue;\n    if (typeof a.reading_time_minutes !== 'number' || a.reading_time_minutes > 8) continue;\n    const year = a.published_at ? new Date(a.published_at).getUTCFullYear() : null;\n    if (!year || year < 2023) continue;\n    const hasWifiTag = articleTags.some(at => at && at.article_id === a.id && at.tag_id === wifiTagId);\n    if (!hasWifiTag) continue;\n    qualifyingArticleIds.push(a.id);\n  }\n}\n\n// Find default Reading List collection\nconst defaultList = collections.find(c => c && c.is_default_reading_list);\nlet qualifyingBookmarkedCount = 0;\nif (defaultList && qualifyingArticleIds.length > 0) {\n  for (let i = 0; i < collectionItems.length; i++) {\n    const ci = collectionItems[i];\n    if (!ci || ci.collection_id !== defaultList.id) continue;\n    if (qualifyingArticleIds.indexOf(ci.article_id) !== -1) {\n      qualifyingBookmarkedCount++;\n    }\n  }\n}\n\n// Checkpoints reward ONLY correctly bookmarked qualifying articles\ncheckpoints.push({ passed: qualifyingBookmarkedCount >= 1, weight: 0.2 });\ncheckpoints.push({ passed: qualifyingBookmarkedCount >= 2, weight: 0.3 });\ncheckpoints.push({ passed: qualifyingBookmarkedCount >= 3, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Bookmark Most-Commented VPN Setup Guide to Practice Later Evaluator",
+      "description": "Checks that, among the top two most-commented VPN setup how-to guides, the user bookmarked the one with more comments into the Practice Later collection.",
+      "localStorage_variables": [
+        "articles",
+        "tags",
+        "article_tags",
+        "collections",
+        "collection_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Load data\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst tags = JSON.parse(localStorage.getItem('tags') || '[]');\nconst articleTags = JSON.parse(localStorage.getItem('article_tags') || '[]');\nconst collections = JSON.parse(localStorage.getItem('collections') || '[]');\nconst collectionItems = JSON.parse(localStorage.getItem('collection_items') || '[]');\n\n// Get tag IDs for VPN-related content\nconst vpnTagSlugs = ['vpn', 'vpn_setup'];\nconst vpnTagIds = tags\n  .filter(t => t && vpnTagSlugs.indexOf(t.slug) !== -1)\n  .map(t => t.id);\n\n// Find VPN setup how-to guides (Guides / How-tos with VPN/VPN Setup tags)\nconst vpnGuides = articles.filter(a => {\n  if (!a || a.content_type !== 'guides_how_tos') return false;\n  const aTagIds = articleTags\n    .filter(at => at && at.article_id === a.id)\n    .map(at => at.tag_id);\n  return vpnTagIds.some(id => aTagIds.indexOf(id) !== -1);\n});\n\n// Sort by most commented\nvpnGuides.sort((a, b) => {\n  const ca = typeof a.comment_count === 'number' ? a.comment_count : 0;\n  const cb = typeof b.comment_count === 'number' ? b.comment_count : 0;\n  return cb - ca;\n});\n\nconst topTwo = vpnGuides.slice(0, 2);\nconst topTwoIds = topTwo.map(a => a.id);\nconst bestArticle = topTwo.length > 0 ? topTwo[0] : null;\n\n// Find Practice Later collection\nconst practiceCollection = collections.find(c => c && (c.id === 'practice_later' || c.name === 'Practice Later'));\nlet bookmarkedInPracticeIds = [];\nif (practiceCollection) {\n  for (let i = 0; i < collectionItems.length; i++) {\n    const ci = collectionItems[i];\n    if (ci && ci.collection_id === practiceCollection.id) {\n      bookmarkedInPracticeIds.push(ci.article_id);\n    }\n  }\n}\n\nconst bookmarkedTop2Ids = topTwoIds.filter(id => bookmarkedInPracticeIds.indexOf(id) !== -1);\n\n// CP1: User bookmarked at least one of the top-two most-commented VPN setup guides into Practice Later\ncheckpoints.push({ passed: topTwo.length > 0 && bookmarkedTop2Ids.length >= 1, weight: 0.4 });\n\n// CP2: User bookmarked the MOST-commented guide among the top two into Practice Later\nconst cp2Passed = !!(bestArticle && bookmarkedInPracticeIds.indexOf(bestArticle.id) !== -1);\ncheckpoints.push({ passed: cp2Passed, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Add Best Password Manager Review to Research Collection Evaluator",
+      "description": "Checks that, among password manager review articles tagged with both Security Tools and Account Security, the user added the one with the largest first recommendation list (>=3 tools) to the Research collection.",
+      "localStorage_variables": [
+        "articles",
+        "tags",
+        "article_tags",
+        "collections",
+        "collection_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Load data\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst tags = JSON.parse(localStorage.getItem('tags') || '[]');\nconst articleTags = JSON.parse(localStorage.getItem('article_tags') || '[]');\nconst collections = JSON.parse(localStorage.getItem('collections') || '[]');\nconst collectionItems = JSON.parse(localStorage.getItem('collection_items') || '[]');\n\n// Required tags: tools + account_security\nconst toolsTag = tags.find(t => t && t.slug === 'tools');\nconst acctSecTag = tags.find(t => t && t.slug === 'account_security');\nconst requiredTagIds = [];\nif (toolsTag) requiredTagIds.push(toolsTag.id);\nif (acctSecTag) requiredTagIds.push(acctSecTag.id);\n\nfunction articleHasAllTags(articleId, tagIds) {\n  const aTagIds = articleTags\n    .filter(at => at && at.article_id === articleId)\n    .map(at => at.tag_id);\n  return tagIds.every(id => aTagIds.indexOf(id) !== -1);\n}\n\n// Candidate password manager review articles\nconst candidateArticles = articles.filter(a => {\n  if (!a || a.content_type !== 'reviews') return false;\n  const title = (a.title || '').toLowerCase();\n  const hasPwdInTitle = title.indexOf('password manager') !== -1 || title.indexOf('password managers') !== -1;\n  if (!hasPwdInTitle) return false;\n  if (requiredTagIds.length > 0 && !articleHasAllTags(a.id, requiredTagIds)) return false;\n  const tools = Array.isArray(a.recommended_tools) ? a.recommended_tools : [];\n  return tools.length >= 3;\n});\n\n// Select article with the largest recommendation list\nlet bestArticle = null;\nlet maxTools = -1;\nfor (let i = 0; i < candidateArticles.length; i++) {\n  const a = candidateArticles[i];\n  const tools = Array.isArray(a.recommended_tools) ? a.recommended_tools : [];\n  if (tools.length > maxTools) {\n    maxTools = tools.length;\n    bestArticle = a;\n  }\n}\n\n// Find Research collection\nconst researchCollection = collections.find(c => c && (c.id === 'research' || c.name === 'Research'));\nlet researchArticleIds = [];\nif (researchCollection) {\n  for (let i = 0; i < collectionItems.length; i++) {\n    const ci = collectionItems[i];\n    if (ci && ci.collection_id === researchCollection.id) {\n      researchArticleIds.push(ci.article_id);\n    }\n  }\n}\n\n// Articles in Research that meet the candidate criteria\nconst qualifyingInResearchCount = candidateArticles.filter(a => researchArticleIds.indexOf(a.id) !== -1).length;\n\n// CP1: User saved at least one qualifying password manager review (correct tags and >=3 tools) into Research\ncheckpoints.push({ passed: qualifyingInResearchCount >= 1, weight: 0.4 });\n\n// CP2: The review with the MOST recommended tools is in the Research collection\nconst cp2Passed = !!(bestArticle && researchArticleIds.indexOf(bestArticle.id) !== -1);\ncheckpoints.push({ passed: cp2Passed, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Comment and Copy Link on Short Popular Phishing Article Evaluator",
+      "description": "Checks that the user copied the link of the shortest qualifying phishing article (<=10 minutes, >=10 upvotes) and posted a new comment of at least 15 characters on that same article.",
+      "localStorage_variables": [
+        "articles",
+        "tags",
+        "article_tags",
+        "article_comments",
+        "clipboardLastCopiedText"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Load data\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst tags = JSON.parse(localStorage.getItem('tags') || '[]');\nconst articleTags = JSON.parse(localStorage.getItem('article_tags') || '[]');\nconst comments = JSON.parse(localStorage.getItem('article_comments') || '[]');\nlet clipboard = null;\ntry {\n  clipboard = JSON.parse(localStorage.getItem('clipboardLastCopiedText') || 'null');\n} catch (e) {\n  clipboard = null;\n}\n\n// Find Phishing tag\nconst phishingTag = tags.find(t => t && t.slug === 'phishing');\nconst phishingTagId = phishingTag ? phishingTag.id : null;\n\nfunction articleHasPhishing(articleId) {\n  return articleTags.some(at => at && at.article_id === articleId && at.tag_id === phishingTagId);\n}\n\n// Qualifying phishing articles: tag=phishing, reading_time<=10, upvotes>=10\nlet qualifying = [];\nif (phishingTagId) {\n  qualifying = articles.filter(a => {\n    if (!a) return false;\n    if (!articleHasPhishing(a.id)) return false;\n    if (typeof a.reading_time_minutes !== 'number' || a.reading_time_minutes > 10) return false;\n    if (typeof a.upvotes !== 'number' || a.upvotes < 10) return false;\n    return true;\n  });\n}\n\n// Shortest by reading time (tie-breaker: earlier published_at)\nqualifying.sort((a, b) => {\n  const ra = typeof a.reading_time_minutes === 'number' ? a.reading_time_minutes : Number.MAX_SAFE_INTEGER;\n  const rb = typeof b.reading_time_minutes === 'number' ? b.reading_time_minutes : Number.MAX_SAFE_INTEGER;\n  if (ra !== rb) return ra - rb;\n  const da = a.published_at ? new Date(a.published_at).getTime() : 0;\n  const db = b.published_at ? new Date(b.published_at).getTime() : 0;\n  return da - db;\n});\n\nconst targetArticle = qualifying.length > 0 ? qualifying[0] : null;\nlet cp1Passed = false;\nlet cp2Passed = false;\n\nif (targetArticle) {\n  const expectedUrl = 'https://example.com/article.html?articleId=' + encodeURIComponent(targetArticle.id);\n  cp1Passed = !!(clipboard && clipboard.text === expectedUrl);\n\n  // New user comment: id starting with 'comment_' and content length >= 15\n  const targetComments = comments.filter(c => c && c.article_id === targetArticle.id && !c.is_deleted);\n  const newLongComments = targetComments.filter(c => {\n    const isRuntimeId = typeof c.id === 'string' && c.id.indexOf('comment_') === 0;\n    const lenOk = typeof c.content === 'string' && c.content.length >= 15;\n    return isRuntimeId && lenOk;\n  });\n  cp2Passed = newLongComments.length > 0;\n}\n\n// CP1: User copied the link for the correct shortest qualifying phishing article\ncheckpoints.push({ passed: cp1Passed, weight: 0.5 });\n\n// CP2: User posted a new sufficiently long comment on that same article\ncheckpoints.push({ passed: cp2Passed, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Configure OSINT Weekly On-site and Disable Malware Notifications Evaluator",
+      "description": "Checks that OSINT notifications are set to weekly on-site alerts and Malware notifications are fully disabled.",
+      "localStorage_variables": [
+        "authState",
+        "notification_settings"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Load notification settings\nconst notificationSettings = JSON.parse(localStorage.getItem('notification_settings') || '[]');\n\nconst osint = notificationSettings.find(s => s && s.topic === 'osint');\nconst malware = notificationSettings.find(s => s && s.topic === 'malware');\n\n// CP1: OSINT set to on-site alerts, weekly\nconst cp1Passed = !!(osint && osint.delivery_type === 'on_site_alerts' && osint.frequency === 'weekly');\ncheckpoints.push({ passed: cp1Passed, weight: 0.5 });\n\n// CP2: Malware notifications disabled (delivery_type=disabled, frequency=none)\nconst cp2Passed = !!(malware && malware.delivery_type === 'disabled' && malware.frequency === 'none');\ncheckpoints.push({ passed: cp2Passed, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Add Newest 2024 Intermediate CTF Write-up to Weekend Practice and Mark In Progress Evaluator",
+      "description": "Checks that the newest intermediate 2024 CTF write-up with at least 5 upvotes is in a new 'Weekend Practice' collection and its reading status is set to In progress.",
+      "localStorage_variables": [
+        "articles",
+        "categories",
+        "collections",
+        "collection_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Load data\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst collections = JSON.parse(localStorage.getItem('collections') || '[]');\nconst collectionItems = JSON.parse(localStorage.getItem('collection_items') || '[]');\n\n// Find candidate CTF write-ups: category=ctf_practice, difficulty=intermediate, challenge_year=2024, upvotes>=5\nconst candidates = articles.filter(a => {\n  if (!a) return false;\n  if (a.category_id !== 'ctf_practice') return false;\n  if (a.difficulty !== 'intermediate') return false;\n  if (typeof a.challenge_year !== 'number' || a.challenge_year !== 2024) return false;\n  if (typeof a.upvotes !== 'number' || a.upvotes < 5) return false;\n  return true;\n});\n\n// Newest by published_at\ncandidates.sort((a, b) => {\n  const da = a.published_at ? new Date(a.published_at).getTime() : 0;\n  const db = b.published_at ? new Date(b.published_at).getTime() : 0;\n  return db - da;\n});\n\nconst targetArticle = candidates.length > 0 ? candidates[0] : null;\n\n// Find collections named 'Weekend Practice'\nconst weekendCollections = collections.filter(c => c && c.name === 'Weekend Practice');\n\nlet hasTargetInWeekend = false;\nif (targetArticle && weekendCollections.length > 0) {\n  for (let i = 0; i < weekendCollections.length; i++) {\n    const col = weekendCollections[i];\n    const foundItem = collectionItems.some(ci => ci && ci.collection_id === col.id && ci.article_id === targetArticle.id);\n    if (foundItem) {\n      hasTargetInWeekend = true;\n      break;\n    }\n  }\n}\n\n// CP1: The correct newest qualifying CTF write-up is in a 'Weekend Practice' collection\ncheckpoints.push({ passed: !!(targetArticle && hasTargetInWeekend), weight: 0.5 });\n\n// CP2: That article's reading_status is set to 'in_progress'\nconst cp2Passed = !!(targetArticle && targetArticle.reading_status === 'in_progress');\ncheckpoints.push({ passed: cp2Passed, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Open First Four Parts of Most Popular Web App Security Series Evaluator",
+      "description": "Uses instrumentation to check that the most popular Web Application Security series was opened and that parts 1 through 4 of that series were opened.",
+      "localStorage_variables": [
+        "series",
+        "articles",
+        "task7_seriesOpened",
+        "task7_openedParts"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Load series and instrumentation\nconst seriesList = JSON.parse(localStorage.getItem('series') || '[]');\nlet seriesOpened = null;\nlet openedParts = null;\ntry {\n  seriesOpened = JSON.parse(localStorage.getItem('task7_seriesOpened') || 'null');\n} catch (e) {\n  seriesOpened = null;\n}\ntry {\n  openedParts = JSON.parse(localStorage.getItem('task7_openedParts') || 'null');\n} catch (e) {\n  openedParts = null;\n}\n\n// Determine most popular Web Application Security series\nconst webAppSeries = seriesList.filter(s => s && s.topic === 'web_application_security');\nwebAppSeries.sort((a, b) => {\n  const pa = typeof a.popularity_score === 'number' ? a.popularity_score : 0;\n  const pb = typeof b.popularity_score === 'number' ? b.popularity_score : 0;\n  return pb - pa;\n});\nconst topSeries = webAppSeries.length > 0 ? webAppSeries[0] : null;\n\nconst partNumbers = openedParts && Array.isArray(openedParts.partNumbers)\n  ? openedParts.partNumbers\n  : [];\n\nfunction hasParts(required) {\n  return required.every(p => partNumbers.indexOf(p) !== -1);\n}\n\n// CP1: Correct series (most popular Web App Security) was opened\nconst cp1Passed = !!(topSeries && seriesOpened && seriesOpened.seriesId === topSeries.id);\ncheckpoints.push({ passed: cp1Passed, weight: 0.3 });\n\n// CP2: Instrumentation shows part 1 of that series was opened\nconst cp2Passed = !!(topSeries && openedParts && openedParts.seriesId === topSeries.id && hasParts([1]));\ncheckpoints.push({ passed: cp2Passed, weight: 0.2 });\n\n// CP3: Parts 1–3 of that series were opened\nconst cp3Passed = !!(topSeries && openedParts && openedParts.seriesId === topSeries.id && hasParts([1, 2, 3]));\ncheckpoints.push({ passed: cp3Passed, weight: 0.2 });\n\n// CP4: Parts 1–4 of that series were opened\nconst cp4Passed = !!(topSeries && openedParts && openedParts.seriesId === topSeries.id && hasParts([1, 2, 3, 4]));\ncheckpoints.push({ passed: cp4Passed, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Rate Top Tools Article 4 Stars with Detailed Feedback Evaluator",
+      "description": "Checks that the highest-rated Tools category article received a 4-star feedback from the user with at least two feedback reasons selected and a comment of at least 20 characters.",
+      "localStorage_variables": [
+        "articles",
+        "categories",
+        "feedback_reasons",
+        "article_feedback",
+        "article_feedback_reason_selections"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\n// Load data\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst feedbackReasons = JSON.parse(localStorage.getItem('feedback_reasons') || '[]');\nconst articleFeedback = JSON.parse(localStorage.getItem('article_feedback') || '[]');\nconst reasonSelections = JSON.parse(localStorage.getItem('article_feedback_reason_selections') || '[]');\n\n// Determine top Tools article by highest average_rating (matching BusinessLogic sort)\nconst toolsArticles = articles.filter(a => a && a.category_id === 'tools');\ntoolsArticles.sort((a, b) => {\n  const aa = typeof a.average_rating === 'number' ? a.average_rating : 0;\n  const ab = typeof b.average_rating === 'number' ? b.average_rating : 0;\n  if (ab !== aa) return ab - aa;\n  const ra = typeof a.rating_count === 'number' ? a.rating_count : 0;\n  const rb = typeof b.rating_count === 'number' ? b.rating_count : 0;\n  if (rb !== ra) return rb - ra;\n  const da = a.published_at ? new Date(a.published_at).getTime() : 0;\n  const db = b.published_at ? new Date(b.published_at).getTime() : 0;\n  return db - da;\n});\n\nconst targetArticle = toolsArticles.length > 0 ? toolsArticles[0] : null;\n\nconst allowedReasonCodes = feedbackReasons.map(r => r.code).filter(c => !!c);\n\nlet rating4Feedback = [];\nlet rating4WithLongComment = [];\nlet rating4LongWithReasons = [];\n\nif (targetArticle) {\n  const fbForTarget = articleFeedback.filter(f => f && f.article_id === targetArticle.id);\n\n  rating4Feedback = fbForTarget.filter(f => f.rating_stars === 4);\n\n  rating4WithLongComment = rating4Feedback.filter(f => {\n    const text = f.comment || '';\n    return text.length >= 20;\n  });\n\n  rating4LongWithReasons = rating4WithLongComment.filter(f => {\n    const reasons = reasonSelections.filter(rs => rs && rs.article_feedback_id === f.id && allowedReasonCodes.indexOf(rs.reason_code) !== -1);\n    const uniqueCodes = new Set(reasons.map(r => r.reason_code));\n    return uniqueCodes.size >= 2;\n  });\n}\n\n// CP1: Top Tools article has at least one 4-star feedback from the user\nconst cp1Passed = !!(targetArticle && rating4Feedback.length >= 1);\ncheckpoints.push({ passed: cp1Passed, weight: 0.3 });\n\n// CP2: At least one 4-star feedback for that article includes a written comment of >=20 characters\nconst cp2Passed = !!(targetArticle && rating4WithLongComment.length >= 1);\ncheckpoints.push({ passed: cp2Passed, weight: 0.3 });\n\n// CP3: At least one such 4-star, long-comment feedback also has >=2 valid feedback reasons selected\nconst cp3Passed = !!(targetArticle && rating4LongWithReasons.length >= 1);\ncheckpoints.push({ passed: cp3Passed, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "categories",
+    "collections",
+    "feedback_reasons",
+    "notification_settings",
+    "tags",
+    "article_feedback",
+    "series",
+    "articles",
+    "article_comments",
+    "article_tags",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

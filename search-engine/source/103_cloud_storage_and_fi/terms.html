@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8' />
+  <meta name='viewport' content='width=device-width, initial-scale=1' />
+  <title>Cloud Storage Service</title>
+  <link rel='preconnect' href='https://fonts.googleapis.com' />
+  <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin />
+  <link href='https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&amp;family=Space+Grotesk:wght@400;500;600&amp;display=swap' rel='stylesheet' />
+  <link rel='stylesheet' href='styles.css' />
+  <link rel='stylesheet' href='terms.css' />
+</head>
+<body>
+  <header class='site-header' role='banner'>
+    <div class='site-header-inner'>
+      <div class='site-branding'>
+        <span class='site-logo-text'>Cloud Storage</span>
+      </div>
+      <nav class='primary-nav' aria-label='Primary'>
+        <ul>
+          <li><a href='index.html'>My Files</a></li>
+          <li><a href='recent.html'>Recent</a></li>
+          <li><a href='shared.html'>Shared with me</a></li>
+          <li><a href='storage.html'>Storage</a></li>
+          <li><a href='trash.html'>Trash</a></li>
+          <li><a href='help.html'>Help</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' role='main'>
+    <div class='terms-page'>
+      <section class='terms-header-section' data-component='terms-header'>
+        <div class='terms-header-inner'>
+          <h1 class='terms-title' data-populate='terms-title'></h1>
+          <p class='terms-last-updated'>
+            <span>Last updated&nbsp;</span>
+            <time data-populate='terms-last-updated'></time>
+          </p>
+          <p class='terms-subtitle'>These terms govern your use of the Cloud Storage service.</p>
+        </div>
+      </section>
+
+      <section class='terms-search-section' data-component='terms-search'>
+        <form class='terms-search-form'>
+          <label class='terms-search-label' for='termsSearchInput'>Search within these terms</label>
+          <input
+            id='termsSearchInput'
+            class='terms-search-input'
+            type='search'
+            name='q'
+            autocomplete='off'
+            placeholder='Search for topics, for example sharing or billing'
+            data-action='search-input'
+          />
+        </form>
+        <p class='terms-search-meta' aria-live='polite' data-populate='search-meta'></p>
+      </section>
+
+      <nav class='terms-toc-section' aria-label='Terms sections' data-component='terms-toc'>
+        <p class='terms-toc-label'>Jump to a section</p>
+        <ul class='terms-toc-list' data-populate='terms-toc'></ul>
+      </nav>
+
+      <section class='terms-content-section' data-component='terms-section-list'>
+        <div class='terms-loader' aria-live='polite' data-populate='terms-loader'></div>
+        <div class='terms-sections' data-populate='terms-sections'></div>
+      </section>
+
+      <section class='terms-cross-links-section' data-component='terms-cross-links'>
+        <p class='terms-cross-links-heading'>Related policies</p>
+        <ul class='terms-cross-links-list'>
+          <li>
+            <a href='javascript:void(0)' data-action='privacy-link'>View our Privacy Policy</a>
+          </li>
+          <li>
+            <a href='javascript:void(0)' data-action='contact-link'>Questions about these terms? Contact us</a>
+          </li>
+        </ul>
+      </section>
+
+      <div data-component='static-page-content-loader' hidden></div>
+      <div data-component='terms-url-state-sync' hidden></div>
+    </div>
+  </main>
+
+  <footer class='site-footer' role='contentinfo'>
+    <div class='site-footer-inner'>
+      <nav class='footer-nav' aria-label='Footer'>
+        <ul class='footer-links'>
+          <li><a href='about.html'>About</a></li>
+          <li><a href='help.html'>Help &amp; Support</a></li>
+          <li><a href='contact.html'>Contact</a></li>
+          <li><a href='privacy.html'>Privacy Policy</a></li>
+          <li><a href='terms.html'>Terms of Service</a></li>
+          <li><a href='settings.html'>Settings</a></li>
+        </ul>
+      </nav>
+      <small class='footer-meta'>&copy; <span data-year='year'>2024</span> Cloud Storage. All rights reserved.</small>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      'use strict';
+
+      function derivePageKey() {
+        var path = window.location.pathname || '';
+        var filename = path.split('/').pop() || 'terms.html';
+        var nameWithoutExt = filename.split('.').shift();
+        var mapping = {
+          terms: 'terms_of_service'
+        };
+        if (mapping[nameWithoutExt]) {
+          return mapping[nameWithoutExt];
+        }
+        return 'terms_of_service';
+      }
+
+      function parseUrlStateFromLocation(loc) {
+        var search = loc.search || '';
+        var params = new URLSearchParams(search);
+        var section = params.get('section');
+        var q = params.get('q');
+        return {
+          selectedSectionId: section || null,
+          searchQuery: q || ''
+        };
+      }
+
+      function formatDate(value) {
+        if (!value) {
+          return '';
+        }
+        var date = new Date(value);
+        if (isNaN(date.getTime())) {
+          return '';
+        }
+        var options = { year: 'numeric', month: 'long', day: 'numeric' };
+        return date.toLocaleDateString(undefined, options);
+      }
+
+      function slugify(heading, index) {
+        var base = String(heading || '')
+          .toLowerCase()
+          .trim()
+          .replace(/[^a-z0-9\s-]/g, '')
+          .replace(/\s+/g, '-')
+          .replace(/-+/g, '-');
+        var fallback = 'section-' + (index + 1);
+        return base || fallback;
+      }
+
+      function highlightText(text, query) {
+        if (!query) {
+          return text;
+        }
+        var escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var pattern = new RegExp(escaped, 'gi');
+        return text.replace(pattern, function(match) {
+          return '<mark>' + match + '</mark>';
+        });
+      }
+
+      var initialUrlState = parseUrlStateFromLocation(window.location);
+      var urlState = {
+        selectedSectionId: initialUrlState.selectedSectionId,
+        searchQuery: initialUrlState.searchQuery
+      };
+
+      var termsContent = null;
+      var sectionsMeta = [];
+
+      function renderTermsTitle(container) {
+        if (!container) {
+          return;
+        }
+        if (!termsContent || !termsContent.title) {
+          container.textContent = 'Terms of Service';
+        } else {
+          container.textContent = termsContent.title;
+        }
+      }
+
+      function renderTermsLastUpdated(container) {
+        if (!container) {
+          return;
+        }
+        if (!termsContent || !termsContent.lastUpdatedAt) {
+          container.textContent = '';
+          container.removeAttribute('datetime');
+          return;
+        }
+        var formatted = formatDate(termsContent.lastUpdatedAt);
+        if (!formatted) {
+          container.textContent = '';
+          container.removeAttribute('datetime');
+          return;
+        }
+        container.textContent = formatted;
+        try {
+          var iso = new Date(termsContent.lastUpdatedAt).toISOString();
+          container.setAttribute('datetime', iso);
+        } catch (e) {
+          container.removeAttribute('datetime');
+        }
+      }
+
+      function renderTermsLoader(container) {
+        if (!container) {
+          return;
+        }
+        if (!termsContent) {
+          container.textContent = 'Loading terms';
+        } else {
+          container.textContent = '';
+        }
+      }
+
+      function getActiveSectionIdFallback() {
+        if (urlState.selectedSectionId) {
+          return urlState.selectedSectionId;
+        }
+        if (sectionsMeta.length > 0) {
+          return sectionsMeta[0].id;
+        }
+        return null;
+      }
+
+      function renderTermsToc(container) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (!termsContent || !sectionsMeta.length) {
+          return;
+        }
+        var activeId = getActiveSectionIdFallback();
+        for (var i = 0; i < sectionsMeta.length; i += 1) {
+          var meta = sectionsMeta[i];
+          var li = document.createElement('li');
+          var link = document.createElement('a');
+          link.href = 'javascript:void(0)';
+          link.setAttribute('data-action', 'toc-section');
+          link.setAttribute('data-section-id', meta.id);
+          link.textContent = meta.heading;
+          if (activeId && meta.id === activeId) {
+            link.classList.add('is-active');
+          }
+          li.appendChild(link);
+          container.appendChild(li);
+        }
+      }
+
+      function renderTermsSections(container) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (!termsContent) {
+          return;
+        }
+        var query = (urlState.searchQuery || '').trim().toLowerCase();
+        var activeId = getActiveSectionIdFallback();
+        var visibleCount = 0;
+        for (var i = 0; i < sectionsMeta.length; i += 1) {
+          var meta = sectionsMeta[i];
+          var headingText = meta.heading || '';
+          var bodyText = meta.body || '';
+          if (query) {
+            var inHeading = headingText.toLowerCase().indexOf(query) !== -1;
+            var inBody = bodyText.toLowerCase().indexOf(query) !== -1;
+            if (!inHeading && !inBody) {
+              continue;
+            }
+          }
+          visibleCount += 1;
+          var article = document.createElement('article');
+          article.className = 'terms-section';
+          article.id = meta.id;
+          article.setAttribute('data-section-id', meta.id);
+          if (activeId && meta.id === activeId) {
+            article.classList.add('is-active');
+          }
+          var h2 = document.createElement('h2');
+          h2.className = 'terms-section-heading';
+          if (query && headingText.toLowerCase().indexOf(query) !== -1) {
+            h2.innerHTML = highlightText(headingText, urlState.searchQuery || '');
+          } else {
+            h2.textContent = headingText;
+          }
+          var bodyDiv = document.createElement('div');
+          bodyDiv.className = 'terms-section-body';
+          bodyDiv.innerHTML = meta.body;
+          article.appendChild(h2);
+          article.appendChild(bodyDiv);
+          container.appendChild(article);
+        }
+        if (sectionsMeta.length > 0 && visibleCount === 0) {
+          var empty = document.createElement('p');
+          empty.className = 'terms-no-results';
+          empty.textContent = 'No sections match your search.';
+          container.appendChild(empty);
+        }
+      }
+
+      function renderSearchMeta(container) {
+        if (!container) {
+          return;
+        }
+        if (!termsContent || !sectionsMeta.length) {
+          container.textContent = '';
+          return;
+        }
+        var total = sectionsMeta.length;
+        var query = (urlState.searchQuery || '').trim();
+        if (!query) {
+          container.textContent = 'Showing ' + total + ' section' + (total === 1 ? '' : 's') + '.';
+          return;
+        }
+        var qLower = query.toLowerCase();
+        var matches = 0;
+        for (var i = 0; i < sectionsMeta.length; i += 1) {
+          var meta = sectionsMeta[i];
+          var headingText = meta.heading || '';
+          var bodyText = meta.body || '';
+          if (headingText.toLowerCase().indexOf(qLower) !== -1 || bodyText.toLowerCase().indexOf(qLower) !== -1) {
+            matches += 1;
+          }
+        }
+        container.textContent = 'Showing ' + matches + ' matching section' + (matches === 1 ? '' : 's') + ' for "' + query + '".';
+      }
+
+      function renderAllPopulate() {
+        var elements = document.querySelectorAll('[data-populate]');
+        elements.forEach(function(container) {
+          var type = container.getAttribute('data-populate');
+          if (type === 'terms-title') {
+            renderTermsTitle(container);
+          } else if (type === 'terms-last-updated') {
+            renderTermsLastUpdated(container);
+          } else if (type === 'terms-loader') {
+            renderTermsLoader(container);
+          } else if (type === 'terms-toc') {
+            renderTermsToc(container);
+          } else if (type === 'terms-sections') {
+            renderTermsSections(container);
+          } else if (type === 'search-meta') {
+            renderSearchMeta(container);
+          }
+        });
+      }
+
+      function syncSearchInput() {
+        var input = document.querySelector('[data-action="search-input"]');
+        if (!input) {
+          return;
+        }
+        var targetValue = urlState.searchQuery || '';
+        if (document.activeElement === input && input.value.indexOf(targetValue) === 0) {
+          return;
+        }
+        input.value = targetValue;
+      }
+
+      function scrollToActiveSection() {
+        var activeId = getActiveSectionIdFallback();
+        if (!activeId) {
+          return;
+        }
+        var el = document.getElementById(activeId);
+        if (!el) {
+          return;
+        }
+        try {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          el.setAttribute('tabindex', '-1');
+          el.focus({ preventScroll: true });
+        } catch (e) {
+          el.scrollIntoView(true);
+        }
+      }
+
+      function applyStateToUi(options) {
+        syncSearchInput();
+        renderAllPopulate();
+        var shouldScroll = options && options.scroll;
+        if (shouldScroll) {
+          scrollToActiveSection();
+        }
+      }
+
+      function updateUrl(params, options) {
+        var currentUrl = new URL(window.location.href);
+        var searchParams = currentUrl.searchParams;
+        if (Object.prototype.hasOwnProperty.call(params, 'section')) {
+          var sectionVal = params.section || '';
+          if (sectionVal) {
+            searchParams.set('section', sectionVal);
+          } else {
+            searchParams.delete('section');
+          }
+        }
+        if (Object.prototype.hasOwnProperty.call(params, 'q')) {
+          var qVal = params.q || '';
+          if (qVal) {
+            searchParams.set('q', qVal);
+          } else {
+            searchParams.delete('q');
+          }
+        }
+        currentUrl.search = searchParams.toString();
+        var method = options && options.replace ? 'replaceState' : 'pushState';
+        window.history[method]({}, '', currentUrl.toString());
+        var newState = parseUrlStateFromLocation(currentUrl);
+        urlState.selectedSectionId = newState.selectedSectionId;
+        urlState.searchQuery = newState.searchQuery;
+        var shouldScroll = Object.prototype.hasOwnProperty.call(params, 'section');
+        applyStateToUi({ scroll: shouldScroll });
+      }
+
+      function setupEventListeners() {
+        var searchForm = document.querySelector('.terms-search-form');
+        if (searchForm) {
+          searchForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            var input = searchForm.querySelector('[data-action="search-input"]');
+            if (!input) {
+              return;
+            }
+            var value = input.value || '';
+            var trimmed = value.trim();
+            updateUrl({ q: trimmed }, { replace: false });
+          });
+        }
+
+        var searchInputEl = document.querySelector('[data-action="search-input"]');
+        if (searchInputEl) {
+          searchInputEl.addEventListener('input', function() {
+            var value = searchInputEl.value || '';
+            var trimmed = value.trim();
+            updateUrl({ q: trimmed }, { replace: true });
+          });
+        }
+
+        var tocContainer = document.querySelector('[data-populate="terms-toc"]');
+        if (tocContainer) {
+          tocContainer.addEventListener('click', function(event) {
+            var target = event.target.closest('[data-action="toc-section"]');
+            if (!target || !tocContainer.contains(target)) {
+              return;
+            }
+            event.preventDefault();
+            var sectionId = target.getAttribute('data-section-id');
+            if (!sectionId) {
+              return;
+            }
+            updateUrl({ section: sectionId }, { replace: false });
+          });
+        }
+
+        var sectionsContainerTop = document.querySelector('[data-populate="terms-sections"]');
+        if (sectionsContainerTop) {
+          sectionsContainerTop.addEventListener('click', function(event) {
+            var link = event.target.closest('a');
+            if (!link || !sectionsContainerTop.contains(link)) {
+              return;
+            }
+            var href = link.getAttribute('href');
+            if (!href) {
+              return;
+            }
+            if (href === 'javascript:void(0)') {
+              return;
+            }
+            var sectionId = null;
+            if (href.charAt(0) === '#') {
+              sectionId = href.substring(1);
+            } else {
+              try {
+                var currentUrl = new URL(window.location.href);
+                var resolvedUrl = new URL(href, currentUrl);
+                var samePage = resolvedUrl.pathname === currentUrl.pathname;
+                if (samePage) {
+                  if (resolvedUrl.hash) {
+                    sectionId = resolvedUrl.hash.substring(1);
+                  } else {
+                    var paramSection = resolvedUrl.searchParams.get('section');
+                    if (paramSection) {
+                      sectionId = paramSection;
+                    }
+                  }
+                }
+              } catch (e) {
+                sectionId = null;
+              }
+            }
+            if (sectionId) {
+              event.preventDefault();
+              updateUrl({ section: sectionId }, { replace: false });
+            }
+          });
+        }
+
+        var privacyLink = document.querySelector('[data-action="privacy-link"]');
+        if (privacyLink) {
+          privacyLink.addEventListener('click', function(event) {
+            event.preventDefault();
+            var sectionId = getActiveSectionIdFallback() || '';
+            var params = new URLSearchParams();
+            params.set('from', 'terms');
+            if (sectionId) {
+              params.set('section', sectionId);
+            }
+            window.location.href = 'privacy.html?' + params.toString();
+          });
+        }
+
+        var contactLink = document.querySelector('[data-action="contact-link"]');
+        if (contactLink) {
+          contactLink.addEventListener('click', function(event) {
+            event.preventDefault();
+            var sectionId = getActiveSectionIdFallback() || '';
+            var params = new URLSearchParams();
+            params.set('topic', 'terms');
+            if (sectionId) {
+              params.set('section', sectionId);
+            }
+            window.location.href = 'contact.html?' + params.toString();
+          });
+        }
+
+        window.addEventListener('popstate', function() {
+          var newState = parseUrlStateFromLocation(window.location);
+          urlState.selectedSectionId = newState.selectedSectionId;
+          urlState.searchQuery = newState.searchQuery;
+          applyStateToUi({ scroll: true });
+        });
+      }
+
+      renderAllPopulate();
+      syncSearchInput();
+      setupEventListeners();
+
+      var pageKey = derivePageKey();
+      try {
+        var data = WebsiteSDK.getStaticPageContent(pageKey);
+        termsContent = data || {};
+        var sections = Array.isArray(termsContent.sections) ? termsContent.sections : [];
+        sectionsMeta = sections.map(function(section, index) {
+          var heading = section && typeof section.heading === 'string' ? section.heading : 'Section ' + (index + 1);
+          var body = section && typeof section.body === 'string' ? section.body : '';
+          var id = slugify(heading, index);
+          return {
+            id: id,
+            heading: heading,
+            body: body
+          };
+        });
+        if (urlState.selectedSectionId) {
+          var hasMatch = sectionsMeta.some(function(meta) {
+            return meta.id === urlState.selectedSectionId;
+          });
+          if (!hasMatch) {
+            urlState.selectedSectionId = null;
+          }
+        }
+        applyStateToUi({ scroll: true });
+      } catch (error) {
+        var loaderEls = document.querySelectorAll('[data-populate="terms-loader"]');
+        loaderEls.forEach(function(container) {
+          container.textContent = 'Unable to load Terms of Service at this time. Please try again later.';
+        });
+      }
+    });
+  </script>
+</body>
+</html>

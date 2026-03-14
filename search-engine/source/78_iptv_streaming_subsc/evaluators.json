@@ -1,0 +1,115 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Annual 100+ Channels Plan to Checkout Evaluator",
+      "description": "Checks that the user selected a qualifying annual plan (100+ channels, < $20/mo effective, annual billing) and viewed the checkout with that plan selected.",
+      "localStorage_variables": [
+        "task1_selectedPlanId",
+        "task1_checkoutViewed",
+        "subscription_changes",
+        "plans"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst selectedPlanId = localStorage.getItem('task1_selectedPlanId') || null;\nlet checkoutViewedRaw = localStorage.getItem('task1_checkoutViewed');\nlet checkoutViewed = false;\nif (checkoutViewedRaw !== null) {\n  try { checkoutViewed = JSON.parse(checkoutViewedRaw); } catch (e) { checkoutViewed = checkoutViewedRaw === 'true'; }\n}\n\nconst plans = JSON.parse(localStorage.getItem('plans') || '[]');\nconst changes = JSON.parse(localStorage.getItem('subscription_changes') || '[]');\n\nconst selectedPlan = plans.find(p => p && p.id === selectedPlanId) || null;\n\nconst planQualifies = !!selectedPlan &&\n  selectedPlan.status === 'active' &&\n  typeof selectedPlan.monthly_price === 'number' && selectedPlan.monthly_price < 20 &&\n  Array.isArray(selectedPlan.billing_cycles_available) && selectedPlan.billing_cycles_available.includes('annual') &&\n  (\n    (typeof selectedPlan.channel_count === 'number' && selectedPlan.channel_count >= 100) ||\n    (Array.isArray(selectedPlan.tags) && selectedPlan.tags.includes('100_plus_channels'))\n  );\n\nconst changeForPlan = changes.find(c => c && c.selected_plan_id === selectedPlanId && c.selected_billing_cycle === 'annual') || null;\n\n// CP1 (0.40): User selected a plan that meets all criteria (annual, < $20/mo, 100+ channels).\ncheckpoints.push({ passed: !!selectedPlanId && planQualifies, weight: 0.40 });\n\n// CP2 (0.35): Draft subscription change reflects that qualifying plan with annual billing selected.\ncheckpoints.push({ passed: !!changeForPlan && planQualifies, weight: 0.35 });\n\n// CP3 (0.25): Checkout was viewed while that qualifying annual plan was selected in the draft.\ncheckpoints.push({ passed: !!changeForPlan && planQualifies && !!checkoutViewed, weight: 0.25 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Add Qualifying Sports Add-on and Save Evaluator",
+      "description": "Checks that the user selected a qualifying sports add-on (< $10/month, 5+ HD channels) and saved it to the subscription.",
+      "localStorage_variables": [
+        "task2_addonSelection",
+        "subscriptions",
+        "subscription_addons",
+        "subscription_changes",
+        "addons"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nlet selection = null;\nconst selectionRaw = localStorage.getItem('task2_addonSelection');\nif (selectionRaw) {\n  try { selection = JSON.parse(selectionRaw); } catch (e) { selection = null; }\n}\n\nconst subscriptions = JSON.parse(localStorage.getItem('subscriptions') || '[]');\nconst subscriptionAddons = JSON.parse(localStorage.getItem('subscription_addons') || '[]');\nconst changes = JSON.parse(localStorage.getItem('subscription_changes') || '[]');\nconst addons = JSON.parse(localStorage.getItem('addons') || '[]');\n\nconst currentSub = subscriptions.find(s => s && s.is_current) || null;\nconst selectedAddon = selection ? addons.find(a => a && a.id === selection.addonId) || null : null;\n\nconst addonQualifies = !!selectedAddon &&\n  selectedAddon.status === 'active' &&\n  selectedAddon.category === 'sports' &&\n  typeof selectedAddon.monthly_price === 'number' && selectedAddon.monthly_price < 10 &&\n  !!selectedAddon.has_hd_channels &&\n  typeof selectedAddon.included_channels_count === 'number' && selectedAddon.included_channels_count >= 5;\n\n// CP1 (0.40): User's recorded selection targets a qualifying sports add-on for the current subscription.\nconst cp1Passed = !!selection && !!currentSub && selection.subscriptionId === currentSub.id && addonQualifies;\ncheckpoints.push({ passed: cp1Passed, weight: 0.40 });\n\n// CP2 (0.30): A subscription change includes this qualifying add-on in its selected_addon_ids.\nconst changeHasAddon = !!selectedAddon && changes.some(c => c && Array.isArray(c.selected_addon_ids) && c.selected_addon_ids.includes(selectedAddon.id));\ncheckpoints.push({ passed: addonQualifies && changeHasAddon, weight: 0.30 });\n\n// CP3 (0.30): The qualifying add-on is now active on the subscription (saved configuration).\nconst activeSubAddon = !!selectedAddon && !!currentSub && subscriptionAddons.some(sa => sa && sa.subscription_id === currentSub.id && sa.addon_id === selectedAddon.id && sa.is_active);\ncheckpoints.push({ passed: addonQualifies && activeSubAddon, weight: 0.30 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Favorite Required Channel Types and View List Evaluator",
+      "description": "Checks that the user favorited one English movies channel, one Spanish news channel, and one all-ages kids channel, and then viewed the favorites list.",
+      "localStorage_variables": [
+        "favorite_channels",
+        "channels",
+        "task3_favoritesListViewed"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst favorites = JSON.parse(localStorage.getItem('favorite_channels') || '[]');\nconst channels = JSON.parse(localStorage.getItem('channels') || '[]');\n\nlet favoritesListViewedRaw = localStorage.getItem('task3_favoritesListViewed');\nlet favoritesListViewed = false;\nif (favoritesListViewedRaw !== null) {\n  try { favoritesListViewed = JSON.parse(favoritesListViewedRaw); } catch (e) { favoritesListViewed = favoritesListViewedRaw === 'true'; }\n}\n\nconst getChannel = id => channels.find(c => c && c.id === id) || null;\n\nconst englishMovieFavs = favorites.filter(f => {\n  const ch = getChannel(f.channel_id);\n  return ch && ch.genre === 'movies' && ch.primary_language === 'English';\n});\n\nconst spanishNewsFavs = favorites.filter(f => {\n  const ch = getChannel(f.channel_id);\n  return ch && ch.genre === 'news' && ch.primary_language === 'Spanish';\n});\n\nconst kidsAllAgesFavs = favorites.filter(f => {\n  const ch = getChannel(f.channel_id);\n  return ch && ch.genre === 'kids' && ch.rating === 'all_ages';\n});\n\nconst hasAllThreeTypes = englishMovieFavs.length > 0 && spanishNewsFavs.length > 0 && kidsAllAgesFavs.length > 0;\n\n// CP1 (0.70): At least one favorite of each required type has been added.\ncheckpoints.push({ passed: hasAllThreeTypes, weight: 0.70 });\n\n// CP2 (0.30): Favorites list has been viewed after having all three qualifying types.\ncheckpoints.push({ passed: hasAllThreeTypes && !!favoritesListViewed, weight: 0.30 });\n\nreturn checkPointsReduce(checkpoints);\n\nfunction checkPointsReduce(cps) {\n  return cps.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);\n}"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Parental Controls with PIN and TV-14 Limit Evaluator",
+      "description": "Checks that the user signed in with the correct account and configured parental controls with a 4-digit PIN, TV-14 maximum rating, and purchase blocking.",
+      "localStorage_variables": [
+        "auth_state",
+        "parental_controls"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst auth = JSON.parse(localStorage.getItem('auth_state') || 'null');\nconst parentalArr = JSON.parse(localStorage.getItem('parental_controls') || '[]');\nconst setting = parentalArr[0] || null;\n\n// CP1 (0.40): User is signed in as the expected parent account.\nconst cp1Passed = !!auth && auth.is_authenticated === true && auth.email === 'parent@example.com';\ncheckpoints.push({ passed: cp1Passed, weight: 0.40 });\n\n// CP2 (0.30): A 4-digit numeric parental PIN is configured.\nconst cp2Passed = !!setting && typeof setting.pin === 'string' && /^[0-9]{4}$/.test(setting.pin);\ncheckpoints.push({ passed: cp2Passed, weight: 0.30 });\n\n// CP3 (0.30): Max content rating is TV-14 and purchases are blocked without PIN.\nconst cp3Passed = !!setting && setting.max_content_rating === 'tv_14' && setting.block_purchases_without_pin === true;\ncheckpoints.push({ passed: cp3Passed, weight: 0.30 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Upgrade to Max Streams Under $30 Evaluator",
+      "description": "Checks that the user compared at least two qualifying plans under $30/month and upgraded to the one with the highest simultaneous streams, applying the change immediately.",
+      "localStorage_variables": [
+        "task5_comparedPlanIds",
+        "task5_upgradeResult",
+        "subscriptions",
+        "plans",
+        "subscription_changes"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nlet comparedIds = [];\nconst comparedRaw = localStorage.getItem('task5_comparedPlanIds');\nif (comparedRaw) {\n  try { comparedIds = JSON.parse(comparedRaw) || []; } catch (e) { comparedIds = []; }\n}\n\nlet upgradeResult = null;\nconst upgradeRaw = localStorage.getItem('task5_upgradeResult');\nif (upgradeRaw) {\n  try { upgradeResult = JSON.parse(upgradeRaw); } catch (e) { upgradeResult = null; }\n}\n\nconst plans = JSON.parse(localStorage.getItem('plans') || '[]');\nconst subscriptions = JSON.parse(localStorage.getItem('subscriptions') || '[]');\nconst changes = JSON.parse(localStorage.getItem('subscription_changes') || '[]');\n\nconst affordablePlans = plans.filter(p => p && p.status === 'active' && typeof p.monthly_price === 'number' && p.monthly_price <= 30);\n\n// CP1 (0.30): User compared at least two plans that are each under or equal to $30/month.\nconst comparedAffordable = comparedIds\n  .map(id => plans.find(p => p && p.id === id) || null)\n  .filter(p => p && typeof p.monthly_price === 'number' && p.monthly_price <= 30);\nconst cp1Passed = comparedAffordable.length >= 2;\ncheckpoints.push({ passed: cp1Passed, weight: 0.30 });\n\n// CP2 (0.35): Upgrade result selects the qualifying affordable plan with the highest simultaneous streams, improving over previous streams.\nlet cp2Passed = false;\nif (upgradeResult && typeof upgradeResult === 'object') {\n  const newPlan = plans.find(p => p && p.id === upgradeResult.newPlanId) || null;\n  const prevPlan = plans.find(p => p && p.id === upgradeResult.previousPlanId) || null;\n  if (newPlan && prevPlan && newPlan.status === 'active' && typeof newPlan.monthly_price === 'number' && newPlan.monthly_price <= 30) {\n    const maxStreams = affordablePlans.length > 0 ? Math.max.apply(null, affordablePlans.map(p => p.max_simultaneous_streams || 0)) : null;\n    const newStreams = upgradeResult.newStreams;\n    const prevStreams = upgradeResult.previousStreams;\n    cp2Passed = maxStreams != null &&\n      newPlan.max_simultaneous_streams === maxStreams &&\n      typeof newStreams === 'number' && newStreams === newPlan.max_simultaneous_streams &&\n      typeof prevStreams === 'number' && newStreams > prevStreams;\n  }\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.35 });\n\n// CP3 (0.35): Subscription and subscription_change reflect the upgrade to that plan, effective immediately.\nlet cp3Passed = false;\nif (upgradeResult && typeof upgradeResult === 'object') {\n  const currentSub = subscriptions.find(s => s && s.is_current) || null;\n  const newPlan = plans.find(p => p && p.id === upgradeResult.newPlanId) || null;\n  if (currentSub && newPlan) {\n    const subOk = currentSub.current_plan_id === newPlan.id &&\n      (currentSub.simultaneous_streams_limit == null || currentSub.simultaneous_streams_limit >= (newPlan.max_simultaneous_streams || 0));\n    const effectiveOk = upgradeResult.effectiveDateOption === 'immediately';\n    const changeOk = changes.some(c => c && c.status === 'completed' && c.selected_plan_id === newPlan.id && c.effective_date_option === 'immediately');\n    cp3Passed = subOk && effectiveOk && changeOk;\n  }\n}\ncheckpoints.push({ passed: cp3Passed, weight: 0.35 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Schedule Sports Recording Next Friday at 8 PM Evaluator",
+      "description": "Checks that the user scheduled a recording for a sports program on the upcoming Friday at 8:00 PM and set it to be kept for 7 days.",
+      "localStorage_variables": [
+        "recordings",
+        "programs",
+        "auth_state"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst recordings = JSON.parse(localStorage.getItem('recordings') || '[]');\nconst programs = JSON.parse(localStorage.getItem('programs') || '[]');\nconst auth = JSON.parse(localStorage.getItem('auth_state') || 'null');\n\n// In this dataset, the 'upcoming Friday' relative to 2026-03-03 is 2026-03-06.\nconst targetDate = '2026-03-06';\nconst targetTime = '20:00:00';\n\nconst qualifyingRecordings = recordings.filter(r => {\n  if (!r || typeof r.keep_days !== 'number' || r.keep_days !== 7) return false;\n  const prog = programs.find(p => p && p.id === r.program_id) || null;\n  if (!prog) return false;\n  if (prog.genre !== 'sports' || !prog.start_time) return false;\n  const datePart = prog.start_time.slice(0, 10);\n  const timePart = prog.start_time.slice(11, 19);\n  return datePart === targetDate && timePart === targetTime;\n});\n\n// CP1 (0.40): At least one recording is for a sports program on the correct Friday at 8 PM, kept for 7 days.\ncheckpoints.push({ passed: qualifyingRecordings.length >= 1, weight: 0.40 });\n\n// CP2 (0.30): User is authenticated (required to successfully schedule the recording).\nconst cp2Passed = !!auth && auth.is_authenticated === true;\ncheckpoints.push({ passed: cp2Passed, weight: 0.30 });\n\n// CP3 (0.30): At least one qualifying recording is in 'scheduled' state (not canceled/failed).\nconst hasScheduledQualifying = qualifyingRecordings.some(r => r.status === 'scheduled');\ncheckpoints.push({ passed: hasScheduledQualifying, weight: 0.30 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Switch to Annual Billing with SAVE20 Under $200 Evaluator",
+      "description": "Checks that the user switched billing to annual, applied promo code SAVE20, selected an annual plan with discounted total under $200, and confirmed the subscription change.",
+      "localStorage_variables": [
+        "subscriptions",
+        "billing_settings",
+        "promo_codes",
+        "subscription_changes",
+        "plans",
+        "auth_state"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst subscriptions = JSON.parse(localStorage.getItem('subscriptions') || '[]');\nconst billingSettingsArr = JSON.parse(localStorage.getItem('billing_settings') || '[]');\nconst promoCodes = JSON.parse(localStorage.getItem('promo_codes') || '[]');\nconst changes = JSON.parse(localStorage.getItem('subscription_changes') || '[]');\nconst plans = JSON.parse(localStorage.getItem('plans') || '[]');\nconst auth = JSON.parse(localStorage.getItem('auth_state') || 'null');\n\nconst currentSub = subscriptions.find(s => s && s.is_current) || null;\nconst billingSettings = billingSettingsArr[0] || null;\nconst save20 = promoCodes.find(p => p && p.code === 'SAVE20' && p.is_active) || null;\n\n// CP1 (0.30): There is a draft or completed subscription_change with annual billing and SAVE20 applied.\nconst changeWithSave20Annual = changes.find(c => c && c.promo_code_code === 'SAVE20' && c.selected_billing_cycle === 'annual') || null;\ncheckpoints.push({ passed: !!changeWithSave20Annual && !!save20, weight: 0.30 });\n\n// CP2 (0.35): Current subscription is on annual billing with a total annual price under $200.\nlet cp2Passed = false;\nif (currentSub && currentSub.billing_cycle === 'annual' && typeof currentSub.total_annual_price === 'number') {\n  cp2Passed = currentSub.total_annual_price < 200;\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.35 });\n\n// CP3 (0.35): A completed subscription_change ties SAVE20, annual billing, and the current plan together, and the estimated new annual total is under $200; user is authenticated.\nlet cp3Passed = false;\nif (auth && auth.is_authenticated && auth.email === 'parent@example.com' && currentSub) {\n  const completedChange = changes.find(c => c && c.status === 'completed' && c.promo_code_code === 'SAVE20' && c.selected_billing_cycle === 'annual' && c.selected_plan_id === currentSub.current_plan_id) || null;\n  if (completedChange) {\n    const estAnnualOk = typeof completedChange.estimated_new_annual_total !== 'number' || completedChange.estimated_new_annual_total < 200;\n    cp3Passed = estAnnualOk;\n  }\n}\ncheckpoints.push({ passed: cp3Passed, weight: 0.35 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Play First Episode of Top 4K Nature Documentary Series Evaluator",
+      "description": "Checks that the user started playback of the first episode of the most popular 4K nature documentary series.",
+      "localStorage_variables": [
+        "task8_playbackInfo",
+        "series",
+        "episodes"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nlet playbackInfo = null;\nconst playbackRaw = localStorage.getItem('task8_playbackInfo');\nif (playbackRaw) {\n  try { playbackInfo = JSON.parse(playbackRaw); } catch (e) { playbackInfo = null; }\n}\n\nconst seriesArr = JSON.parse(localStorage.getItem('series') || '[]');\nconst episodes = JSON.parse(localStorage.getItem('episodes') || '[]');\n\nconst selectedEpisode = playbackInfo ? episodes.find(e => e && e.id === playbackInfo.episodeId) || null : null;\nconst selectedSeries = playbackInfo ? seriesArr.find(s => s && s.id === playbackInfo.seriesId) || null : null;\n\n// Determine all series that qualify as nature-related 4K documentary series.\nconst qualifyingSeries = seriesArr.filter(s => {\n  if (!s || !s.is_active) return false;\n  if (s.genre !== 'documentary') return false;\n  if (s.resolution !== '4k') return false;\n  if (s.content_type !== 'series') return false;\n  if (!Array.isArray(s.tags)) return false;\n  const tagsLower = s.tags.map(t => (t || '').toLowerCase());\n  return tagsLower.includes('nature');\n});\n\nconst maxPopularity = qualifyingSeries.length > 0 ? Math.max.apply(null, qualifyingSeries.map(s => s.popularity_score || 0)) : null;\n\n// CP1 (0.40): Playback info exists and the selected series matches required filters (4K, documentary, nature-related series).\nconst cp1Passed = !!playbackInfo && !!selectedSeries && !!selectedEpisode &&\n  selectedSeries.is_active &&\n  selectedSeries.genre === 'documentary' &&\n  selectedSeries.resolution === '4k' &&\n  selectedSeries.content_type === 'series' &&\n  Array.isArray(selectedSeries.tags) && selectedSeries.tags.map(t => (t || '').toLowerCase()).includes('nature') &&\n  selectedEpisode.series_id === selectedSeries.id;\ncheckpoints.push({ passed: cp1Passed, weight: 0.40 });\n\n// CP2 (0.30): The played series is the most popular among all qualifying 4K nature documentary series.\nlet cp2Passed = false;\nif (cp1Passed && maxPopularity != null) {\n  cp2Passed = (selectedSeries.popularity_score || 0) === maxPopularity;\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.30 });\n\n// CP3 (0.30): The played episode is the first episode of that series.\nlet cp3Passed = false;\nif (cp1Passed) {\n  const episodesForSeries = episodes.filter(e => e && e.series_id === selectedSeries.id);\n  if (episodesForSeries.length > 0) {\n    const withOrder = episodesForSeries.map(e => ({ ep: e, order: e.episode_order != null ? e.episode_order : e.episode_number }));\n    const minOrder = Math.min.apply(null, withOrder.map(x => x.order));\n    const firstEpisode = withOrder.find(x => x.order === minOrder).ep;\n    cp3Passed = firstEpisode && firstEpisode.id === selectedEpisode.id;\n  }\n}\ncheckpoints.push({ passed: cp3Passed, weight: 0.30 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "billing_settings",
+    "channels",
+    "promo_codes",
+    "series",
+    "episodes",
+    "programs",
+    "subscriptions",
+    "plan_channels",
+    "plans",
+    "addon_channels",
+    "addons",
+    "subscription_addons",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

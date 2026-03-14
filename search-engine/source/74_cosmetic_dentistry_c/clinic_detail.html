@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Clinic Detail - DentalSmile Cosmetic Clinic</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Displays detailed information for a selected clinic, including address, map, hours, services, emergency care information, and a general appointment request form.">
+    
+    <link rel="stylesheet" href="clinic_detail.css">
+</head>
+<body>
+    <div class="page-wrapper">
+        <header class="site-header">
+            <div class="header-top">
+                <div class="header-branding">
+                    <div class="branding-inner">
+                        <div class="brand-photo-placeholder" aria-hidden="true"></div>
+                        <div class="brand-text">
+                            <div class="clinic-name">DentalSmile Cosmetic Clinic</div>
+                            <div class="clinic-tagline">Advanced cosmetic and implant dentistry</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="header-utility">
+                    <div class="utility-background">
+                        <h1 class="site-title">DentalSmile</h1>
+                        <nav class="utility-nav" aria-label="Patient resources">
+                            <ul>
+                                <li><a href="smile_assessment.html">Smile Assessment</a></li>
+                                <li><a href="offers.html">Special Offers</a></li>
+                                <li><a href="financing.html">Financing</a></li>
+                                <li><a href="contact.html">Contact</a></li>
+                            </ul>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="main-nav" aria-label="Main navigation">
+                <ul class="main-nav-list">
+                    <li><a href="index.html">Home</a></li>
+                    <li><a href="treatments.html">Treatments</a></li>
+                    <li><a href="smile_assessment.html">Smile Assessment</a></li>
+                    <li><a href="dentists.html">Our Dentists</a></li>
+                    <li><a href="locations.html">Locations</a></li>
+                    <li><a href="smile_gallery.html">Smile Gallery</a></li>
+                    <li><a href="offers.html">Special Offers</a></li>
+                    <li><a href="financing.html">Financing</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <div class="layout">
+            <main id="content" class="content-area" role="main">
+                <div class="clinic-detail-page" data-component="clinic-detail-controller" data-populate="clinic-detail-controller"></div>
+            </main>
+            <aside class="sidebar" aria-label="Sidebar">
+                <!-- Optional persistent sidebar content (e.g., global notices, navigation) -->
+            </aside>
+        </div>
+
+        <footer class="site-footer">
+            <div class="footer-nav-wrapper">
+                <nav class="footer-nav" aria-label="Footer navigation">
+                    <ul>
+                        <li><a href="about.html">About</a></li>
+                        <li><a href="contact.html">Contact</a></li>
+                        <li><a href="offers.html?categoryId=new_patient">New Patient Offers</a></li>
+                        <li><a href="locations.html?careType=emergency">Emergency Dentistry</a></li>
+                        <li><a href="smile_assessment.html">Smile Assessment</a></li>
+                        <li><a href="privacy_terms.html">Privacy &amp; Terms</a></li>
+                    </ul>
+                </nav>
+            </div>
+            <div class="footer-meta">
+                <p>&copy; <span class="footer-year">2024</span> DentalSmile Cosmetic Clinic. All rights reserved.</p>
+            </div>
+        </footer>
+    </div>
+
+    <script src="business_logic.js"></script>
+    <script>
+    (function() {
+        'use strict';
+
+        let currentClinicDetail = null;
+        let currentClinicId = null;
+        let userTimeZone = '';
+        let appointmentFormState = {
+            visitType: '',
+            requestedDate: '',
+            requestedTime: '',
+            contactName: '',
+            contactPhone: '',
+            contactEmail: '',
+            comments: ''
+        };
+
+        document.addEventListener('DOMContentLoaded', function() {
+            var contentContainer = document.querySelector('[data-populate="clinic-detail-controller"]');
+            if (!contentContainer) {
+                return;
+            }
+
+            try {
+                var tzOptions = Intl.DateTimeFormat().resolvedOptions();
+                if (tzOptions && tzOptions.timeZone) {
+                    userTimeZone = tzOptions.timeZone;
+                }
+            } catch (e) {
+                userTimeZone = '';
+            }
+
+            var urlParams = new URLSearchParams(window.location.search);
+            var clinicId = urlParams.get('clinicId');
+            currentClinicId = clinicId;
+
+            if (!clinicId) {
+                renderClinicError(contentContainer, 'A clinic must be selected to view details. Please navigate from the Locations page and choose a specific clinic.');
+                return;
+            }
+
+            renderClinicLoading(contentContainer);
+
+            try {
+                var detail = WebsiteSDK.getClinicDetail(clinicId);
+                if (!detail || !detail.clinic) {
+                    renderClinicError(contentContainer, 'Clinic information could not be loaded. Please try again from the Locations page.');
+                    return;
+                }
+                currentClinicDetail = detail;
+                renderClinicDetail(contentContainer, detail, clinicId);
+                bindActionHandlers();
+            } catch (error) {
+                renderClinicError(contentContainer, 'There was a problem loading this clinic. Please try again later or choose another location.');
+            }
+        });
+
+        function renderClinicLoading(container) {
+            container.innerHTML = '';
+            var wrapper = document.createElement('div');
+            wrapper.className = 'clinic-loading-state';
+            var p = document.createElement('p');
+            p.textContent = 'Loading clinic information...';
+            wrapper.appendChild(p);
+            container.appendChild(wrapper);
+        }
+
+        function renderClinicError(container, message) {
+            container.innerHTML = '';
+            var wrapper = document.createElement('section');
+            wrapper.className = 'clinic-error-state';
+            wrapper.setAttribute('data-component', 'clinic-error-state');
+
+            var heading = document.createElement('h2');
+            heading.textContent = 'Clinic information unavailable';
+            wrapper.appendChild(heading);
+
+            var p = document.createElement('p');
+            p.textContent = message;
+            wrapper.appendChild(p);
+
+            var p2 = document.createElement('p');
+            p2.textContent = 'You can return to the Locations page to choose a clinic and try again.';
+            wrapper.appendChild(p2);
+
+            container.appendChild(wrapper);
+        }
+
+        function renderClinicDetail(container, detail, clinicId) {
+            container.innerHTML = '';
+
+            var clinic = detail.clinic;
+            var emergencySection = detail.emergency_section || {};
+
+            var outer = document.createElement('div');
+            outer.className = 'clinic-detail-container';
+
+            var columnsWrapper = document.createElement('div');
+            columnsWrapper.className = 'clinic-detail-columns';
+
+            var leftCol = document.createElement('div');
+            leftCol.className = 'clinic-main-column';
+
+            var rightCol = document.createElement('div');
+            rightCol.className = 'clinic-sidebar-column';
+
+            // Emergency contact CTA strip (top of left column)
+            if (emergencySection.has_emergency_care) {
+                var ctaStrip = document.createElement('section');
+                ctaStrip.className = 'emergency-contact-cta-strip';
+                ctaStrip.setAttribute('data-component', 'emergency-contact-cta');
+
+                var ctaP = document.createElement('p');
+                var strong = document.createElement('strong');
+                strong.textContent = 'Emergency dental issue? ';
+                ctaP.appendChild(strong);
+
+                var text1 = document.createTextNode('Call ');
+                ctaP.appendChild(text1);
+
+                var emergencyPhone = emergencySection.phone_emergency || clinic.phone_emergency || clinic.phone_main || '';
+                var phoneLink = document.createElement('a');
+                phoneLink.href = emergencyPhone ? 'tel:' + emergencyPhone : 'javascript:void(0)';
+                phoneLink.textContent = emergencyPhone || 'our office';
+                phoneLink.setAttribute('data-action', 'click-emergency-phone');
+                ctaP.appendChild(phoneLink);
+
+                var text2 = document.createTextNode(' or ');
+                ctaP.appendChild(text2);
+
+                var formLink = document.createElement('a');
+                formLink.href = 'javascript:void(0)';
+                formLink.textContent = 'request an emergency call';
+                formLink.setAttribute('data-action', 'navigate-emergency-contact');
+                ctaP.appendChild(formLink);
+
+                ctaStrip.appendChild(ctaP);
+                leftCol.appendChild(ctaStrip);
+            }
+
+            // Clinic header info
+            var headerSection = document.createElement('section');
+            headerSection.className = 'clinic-header-info';
+            headerSection.setAttribute('data-component', 'clinic-header-info');
+
+            var h2 = document.createElement('h2');
+            h2.textContent = clinic.name || 'Clinic';
+            headerSection.appendChild(h2);
+
+            var addrP = document.createElement('p');
+            addrP.className = 'clinic-address';
+            addrP.textContent = detail.display_address || '';
+            headerSection.appendChild(addrP);
+
+            var contactP = document.createElement('p');
+            contactP.className = 'clinic-contact-line';
+
+            var hasPhone = !!clinic.phone_main;
+            var hasEmail = !!clinic.email;
+
+            if (hasPhone) {
+                var phoneLabel = document.createElement('span');
+                phoneLabel.textContent = 'Phone: ';
+                contactP.appendChild(phoneLabel);
+
+                var phoneA = document.createElement('a');
+                phoneA.href = 'tel:' + clinic.phone_main;
+                phoneA.textContent = clinic.phone_main;
+                phoneA.setAttribute('data-action', 'click-phone-main');
+                contactP.appendChild(phoneA);
+            }
+
+            if (hasEmail) {
+                if (hasPhone) {
+                    var sep = document.createTextNode('  b7 ');
+                    contactP.appendChild(sep);
+                }
+                var emailLabel = document.createElement('span');
+                emailLabel.textContent = 'Email: ';
+                contactP.appendChild(emailLabel);
+
+                var emailA = document.createElement('a');
+                emailA.href = 'mailto:' + clinic.email;
+                emailA.textContent = clinic.email;
+                emailA.setAttribute('data-action', 'click-email');
+                contactP.appendChild(emailA);
+            }
+
+            headerSection.appendChild(contactP);
+            leftCol.appendChild(headerSection);
+
+            // Map embed panel
+            var mapSection = document.createElement('section');
+            mapSection.className = 'clinic-map-panel';
+            mapSection.setAttribute('data-component', 'clinic-map-embed');
+
+            var mapInner = document.createElement('div');
+            mapInner.className = 'clinic-map-inner';
+
+            var mapVisual = document.createElement('div');
+            mapVisual.className = 'clinic-map-visual';
+
+            if (detail.map_embed_token) {
+                var iframe = document.createElement('iframe');
+                iframe.src = detail.map_embed_token;
+                iframe.title = 'Map to ' + (clinic.name || 'clinic');
+                iframe.loading = 'lazy';
+                iframe.setAttribute('aria-label', 'Clinic location map');
+                mapVisual.appendChild(iframe);
+            } else {
+                var noMap = document.createElement('p');
+                noMap.textContent = 'Map is not available for this clinic.';
+                mapVisual.appendChild(noMap);
+            }
+
+            var mapText = document.createElement('div');
+            mapText.className = 'clinic-map-text';
+
+            var mapHeading = document.createElement('h3');
+            mapHeading.textContent = 'Find us';
+            mapText.appendChild(mapHeading);
+
+            var directionsP = document.createElement('p');
+            directionsP.textContent = 'We are located at ' + (detail.display_address || 'this location') + '.';
+            mapText.appendChild(directionsP);
+
+            var externalLink = document.createElement('a');
+            externalLink.href = 'javascript:void(0)';
+            externalLink.textContent = 'Open in Google Maps';
+            externalLink.setAttribute('data-action', 'open-external-map');
+            mapText.appendChild(externalLink);
+
+            mapInner.appendChild(mapVisual);
+            mapInner.appendChild(mapText);
+            mapSection.appendChild(mapInner);
+            leftCol.appendChild(mapSection);
+
+            // Hours table
+            var hoursSection = document.createElement('section');
+            hoursSection.className = 'clinic-hours-section';
+            hoursSection.setAttribute('data-component', 'clinic-hours-table');
+
+            var hoursHeading = document.createElement('h3');
+            hoursHeading.textContent = 'Office hours';
+            hoursSection.appendChild(hoursHeading);
+
+            var hoursTable = document.createElement('table');
+            hoursTable.className = 'clinic-hours-table';
+            hoursTable.setAttribute('aria-label', 'Office hours by day of week');
+
+            var tbody = document.createElement('tbody');
+
+            addHoursRow(tbody, 'Monday', clinic.hours_monday);
+            addHoursRow(tbody, 'Tuesday', clinic.hours_tuesday);
+            addHoursRow(tbody, 'Wednesday', clinic.hours_wednesday);
+            addHoursRow(tbody, 'Thursday', clinic.hours_thursday);
+            addHoursRow(tbody, 'Friday', clinic.hours_friday);
+            addHoursRow(tbody, 'Saturday', clinic.hours_saturday);
+            addHoursRow(tbody, 'Sunday', clinic.hours_sunday, true, !!clinic.open_sunday);
+
+            hoursTable.appendChild(tbody);
+            hoursSection.appendChild(hoursTable);
+            leftCol.appendChild(hoursSection);
+
+            // Services list
+            var servicesSection = document.createElement('section');
+            servicesSection.className = 'clinic-services-section';
+            servicesSection.setAttribute('data-component', 'clinic-services-list');
+
+            var servicesHeading = document.createElement('h3');
+            servicesHeading.textContent = 'Services at this clinic';
+            servicesSection.appendChild(servicesHeading);
+
+            if (clinic.services && clinic.services.length > 0) {
+                var ul = document.createElement('ul');
+                ul.className = 'clinic-services-list';
+                for (var i = 0; i < clinic.services.length; i++) {
+                    var svc = clinic.services[i];
+                    var li = document.createElement('li');
+                    var svcBtn = document.createElement('button');
+                    svcBtn.type = 'button';
+                    svcBtn.className = 'service-tag';
+                    svcBtn.textContent = svc;
+                    svcBtn.setAttribute('data-action', 'service-tag-click');
+                    svcBtn.setAttribute('data-service-label', svc);
+                    li.appendChild(svcBtn);
+                    ul.appendChild(li);
+                }
+                servicesSection.appendChild(ul);
+            } else {
+                var noServices = document.createElement('p');
+                noServices.textContent = 'Service information for this clinic is not available.';
+                servicesSection.appendChild(noServices);
+            }
+
+            leftCol.appendChild(servicesSection);
+
+            // Emergency care panel
+            var hasEmergency = !!emergencySection.has_emergency_care;
+            var emergencyPanel = document.createElement('section');
+            emergencyPanel.className = 'emergency-care-panel';
+            emergencyPanel.setAttribute('data-component', 'emergency-care-section');
+
+            var emergencyInner = document.createElement('div');
+            emergencyInner.className = 'emergency-care-inner';
+
+            var emergencyLeft = document.createElement('div');
+            emergencyLeft.className = 'emergency-care-label';
+            var emergencyLabelHeading = document.createElement('h3');
+            emergencyLabelHeading.textContent = hasEmergency ? 'Emergency care' : 'Emergency information';
+            emergencyLeft.appendChild(emergencyLabelHeading);
+
+            var emergencyRight = document.createElement('div');
+            emergencyRight.className = 'emergency-care-text';
+
+            var emergencyTitle = document.createElement('h4');
+            emergencyTitle.textContent = hasEmergency ? 'Urgent dental care at this location' : 'How we handle dental emergencies';
+            emergencyRight.appendChild(emergencyTitle);
+
+            var emergencyDescP = document.createElement('p');
+            if (hasEmergency && emergencySection.emergency_description) {
+                emergencyDescP.textContent = emergencySection.emergency_description;
+            } else if (hasEmergency) {
+                emergencyDescP.textContent = 'This clinic offers same-day and after-hours care for urgent dental problems whenever possible.';
+            } else {
+                emergencyDescP.textContent = 'If you are experiencing severe pain, trauma, or swelling, please call us for guidance. For life-threatening situations, call 911 or go to the nearest emergency room immediately.';
+            }
+            emergencyRight.appendChild(emergencyDescP);
+
+            if (hasEmergency) {
+                var emergencyPhonePara = document.createElement('p');
+                var emergencyPhoneText = emergencySection.phone_emergency || clinic.phone_emergency || clinic.phone_main || '';
+                emergencyPhonePara.textContent = 'For urgent issues, call ';
+                var emPhoneLink = document.createElement('a');
+                emPhoneLink.href = emergencyPhoneText ? 'tel:' + emergencyPhoneText : 'javascript:void(0)';
+                emPhoneLink.textContent = emergencyPhoneText || 'our office';
+                emPhoneLink.setAttribute('data-action', 'click-emergency-phone');
+                emergencyPhonePara.appendChild(emPhoneLink);
+                emergencyPhonePara.appendChild(document.createTextNode('.'));
+                emergencyRight.appendChild(emergencyPhonePara);
+
+                var emergencyButton = document.createElement('button');
+                emergencyButton.type = 'button';
+                emergencyButton.className = 'emergency-contact-button';
+                emergencyButton.textContent = 'Emergency Contact Form';
+                emergencyButton.setAttribute('data-action', 'navigate-emergency-contact');
+                emergencyRight.appendChild(emergencyButton);
+            }
+
+            emergencyInner.appendChild(emergencyLeft);
+            emergencyInner.appendChild(emergencyRight);
+            emergencyPanel.appendChild(emergencyInner);
+            leftCol.appendChild(emergencyPanel);
+
+            // Appointment request form in right column
+            var appointmentCard = document.createElement('section');
+            appointmentCard.className = 'appointment-form-card';
+            appointmentCard.setAttribute('data-component', 'appointment-request-form');
+
+            var apptHeading = document.createElement('h2');
+            apptHeading.textContent = 'Request an appointment';
+            appointmentCard.appendChild(apptHeading);
+
+            var statusContainer = document.createElement('div');
+            statusContainer.className = 'appointment-status';
+            statusContainer.setAttribute('data-component', 'appointment-request-status');
+            appointmentCard.appendChild(statusContainer);
+
+            var form = document.createElement('form');
+            form.setAttribute('novalidate', 'novalidate');
+            form.setAttribute('data-action', 'appointment-form');
+
+            var table = document.createElement('table');
+            table.className = 'appointment-form-table';
+
+            // Visit type
+            var rowVisit = document.createElement('tr');
+            var cellVisitLabel = document.createElement('td');
+            cellVisitLabel.className = 'label-cell';
+            cellVisitLabel.textContent = 'Visit type :';
+            var cellVisitInput = document.createElement('td');
+            var selectVisit = document.createElement('select');
+            selectVisit.name = 'visitType';
+            selectVisit.setAttribute('data-field', 'visitType');
+            selectVisit.setAttribute('data-action', 'appointment-field-change');
+
+            var optDefault = document.createElement('option');
+            optDefault.value = '';
+            optDefault.textContent = 'Please select';
+            selectVisit.appendChild(optDefault);
+
+            var opt1 = document.createElement('option');
+            opt1.value = 'in_person_consultation';
+            opt1.textContent = 'In-person consultation';
+            selectVisit.appendChild(opt1);
+
+            var opt2 = document.createElement('option');
+            opt2.value = 'treatment_appointment';
+            opt2.textContent = 'Treatment appointment';
+            selectVisit.appendChild(opt2);
+
+            var opt3 = document.createElement('option');
+            opt3.value = 'virtual_consultation';
+            opt3.textContent = 'Virtual consultation';
+            selectVisit.appendChild(opt3);
+
+            var opt4 = document.createElement('option');
+            opt4.value = 'other';
+            opt4.textContent = 'Other / not sure';
+            selectVisit.appendChild(opt4);
+
+            cellVisitInput.appendChild(selectVisit);
+            var visitError = createFieldError('visitType');
+            cellVisitInput.appendChild(visitError);
+            rowVisit.appendChild(cellVisitLabel);
+            rowVisit.appendChild(cellVisitInput);
+            table.appendChild(rowVisit);
+
+            // Requested date & time
+            var rowDate = document.createElement('tr');
+            var cellDateLabel = document.createElement('td');
+            cellDateLabel.className = 'label-cell';
+            cellDateLabel.textContent = 'Preferred date/time :';
+            var cellDateInput = document.createElement('td');
+
+            var dateInput = document.createElement('input');
+            dateInput.type = 'date';
+            dateInput.name = 'requestedDate';
+            dateInput.setAttribute('data-field', 'requestedDate');
+            dateInput.setAttribute('data-action', 'appointment-field-change');
+
+            var timeInput = document.createElement('input');
+            timeInput.type = 'time';
+            timeInput.name = 'requestedTime';
+            timeInput.setAttribute('data-field', 'requestedTime');
+            timeInput.setAttribute('data-action', 'appointment-field-change');
+
+            cellDateInput.appendChild(dateInput);
+            cellDateInput.appendChild(document.createTextNode(' '));
+            cellDateInput.appendChild(timeInput);
+            var dateError = createFieldError('requestedDatetime');
+            cellDateInput.appendChild(dateError);
+
+            rowDate.appendChild(cellDateLabel);
+            rowDate.appendChild(cellDateInput);
+            table.appendChild(rowDate);
+
+            // Name
+            var rowName = document.createElement('tr');
+            var cellNameLabel = document.createElement('td');
+            cellNameLabel.className = 'label-cell';
+            cellNameLabel.textContent = 'Name :';
+            var cellNameInput = document.createElement('td');
+            var nameInput = document.createElement('input');
+            nameInput.type = 'text';
+            nameInput.name = 'contactName';
+            nameInput.setAttribute('data-field', 'contactName');
+            nameInput.setAttribute('data-action', 'appointment-field-change');
+            cellNameInput.appendChild(nameInput);
+            var nameError = createFieldError('contactName');
+            cellNameInput.appendChild(nameError);
+
+            rowName.appendChild(cellNameLabel);
+            rowName.appendChild(cellNameInput);
+            table.appendChild(rowName);
+
+            // Phone
+            var rowPhone = document.createElement('tr');
+            var cellPhoneLabel = document.createElement('td');
+            cellPhoneLabel.className = 'label-cell';
+            cellPhoneLabel.textContent = 'Phone :';
+            var cellPhoneInput = document.createElement('td');
+            var phoneInput = document.createElement('input');
+            phoneInput.type = 'tel';
+            phoneInput.name = 'contactPhone';
+            phoneInput.setAttribute('data-field', 'contactPhone');
+            phoneInput.setAttribute('data-action', 'appointment-field-change');
+            cellPhoneInput.appendChild(phoneInput);
+            var phoneError = createFieldError('contactPhone');
+            cellPhoneInput.appendChild(phoneError);
+
+            rowPhone.appendChild(cellPhoneLabel);
+            rowPhone.appendChild(cellPhoneInput);
+            table.appendChild(rowPhone);
+
+            // Email (optional)
+            var rowEmail = document.createElement('tr');
+            var cellEmailLabel = document.createElement('td');
+            cellEmailLabel.className = 'label-cell';
+            cellEmailLabel.textContent = 'Email (optional) :';
+            var cellEmailInput = document.createElement('td');
+            var emailInput = document.createElement('input');
+            emailInput.type = 'email';
+            emailInput.name = 'contactEmail';
+            emailInput.setAttribute('data-field', 'contactEmail');
+            emailInput.setAttribute('data-action', 'appointment-field-change');
+            cellEmailInput.appendChild(emailInput);
+            var emailError = createFieldError('contactEmail');
+            cellEmailInput.appendChild(emailError);
+
+            rowEmail.appendChild(cellEmailLabel);
+            rowEmail.appendChild(cellEmailInput);
+            table.appendChild(rowEmail);
+
+            // Comments
+            var rowComments = document.createElement('tr');
+            var cellCommentsLabel = document.createElement('td');
+            cellCommentsLabel.className = 'label-cell';
+            cellCommentsLabel.textContent = 'Comments :';
+            var cellCommentsInput = document.createElement('td');
+            var commentsInput = document.createElement('textarea');
+            commentsInput.name = 'comments';
+            commentsInput.rows = 3;
+            commentsInput.setAttribute('data-field', 'comments');
+            commentsInput.setAttribute('data-action', 'appointment-field-change');
+            cellCommentsInput.appendChild(commentsInput);
+            var commentsError = createFieldError('comments');
+            cellCommentsInput.appendChild(commentsError);
+
+            rowComments.appendChild(cellCommentsLabel);
+            rowComments.appendChild(cellCommentsInput);
+            table.appendChild(rowComments);
+
+            // Time zone hint
+            var rowTz = document.createElement('tr');
+            var cellTzLabel = document.createElement('td');
+            cellTzLabel.className = 'label-cell';
+            cellTzLabel.textContent = '';
+            var cellTzText = document.createElement('td');
+            var tzP = document.createElement('p');
+            tzP.className = 'timezone-hint';
+            if (userTimeZone) {
+                tzP.textContent = 'We will schedule using your time zone: ' + userTimeZone + '.';
+            } else {
+                tzP.textContent = 'We will confirm the appointment time with you directly.';
+            }
+            cellTzText.appendChild(tzP);
+            rowTz.appendChild(cellTzLabel);
+            rowTz.appendChild(cellTzText);
+            table.appendChild(rowTz);
+
+            // Submit button
+            var rowSubmit = document.createElement('tr');
+            var cellSubmitLabel = document.createElement('td');
+            cellSubmitLabel.className = 'label-cell';
+            cellSubmitLabel.textContent = '';
+            var cellSubmitInput = document.createElement('td');
+            var submitButton = document.createElement('button');
+            submitButton.type = 'submit';
+            submitButton.textContent = 'Submit';
+            submitButton.setAttribute('data-action', 'submit-appointment-form');
+            cellSubmitInput.appendChild(submitButton);
+            rowSubmit.appendChild(cellSubmitLabel);
+            rowSubmit.appendChild(cellSubmitInput);
+            table.appendChild(rowSubmit);
+
+            form.appendChild(table);
+            appointmentCard.appendChild(form);
+
+            columnsWrapper.appendChild(leftCol);
+            columnsWrapper.appendChild(rightCol);
+            rightCol.appendChild(appointmentCard);
+
+            outer.appendChild(columnsWrapper);
+            container.appendChild(outer);
+        }
+
+        function addHoursRow(tbody, label, hoursValue, isSunday, openSundayFlag) {
+            var tr = document.createElement('tr');
+            if (isSunday) {
+                tr.className = openSundayFlag ? 'hours-sunday-open' : 'hours-sunday-closed';
+            }
+
+            var tdDay = document.createElement('td');
+            tdDay.className = 'hours-day-cell';
+            tdDay.textContent = label;
+
+            var tdTime = document.createElement('td');
+            tdTime.className = 'hours-time-cell';
+            tdTime.textContent = hoursValue && hoursValue.trim() !== '' ? hoursValue : 'Closed';
+
+            tr.appendChild(tdDay);
+            tr.appendChild(tdTime);
+            tbody.appendChild(tr);
+        }
+
+        function createFieldError(fieldName) {
+            var div = document.createElement('div');
+            div.className = 'field-error';
+            div.setAttribute('data-error-field', fieldName);
+            return div;
+        }
+
+        function bindActionHandlers() {
+            var actionElements = document.querySelectorAll('[data-action]');
+            for (var i = 0; i < actionElements.length; i++) {
+                var el = actionElements[i];
+                var action = el.getAttribute('data-action');
+                if (!action) {
+                    continue;
+                }
+                if (action === 'click-phone-main') {
+                    el.addEventListener('click', handleClickPhoneMain);
+                } else if (action === 'click-email') {
+                    el.addEventListener('click', handleClickEmail);
+                } else if (action === 'open-external-map') {
+                    el.addEventListener('click', handleOpenExternalMap);
+                } else if (action === 'click-emergency-phone') {
+                    el.addEventListener('click', handleClickEmergencyPhone);
+                } else if (action === 'navigate-emergency-contact') {
+                    el.addEventListener('click', handleNavigateEmergencyContact);
+                } else if (action === 'service-tag-click') {
+                    el.addEventListener('click', handleServiceTagClick);
+                } else if (action === 'appointment-field-change') {
+                    el.addEventListener('input', handleAppointmentFieldChange);
+                    el.addEventListener('change', handleAppointmentFieldChange);
+                } else if (action === 'submit-appointment-form') {
+                    // Handled on form submit; no direct handler needed here
+                } else if (action === 'appointment-form') {
+                    el.addEventListener('submit', handleAppointmentSubmit);
+                } else if (action === 'dismiss-appointment-status') {
+                    el.addEventListener('click', handleDismissStatus);
+                }
+            }
+        }
+
+        function handleClickPhoneMain(event) {
+            // Interaction hook; link navigation handled by browser
+            // Could log analytics here if needed
+        }
+
+        function handleClickEmail(event) {
+            // Interaction hook for email clicks
+        }
+
+        function handleOpenExternalMap(event) {
+            event.preventDefault();
+            if (!currentClinicDetail || !currentClinicDetail.clinic) {
+                return;
+            }
+            var clinic = currentClinicDetail.clinic;
+            var url = '';
+            if (clinic.latitude != null && clinic.longitude != null) {
+                url = 'https://www.google.com/maps?q=' + encodeURIComponent(String(clinic.latitude) + ',' + String(clinic.longitude));
+            } else if (currentClinicDetail.display_address) {
+                url = 'https://www.google.com/maps?q=' + encodeURIComponent(currentClinicDetail.display_address);
+            }
+            if (url) {
+                window.open(url, '_blank');
+            }
+        }
+
+        function handleClickEmergencyPhone(event) {
+            // Interaction hook; tel: link already handles the call
+        }
+
+        function handleNavigateEmergencyContact(event) {
+            event.preventDefault();
+            if (!currentClinicId) {
+                return;
+            }
+            var targetUrl = 'emergency_contact.html?clinicId=' + encodeURIComponent(currentClinicId);
+            window.location.href = targetUrl;
+        }
+
+        function handleServiceTagClick(event) {
+            event.preventDefault();
+            var el = event.currentTarget;
+            var label = el.getAttribute('data-service-label') || '';
+            // Simple visual feedback; could be replaced with filter/navigation
+            if (el.classList.contains('service-tag-active')) {
+                el.classList.remove('service-tag-active');
+            } else {
+                el.classList.add('service-tag-active');
+            }
+        }
+
+        function handleAppointmentFieldChange(event) {
+            var fieldName = event.currentTarget.getAttribute('data-field');
+            if (!fieldName) {
+                return;
+            }
+            var value = event.currentTarget.value;
+            appointmentFormState[fieldName] = value;
+            clearFieldError(fieldName);
+        }
+
+        function handleAppointmentSubmit(event) {
+            event.preventDefault();
+            if (!currentClinicId) {
+                setAppointmentStatus('error', 'Clinic information is missing. Please reload the page and try again.');
+                return;
+            }
+
+            var form = event.target;
+            var visitType = form.elements['visitType'] ? form.elements['visitType'].value : '';
+            var requestedDate = form.elements['requestedDate'] ? form.elements['requestedDate'].value : '';
+            var requestedTime = form.elements['requestedTime'] ? form.elements['requestedTime'].value : '';
+            var contactName = form.elements['contactName'] ? form.elements['contactName'].value : '';
+            var contactPhone = form.elements['contactPhone'] ? form.elements['contactPhone'].value : '';
+            var contactEmail = form.elements['contactEmail'] ? form.elements['contactEmail'].value : '';
+            var comments = form.elements['comments'] ? form.elements['comments'].value : '';
+
+            appointmentFormState.visitType = visitType;
+            appointmentFormState.requestedDate = requestedDate;
+            appointmentFormState.requestedTime = requestedTime;
+            appointmentFormState.contactName = contactName;
+            appointmentFormState.contactPhone = contactPhone;
+            appointmentFormState.contactEmail = contactEmail;
+            appointmentFormState.comments = comments;
+
+            clearAllFieldErrors(form);
+
+            var hasError = false;
+
+            if (!visitType) {
+                showFieldError('visitType', 'Please choose a visit type.');
+                hasError = true;
+            }
+
+            var isoRequested = '';
+            if (!requestedDate || !requestedTime) {
+                showFieldError('requestedDatetime', 'Please select a preferred date and time.');
+                hasError = true;
+            } else {
+                var combined = requestedDate + 'T' + requestedTime;
+                var dt = new Date(combined);
+                if (isNaN(dt.getTime())) {
+                    showFieldError('requestedDatetime', 'The selected date and time are not valid.');
+                    hasError = true;
+                } else {
+                    isoRequested = dt.toISOString();
+                }
+            }
+
+            if (!contactName || contactName.trim() === '') {
+                showFieldError('contactName', 'Please enter your name.');
+                hasError = true;
+            }
+
+            if (!contactPhone || contactPhone.trim() === '') {
+                showFieldError('contactPhone', 'Please enter a phone number we can reach you at.');
+                hasError = true;
+            }
+
+            if (hasError) {
+                setAppointmentStatus('error', 'Please correct the highlighted fields and submit again.');
+                return;
+            }
+
+            var submitButton = form.querySelector('[data-action="submit-appointment-form"]');
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.textContent = 'Submitting...';
+            }
+
+            try {
+                var response = WebsiteSDK.submitClinicAppointmentRequest(
+                    currentClinicId,
+                    visitType,
+                    isoRequested,
+                    userTimeZone,
+                    contactName,
+                    contactPhone,
+                    contactEmail,
+                    comments
+                );
+
+                if (response && response.success) {
+                    setAppointmentStatus('success', response.message || 'Your request has been submitted. We will contact you to confirm the appointment time.');
+                    form.reset();
+                    appointmentFormState.visitType = '';
+                    appointmentFormState.requestedDate = '';
+                    appointmentFormState.requestedTime = '';
+                    appointmentFormState.contactName = '';
+                    appointmentFormState.contactPhone = '';
+                    appointmentFormState.contactEmail = '';
+                    appointmentFormState.comments = '';
+                } else {
+                    var msg = response && response.message ? response.message : 'Your request could not be submitted. Please try again.';
+                    setAppointmentStatus('error', msg);
+                }
+            } catch (error) {
+                setAppointmentStatus('error', 'An unexpected error occurred while submitting your request. Please try again later.');
+            }
+
+            if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Submit';
+            }
+        }
+
+        function clearFieldError(fieldName) {
+            var errorEl = document.querySelector('[data-error-field="' + fieldName + '"]');
+            if (errorEl) {
+                errorEl.textContent = '';
+            }
+        }
+
+        function clearAllFieldErrors(form) {
+            var errorEls = form.querySelectorAll('.field-error');
+            for (var i = 0; i < errorEls.length; i++) {
+                errorEls[i].textContent = '';
+            }
+        }
+
+        function showFieldError(fieldName, message) {
+            var errorEl = document.querySelector('[data-error-field="' + fieldName + '"]');
+            if (errorEl) {
+                errorEl.textContent = message;
+            }
+        }
+
+        function setAppointmentStatus(type, message) {
+            var statusContainer = document.querySelector('[data-component="appointment-request-status"]');
+            if (!statusContainer) {
+                return;
+            }
+            statusContainer.innerHTML = '';
+            if (!message) {
+                return;
+            }
+            var box = document.createElement('div');
+            box.className = 'status-box status-' + type;
+
+            var p = document.createElement('p');
+            p.textContent = message;
+            box.appendChild(p);
+
+            var dismissBtn = document.createElement('button');
+            dismissBtn.type = 'button';
+            dismissBtn.className = 'status-dismiss';
+            dismissBtn.textContent = 'Close';
+            dismissBtn.setAttribute('data-action', 'dismiss-appointment-status');
+            box.appendChild(dismissBtn);
+
+            statusContainer.appendChild(box);
+
+            // Attach handler to new dismiss button
+            dismissBtn.addEventListener('click', handleDismissStatus);
+        }
+
+        function handleDismissStatus(event) {
+            event.preventDefault();
+            var statusContainer = document.querySelector('[data-component="appointment-request-status"]');
+            if (statusContainer) {
+                statusContainer.innerHTML = '';
+            }
+        }
+
+    })();
+    </script>
+</body>
+</html>

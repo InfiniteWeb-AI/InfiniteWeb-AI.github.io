@@ -1,0 +1,127 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Node.js Create Project Sample Name Update Evaluator",
+      "description": "Checks whether the user copied the editable Node.js POST /projects request sample after updating the name field to use the example value 'Sample Project A' instead of the default 'My First Project'.",
+      "localStorage_variables": [
+        "copy_events",
+        "api_code_samples",
+        "api_endpoint_versions",
+        "api_endpoints",
+        "api_parameters"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst copyEvents = JSON.parse(localStorage.getItem('copy_events') || '[]');\nconst apiCodeSamples = JSON.parse(localStorage.getItem('api_code_samples') || '[]');\nconst endpointVersions = JSON.parse(localStorage.getItem('api_endpoint_versions') || '[]');\n// Identify POST /projects endpoint version dynamically\nconst postProjectsVersion = endpointVersions.find(function(v) {\n  return v && v.path === '/projects' && String(v.httpMethod).toLowerCase() === 'post';\n});\nlet nodeSample = null;\nif (postProjectsVersion) {\n  nodeSample = apiCodeSamples.find(function(s) {\n    return s && s.endpointVersionId === postProjectsVersion.id && s.language === 'node_js' && s.sampleType === 'request' && !!s.isEditable;\n  });\n}\nlet matchingCopies = [];\nif (nodeSample) {\n  matchingCopies = copyEvents.filter(function(ev) {\n    return ev && ev.sourceId === nodeSample.id;\n  });\n}\nconst updatedCopies = matchingCopies.filter(function(ev) {\n  const content = ev && typeof ev.copiedContent === 'string' ? ev.copiedContent : '';\n  const hasNew = content.indexOf('Sample Project A') !== -1;\n  const hasOld = content.indexOf('My First Project') !== -1;\n  return hasNew && !hasOld;\n});\n// CP1 (0.4): User copied the editable Node.js POST /projects sample at least once\ncheckpoints.push({ passed: matchingCopies.length > 0, weight: 0.4 });\n// CP2 (0.6): Copied content shows the name field updated to use 'Sample Project A' instead of 'My First Project'\ncheckpoints.push({ passed: updatedCopies.length > 0, weight: 0.6 });\nreturn checkpoints.reduce(function(sum, cp) { return sum + (cp.passed ? cp.weight : 0); }, 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "List Users Try-It Filter Evaluator",
+      "description": "Checks whether the user used the GET /users Try-It console with created_after set to the documented example date and per_page set to the non-default example value.",
+      "localStorage_variables": [
+        "task2_lastTryItRequest",
+        "try_it_consoles",
+        "api_parameters",
+        "api_endpoint_versions",
+        "api_endpoints",
+        "api_base_url"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst t2 = JSON.parse(localStorage.getItem('task2_lastTryItRequest') || 'null');\nconst endpointVersions = JSON.parse(localStorage.getItem('api_endpoint_versions') || '[]');\nconst apiParams = JSON.parse(localStorage.getItem('api_parameters') || '[]');\n// Find GET /users v1 endpoint version dynamically\nconst usersVersion = endpointVersions.find(function(v) {\n  return v && v.path === '/users' && String(v.httpMethod).toLowerCase() === 'get';\n});\nfunction getQueryValue(name) {\n  if (!t2 || !Array.isArray(t2.queryParams)) return null;\n  const found = t2.queryParams.find(function(q) { return q && q.name === name; });\n  if (!found || typeof found.value === 'undefined' || found.value === null) return null;\n  return String(found.value);\n}\nfunction findParamDef(name) {\n  if (!usersVersion) return null;\n  return apiParams.find(function(p) {\n    return p && p.endpointVersionId === usersVersion.id && p.name === name;\n  });\n}\n// CP1 (0.4): Request was sent via Try-It for GET /users v1 (correct endpoint and method)\nlet cp1Passed = false;\nif (t2 && usersVersion) {\n  const method = (t2.method || '').toLowerCase();\n  cp1Passed = t2.endpointVersionId === usersVersion.id && method === 'get' && t2.path === '/users';\n}\ncheckpoints.push({ passed: cp1Passed, weight: 0.4 });\n// CP2 (0.3): created_after is set to the example date from docs (e.g., '2023-01-01')\nlet cp2Passed = false;\nif (t2 && usersVersion) {\n  const def = findParamDef('created_after');\n  const value = getQueryValue('created_after');\n  if (def && typeof def.exampleValue !== 'undefined' && def.exampleValue !== null) {\n    cp2Passed = value === String(def.exampleValue);\n  }\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.3 });\n// CP3 (0.3): per_page is set to the non-default example value from docs (e.g., 25, not the default 20)\nlet cp3Passed = false;\nif (t2 && usersVersion) {\n  const def = findParamDef('per_page');\n  const value = getQueryValue('per_page');\n  if (def) {\n    const exampleVal = typeof def.exampleValue !== 'undefined' && def.exampleValue !== null ? String(def.exampleValue) : null;\n    const defaultVal = typeof def.defaultValue !== 'undefined' && def.defaultValue !== null ? String(def.defaultValue) : null;\n    if (exampleVal && value === exampleVal && (!defaultVal || value !== defaultVal)) {\n      cp3Passed = true;\n    }\n  }\n}\ncheckpoints.push({ passed: cp3Passed, weight: 0.3 });\nreturn checkpoints.reduce(function(sum, cp) { return sum + (cp.passed ? cp.weight : 0); }, 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Order Details Version Switch Evaluator",
+      "description": "Checks whether the user viewed both v1 and v2 versions of the GET /orders/{id} endpoint and ended on the newer v2 version that supports the include query parameter.",
+      "localStorage_variables": [
+        "task3_viewedOrderEndpointVersions",
+        "api_endpoint_versions",
+        "api_parameters",
+        "api_endpoints",
+        "pages"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst t3 = JSON.parse(localStorage.getItem('task3_viewedOrderEndpointVersions') || 'null');\nconst endpointVersions = JSON.parse(localStorage.getItem('api_endpoint_versions') || '[]');\nconst apiEndpoints = JSON.parse(localStorage.getItem('api_endpoints') || '[]');\n// Identify the GET /orders/{id} endpoint dynamically\nconst orderEndpoint = apiEndpoints.find(function(e) {\n  return e && e.pathTemplate === '/orders/{id}' && String(e.primaryHttpMethod).toLowerCase() === 'get';\n});\nlet v1Version = null;\nlet v2Version = null;\nif (orderEndpoint) {\n  v1Version = endpointVersions.find(function(v) {\n    return v && v.endpointId === orderEndpoint.id && v.apiVersion === 'v1';\n  });\n  v2Version = endpointVersions.find(function(v) {\n    return v && v.endpointId === orderEndpoint.id && v.apiVersion === 'v2';\n  });\n}\nconst viewedIds = t3 && Array.isArray(t3.viewedVersionIds) ? t3.viewedVersionIds : [];\n// CP1 (0.4): User viewed the default v1 version for the order-details endpoint\nlet cp1Passed = false;\nif (t3 && orderEndpoint && v1Version) {\n  cp1Passed = t3.endpointId === orderEndpoint.id && viewedIds.indexOf(v1Version.id) !== -1;\n}\ncheckpoints.push({ passed: cp1Passed, weight: 0.4 });\n// CP2 (0.3): User also viewed the newer v2 version for the same endpoint\nlet cp2Passed = false;\nif (t3 && orderEndpoint && v2Version) {\n  cp2Passed = t3.endpointId === orderEndpoint.id && viewedIds.indexOf(v2Version.id) !== -1;\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.3 });\n// CP3 (0.3): The last viewed version is v2, indicating they switched to and opened v2's details\nlet cp3Passed = false;\nif (t3 && orderEndpoint && v2Version) {\n  cp3Passed = t3.endpointId === orderEndpoint.id && t3.lastViewedVersionId === v2Version.id;\n}\ncheckpoints.push({ passed: cp3Passed, weight: 0.3 });\nreturn checkoints.reduce ? checkoints.reduce(function(sum, cp) { return sum + (cp.passed ? cp.weight : 0); }, 0) : checkpoints.reduce(function(sum, cp) { return sum + (cp.passed ? cp.weight : 0); }, 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "POST /payments Rate Limit Identification Evaluator",
+      "description": "Checks whether the user viewed the rate limit rule for POST /payments and captured the documented per-minute limit of 120 requests per minute.",
+      "localStorage_variables": [
+        "task4_viewedPaymentsRateLimitRule",
+        "rate_limit_rules",
+        "api_endpoints",
+        "pages"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst t4 = JSON.parse(localStorage.getItem('task4_viewedPaymentsRateLimitRule') || 'null');\nconst rules = JSON.parse(localStorage.getItem('rate_limit_rules') || '[]');\nconst endpoints = JSON.parse(localStorage.getItem('api_endpoints') || '[]');\n// Identify the POST /payments endpoint dynamically\nconst paymentsEndpoint = endpoints.find(function(e) {\n  return e && e.pathTemplate === '/payments' && String(e.primaryHttpMethod).toLowerCase() === 'post';\n});\n// Identify the matching endpoint-scoped per-minute rule for POST /payments\nconst targetRule = rules.find(function(r) {\n  if (!r || r.scope !== 'endpoint') return false;\n  const method = String(r.httpMethod || '').toLowerCase();\n  const path = r.path || '';\n  const timeWindow = r.timeWindow || '';\n  if (method !== 'post' || path !== '/payments' || timeWindow !== 'per_minute') return false;\n  if (paymentsEndpoint && r.endpointId && r.endpointId !== paymentsEndpoint.id) return false;\n  return true;\n});\n// CP1 (0.7): Instrumentation shows viewing the POST /payments rule with per-minute limit 120\nlet cp1Passed = false;\nif (t4 && targetRule) {\n  const method = String(t4.primaryHttpMethod || '').toLowerCase();\n  const pathTemplate = t4.pathTemplate || '';\n  const perMin = (typeof t4.perMinuteLimit !== 'undefined' && t4.perMinuteLimit !== null) ? Number(t4.perMinuteLimit) : NaN;\n  cp1Passed = method === 'post' && pathTemplate === '/payments' && perMin === 120;\n}\ncheckpoints.push({ passed: cp1Passed, weight: 0.7 });\n// CP2 (0.3): The viewed ruleId corresponds to the actual documented POST /payments per-minute rule\nlet cp2Passed = false;\nif (t4 && targetRule) {\n  cp2Passed = t4.ruleId === targetRule.id;\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.3 });\nreturn checkpoints.reduce(function(sum, cp) { return sum + (cp.passed ? cp.weight : 0); }, 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Invoice Paid Webhook Payload Copy Evaluator",
+      "description": "Checks whether the user copied the raw JSON payload example for the invoice.paid webhook event using the provided copy control.",
+      "localStorage_variables": [
+        "copy_events",
+        "webhook_events",
+        "webhook_payload_examples"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst copyEvents = JSON.parse(localStorage.getItem('copy_events') || '[]');\nconst webhookEvents = JSON.parse(localStorage.getItem('webhook_events') || '[]');\nconst payloadExamples = JSON.parse(localStorage.getItem('webhook_payload_examples') || '[]');\n// Find the invoice.paid event dynamically\nconst invoicePaidEvent = webhookEvents.find(function(e) {\n  return e && e.name === 'invoice.paid';\n});\nlet invoicePaidPayloads = [];\nif (invoicePaidEvent) {\n  invoicePaidPayloads = payloadExamples.filter(function(p) {\n    return p && p.webhookEventId === invoicePaidEvent.id && p.format === 'json' && !!p.hasCopyButton;\n  });\n}\nconst payloadIds = invoicePaidPayloads.map(function(p) { return p.id; });\nconst copiesForInvoicePaid = copyEvents.filter(function(ev) {\n  return ev && payloadIds.indexOf(ev.sourceId || '') !== -1;\n});\n// CP1 (0.8): User triggered a copy event for the invoice.paid JSON payload example\ncheckpoints.push({ passed: copiesForInvoicePaid.length > 0, weight: 0.8 });\n// CP2 (0.2): Copied content appears to be the raw JSON payload including the correct type field\nlet cp2Passed = false;\nif (copiesForInvoicePaid.length > 0) {\n  cp2Passed = copiesForInvoicePaid.some(function(ev) {\n    const content = ev && typeof ev.copiedContent === 'string' ? ev.copiedContent : '';\n    return content.indexOf('\"type\"') !== -1 && content.indexOf('invoice.paid') !== -1;\n  });\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.2 });\nreturn checkpoints.reduce(function(sum, cp) { return sum + (cp.passed ? cp.weight : 0); }, 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Python SDK Delete Customer Method Evaluator",
+      "description": "Checks whether the user viewed the Python SDK Customers.delete_customer method (which deletes a customer by ID), indicating they opened the example that demonstrates this call.",
+      "localStorage_variables": [
+        "task6_lastViewedSdkMethod",
+        "sdks",
+        "sdk_modules",
+        "sdk_methods",
+        "sdk_code_examples"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst t6 = JSON.parse(localStorage.getItem('task6_lastViewedSdkMethod') || 'null');\nconst sdks = JSON.parse(localStorage.getItem('sdks') || '[]');\nconst modules = JSON.parse(localStorage.getItem('sdk_modules') || '[]');\nconst methods = JSON.parse(localStorage.getItem('sdk_methods') || '[]');\n// Find the Python SDK\nconst pythonSdk = sdks.find(function(s) {\n  return s && s.language === 'python';\n});\n// Find the Customers module within the Python SDK\nlet customersModule = null;\nif (pythonSdk) {\n  customersModule = modules.find(function(m) {\n    return m && m.sdkId === pythonSdk.id && m.slug === 'customers';\n  });\n}\n// Find the delete_customer method in that module\nlet deleteMethod = null;\nif (customersModule) {\n  deleteMethod = methods.find(function(m) {\n    return m && m.moduleId === customersModule.id && m.name === 'delete_customer';\n  });\n}\n// CP1 (0.5): Last viewed SDK method is delete_customer\nlet cp1Passed = false;\nif (t6 && deleteMethod) {\n  cp1Passed = t6.methodId === deleteMethod.id && t6.methodName === 'delete_customer';\n}\ncheckpoints.push({ passed: cp1Passed, weight: 0.5 });\n// CP2 (0.5): The viewed method is specifically from the Python SDK Customers module\nlet cp2Passed = false;\nif (t6 && deleteMethod && customersModule && pythonSdk) {\n  cp2Passed = t6.sdkLanguage === 'python' && t6.moduleId === customersModule.id;\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.5 });\nreturn checkpoints.reduce(function(sum, cp) { return sum + (cp.passed ? cp.weight : 0); }, 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "API Key Bearer cURL Auth Example Copy Evaluator",
+      "description": "Checks whether the user copied the cURL authentication example that sends an API key as a bearer token in the Authorization header.",
+      "localStorage_variables": [
+        "copy_events",
+        "auth_methods",
+        "auth_code_examples"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst copyEvents = JSON.parse(localStorage.getItem('copy_events') || '[]');\nconst authMethods = JSON.parse(localStorage.getItem('auth_methods') || '[]');\nconst authExamples = JSON.parse(localStorage.getItem('auth_code_examples') || '[]');\n// Identify the API Key / Bearer Token auth method\nconst apiKeyMethod = authMethods.find(function(m) {\n  return m && m.name === 'API Key / Bearer Token';\n});\n// Identify the cURL example for this method that includes an Authorization header\nlet curlExample = null;\nif (apiKeyMethod) {\n  curlExample = authExamples.find(function(e) {\n    return e && e.authMethodId === apiKeyMethod.id && e.language === 'curl' && !!e.includesAuthorizationHeader && !!e.hasCopyButton;\n  });\n}\nlet copiesForCurl = [];\nif (curlExample) {\n  copiesForCurl = copyEvents.filter(function(ev) {\n    return ev && ev.sourceId === curlExample.id;\n  });\n}\n// CP1 (0.7): User triggered a copy event for the correct cURL API key auth example\ncheckpoints.push({ passed: copiesForCurl.length > 0, weight: 0.7 });\n// CP2 (0.3): Copied content includes an Authorization: Bearer <api_key> header\nlet cp2Passed = false;\nif (copiesForCurl.length > 0) {\n  cp2Passed = copiesForCurl.some(function(ev) {\n    const content = ev && typeof ev.copiedContent === 'string' ? ev.copiedContent : '';\n    return content.indexOf('Authorization: Bearer <api_key>') !== -1;\n  });\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.3 });\nreturn checkpoints.reduce(function(sum, cp) { return sum + (cp.passed ? cp.weight : 0); }, 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "List Pending Orders Try-It Configuration Evaluator",
+      "description": "Checks whether the user used the GET /orders Try-It console with example values to list only pending orders on a later page, with increased page size and sorted by newest first.",
+      "localStorage_variables": [
+        "task8_lastTryItRequest",
+        "try_it_consoles",
+        "api_parameters",
+        "api_endpoint_versions",
+        "api_endpoints",
+        "api_base_url"
+      ],
+      "evaluation_logic": "const checkpoints = [];\nconst t8 = JSON.parse(localStorage.getItem('task8_lastTryItRequest') || 'null');\nconst endpointVersions = JSON.parse(localStorage.getItem('api_endpoint_versions') || '[]');\nconst apiParams = JSON.parse(localStorage.getItem('api_parameters') || '[]');\n// Find GET /orders v1 endpoint version dynamically\nconst ordersVersion = endpointVersions.find(function(v) {\n  return v && v.path === '/orders' && String(v.httpMethod).toLowerCase() === 'get';\n});\nfunction getQueryValue(name) {\n  if (!t8 || !Array.isArray(t8.queryParams)) return null;\n  const found = t8.queryParams.find(function(q) { return q && q.name === name; });\n  if (!found || typeof found.value === 'undefined' || found.value === null) return null;\n  return String(found.value);\n}\nfunction findParamDef(name) {\n  if (!ordersVersion) return null;\n  return apiParams.find(function(p) {\n    return p && p.endpointVersionId === ordersVersion.id && p.name === name;\n  });\n}\n// CP1 (0.4): Request was sent via Try-It for GET /orders v1 (correct endpoint and method)\nlet cp1Passed = false;\nif (t8 && ordersVersion) {\n  const method = String(t8.method || '').toLowerCase();\n  cp1Passed = t8.endpointVersionId === ordersVersion.id && method === 'get' && t8.path === '/orders';\n}\ncheckpoints.push({ passed: cp1Passed, weight: 0.4 });\n// CP2 (0.6): status=pending, per_page, page, and sort all set to their example (non-default) values\nlet cp2Passed = false;\nif (t8 && ordersVersion) {\n  const statusDef = findParamDef('status');\n  const perPageDef = findParamDef('per_page');\n  const pageDef = findParamDef('page');\n  const sortDef = findParamDef('sort');\n  const statusVal = getQueryValue('status');\n  const perPageVal = getQueryValue('per_page');\n  const pageVal = getQueryValue('page');\n  const sortVal = getQueryValue('sort');\n  function matchesExampleNonDefault(def, val) {\n    if (!def) return false;\n    const exampleVal = typeof def.exampleValue !== 'undefined' && def.exampleValue !== null ? String(def.exampleValue) : null;\n    const defaultVal = typeof def.defaultValue !== 'undefined' && def.defaultValue !== null ? String(def.defaultValue) : null;\n    if (!exampleVal || val !== exampleVal) return false;\n    if (defaultVal && val === defaultVal) return false;\n    return true;\n  }\n  const statusOk = matchesExampleNonDefault(statusDef, statusVal);\n  const perPageOk = matchesExampleNonDefault(perPageDef, perPageVal);\n  const pageOk = matchesExampleNonDefault(pageDef, pageVal);\n  const sortOk = matchesExampleNonDefault(sortDef, sortVal);\n  cp2Passed = statusOk && perPageOk && pageOk && sortOk;\n}\ncheckpoints.push({ passed: cp2Passed, weight: 0.6 });\nreturn checkpoints.reduce(function(sum, cp) { return sum + (cp.passed ? cp.weight : 0); }, 0);"
+    }
+  ],
+  "static_data_types": [
+    "sdk_code_examples",
+    "navigation_links",
+    "webhook_events",
+    "webhook_payload_examples",
+    "try_it_consoles",
+    "api_endpoints",
+    "api_endpoint_versions",
+    "api_code_samples",
+    "api_parameters",
+    "pages",
+    "api_resources",
+    "rate_limit_rules",
+    "sdks",
+    "webhook_event_groups",
+    "sdk_modules",
+    "sdk_methods",
+    "auth_code_examples",
+    "auth_methods",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

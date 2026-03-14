@@ -1,0 +1,116 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Save Most Recently Updated 4K Streaming Requirements Article Evaluator",
+      "description": "Checks if the user saved the most recently updated 4K streaming requirements article in the TV streaming issues section, and optionally used an appropriate 4K streaming-quality search.",
+      "localStorage_variables": [
+        "articles",
+        "saved_articles_state",
+        "search_queries"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst saved = JSON.parse(localStorage.getItem('saved_articles_state') || '[]');\nconst searchQueries = JSON.parse(localStorage.getItem('search_queries') || '[]');\n\n// Find candidate 4K streaming articles in Watching on TV > Streaming issues\nconst keywordRegex = /4k/i;\nconst candidateArticles = articles.filter(a => {\n  const text = `${a.title || ''} ${a.summary || ''} ${a.body || ''}`;\n  return a.category_code === 'watching_on_tv'\n    && a.subcategory_id === 'watching_on_tv_streaming_issues'\n    && keywordRegex.test(text);\n});\n\n// Identify the most recently updated candidate article\nlet mostRecent = null;\nif (candidateArticles.length > 0) {\n  mostRecent = candidateArticles.reduce((best, cur) => {\n    if (!best) return cur;\n    const bestTime = best.last_updated_at ? Date.parse(best.last_updated_at) : 0;\n    const curTime = cur.last_updated_at ? Date.parse(cur.last_updated_at) : 0;\n    return curTime > bestTime ? cur : best;\n  }, null);\n}\n\nconst savedMostRecent = !!(mostRecent && saved.some(sa => sa.article_id === mostRecent.id));\n\n// CP1 (0.7): User saved the correct most recently updated 4K streaming article in the TV streaming issues section\ncheckpoints.push({ passed: !!mostRecent && savedMostRecent, weight: 0.7 });\n\n// CP2 (0.3): User performed a search for 4K with Streaming quality topic, sorted by newest, that returned this article\nlet searched4KWithFilters = false;\nif (mostRecent) {\n  searched4KWithFilters = searchQueries.some(q => {\n    if (!q || typeof q.query_text !== 'string') return false;\n    const has4k = /4k/i.test(q.query_text);\n    const hasStreamingQuality = Array.isArray(q.topic_filter_codes) && q.topic_filter_codes.includes('streaming_quality');\n    const correctSort = q.sort_by === 'last_updated_newest';\n    const includesArticle = Array.isArray(q.result_article_ids) && q.result_article_ids.includes(mostRecent.id);\n    return has4k && hasStreamingQuality && correctSort && includesArticle;\n  });\n}\n\ncheckpoints.push({ passed: !!mostRecent && searched4KWithFilters, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Smart TV Buffering Support Request Evaluator",
+      "description": "Checks whether the user submitted a Streaming quality support request from the smart TV buffering article using the fastest contact option and described buffering around 8 PM.",
+      "localStorage_variables": [
+        "articles",
+        "support_requests",
+        "contact_options"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst supportRequests = JSON.parse(localStorage.getItem('support_requests') || '[]');\nconst contactOptions = JSON.parse(localStorage.getItem('contact_options') || '[]');\n\n// Identify the smart TV buffering article dynamically\nconst smartTvArticles = articles.filter(a => {\n  const text = `${a.title || ''} ${a.summary || ''}`.toLowerCase();\n  const isTvStreamingIssues = a.category_code === 'watching_on_tv' && a.subcategory_id === 'watching_on_tv_streaming_issues';\n  const mentionsSmartTv = text.includes('smart tv');\n  const mentionsBufferingOrQuality = text.includes('buffering') || text.includes('poor video quality') || text.includes('video quality');\n  return isTvStreamingIssues && mentionsSmartTv && mentionsBufferingOrQuality;\n});\nconst smartArticle = smartTvArticles[0] || null;\n\n// Determine fastest available contact methods for that article\nlet fastestTypes = new Set();\nif (smartArticle) {\n  const opts = contactOptions.filter(co => co.article_id === smartArticle.id && co.available !== false);\n  if (opts.length > 0) {\n    let minWait = Infinity;\n    opts.forEach(o => {\n      const wait = typeof o.estimated_wait_minutes === 'number' ? o.estimated_wait_minutes : Infinity;\n      if (wait < minWait) minWait = wait;\n    });\n    opts.forEach(o => {\n      const wait = typeof o.estimated_wait_minutes === 'number' ? o.estimated_wait_minutes : Infinity;\n      if (wait === minWait) fastestTypes.add(o.type);\n    });\n  }\n}\n\n// Requests from that article with correct topic and fastest contact method\nlet basicRequests = [];\nif (smartArticle && fastestTypes.size > 0) {\n  basicRequests = supportRequests.filter(r => {\n    if (!r) return false;\n    if (r.source_article_id !== smartArticle.id) return false;\n    if (r.topic !== 'streaming_quality') return false;\n    if (!fastestTypes.has(r.contact_method)) return false;\n    return true;\n  });\n}\n\n// Among those, check description mentions buffering and around 8 PM\nconst correctRequests = basicRequests.filter(r => {\n  const desc = (r.description || '').toLowerCase();\n  const mentionsBuffer = desc.includes('buffer');\n  const mentions8pm = /8\\s*pm/i.test(r.description || '');\n  return mentionsBuffer && mentions8pm;\n});\n\n// CP1 (0.5): Submitted from the smart TV buffering article with Streaming quality topic using the fastest contact method\ncheckpoints.push({ passed: basicRequests.length > 0, weight: 0.5 });\n\n// CP2 (0.5): That request's description clearly mentions buffering around 8 PM\ncheckpoints.push({ passed: correctRequests.length > 0, weight: 0.5 });\n\nreturn checkoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Simpler Cancellation Article Marked Helpful Evaluator",
+      "description": "Checks whether the user marked as helpful the cancellation article (web vs TV) that has fewer numbered instruction steps, based on new feedback created on or after 2026-03-03.",
+      "localStorage_variables": [
+        "articles",
+        "article_sections",
+        "article_feedback"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst sections = JSON.parse(localStorage.getItem('article_sections') || '[]');\nconst feedback = JSON.parse(localStorage.getItem('article_feedback') || '[]');\n\n// Find cancellation articles in the 'Canceling your subscription' subcategory\nconst cancelArticles = articles.filter(a => a.subcategory_id === 'canceling_your_subscription');\n\n// Compute total instruction steps per article\nconst stepInfo = cancelArticles.map(a => {\n  const instrSections = sections.filter(s => s.article_id === a.id && s.type === 'instructions');\n  const totalSteps = instrSections.reduce((sum, s) => {\n    if (typeof s.step_count === 'number') return sum + s.step_count;\n    if (Array.isArray(s.step_texts)) return sum + s.step_texts.length;\n    return sum;\n  }, 0);\n  return { articleId: a.id, steps: totalSteps };\n});\n\n// Determine which article is simpler (fewest steps)\nlet simplerArticleId = null;\nif (stepInfo.length > 0) {\n  const simplest = stepInfo.reduce((best, cur) => {\n    if (!best) return cur;\n    return cur.steps < best.steps ? cur : best;\n  }, null);\n  if (simplest) simplerArticleId = simplest.articleId;\n}\n\n// Look for a new helpful vote on the simpler article on or after 2026-03-03\nconst thresholdDate = '2026-03-03T00:00:00Z';\nconst helpfulOnSimpler = simplerArticleId && feedback.some(f => {\n  if (!f || f.article_id !== simplerArticleId) return false;\n  if (!f.helpful) return false;\n  if (!f.created_at) return false;\n  return f.created_at >= thresholdDate;\n});\n\n// CP1 (1.0): User marked the simpler cancellation article as helpful (new feedback in current session window)\ncheckpoints.push({ passed: !!simplerArticleId && helpfulOnSimpler, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Android Subtitles Article Saved and Viewed in Spanish Evaluator",
+      "description": "Checks whether the user saved the highest-rated Android subtitles/audio article and then viewed that same article in Spanish, using the instrumentation variable.",
+      "localStorage_variables": [
+        "articles",
+        "article_topics",
+        "article_device_support",
+        "saved_articles_state",
+        "task4_androidSubtitlesArticleViewedEs"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst articleTopics = JSON.parse(localStorage.getItem('article_topics') || '[]');\nconst articleDeviceSupport = JSON.parse(localStorage.getItem('article_device_support') || '[]');\nconst saved = JSON.parse(localStorage.getItem('saved_articles_state') || '[]');\n\n// Determine Android + subtitles/captions/audio articles dynamically\nconst topicCode = 'subtitles_captions_audio';\nconst deviceCode = 'android_phone_tablet';\n\nconst topicArticleIds = new Set(\n  articleTopics\n    .filter(t => t && t.topic_code === topicCode)\n    .map(t => t.article_id)\n);\n\nconst deviceArticleIds = new Set(\n  articleDeviceSupport\n    .filter(d => d && d.device_code === deviceCode)\n    .map(d => d.article_id)\n);\n\nlet candidateArticles = articles.filter(a => topicArticleIds.has(a.id) && deviceArticleIds.has(a.id));\n\n// Fallback: if device mapping is missing, use title/summary heuristics for Android subtitles\nif (candidateArticles.length === 0) {\n  candidateArticles = articles.filter(a => {\n    const text = `${a.title || ''} ${a.summary || ''}`.toLowerCase();\n    return text.includes('android') && (text.includes('subtitles') || text.includes('audio language'));\n  });\n}\n\n// Choose highest-rated article among candidates (tie-breaker: higher rating_count)\nlet bestArticle = null;\nif (candidateArticles.length > 0) {\n  bestArticle = candidateArticles.reduce((best, cur) => {\n    if (!best) return cur;\n    const ra = typeof cur.average_rating === 'number' ? cur.average_rating : 0;\n    const rb = typeof best.average_rating === 'number' ? best.average_rating : 0;\n    if (ra !== rb) return ra > rb ? cur : best;\n    const ca = typeof cur.rating_count === 'number' ? cur.rating_count : 0;\n    const cb = typeof best.rating_count === 'number' ? best.rating_count : 0;\n    return ca > cb ? cur : best;\n  }, null);\n}\n\n// Check that this highest-rated article was saved\nconst savedHighest = !!(bestArticle && saved.some(sa => sa.article_id === bestArticle.id));\n\n// Read instrumentation variable for viewing the article in Spanish\nlet viewedRecord = null;\nconst rawViewed = localStorage.getItem('task4_androidSubtitlesArticleViewedEs');\nif (rawViewed) {\n  try {\n    viewedRecord = JSON.parse(rawViewed);\n  } catch (e) {\n    viewedRecord = null;\n  }\n}\n\nconst viewedEsCorrect = !!(bestArticle && viewedRecord && viewedRecord.articleId === bestArticle.id && viewedRecord.language === 'es');\n\n// CP1 (0.6): User saved the highest-rated Android subtitles/audio article\ncheckpoints.push({ passed: !!bestArticle && savedHighest, weight: 0.6 });\n\n// CP2 (0.4): User viewed that same article in Spanish (language 'es') per instrumentation\ncheckpoints.push({ passed: !!bestArticle && viewedEsCorrect, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Teen Maturity Article Saved and PIN Article Opened Evaluator",
+      "description": "Checks whether the user saved an article about setting maturity ratings for teens and opened a related PIN restrictions article, using the instrumentation variable.",
+      "localStorage_variables": [
+        "articles",
+        "saved_articles_state",
+        "task5_openedPinRestrictionsArticle"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst saved = JSON.parse(localStorage.getItem('saved_articles_state') || '[]');\n\n// Find parental controls articles appropriate for teen maturity ratings in the parental controls subcategory\nconst teenMaturityArticles = articles.filter(a => {\n  const inParentalSubcat = a.category_code === 'account_profiles' && a.subcategory_id === 'parental_controls_and_pins';\n  const hasTeens = Array.isArray(a.applicable_maturity_levels) && a.applicable_maturity_levels.includes('teens');\n  const text = `${a.title || ''} ${a.summary || ''} ${a.body || ''}`.toLowerCase();\n  const mentionsMaturity = text.includes('maturity') || text.includes('rating');\n  return inParentalSubcat && hasTeens && mentionsMaturity;\n});\n\nconst teenArticleIds = new Set(teenMaturityArticles.map(a => a.id));\n\n// Check if at least one such teen maturity article was saved\nconst savedTeenMaturity = saved.some(sa => teenArticleIds.has(sa.article_id));\n\n// Identify PIN-related parental controls articles\nconst pinArticles = articles.filter(a => {\n  const inParentalSubcat = a.category_code === 'account_profiles' && a.subcategory_id === 'parental_controls_and_pins';\n  const text = `${a.title || ''} ${a.summary || ''} ${a.body || ''}`.toLowerCase();\n  return inParentalSubcat && text.includes('pin');\n});\nconst pinArticleIds = new Set(pinArticles.map(a => a.id));\n\n// Read instrumentation variable for opening a PIN restrictions article\nlet openedPin = null;\nconst rawOpened = localStorage.getItem('task5_openedPinRestrictionsArticle');\nif (rawOpened) {\n  try {\n    openedPin = JSON.parse(rawOpened);\n  } catch (e) {\n    openedPin = null;\n  }\n}\n\nconst openedPinIsRelated = !!(openedPin && pinArticleIds.has(openedPin.articleId));\n\n// CP1 (0.5): User saved at least one teen-focused maturity rating parental controls article\ncheckpoints.push({ passed: savedTeenMaturity, weight: 0.5 });\n\n// CP2 (0.5): User opened a PIN-related parental controls article, per instrumentation\ncheckpoints.push({ passed: openedPinIsRelated, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Billing Country Set to United States via Payment Settings Evaluator",
+      "description": "Checks whether the user updated the billing country in payment settings to United States.",
+      "localStorage_variables": [
+        "payment_settings_state",
+        "articles",
+        "article_ctas"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst paymentSettings = JSON.parse(localStorage.getItem('payment_settings_state') || '[]');\nconst current = paymentSettings[0] || null;\n\n// CP1 (1.0): The primary payment settings record has billing_country set to 'united_states'\nconst billingUS = !!(current && current.billing_country === 'united_states');\ncheckpoints.push({ passed: billingUS, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Standard Plan Download Articles Saved Evaluator",
+      "description": "Checks whether the user saved both the Standard-plan download devices article and the related article comparing download limits across plans, and whether they used downloads + Standard plan filters to find the main article.",
+      "localStorage_variables": [
+        "articles",
+        "saved_articles_state",
+        "search_queries"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst saved = JSON.parse(localStorage.getItem('saved_articles_state') || '[]');\nconst searchQueries = JSON.parse(localStorage.getItem('search_queries') || '[]');\n\n// Identify downloads-related billing articles\nconst downloadsArticles = articles.filter(a => {\n  const inBillingSubcat = a.category_code === 'account_billing' && a.subcategory_id === 'payment_methods_charges';\n  const text = `${a.title || ''} ${a.summary || ''}`.toLowerCase();\n  return inBillingSubcat && text.includes('download');\n});\n\nlet planDevicesArticle = null;\nlet comparePlansArticle = null;\n\ndownloadsArticles.forEach(a => {\n  const title = (a.title || '').toLowerCase();\n  if (!planDevicesArticle && title.includes('how many devices can download')) {\n    planDevicesArticle = a;\n  }\n  if (!comparePlansArticle && title.includes('download limits for other plans')) {\n    comparePlansArticle = a;\n  }\n});\n\n// Fallback heuristics if exact matches not found\nif (!planDevicesArticle) {\n  planDevicesArticle = downloadsArticles.find(a => {\n    const t = (a.title || '').toLowerCase();\n    return t.includes('how many devices') && t.includes('download');\n  }) || null;\n}\n\nif (!comparePlansArticle) {\n  comparePlansArticle = downloadsArticles.find(a => {\n    const t = (a.title || '').toLowerCase();\n    return t.includes('download limits') && t.includes('plans');\n  }) || null;\n}\n\nconst savedIds = new Set(saved.map(sa => sa.article_id));\nconst bothSaved = !!(planDevicesArticle && comparePlansArticle && savedIds.has(planDevicesArticle.id) && savedIds.has(comparePlansArticle.id));\n\n// Check if user used downloads topic + Standard plan filters in search that returned the main devices article\nlet usedPlanFiltersForMain = false;\nif (planDevicesArticle) {\n  usedPlanFiltersForMain = searchQueries.some(q => {\n    if (!q) return false;\n    const hasDownloadsTopic = Array.isArray(q.topic_filter_codes) && q.topic_filter_codes.includes('downloads');\n    const hasStandardPlan = Array.isArray(q.plan_filter_codes) && q.plan_filter_codes.includes('standard');\n    const hasDownloadWord = typeof q.query_text === 'string' && /download/i.test(q.query_text);\n    const includesMainArticle = Array.isArray(q.result_article_ids) && q.result_article_ids.includes(planDevicesArticle.id);\n    return hasDownloadsTopic && hasStandardPlan && hasDownloadWord && includesMainArticle;\n  });\n}\n\n// CP1 (0.6): User saved both the plan-specific downloads devices article and the cross-plan limits article\ncheckpoints.push({ passed: bothSaved, weight: 0.6 });\n\n// CP2 (0.4): User used downloads + Standard plan filters in a search that surfaced the main plan devices article\ncheckpoints.push({ passed: !!planDevicesArticle && usedPlanFiltersForMain, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "VC_201 Error Chat Started with Correct Error Code Evaluator",
+      "description": "Checks whether the user started a support chat (or fastest option) for error VC_201 from the computer error article, ensuring the error code VC_201 is included in the support request.",
+      "localStorage_variables": [
+        "articles",
+        "contact_options",
+        "support_requests",
+        "search_queries"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\nconst contactOptions = JSON.parse(localStorage.getItem('contact_options') || '[]');\nconst supportRequests = JSON.parse(localStorage.getItem('support_requests') || '[]');\nconst searchQueries = JSON.parse(localStorage.getItem('search_queries') || '[]');\n\n// Identify the VC_201 error article on computers dynamically\nconst vcArticles = articles.filter(a => {\n  const text = `${a.title || ''} ${a.summary || ''}`.toLowerCase();\n  const mentionsVC201 = text.includes('vc_201');\n  const hasErrorCodeField = (a.default_error_code || '').toUpperCase() === 'VC_201';\n  return mentionsVC201 || hasErrorCodeField;\n});\nconst vcArticle = vcArticles[0] || null;\n\n// Determine fastest available contact methods for that article (e.g., chat)\nlet fastestTypes = new Set();\nif (vcArticle) {\n  const opts = contactOptions.filter(co => co.article_id === vcArticle.id && co.available !== false);\n  if (opts.length > 0) {\n    let minWait = Infinity;\n    opts.forEach(o => {\n      const wait = typeof o.estimated_wait_minutes === 'number' ? o.estimated_wait_minutes : Infinity;\n      if (wait < minWait) minWait = wait;\n    });\n    opts.forEach(o => {\n      const wait = typeof o.estimated_wait_minutes === 'number' ? o.estimated_wait_minutes : Infinity;\n      if (wait === minWait) fastestTypes.add(o.type);\n    });\n  }\n}\n\n// Find support requests that match this article, fastest contact method, and include VC_201 as error code\nlet fastestRequestsWithCode = [];\nif (vcArticle && fastestTypes.size > 0) {\n  fastestRequestsWithCode = supportRequests.filter(r => {\n    if (!r) return false;\n    if (r.source_article_id !== vcArticle.id) return false;\n    if (!fastestTypes.has(r.contact_method)) return false;\n    const code = (r.error_code || '').toUpperCase();\n    return code === 'VC_201';\n  });\n}\n\n// Check if user searched for VC_201 and the search results included this article\nlet searchedVc201 = false;\nif (vcArticle) {\n  searchedVc201 = searchQueries.some(q => {\n    if (!q || typeof q.query_text !== 'string') return false;\n    const hasCodeInQuery = /vc_201/i.test(q.query_text);\n    const includesArticle = Array.isArray(q.result_article_ids) && q.result_article_ids.includes(vcArticle.id);\n    return hasCodeInQuery && includesArticle;\n  });\n}\n\n// CP1 (0.6): User started a support request from the VC_201 article using the fastest contact method and with error_code 'VC_201'\ncheckpoints.push({ passed: fastestRequestsWithCode.length > 0, weight: 0.6 });\n\n// CP2 (0.4): User performed a search including VC_201 that returned the VC_201 error article\ncheckpoints.push({ passed: !!vcArticle && searchedVc201, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "categories",
+    "devices",
+    "payment_settings_state",
+    "plans",
+    "profile_settings_state",
+    "topics",
+    "device_topics",
+    "subcategories",
+    "article_relations",
+    "article_device_support",
+    "article_plan_applicabilities",
+    "article_sections",
+    "article_topics",
+    "article_feedback",
+    "articles",
+    "article_ctas",
+    "contact_options",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

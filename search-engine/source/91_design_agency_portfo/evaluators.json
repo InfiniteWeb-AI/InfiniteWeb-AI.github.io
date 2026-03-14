@@ -1,0 +1,99 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Newest Restaurant/Food Branding Case Study Favorited",
+      "description": "Checks whether the user favorited the most recent (by published_at) restaurant or food_beverage branding case study from 2022 or later.",
+      "localStorage_variables": [
+        "case_studies",
+        "favorites"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst caseStudies = JSON.parse(localStorage.getItem('case_studies') || '[]');\nconst favorites = JSON.parse(localStorage.getItem('favorites') || '[]');\n\n// Filter qualifying restaurant/food branding case studies from 2022+\nconst qualifyingCaseStudies = caseStudies.filter(cs => {\n  const isRestaurant = cs.industry === 'restaurant' || cs.industry === 'food_beverage';\n  const yearOk = typeof cs.year === 'number' && cs.year >= 2022;\n  const hasBranding = Array.isArray(cs.service_types) && cs.service_types.indexOf('branding') !== -1;\n  return isRestaurant && yearOk && hasBranding;\n});\n\n// Find the newest one by published_at\nlet newest = null;\nqualifyingCaseStudies.forEach(cs => {\n  if (!newest) {\n    newest = cs;\n    return;\n  }\n  const dCur = cs.published_at ? new Date(cs.published_at) : new Date(0);\n  const dBest = newest.published_at ? new Date(newest.published_at) : new Date(0);\n  if (dCur > dBest) {\n    newest = cs;\n  }\n});\n\nconst favoritedCaseStudyIds = favorites\n  .filter(f => f.item_type === 'case_study')\n  .map(f => f.item_id);\n\n// CP1 (0.4): User favorited at least one qualifying restaurant/food branding case study from 2022+\nconst qualifyingIds = qualifyingCaseStudies.map(cs => cs.id);\nconst qualifyingFavoritedIds = qualifyingIds.filter(id => favoritedCaseStudyIds.indexOf(id) !== -1);\ncheckpoints.push({ passed: qualifyingFavoritedIds.length > 0, weight: 0.4 });\n\n// CP2 (0.6): User favorited specifically the newest qualifying case study\nconst newestFavorited = !!newest && favoritedCaseStudyIds.indexOf(newest.id) !== -1;\ncheckpoints.push({ passed: !!newest && newestFavorited, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Cart Has One Ecommerce & One Portfolio Template and Checkout Summary Opened",
+      "description": "Checks that the cart for which checkout summary was opened contains one qualifying ecommerce and one qualifying portfolio website template under $60 with rating ≥4.",
+      "localStorage_variables": [
+        "products",
+        "cart",
+        "cart_items",
+        "task2_checkoutSummarySnapshot"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst cart = JSON.parse(localStorage.getItem('cart') || 'null');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst snapshotRaw = localStorage.getItem('task2_checkoutSummarySnapshot');\nconst snapshot = snapshotRaw ? JSON.parse(snapshotRaw) : null;\n\nconst cartId = snapshot && snapshot.cart_id ? snapshot.cart_id : (cart && cart.id ? cart.id : null);\nconst itemsForCart = cartId ? cartItems.filter(ci => ci.cart_id === cartId) : [];\n\nconst findProduct = (id) => products.find(p => p.id === id);\n\n// Qualifying website template items in this cart\nconst qualifyingCartItems = itemsForCart.filter(ci => {\n  const p = findProduct(ci.product_id);\n  if (!p) return false;\n  const isWebsiteTemplate = p.product_category === 'website_templates';\n  const hasSubcat = p.product_subcategory === 'ecommerce' || p.product_subcategory === 'portfolio';\n  const priceOk = typeof p.price === 'number' && p.price < 60;\n  const ratingOk = typeof p.rating === 'number' && p.rating >= 4.0;\n  return isWebsiteTemplate && hasSubcat && priceOk && ratingOk;\n});\n\nlet hasEcommerce = false;\nlet hasPortfolio = false;\nqualifyingCartItems.forEach(ci => {\n  const p = findProduct(ci.product_id);\n  if (!p) return;\n  if (p.product_subcategory === 'ecommerce') hasEcommerce = true;\n  if (p.product_subcategory === 'portfolio') hasPortfolio = true;\n});\n\n// CP1 (0.6): Checkout summary snapshot exists for a cart that has at least one qualifying ecommerce AND one qualifying portfolio template\nconst cp1Passed = !!snapshot && !!cartId && hasEcommerce && hasPortfolio;\ncheckpoints.push({ passed: cp1Passed, weight: 0.6 });\n\n// CP2 (0.4): That cart has exactly two qualifying website template line items (one ecommerce, one portfolio)\nconst qualifyingCount = qualifyingCartItems.length;\nconst cp2Passed = cp1Passed && qualifyingCount === 2;\ncheckpoints.push({ passed: cp2Passed, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Requested Cheapest Branding Package with Logo & Guidelines Under 5000",
+      "description": "Checks that the user submitted a project request for a qualifying branding package under $5000 that includes logo design and brand guidelines, and that they chose the cheapest such package with budget < 5000 mentioning both deliverables.",
+      "localStorage_variables": [
+        "service_packages",
+        "project_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst servicePackages = JSON.parse(localStorage.getItem('service_packages') || '[]');\nconst projectRequests = JSON.parse(localStorage.getItem('project_requests') || '[]');\n\n// Qualifying branding packages under 5000 that include logo + brand guidelines\nconst qualifyingPackages = servicePackages.filter(sp => sp.service_type === 'branding' && sp.is_active && typeof sp.price === 'number' && sp.price < 5000 && !!sp.includes_logo_design && !!sp.includes_brand_guidelines);\n\nlet cheapestPrice = null;\nqualifyingPackages.forEach(sp => {\n  if (cheapestPrice === null || sp.price < cheapestPrice) cheapestPrice = sp.price;\n});\nconst cheapestPackages = qualifyingPackages.filter(sp => sp.price === cheapestPrice);\nconst cheapestIds = cheapestPackages.map(sp => sp.id);\n\nconst includesPhrase = (text, phrase) => {\n  if (!text || !phrase) return false;\n  return String(text).toLowerCase().indexOf(String(phrase).toLowerCase()) !== -1;\n};\n\n// Project requests that target any qualifying package, with budget <5000 and both phrases in description\nconst qualifyingRequests = projectRequests.filter(pr => {\n  const pkgOk = qualifyingPackages.some(sp => sp.id === pr.package_id);\n  const budgetOk = typeof pr.budget === 'number' && pr.budget < 5000;\n  const desc = pr.project_description || '';\n  const hasLogo = includesPhrase(desc, 'logo design');\n  const hasGuidelines = includesPhrase(desc, 'brand guidelines');\n  return pkgOk && budgetOk && hasLogo && hasGuidelines;\n});\n\n// CP1 (0.4): User submitted at least one qualifying request (correct package type, budget, and mentions both deliverables)\nconst cp1Passed = qualifyingRequests.length > 0;\ncheckpoints.push({ passed: cp1Passed, weight: 0.4 });\n\n// CP2 (0.6): At least one such request targets the cheapest qualifying package\nconst cp2Passed = qualifyingRequests.some(pr => cheapestIds.indexOf(pr.package_id) !== -1);\ncheckpoints.push({ passed: cp2Passed, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Three Distinct Qualifying Merchandise Items in Cart with One Blue",
+      "description": "Checks that the cart contains at least three different merchandise products under $35 with free shipping, and at least one of those is selected in a blue color.",
+      "localStorage_variables": [
+        "products",
+        "cart",
+        "cart_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst cart = JSON.parse(localStorage.getItem('cart') || 'null');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\n\nconst cartId = cart && cart.id ? cart.id : null;\nconst itemsForCart = cartId ? cartItems.filter(ci => ci.cart_id === cartId) : [];\n\nconst findProduct = (id) => products.find(p => p.id === id);\n\n// Qualifying merchandise items in cart\nconst qualifyingItems = itemsForCart.filter(ci => {\n  const p = findProduct(ci.product_id);\n  if (!p) return false;\n  const isMerch = p.product_category === 'merchandise';\n  const priceOk = typeof p.price === 'number' && p.price < 35;\n  const freeShip = !!p.free_shipping;\n  return isMerch && priceOk && freeShip;\n});\n\nconst distinctProductIds = Array.from(new Set(qualifyingItems.map(ci => ci.product_id)));\nconst hasThreeDistinct = distinctProductIds.length >= 3;\nconst hasBlue = qualifyingItems.some(ci => ci.selected_color === 'blue');\n\n// CP1 (0.6): At least three distinct qualifying merchandise products in the cart\ncheckpoints.push({ passed: hasThreeDistinct, weight: 0.6 });\n\n// CP2 (0.4): Among those qualifying items, at least one has selected_color blue\ncheckpoints.push({ passed: hasThreeDistinct && hasBlue, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Subscribed Monthly Design Tips with Notes Mentioning Two Recent UX Case Studies",
+      "description": "Checks that the user subscribed to the newsletter with monthly frequency and design_tips interest, and that the notes mention at least two UX case study titles from 2023 or later.",
+      "localStorage_variables": [
+        "blog_posts",
+        "newsletter_subscriptions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst posts = JSON.parse(localStorage.getItem('blog_posts') || '[]');\nconst subs = JSON.parse(localStorage.getItem('newsletter_subscriptions') || '[]');\n\n// Qualifying UX case study posts from 2023+ (tagged ux/user_experience)\nconst qualifyingPosts = posts.filter(p => {\n  if (!p.published_at) return false;\n  const year = new Date(p.published_at).getFullYear();\n  const hasTag = Array.isArray(p.tags) && (p.tags.indexOf('ux') !== -1 || p.tags.indexOf('user_experience') !== -1);\n  return year >= 2023 && p.category === 'ux_case_study' && hasTag;\n});\nconst titlesLc = qualifyingPosts.map(p => String(p.title || '').toLowerCase());\n\nconst countMentionedTitles = (notes) => {\n  if (!notes) return 0;\n  const noteLc = String(notes).toLowerCase();\n  const mentioned = new Set();\n  titlesLc.forEach(t => {\n    if (t && noteLc.indexOf(t) !== -1) {\n      mentioned.add(t);\n    }\n  });\n  return mentioned.size;\n};\n\nlet passed = false;\nsubs.forEach(sub => {\n  if (passed) return;\n  if (sub.frequency !== 'monthly') return;\n  if (!Array.isArray(sub.interests) || sub.interests.indexOf('design_tips') === -1) return;\n  const mentionedCount = countMentionedTitles(sub.notes || '');\n  if (mentionedCount >= 2) {\n    passed = true;\n  }\n});\n\n// Single checkpoint (1.0): Correct subscription plus notes referencing two qualifying UX case studies\ncheckpoints.push({ passed, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Four Qualifying Digital Download Resources Favorited from ≥3 Creators",
+      "description": "Checks that the user favorited at least four digital_downloads products priced ≤$25 with rating ≥4.5, coming from at least three different creators.",
+      "localStorage_variables": [
+        "favorites",
+        "products"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst favorites = JSON.parse(localStorage.getItem('favorites') || '[]');\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\n\nconst findProduct = (id) => products.find(p => p.id === id);\n\n// Products that are favorited and meet all criteria\nconst qualifyingFavProducts = favorites\n  .filter(f => f.item_type === 'product')\n  .map(f => {\n    const p = findProduct(f.item_id);\n    if (!p) return null;\n    const isDigital = p.product_category === 'digital_downloads';\n    const priceOk = typeof p.price === 'number' && p.price <= 25;\n    const ratingOk = typeof p.rating === 'number' && p.rating >= 4.5;\n    return (isDigital && priceOk && ratingOk) ? p : null;\n  })\n  .filter(p => !!p);\n\nconst distinctProductIds = Array.from(new Set(qualifyingFavProducts.map(p => p.id)));\nconst distinctCreators = Array.from(new Set(qualifyingFavProducts.map(p => p.creator_name)));\n\nconst hasFourProducts = distinctProductIds.length >= 4;\nconst hasThreeCreators = distinctCreators.length >= 3;\n\n// CP1 (0.6): At least four distinct qualifying digital download products favorited\ncheckpoints.push({ passed: hasFourProducts, weight: 0.6 });\n\n// CP2 (0.4): Those qualifying favorites come from at least three different creators\ncheckpoints.push({ passed: hasFourProducts && hasThreeCreators, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Viewed Three Mobile App Case Studies and Submitted Matching Project Plan",
+      "description": "Checks that the user viewed one qualifying mobile_app_design case study in each of healthcare, fintech, and education (2021–2024) and submitted a project plan for September 2025 with budget 50k–75k whose description references all three viewed case studies.",
+      "localStorage_variables": [
+        "case_studies",
+        "project_plans",
+        "task7_viewedCaseStudies"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst caseStudies = JSON.parse(localStorage.getItem('case_studies') || '[]');\nconst projectPlans = JSON.parse(localStorage.getItem('project_plans') || '[]');\nconst viewedRaw = localStorage.getItem('task7_viewedCaseStudies');\nconst viewed = viewedRaw ? JSON.parse(viewedRaw) : null;\n\nconst industries = ['healthcare', 'fintech', 'education'];\nconst qualifyingByIndustry = {};\nindustries.forEach(ind => {\n  qualifyingByIndustry[ind] = caseStudies.filter(cs => {\n    if (cs.industry !== ind) return false;\n    if (!Array.isArray(cs.service_types) || cs.service_types.indexOf('mobile_app_design') === -1) return false;\n    if (typeof cs.year !== 'number' || cs.year < 2021 || cs.year > 2024) return false;\n    return true;\n  });\n});\n\nlet viewedAll = true;\nconst selectedCaseStudies = {};\nindustries.forEach(ind => {\n  if (!viewedAll) return;\n  const entry = viewed && viewed[ind];\n  if (!entry || !entry.case_study_id) {\n    viewedAll = false;\n    return;\n  }\n  const list = qualifyingByIndustry[ind] || [];\n  const cs = list.find(c => c.id === entry.case_study_id);\n  if (!cs) {\n    viewedAll = false;\n    return;\n  }\n  selectedCaseStudies[ind] = cs;\n});\n\n// CP1 (0.5): Instrumentation shows a qualifying viewed case study for each industry\ncheckpoints.push({ passed: viewedAll, weight: 0.5 });\n\n// CP2 (0.5): A project plan exists for Sept 2025, budget_range 50_000_75_000, whose description mentions all three selected case study titles\nlet planPassed = false;\nif (viewedAll && Array.isArray(projectPlans)) {\n  projectPlans.forEach(pp => {\n    if (planPassed) return;\n    if (!pp.target_launch_date || !pp.budget_range || !pp.description) return;\n    const d = new Date(pp.target_launch_date);\n    if (isNaN(d.getTime())) return;\n    const year = d.getUTCFullYear();\n    const month = d.getUTCMonth(); // 0-based\n    if (year !== 2025 || month !== 8) return; // September\n    if (pp.budget_range !== '50_000_75_000') return;\n\n    const descLc = String(pp.description).toLowerCase();\n    let allTitlesPresent = true;\n    industries.forEach(ind => {\n      const cs = selectedCaseStudies[ind];\n      if (!cs) {\n        allTitlesPresent = false;\n        return;\n      }\n      const titleLc = String(cs.title || '').toLowerCase();\n      if (!titleLc || descLc.indexOf(titleLc) === -1) {\n        allTitlesPresent = false;\n      }\n    });\n\n    if (allTitlesPresent) {\n      planPassed = true;\n    }\n  });\n}\n\ncheckpoints.push({ passed: planPassed, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Cheapest Qualifying UI Kit Bundle in Cart with 10% Promo Applied",
+      "description": "Checks that the cart contains one of the cheapest qualifying UI kit bundles (ui_kits/ui_kit_bundles, $40–$120, ≥4 stars, desktop+mobile, bundle=true) and that a 10%-off promo code is applied to that cart.",
+      "localStorage_variables": [
+        "products",
+        "cart",
+        "cart_items",
+        "promo_codes"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst cart = JSON.parse(localStorage.getItem('cart') || 'null');\nconst cartItems = JSON.parse(localStorage.getItem('cart_items') || '[]');\nconst promoCodes = JSON.parse(localStorage.getItem('promo_codes') || '[]');\n\n// All qualifying UI kit bundles\nconst qualifyingProducts = products.filter(p => {\n  if (p.product_category !== 'ui_kits') return false;\n  if (p.product_subcategory !== 'ui_kit_bundles') return false;\n  if (!p.is_bundle) return false;\n  const priceOk = typeof p.price === 'number' && p.price >= 40 && p.price <= 120;\n  const ratingOk = typeof p.rating === 'number' && p.rating >= 4.0;\n  const desktopOk = !!p.includes_desktop_layouts;\n  const mobileOk = !!p.includes_mobile_layouts;\n  return priceOk && ratingOk && desktopOk && mobileOk;\n});\n\nlet cheapestPrice = null;\nqualifyingProducts.forEach(p => {\n  if (cheapestPrice === null || p.price < cheapestPrice) cheapestPrice = p.price;\n});\nconst cheapestProducts = qualifyingProducts.filter(p => p.price === cheapestPrice);\nconst cheapestIds = cheapestProducts.map(p => p.id);\n\nconst cartId = cart && cart.id ? cart.id : null;\nconst itemsForCart = cartId ? cartItems.filter(ci => ci.cart_id === cartId) : [];\n\nconst hasCheapestInCart = cheapestProducts.length > 0 && itemsForCart.some(ci => cheapestIds.indexOf(ci.product_id) !== -1);\n\n// CP1 (0.6): Cart contains at least one of the cheapest qualifying UI kit bundles\ncheckpoints.push({ passed: hasCheapestInCart, weight: 0.6 });\n\n// Check for applied 10%-off promo on this cart\nlet tenPercentPromoApplied = false;\nif (hasCheapestInCart && cart && cart.applied_promo_code_id) {\n  const promo = promoCodes.find(p => p.id === cart.applied_promo_code_id);\n  if (promo && promo.active && promo.discount_type === 'percentage' && promo.discount_value === 10) {\n    tenPercentPromoApplied = true;\n  }\n}\n\n// CP2 (0.4): A 10%-off percentage promo is applied on the same cart that contains the cheapest qualifying bundle\ncheckpoints.push({ passed: hasCheapestInCart && tenPercentPromoApplied, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "blog_posts",
+    "case_studies",
+    "products",
+    "promo_codes",
+    "service_packages",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

@@ -1,0 +1,96 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Save Two Qualifying Modern Single-Family Projects to Favorites",
+      "description": "Checks that at least two favorited projects are completed modern single-family homes between 1800–2500 sq ft with estimated cost under $550,000.",
+      "localStorage_variables": [
+        "saved_items",
+        "projects"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst savedItems = JSON.parse(localStorage.getItem('saved_items') || '[]');\nconst projects = JSON.parse(localStorage.getItem('projects') || '[]');\n\nconst qualifyingFavorites = savedItems.filter((s) => {\n  if (s.item_type !== 'project') return false;\n  const p = projects.find((p) => p.id === s.item_id);\n  if (!p) return false;\n  if (p.project_type !== 'single_family_home') return false;\n  if (p.style !== 'modern') return false;\n  if (p.status !== 'completed') return false;\n  if (typeof p.size_sq_ft !== 'number') return false;\n  if (p.size_sq_ft < 1800 || p.size_sq_ft > 2500) return false;\n  const cost = typeof p.estimated_cost === 'number'\n    ? p.estimated_cost\n    : (typeof p.budget_max === 'number'\n        ? p.budget_max\n        : (typeof p.budget_min === 'number' ? p.budget_min : null));\n  if (typeof cost !== 'number') return false;\n  if (cost > 550000) return false;\n  return true;\n});\n\n// CP1 (0.4): At least one qualifying project favorited\ncheckpoints.push({ passed: qualifyingFavorites.length >= 1, weight: 0.4 });\n// CP2 (0.6): At least two qualifying projects favorited\ncheckpoints.push({ passed: qualifyingFavorites.length >= 2, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Submit Quote Request for Qualifying 2022 Kitchen Renovation",
+      "description": "Checks that a similar-project quote request was submitted for a 2022 kitchen renovation with a budget between $40,000 and $80,000.",
+      "localStorage_variables": [
+        "project_inquiries",
+        "projects"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst inquiries = JSON.parse(localStorage.getItem('project_inquiries') || '[]');\nconst projects = JSON.parse(localStorage.getItem('projects') || '[]');\n\nconst qualifyingInquiries = inquiries.filter((inq) => {\n  if (inq.inquiry_kind !== 'similar_project_quote') return false;\n  const p = projects.find((p) => p.id === inq.project_id);\n  if (!p) return false;\n  if (!p.is_renovation) return false;\n  const isKitchenProject = p.primary_space === 'kitchen' ||\n    (Array.isArray(p.room_tags) && p.room_tags.indexOf('kitchen') !== -1) ||\n    (Array.isArray(p.tags) && p.tags.indexOf('kitchen') !== -1);\n  if (!isKitchenProject) return false;\n  if (p.completion_year !== 2022) return false;\n  const projectCost = typeof p.estimated_cost === 'number'\n    ? p.estimated_cost\n    : (typeof p.budget_max === 'number'\n        ? p.budget_max\n        : (typeof p.budget_min === 'number' ? p.budget_min : null));\n  if (typeof projectCost !== 'number') return false;\n  if (projectCost < 40000 || projectCost > 80000) return false;\n  if (typeof inq.target_budget !== 'number') return false;\n  if (inq.target_budget < 40000 || inq.target_budget > 80000) return false;\n  return true;\n});\n\n// Single checkpoint (1.0): At least one qualifying quote request submitted\ncheckpoints.push({ passed: qualifyingInquiries.length >= 1, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Compare Two 3-Bed Plans and Consult on Cheaper Option",
+      "description": "Checks that two qualifying 3-bedroom plans under 2000 sq ft were compared and a consultation was started for the cheaper one.",
+      "localStorage_variables": [
+        "task3_comparedPlanIds",
+        "task3_selectedCheaperPlanId",
+        "plans",
+        "plan_consultations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nlet comparedIds = [];\ntry {\n  comparedIds = JSON.parse(localStorage.getItem('task3_comparedPlanIds') || '[]');\n} catch (e) {\n  comparedIds = [];\n}\nif (!Array.isArray(comparedIds)) comparedIds = [];\n\nconst selectedId = localStorage.getItem('task3_selectedCheaperPlanId') || null;\nconst plans = JSON.parse(localStorage.getItem('plans') || '[]');\nconst consultations = JSON.parse(localStorage.getItem('plan_consultations') || '[]');\n\nconst comparedPlans = comparedIds\n  .map((id) => plans.find((p) => p.id === id))\n  .filter((p) => !!p);\n\nconst qualifyingCompared = comparedPlans.filter((p) => {\n  if (p.status !== 'active') return false;\n  if (typeof p.bedrooms !== 'number' || p.bedrooms !== 3) return false;\n  if (typeof p.size_sq_ft !== 'number' || p.size_sq_ft >= 2000) return false;\n  return true;\n});\n\n// CP1 (0.4): At least two qualifying plans were compared\ncheckpoints.push({ passed: qualifyingCompared.length >= 2, weight: 0.4 });\n\n// Determine cheapest qualifying plan by estimated_build_cost\nlet cheapestPlan = null;\nif (qualifyingCompared.length > 0) {\n  cheapestPlan = qualifyingCompared.reduce((min, p) => {\n    const cost = typeof p.estimated_build_cost === 'number' ? p.estimated_build_cost : Infinity;\n    const minCost = typeof min.estimated_build_cost === 'number' ? min.estimated_build_cost : Infinity;\n    return cost < minCost ? p : min;\n  }, qualifyingCompared[0]);\n}\n\nconst selectedPlan = plans.find((p) => p && p.id === selectedId) || null;\nlet selectedIsCheapest = false;\nif (selectedPlan && cheapestPlan) {\n  const minCost = qualifyingCompared.reduce((minCost, p) => {\n    const cost = typeof p.estimated_build_cost === 'number' ? p.estimated_build_cost : Infinity;\n    return cost < minCost ? cost : minCost;\n  }, Infinity);\n  const selectedCost = typeof selectedPlan.estimated_build_cost === 'number' ? selectedPlan.estimated_build_cost : Infinity;\n  const isAmongQualifying = qualifyingCompared.some((p) => p.id === selectedPlan.id);\n  selectedIsCheapest = isAmongQualifying && selectedCost === minCost;\n}\n\n// CP2 (0.3): Selected plan is the cheapest among qualifying compared plans\ncheckpoints.push({ passed: selectedIsCheapest, weight: 0.3 });\n\n// CP3 (0.3): A consultation exists for the selected cheapest plan\nconst hasConsultationForSelected = selectedIsCheapest && consultations.some((c) => c.plan_id === selectedId);\ncheckpoints.push({ passed: hasConsultationForSelected, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Run Custom Home Cost Calculator and Request Detailed Estimate",
+      "description": "Checks that the cost calculator was run with the specified parameters for the custom home service and that a detailed estimate was requested from that configuration.",
+      "localStorage_variables": [
+        "services",
+        "cost_calculator_configs",
+        "detailed_estimate_requests"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst services = JSON.parse(localStorage.getItem('services') || '[]');\nconst configs = JSON.parse(localStorage.getItem('cost_calculator_configs') || '[]');\nconst requests = JSON.parse(localStorage.getItem('detailed_estimate_requests') || '[]');\n\nconst customService = services.find((s) => s.service_key === 'custom_home_design' && s.has_cost_calculator);\nconst customServiceId = customService ? customService.id : 'service_custom_home_design';\n\nconst matchingConfigs = configs.filter((c) => {\n  if (c.service_id !== customServiceId) return false;\n  if (Number(c.total_square_footage) !== 2200) return false;\n  if (c.style !== 'modern') return false;\n  if (typeof c.bedrooms !== 'number' || c.bedrooms !== 3) return false;\n  if (typeof c.bathrooms !== 'number' || c.bathrooms !== 2) return false;\n  if (c.finish_level !== 'mid_range') return false;\n  if (c.location_zip !== '94110') return false;\n  return true;\n});\n\nconst hasMatchingConfig = matchingConfigs.length > 0;\n// CP1 (0.5): Calculator run with all correct parameters for custom home service\ncheckpoints.push({ passed: hasMatchingConfig, weight: 0.5 });\n\nlet hasMatchingRequest = false;\nif (hasMatchingConfig) {\n  const matchingConfigIds = matchingConfigs.map((c) => c.id);\n  hasMatchingRequest = requests.some((r) => {\n    if (r.service_id !== customServiceId) return false;\n    if (r.estimate_type !== 'custom_home_cost_calculator') return false;\n    if (!matchingConfigIds.includes(r.calculator_config_id)) return false;\n    return true;\n  });\n}\n\n// CP2 (0.5): Detailed estimate requested for one of the correctly configured calculator runs\ncheckpoints.push({ passed: hasMatchingRequest, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Save Three 2023 Sustainability Articles to Reading List",
+      "description": "Checks that at least three saved articles are sustainability-focused and published in 2023.",
+      "localStorage_variables": [
+        "saved_items",
+        "articles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst savedItems = JSON.parse(localStorage.getItem('saved_items') || '[]');\nconst articles = JSON.parse(localStorage.getItem('articles') || '[]');\n\nconst qualifyingSaved = savedItems.filter((s) => {\n  if (s.item_type !== 'article') return false;\n  const a = articles.find((art) => art.id === s.item_id);\n  if (!a) return false;\n  if (a.status !== 'published') return false;\n  if (a.year !== 2023) return false;\n  const hasSustainabilityTag = Array.isArray(a.tags) && a.tags.indexOf('sustainability') !== -1;\n  const isFocus = !!a.is_sustainability_focused;\n  if (!hasSustainabilityTag && !isFocus) return false;\n  return true;\n});\n\nconst weights = [0.3, 0.3, 0.4];\n[1, 2, 3].forEach((n, idx) => {\n  checkpoints.push({ passed: qualifyingSaved.length >= n, weight: weights[idx] });\n});\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Use High-Budget Urban Infill Testimonial in Contact Message",
+      "description": "Checks that a qualifying high-budget urban infill/city-lot testimonial mentioning communication or timeline was shared via copy-link and referenced in a contact inquiry.",
+      "localStorage_variables": [
+        "testimonials",
+        "testimonial_shares",
+        "contact_inquiries"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst testimonials = JSON.parse(localStorage.getItem('testimonials') || '[]');\nconst shares = JSON.parse(localStorage.getItem('testimonial_shares') || '[]');\nconst contacts = JSON.parse(localStorage.getItem('contact_inquiries') || '[]');\n\nconst qualifyingTestimonials = testimonials.filter((t) => {\n  if (typeof t.budget_total !== 'number' || t.budget_total < 800000) return false;\n  if (!(t.context === 'urban_infill' || t.context === 'city_lot')) return false;\n  if (!(t.mentions_communication || t.mentions_timeline)) return false;\n  return true;\n});\n\nconst qualifyingIds = qualifyingTestimonials.map((t) => t.id);\n\nconst sharedQualifying = shares.filter((s) => {\n  return qualifyingIds.includes(s.testimonial_id) && s.method === 'copy_link';\n});\n\n// CP1 (0.5): User copied the link for at least one qualifying testimonial\ncheckpoints.push({ passed: sharedQualifying.length > 0, weight: 0.5 });\n\nconst slugPaths = qualifyingTestimonials.map((t) => '/testimonials/' + t.url_slug);\n\nconst referencedInContact = contacts.some((c) => {\n  if (typeof c.message !== 'string') return false;\n  const msg = c.message;\n  const hasLink = slugPaths.some((path) => msg.indexOf(path) !== -1);\n  if (!hasLink) return false;\n  // Prefer testimonial_reference when present\n  if (c.inquiry_type && c.inquiry_type !== 'testimonial_reference') return false;\n  return true;\n});\n\n// CP2 (0.5): A contact inquiry references a qualifying testimonial link\ncheckpoints.push({ passed: referencedInContact, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Book Custom Home Consultation One Month Out at 3 PM",
+      "description": "Checks that a custom home consultation was booked on 2026-04-03 at the 3:00 PM time slot.",
+      "localStorage_variables": [
+        "consultation_bookings"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst bookings = JSON.parse(localStorage.getItem('consultation_bookings') || '[]');\n\nfunction getDatePart(iso) {\n  return (typeof iso === 'string' && iso.length >= 10) ? iso.substring(0, 10) : null;\n}\n\nfunction getTimePart(iso) {\n  return (typeof iso === 'string' && iso.length >= 16) ? iso.substring(11, 16) : null;\n}\n\nconst targetDate = '2026-04-03';\nconst targetTime = '15:00'; // 3:00 PM in 24-hour format\n\nconst matchingTypeBookings = bookings.filter((b) => b.appointment_type === 'custom_home_consultation' && b.booking_status !== 'cancelled');\n\nconst hasCorrectDate = matchingTypeBookings.some((b) => getDatePart(b.appointment_datetime) === targetDate);\nconst hasCorrectTimeSlot = matchingTypeBookings.some((b) => getDatePart(b.appointment_datetime) === targetDate && getTimePart(b.appointment_datetime) === targetTime);\n\n// CP1 (0.4): Custom home consultation booked on the correct date\ncheckpoints.push({ passed: hasCorrectDate, weight: 0.4 });\n// CP2 (0.6): That booking is at the 3:00 PM time slot\ncheckpoints.push({ passed: hasCorrectTimeSlot, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Inquire About Most Expensive Recent Commercial Project",
+      "description": "Checks that an investor commercial inquiry was submitted for the most expensive commercial project completed in or after 2020.",
+      "localStorage_variables": [
+        "projects",
+        "project_inquiries"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst projects = JSON.parse(localStorage.getItem('projects') || '[]');\nconst inquiries = JSON.parse(localStorage.getItem('project_inquiries') || '[]');\n\nconst qualifyingProjects = projects.filter((p) => {\n  if (p.project_type !== 'commercial') return false;\n  if (typeof p.completion_year !== 'number' || p.completion_year < 2020) return false;\n  return true;\n});\n\nlet topProject = null;\nlet maxCost = -Infinity;\nfor (let i = 0; i < qualifyingProjects.length; i++) {\n  const p = qualifyingProjects[i];\n  const cost = typeof p.estimated_cost === 'number'\n    ? p.estimated_cost\n    : (typeof p.budget_max === 'number'\n        ? p.budget_max\n        : (typeof p.budget_min === 'number' ? p.budget_min : 0));\n  if (cost > maxCost) {\n    maxCost = cost;\n    topProject = p;\n  }\n}\n\nlet hasInquiryForTopProject = false;\nif (topProject) {\n  hasInquiryForTopProject = inquiries.some((inq) => {\n    return inq.project_id === topProject.id && inq.inquiry_kind === 'investor_commercial_inquiry';\n  });\n}\n\n// Single checkpoint (1.0): Investor inquiry submitted for the most expensive qualifying commercial project\ncheckpoints.push({ passed: hasInquiryForTopProject, weight: 1.0 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "articles",
+    "plans",
+    "projects",
+    "services",
+    "testimonials",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

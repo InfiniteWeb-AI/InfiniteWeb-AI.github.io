@@ -1,0 +1,164 @@
+{
+  "requirements": [
+    {
+      "task_id": "task_1",
+      "task_name": "Choose a base IPTV plan with 100+ channels under $20/month billed yearly",
+      "task_description": "Select a subscription plan that costs less than $20 per month, includes at least 100 channels, is billed annually, and proceed to the checkout page with that plan selected.",
+      "needs_instrumentation": true,
+      "existing_variables": [
+        "subscription_changes",
+        "plans"
+      ],
+      "required_variables": [
+        {
+          "variable_name": "task1_selectedPlanId",
+          "variable_type": "string",
+          "set_in_function": "startPlanChange",
+          "set_condition": "After successfully finding the plan and validating that (a) plan.monthly_price < 20, (b) plan.channel_count >= 100, and (c) billingCycle === 'annual'. When these conditions hold, set this variable.",
+          "value_to_set": "planId (the argument passed into startPlanChange)",
+          "reason": "Capture which specific plan the user selected that meets the Task 1 constraints (under $20/month, 100+ channels, annual billing), before later tasks overwrite the draft subscription_change."
+        },
+        {
+          "variable_name": "task1_checkoutViewed",
+          "variable_type": "boolean",
+          "set_in_function": "getCheckoutSummary",
+          "set_condition": "When getCheckoutSummary finds a draft subscription_change where: (1) selected_plan_id is not null, and (2) either selected_plan_id equals localStorage.task1_selectedPlanId (if set) OR the corresponding plan has monthly_price < 20, channel_count >= 100, and the draft selected_billing_cycle is 'annual'.",
+          "value_to_set": "true",
+          "reason": "Indicate that the user actually reached the checkout page with a qualifying plan in the draft change, satisfying the 'proceed to the checkout page with that plan selected' requirement."
+        }
+      ]
+    },
+    {
+      "task_id": "task_2",
+      "task_name": "Add a sports add-on under $10/month with 5+ HD sports channels to an existing plan",
+      "task_description": "Find and add a sports add-on that costs less than $10 per month and includes at least 5 HD sports channels, then save the updated plan configuration.",
+      "needs_instrumentation": true,
+      "existing_variables": [
+        "subscriptions",
+        "subscription_addons",
+        "addons",
+        "addon_channels",
+        "channels",
+        "subscription_changes"
+      ],
+      "required_variables": [
+        {
+          "variable_name": "task2_addonSelection",
+          "variable_type": "object",
+          "set_in_function": "confirmSubscriptionChange",
+          "set_condition": "After a successful confirmSubscriptionChange call (return.success === true) and after subscription_addons has been updated for the current subscription, compute the set of active add-ons for that subscription. If there exists at least one active add-on where: (a) addon.category === 'sports', (b) addon.monthly_price < 10, and (c) using addon_channels + channels you can find at least 5 channels linked to this addon with channel.genre === 'sports' and channel.is_hd === true; and if localStorage.task2_addonSelection is not already set, then set this variable.",
+          "value_to_set": "An object like { addonId: qualifyingAddon.id, subscriptionId: subscription.id, confirmedAt: nowIso }, serialized to JSON.",
+          "reason": "Persist proof that the user saved a plan configuration including a qualifying sports add-on at the time of confirmation, even if later plan/billing changes remove or alter add-ons."
+        }
+      ]
+    },
+    {
+      "task_id": "task_3",
+      "task_name": "Favorite 3 channels: 1 English movie, 1 Spanish news, and 1 all-ages kids channel",
+      "task_description": "Locate and add three specific types of channels to the favorites list: one English-language movie channel, one Spanish-language news channel, and one kids channel rated for all ages.",
+      "needs_instrumentation": true,
+      "existing_variables": [
+        "favorite_channels",
+        "channels"
+      ],
+      "required_variables": [
+        {
+          "variable_name": "task3_favoritesListViewed",
+          "variable_type": "boolean",
+          "set_in_function": "getFavoriteChannelsList",
+          "set_condition": "Whenever getFavoriteChannelsList is called (i.e., whenever the Favorites / My Channels view is opened), set this variable.",
+          "value_to_set": "true",
+          "reason": "Provide evidence that the user opened the favorites list view at least once. Combined with favorite_channels + channels, this allows evaluation of both the correct favorites and the final navigation step."
+        }
+      ]
+    },
+    {
+      "task_id": "task_4",
+      "task_name": "Set up parental controls with a PIN and TV-14 limit and block purchases",
+      "task_description": "Sign in, create a 4-digit parental PIN set to 1234, restrict content to TV-14 and below, and enable a setting that blocks purchases without entering the PIN.",
+      "needs_instrumentation": false,
+      "existing_variables": [
+        "auth_state",
+        "parental_controls"
+      ],
+      "required_variables": []
+    },
+    {
+      "task_id": "task_5",
+      "task_name": "Upgrade to the plan with more simultaneous streams under $30/month",
+      "task_description": "Compare at least two eligible plans under $30 per month and switch to the one that offers the higher number of simultaneous streams.",
+      "needs_instrumentation": true,
+      "existing_variables": [
+        "subscriptions",
+        "plans",
+        "subscription_changes"
+      ],
+      "required_variables": [
+        {
+          "variable_name": "task5_comparedPlanIds",
+          "variable_type": "array",
+          "set_in_function": "comparePlans",
+          "set_condition": "When comparePlans is called with an array of at least two planIds, and all corresponding plans exist, have status === 'active', and monthly_price <= 30; and localStorage.task5_comparedPlanIds is not already set.",
+          "value_to_set": "The array of planIds passed into comparePlans (or the first two of them), serialized to JSON.",
+          "reason": "Record that the user compared at least two eligible plans whose monthly price is $30 or less, as required by the task."
+        },
+        {
+          "variable_name": "task5_upgradeResult",
+          "variable_type": "object",
+          "set_in_function": "confirmSubscriptionChange",
+          "set_condition": "Within confirmSubscriptionChange, before mutating the subscriptions array, determine the 'previous' subscription via _getCurrentSubscription() and its associated current plan (prevPlan). After computing the new plan (plan) and totals, and once the subscription update is successful (return.success === true): if there was an existing subscription, the effectiveDateOption === 'immediately', the new plan's monthly_price < 30, and the new simultaneous_streams_limit (plan.max_simultaneous_streams) is strictly greater than the previous simultaneous streams limit (subscription.simultaneous_streams_limit if set, otherwise prevPlan.max_simultaneous_streams); and if localStorage.task5_upgradeResult is not already set, then set this variable.",
+          "value_to_set": "An object like { previousPlanId: prevPlan.id, newPlanId: plan.id, previousStreams: previousSimLimit, newStreams: plan.max_simultaneous_streams || null, newMonthlyPrice: totalMonthly, effectiveDateOption, confirmedAt: nowIso }, serialized to JSON.",
+          "reason": "Persist concrete evidence that the user confirmed an upgrade from a lower-stream plan to a higher-stream plan with a monthly cost under $30 and chose the 'start immediately' option."
+        }
+      ]
+    },
+    {
+      "task_id": "task_6",
+      "task_name": "Schedule a recording of a sports program next Friday at 8:00 PM and keep it for 7 days",
+      "task_description": "Use the TV guide to find any sports program that starts at 8:00 PM on the next Friday and schedule a recording that is set to be kept for 7 days.",
+      "needs_instrumentation": false,
+      "existing_variables": [
+        "recordings",
+        "programs",
+        "channels",
+        "auth_state"
+      ],
+      "required_variables": []
+    },
+    {
+      "task_id": "task_7",
+      "task_name": "Switch to annual billing, apply promo code SAVE20, and select a plan under $200/year",
+      "task_description": "Change the billing cycle to annual, apply the promo code SAVE20, then choose an annual plan whose displayed total annual cost is less than $200 and update the subscription.",
+      "needs_instrumentation": false,
+      "existing_variables": [
+        "subscriptions",
+        "billing_settings",
+        "promo_codes",
+        "subscription_changes",
+        "plans",
+        "auth_state"
+      ],
+      "required_variables": []
+    },
+    {
+      "task_id": "task_8",
+      "task_name": "Find a 4K nature documentary series and start playing the first episode",
+      "task_description": "Search for a nature-related series, filter results to show only 4K documentary series, and start playback of the first episode of the top matching series.",
+      "needs_instrumentation": true,
+      "existing_variables": [
+        "series",
+        "episodes"
+      ],
+      "required_variables": [
+        {
+          "variable_name": "task8_playbackInfo",
+          "variable_type": "object",
+          "set_in_function": "startEpisodePlayback",
+          "set_condition": "When startEpisodePlayback successfully finds an episode (episode != null) and returns success: true. This can be set on every successful playback; the last value represents the most recent episode the user started.",
+          "value_to_set": "An object like { episodeId: episode.id, seriesId: episode.series_id, startedAt: nowIso }, serialized to JSON.",
+          "reason": "Capture exactly which episode was played so the evaluator can confirm that it is Episode 1 of the first season of a 4K documentary series whose title/tags/synopsis are nature-related."
+        }
+      ]
+    }
+  ]
+}

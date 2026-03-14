@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<link rel='stylesheet' href='projects.css'>
+<script src='business_logic.js'></script>
+
+<div class='projects-page' data-component='projects-page-init'>
+  <section class='projects-header' aria-label='Conservation projects directory header'>
+    <div class='projects-header-inner'>
+      <h1 class='projects-title'>Conservation Projects</h1>
+      <p class='projects-subtitle'>Browse, filter, and sort conservation projects you can support with one-time gifts or monthly pledges.</p>
+    </div>
+  </section>
+
+  <section class='projects-main' aria-label='Conservation projects directory'>
+    <div class='projects-main-inner'>
+
+      <aside class='projects-filters' data-component='project-filter-sidebar' aria-label='Filter projects'>
+        <div class='filters-inner'>
+          <h2 class='filters-title'>Filter projects</h2>
+          <form class='filters-form' data-action='filters-form'>
+            <div class='form-field'>
+              <label for='filterCategory'>Category</label>
+              <select id='filterCategory' name='category' data-action='change-filter-category'>
+                <option value=''>All categories</option>
+              </select>
+            </div>
+
+            <div class='form-field'>
+              <label for='filterMinTransparency'>Minimum transparency rating</label>
+              <div class='range-input'>
+                <input type='range' id='filterMinTransparency' name='minTransparency' data-action='change-filter-min-transparency'>
+                <div class='range-value' data-populate='min-transparency-value' aria-live='polite'></div>
+              </div>
+            </div>
+
+            <div class='form-field'>
+              <label for='filterMaxMonthly'>Maximum suggested monthly donation</label>
+              <div class='number-input'>
+                <input type='number' id='filterMaxMonthly' name='maxMonthly' inputmode='decimal' data-action='change-filter-max-monthly'>
+                <span class='field-suffix'>USD / month</span>
+              </div>
+            </div>
+
+            <button type='button' class='button button-ghost button-clear-filters' data-action='clear-filters'>Clear all filters</button>
+          </form>
+        </div>
+      </aside>
+
+      <section class='projects-results' aria-label='Filtered conservation project results'>
+        <div class='projects-results-top'>
+          <div class='projects-sorting-bar' data-component='project-sorting-bar'>
+            <div class='sorting-bar-inner'>
+              <span class='sorting-label'>Sort projects</span>
+              <select id='sortSelect' name='sort' data-action='change-sort' aria-label='Sort conservation projects'>
+                <!-- populated dynamically -->
+              </select>
+            </div>
+          </div>
+
+          <header class='projects-list-header' data-component='project-list-header'>
+            <div class='list-header-main'>
+              <p class='list-header-summary' data-populate='results-summary' aria-live='polite'>
+                <!-- summary text -->
+              </p>
+              <a href='dashboard.html' class='list-header-link-pledges'>View my pledges</a>
+            </div>
+            <p class='list-header-filters-summary' data-populate='filters-summary' aria-live='polite'></p>
+          </header>
+
+          <div class='active-filter-tags' data-component='active-filter-tags' aria-label='Active filters'>
+            <div class='tags-container' data-populate='active-filter-tags'>
+              <!-- filter tags -->
+            </div>
+          </div>
+
+          <div class='projects-error-state' data-component='projects-error-state' hidden>
+            <div class='error-panel'>
+              <p class='error-message' data-populate='error-message'>We could not load conservation projects. Please try again.</p>
+              <div class='error-actions'>
+                <button type='button' class='button button-primary' data-action='retry-filter-options'>Retry loading filters</button>
+                <button type='button' class='button button-secondary' data-action='retry-search'>Retry loading projects</button>
+              </div>
+            </div>
+          </div>
+
+          <div class='projects-empty-state' data-component='projects-empty-state' hidden>
+            <div class='empty-panel'>
+              <h2 class='empty-title'>No projects match these filters</h2>
+              <p class='empty-body'>Try broadening or clearing your filters to see more conservation projects.</p>
+              <button type='button' class='button button-primary' data-action='reset-filters'>Reset filters</button>
+            </div>
+          </div>
+        </div>
+
+        <section class='project-list' data-component='project-list' data-populate='project-results' aria-live='polite'>
+          <!-- project cards -->
+        </section>
+
+        <nav class='project-pagination' aria-label='Projects pagination' data-component='project-pagination-controls'>
+          <div class='pagination-inner'>
+            <button type='button' class='pagination-prev' data-action='page-prev' disabled>Previous</button>
+            <div class='pagination-pages' data-populate='pagination-pages'>
+              <!-- page buttons -->
+            </div>
+            <button type='button' class='pagination-next' data-action='page-next' disabled>Next</button>
+            <div class='pagination-page-size'>
+              <label for='pageSizeSelect'>Per page</label>
+              <select id='pageSizeSelect' name='pageSize' data-action='change-page-size'>
+                <option value='10'>10</option>
+                <option value='20' selected>20</option>
+                <option value='50'>50</option>
+              </select>
+            </div>
+          </div>
+        </nav>
+      </section>
+    </div>
+  </section>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var DEFAULT_PAGE_SIZE = 20;
+
+    var elements = {
+      projectListContainer: document.querySelector('[data-populate=project-results]'),
+      resultsSummary: document.querySelector('[data-populate=results-summary]'),
+      filtersSummary: document.querySelector('[data-populate=filters-summary]'),
+      activeFilterTags: document.querySelector('[data-populate=active-filter-tags]'),
+      paginationPages: document.querySelector('[data-populate=pagination-pages]'),
+      minTransparencyDisplay: document.querySelector('[data-populate=min-transparency-value]'),
+      errorComponent: document.querySelector('[data-component=projects-error-state]'),
+      errorMessage: document.querySelector('[data-populate=error-message]'),
+      emptyState: document.querySelector('[data-component=projects-empty-state]'),
+      paginationContainer: document.querySelector('[data-component=project-pagination-controls]')
+    };
+
+    var filterCategorySelect = document.querySelector('[data-action=change-filter-category]');
+    var minTransparencyInput = document.querySelector('[data-action=change-filter-min-transparency]');
+    var maxMonthlyInput = document.querySelector('[data-action=change-filter-max-monthly]');
+    var clearFiltersButton = document.querySelector('[data-action=clear-filters]');
+    var resetFiltersButton = document.querySelector('[data-action=reset-filters]');
+    var sortSelect = document.querySelector('[data-action=change-sort]');
+    var pagePrevButton = document.querySelector('[data-action=page-prev]');
+    var pageNextButton = document.querySelector('[data-action=page-next]');
+    var pageSizeSelect = document.querySelector('[data-action=change-page-size]');
+    var retryFilterOptionsButton = document.querySelector('[data-action=retry-filter-options]');
+    var retrySearchButton = document.querySelector('[data-action=retry-search]');
+
+    var activeFilterTagsContainer = elements.activeFilterTags;
+    var paginationPagesContainer = elements.paginationPages;
+
+    var filterOptions = null;
+
+    var currentState = {
+      filtersForApi: {},
+      appliedFilters: {
+        category: null,
+        minTransparency: null,
+        maxMonthly: null
+      },
+      sortBy: null,
+      page: 1,
+      pageSize: DEFAULT_PAGE_SIZE,
+      totalCount: 0
+    };
+
+    function parseUrlParams() {
+      return new URLSearchParams(window.location.search);
+    }
+
+    function deriveStateFromUrl(params, options) {
+      var derived = {
+        filtersForApi: {},
+        ui: {
+          categorySelectValue: '',
+          minTransparencySliderValue: null,
+          maxMonthlyInputValue: ''
+        },
+        appliedFilters: {
+          category: null,
+          minTransparency: null,
+          maxMonthly: null
+        },
+        sortBy: null,
+        page: 1,
+        pageSize: DEFAULT_PAGE_SIZE
+      };
+
+      var categories = options && options.categories ? options.categories : [];
+      var transparencyRange = options && options.transparency_rating_range ? options.transparency_rating_range : null;
+      var donationRange = options && options.suggested_monthly_donation_range ? options.suggested_monthly_donation_range : null;
+      var sortOptions = options && options.sort_options ? options.sort_options : [];
+
+      // category
+      var categoryParam = params.get('category');
+      var categoryValid = categoryParam && categories.indexOf(categoryParam) !== -1;
+      if (categoryValid) {
+        derived.filtersForApi.categories = [categoryParam];
+        derived.ui.categorySelectValue = categoryParam;
+        derived.appliedFilters.category = categoryParam;
+      } else {
+        derived.ui.categorySelectValue = '';
+      }
+
+      // minTransparency
+      var minTransparencyParam = params.get('minTransparency');
+      var minTransparencyNumeric = null;
+      if (minTransparencyParam !== null && minTransparencyParam !== '') {
+        minTransparencyNumeric = Number(minTransparencyParam);
+        var inRange = transparencyRange && !Number.isNaN(minTransparencyNumeric) && minTransparencyNumeric >= transparencyRange.min && minTransparencyNumeric <= transparencyRange.max;
+        if (inRange) {
+          derived.filtersForApi.min_transparency_rating = minTransparencyNumeric;
+          derived.appliedFilters.minTransparency = minTransparencyNumeric;
+          derived.ui.minTransparencySliderValue = minTransparencyNumeric;
+        }
+      }
+      if (derived.ui.minTransparencySliderValue === null && transparencyRange) {
+        derived.ui.minTransparencySliderValue = transparencyRange.min;
+      }
+
+      // maxMonthly
+      var maxMonthlyParam = params.get('maxMonthly');
+      var maxMonthlyNumeric = null;
+      if (maxMonthlyParam !== null && maxMonthlyParam !== '') {
+        maxMonthlyNumeric = Number(maxMonthlyParam);
+        var inRangeMax = donationRange && !Number.isNaN(maxMonthlyNumeric) && maxMonthlyNumeric >= donationRange.min && maxMonthlyNumeric <= donationRange.max;
+        if (inRangeMax) {
+          derived.filtersForApi.max_suggested_monthly_donation = maxMonthlyNumeric;
+          derived.appliedFilters.maxMonthly = maxMonthlyNumeric;
+          derived.ui.maxMonthlyInputValue = String(maxMonthlyNumeric);
+        } else {
+          // preserve the raw value in the input, ignore for filtering
+          derived.ui.maxMonthlyInputValue = maxMonthlyParam;
+        }
+      } else {
+        derived.ui.maxMonthlyInputValue = '';
+      }
+
+      // sort
+      var sortParam = params.get('sort');
+      var defaultSortKey = null;
+      if (sortOptions.length > 0) {
+        defaultSortKey = sortOptions[0].key;
+      }
+      var sortKeyToUse = defaultSortKey;
+      if (sortParam && sortOptions.some(function(option) { return option.key === sortParam; })) {
+        sortKeyToUse = sortParam;
+      }
+      derived.sortBy = sortKeyToUse;
+
+      // page
+      var pageParam = params.get('page');
+      var pageNumber = parseInt(pageParam || '', 10);
+      if (Number.isNaN(pageNumber) || pageNumber < 1) {
+        pageNumber = 1;
+      }
+      derived.page = pageNumber;
+
+      // page size
+      var pageSizeParam = params.get('pageSize');
+      var pageSizeNumber = parseInt(pageSizeParam || '', 10);
+      if (Number.isNaN(pageSizeNumber) || pageSizeNumber <= 0) {
+        pageSizeNumber = DEFAULT_PAGE_SIZE;
+      }
+      derived.pageSize = pageSizeNumber;
+
+      return derived;
+    }
+
+    function updateMinTransparencyDisplay(value) {
+      if (!elements.minTransparencyDisplay) {
+        return;
+      }
+      if (value !== null && value !== undefined && value !== '') {
+        elements.minTransparencyDisplay.textContent = value.toString();
+      } else {
+        elements.minTransparencyDisplay.textContent = '';
+      }
+    }
+
+    function applyFilterOptionsToUI(options, derivedState) {
+      if (!options) {
+        return;
+      }
+
+      // Category select
+      if (filterCategorySelect && options.categories) {
+        var firstOption = filterCategorySelect.querySelector('option[value=""]');
+        filterCategorySelect.innerHTML = '';
+        if (firstOption) {
+          filterCategorySelect.appendChild(firstOption);
+        } else {
+          var allOption = document.createElement('option');
+          allOption.value = '';
+          allOption.textContent = 'All categories';
+          filterCategorySelect.appendChild(allOption);
+        }
+        options.categories.forEach(function(categoryKey) {
+          var opt = document.createElement('option');
+          opt.value = categoryKey;
+          var label = categoryKey.replace(/_/g, ' ').replace(/\b\w/g, function(ch) { return ch.toUpperCase(); });
+          opt.textContent = label;
+          filterCategorySelect.appendChild(opt);
+        });
+        filterCategorySelect.value = derivedState.ui.categorySelectValue;
+      }
+
+      // Transparency slider
+      if (minTransparencyInput && options.transparency_rating_range) {
+        minTransparencyInput.min = String(options.transparency_rating_range.min);
+        minTransparencyInput.max = String(options.transparency_rating_range.max);
+        minTransparencyInput.step = '0.5';
+        minTransparencyInput.value = String(derivedState.ui.minTransparencySliderValue);
+        updateMinTransparencyDisplay(derivedState.ui.minTransparencySliderValue);
+      }
+
+      // Max monthly input
+      if (maxMonthlyInput) {
+        maxMonthlyInput.value = derivedState.ui.maxMonthlyInputValue;
+        if (options.suggested_monthly_donation_range) {
+          maxMonthlyInput.min = String(options.suggested_monthly_donation_range.min);
+          maxMonthlyInput.max = String(options.suggested_monthly_donation_range.max);
+        }
+      }
+
+      // Sort options
+      if (sortSelect && options.sort_options) {
+        if (!sortSelect.options || sortSelect.options.length === 0) {
+          options.sort_options.forEach(function(optionDef) {
+            var so = document.createElement('option');
+            so.value = optionDef.key;
+            so.textContent = optionDef.label;
+            sortSelect.appendChild(so);
+          });
+        }
+        if (derivedState.sortBy) {
+          sortSelect.value = derivedState.sortBy;
+        }
+      }
+
+      // Page size select
+      if (pageSizeSelect) {
+        pageSizeSelect.value = String(derivedState.pageSize);
+      }
+    }
+
+    function renderResultsSummary(container, totalCount, page, pageSize) {
+      if (!container) {
+        return;
+      }
+      if (totalCount === 0) {
+        container.textContent = 'No conservation projects found.';
+        return;
+      }
+      var start = (page - 1) * pageSize + 1;
+      var end = Math.min(totalCount, page * pageSize);
+      container.textContent = 'Showing ' + start + '–' + end + ' of ' + totalCount + ' conservation projects';
+    }
+
+    function renderFiltersSummary(container, appliedFilters) {
+      if (!container) {
+        return;
+      }
+      var parts = [];
+      if (appliedFilters.category) {
+        var label = appliedFilters.category.replace(/_/g, ' ').replace(/\b\w/g, function(ch) { return ch.toUpperCase(); });
+        parts.push('Category: ' + label);
+      }
+      if (appliedFilters.minTransparency !== null && appliedFilters.minTransparency !== undefined) {
+        parts.push('Transparency \u2265 ' + appliedFilters.minTransparency);
+      }
+      if (appliedFilters.maxMonthly !== null && appliedFilters.maxMonthly !== undefined) {
+        parts.push('Monthly \u2264 $' + appliedFilters.maxMonthly);
+      }
+      if (parts.length === 0) {
+        container.textContent = 'No filters applied.';
+      } else {
+        container.textContent = 'Active filters: ' + parts.join(' · ');
+      }
+    }
+
+    function renderActiveFilterTags(container, appliedFilters) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+      var hasAny = !!(appliedFilters.category || appliedFilters.minTransparency || appliedFilters.maxMonthly);
+      if (!hasAny) {
+        if (container.parentElement) {
+          container.parentElement.style.display = 'none';
+        }
+        return;
+      }
+      if (container.parentElement) {
+        container.parentElement.style.display = '';
+      }
+
+      if (appliedFilters.category) {
+        var tagCat = document.createElement('button');
+        tagCat.type = 'button';
+        tagCat.className = 'filter-tag';
+        tagCat.dataset.action = 'remove-filter';
+        tagCat.dataset.filterKey = 'category';
+        var labelCat = appliedFilters.category.replace(/_/g, ' ').replace(/\b\w/g, function(ch) { return ch.toUpperCase(); });
+        tagCat.textContent = 'Category: ' + labelCat + ' \u2715';
+        container.appendChild(tagCat);
+      }
+
+      if (appliedFilters.minTransparency !== null && appliedFilters.minTransparency !== undefined) {
+        var tagMin = document.createElement('button');
+        tagMin.type = 'button';
+        tagMin.className = 'filter-tag';
+        tagMin.dataset.action = 'remove-filter';
+        tagMin.dataset.filterKey = 'minTransparency';
+        tagMin.textContent = 'Transparency \u2265 ' + appliedFilters.minTransparency + ' \u2715';
+        container.appendChild(tagMin);
+      }
+
+      if (appliedFilters.maxMonthly !== null && appliedFilters.maxMonthly !== undefined) {
+        var tagMax = document.createElement('button');
+        tagMax.type = 'button';
+        tagMax.className = 'filter-tag';
+        tagMax.dataset.action = 'remove-filter';
+        tagMax.dataset.filterKey = 'maxMonthly';
+        tagMax.textContent = 'Monthly \u2264 $' + appliedFilters.maxMonthly + ' \u2715';
+        container.appendChild(tagMax);
+      }
+    }
+
+    function renderProjects(container, results) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+      if (!results || results.length === 0) {
+        return;
+      }
+
+      results.forEach(function(project) {
+        var card = document.createElement('article');
+        card.className = 'project-card';
+        if (!project.is_active) {
+          card.className += ' is-inactive';
+        }
+
+        var header = document.createElement('header');
+        header.className = 'project-card-header';
+
+        var title = document.createElement('h2');
+        title.className = 'project-card-title';
+
+        if (project.is_active) {
+          var link = document.createElement('a');
+          link.className = 'project-card-link';
+          link.href = 'project_detail.html?projectId=' + encodeURIComponent(project.project_id);
+          link.textContent = project.name;
+          link.title = 'View details for ' + project.name;
+          title.appendChild(link);
+        } else {
+          var span = document.createElement('span');
+          span.className = 'project-card-name';
+          span.textContent = project.name + ' (not currently accepting new pledges)';
+          title.appendChild(span);
+        }
+
+        header.appendChild(title);
+
+        if (project.category_label) {
+          var categoryBadge = document.createElement('p');
+          categoryBadge.className = 'project-card-category';
+          categoryBadge.textContent = project.category_label;
+          header.appendChild(categoryBadge);
+        }
+
+        card.appendChild(header);
+
+        var body = document.createElement('div');
+        body.className = 'project-card-body';
+
+        if (project.short_description) {
+          var desc = document.createElement('p');
+          desc.className = 'project-card-description';
+          desc.textContent = project.short_description;
+          body.appendChild(desc);
+        }
+
+        var metaList = document.createElement('dl');
+        metaList.className = 'project-card-meta';
+
+        if (project.geographic_focus) {
+          var dtLocation = document.createElement('dt');
+          dtLocation.textContent = 'Geographic focus';
+          var ddLocation = document.createElement('dd');
+          ddLocation.textContent = project.geographic_focus;
+          metaList.appendChild(dtLocation);
+          metaList.appendChild(ddLocation);
+        }
+
+        if (typeof project.transparency_rating === 'number') {
+          var dtTrans = document.createElement('dt');
+          dtTrans.textContent = 'Transparency rating';
+          var ddTrans = document.createElement('dd');
+          ddTrans.textContent = project.transparency_rating.toFixed(1) + ' / 5';
+          metaList.appendChild(dtTrans);
+          metaList.appendChild(ddTrans);
+        }
+
+        if (typeof project.impact_score === 'number') {
+          var dtImpact = document.createElement('dt');
+          dtImpact.textContent = 'Impact score';
+          var ddImpact = document.createElement('dd');
+          ddImpact.textContent = project.impact_score.toFixed(1) + ' / 5';
+          metaList.appendChild(dtImpact);
+          metaList.appendChild(ddImpact);
+        }
+
+        if (typeof project.suggested_monthly_donation === 'number') {
+          var dtDonation = document.createElement('dt');
+          dtDonation.textContent = 'Suggested monthly support';
+          var ddDonation = document.createElement('dd');
+          var amount = '$' + project.suggested_monthly_donation.toFixed(0);
+          if (project.suggested_monthly_label) {
+            ddDonation.textContent = amount + ' – ' + project.suggested_monthly_label;
+          } else {
+            ddDonation.textContent = amount + ' / month';
+          }
+          metaList.appendChild(dtDonation);
+          metaList.appendChild(ddDonation);
+        }
+
+        body.appendChild(metaList);
+        card.appendChild(body);
+        container.appendChild(card);
+      });
+    }
+
+    function renderPagination(container, totalCount, page, pageSize) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+      if (totalCount <= pageSize) {
+        if (pagePrevButton) {
+          pagePrevButton.disabled = true;
+        }
+        if (pageNextButton) {
+          pageNextButton.disabled = true;
+        }
+        return;
+      }
+      var totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+      for (var p = 1; p <= totalPages; p += 1) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pagination-page';
+        if (p === page) {
+          btn.className += ' is-current';
+          btn.disabled = true;
+        }
+        btn.dataset.action = 'page-number';
+        btn.dataset.page = String(p);
+        btn.textContent = String(p);
+        container.appendChild(btn);
+      }
+      if (pagePrevButton) {
+        pagePrevButton.disabled = page <= 1;
+      }
+      if (pageNextButton) {
+        pageNextButton.disabled = page >= totalPages;
+      }
+    }
+
+    function showError(message) {
+      if (elements.errorComponent) {
+        elements.errorComponent.hidden = false;
+      }
+      if (elements.errorMessage && message) {
+        elements.errorMessage.textContent = message;
+      }
+    }
+
+    function hideError() {
+      if (elements.errorComponent) {
+        elements.errorComponent.hidden = true;
+      }
+    }
+
+    function updateEmptyStateVisibility(totalCount) {
+      if (!elements.emptyState) {
+        return;
+      }
+      if (totalCount === 0) {
+        elements.emptyState.hidden = false;
+        if (elements.projectListContainer) {
+          elements.projectListContainer.innerHTML = '';
+        }
+        if (elements.paginationContainer) {
+          elements.paginationContainer.style.display = 'none';
+        }
+      } else {
+        elements.emptyState.hidden = true;
+        if (elements.paginationContainer) {
+          elements.paginationContainer.style.display = '';
+        }
+      }
+    }
+
+    function updateUrlParams(changes, options) {
+      var params = parseUrlParams();
+      for (var key in changes) {
+        if (Object.prototype.hasOwnProperty.call(changes, key)) {
+          var value = changes[key];
+          if (value === null || value === undefined || value === '') {
+            params.delete(key);
+          } else {
+            params.set(key, String(value));
+          }
+        }
+      }
+      if (options && options.resetPage) {
+        params.delete('page');
+      }
+      var newQuery = params.toString();
+      var newUrl = window.location.pathname + (newQuery ? '?' + newQuery : '');
+      window.history.pushState({}, '', newUrl);
+      syncStateWithUrlAndSearch();
+    }
+
+    function performSearch(derivedState) {
+      if (!elements.projectListContainer) {
+        return;
+      }
+      try {
+        hideError();
+        elements.projectListContainer.innerHTML = '<p class=\'loading-message\'>Loading projects…</p>';
+        var result = WebsiteSDK.searchConservationProjects(derivedState.filtersForApi, derivedState.sortBy, derivedState.page, derivedState.pageSize);
+        currentState.totalCount = result.total_count;
+        renderProjects(elements.projectListContainer, result.results);
+        renderResultsSummary(elements.resultsSummary, result.total_count, result.page, result.page_size);
+        renderFiltersSummary(elements.filtersSummary, derivedState.appliedFilters);
+        renderActiveFilterTags(elements.activeFilterTags, derivedState.appliedFilters);
+        updateEmptyStateVisibility(result.total_count);
+        renderPagination(elements.paginationPages, result.total_count, result.page, result.page_size);
+      } catch (e) {
+        showError('We could not load conservation projects. Please try again.');
+        if (elements.projectListContainer) {
+          elements.projectListContainer.innerHTML = '';
+        }
+        updateEmptyStateVisibility(0);
+      }
+    }
+
+    function syncStateWithUrlAndSearch() {
+      if (!filterOptions) {
+        return;
+      }
+      var params = parseUrlParams();
+      var derived = deriveStateFromUrl(params, filterOptions);
+      currentState = derived;
+      applyFilterOptionsToUI(filterOptions, derived);
+      performSearch(derived);
+    }
+
+    function loadFilterOptionsAndInitialSearch() {
+      try {
+        hideError();
+        filterOptions = WebsiteSDK.getConservationProjectFilterOptions();
+        syncStateWithUrlAndSearch();
+      } catch (e) {
+        showError('We could not load project filters or projects. Please try again.');
+      }
+    }
+
+    // Event listeners
+
+    if (minTransparencyInput) {
+      minTransparencyInput.addEventListener('input', function(event) {
+        updateMinTransparencyDisplay(event.target.value);
+      });
+      minTransparencyInput.addEventListener('change', function(event) {
+        updateUrlParams({ minTransparency: event.target.value }, { resetPage: true });
+      });
+    }
+
+    if (maxMonthlyInput) {
+      maxMonthlyInput.addEventListener('change', function(event) {
+        var value = event.target.value;
+        updateUrlParams({ maxMonthly: value }, { resetPage: true });
+      });
+    }
+
+    if (filterCategorySelect) {
+      filterCategorySelect.addEventListener('change', function(event) {
+        var value = event.target.value;
+        updateUrlParams({ category: value || null }, { resetPage: true });
+      });
+    }
+
+    if (clearFiltersButton) {
+      clearFiltersButton.addEventListener('click', function() {
+        updateUrlParams({ category: null, minTransparency: null, maxMonthly: null }, { resetPage: true });
+      });
+    }
+
+    if (resetFiltersButton) {
+      resetFiltersButton.addEventListener('click', function() {
+        updateUrlParams({ category: null, minTransparency: null, maxMonthly: null }, { resetPage: true });
+      });
+    }
+
+    if (sortSelect) {
+      sortSelect.addEventListener('change', function(event) {
+        var value = event.target.value;
+        updateUrlParams({ sort: value }, { resetPage: true });
+      });
+    }
+
+    if (pagePrevButton) {
+      pagePrevButton.addEventListener('click', function() {
+        var params = parseUrlParams();
+        var derived = deriveStateFromUrl(params, filterOptions || { sort_options: [] });
+        var newPage = Math.max(1, derived.page - 1);
+        updateUrlParams({ page: newPage }, {});
+      });
+    }
+
+    if (pageNextButton) {
+      pageNextButton.addEventListener('click', function() {
+        var params = parseUrlParams();
+        var derived = deriveStateFromUrl(params, filterOptions || { sort_options: [] });
+        var totalPages = currentState.totalCount > 0 ? Math.ceil(currentState.totalCount / derived.pageSize) : 1;
+        var newPage = Math.min(totalPages, derived.page + 1);
+        updateUrlParams({ page: newPage }, {});
+      });
+    }
+
+    if (paginationPagesContainer) {
+      paginationPagesContainer.addEventListener('click', function(event) {
+        var target = event.target;
+        if (target && target.dataset && target.dataset.action === 'page-number') {
+          var page = parseInt(target.dataset.page || '1', 10);
+          if (!Number.isNaN(page)) {
+            updateUrlParams({ page: page }, {});
+          }
+        }
+      });
+    }
+
+    if (pageSizeSelect) {
+      pageSizeSelect.addEventListener('change', function(event) {
+        var value = event.target.value;
+        updateUrlParams({ pageSize: value }, { resetPage: true });
+      });
+    }
+
+    if (activeFilterTagsContainer) {
+      activeFilterTagsContainer.addEventListener('click', function(event) {
+        var target = event.target;
+        if (target && target.dataset && target.dataset.action === 'remove-filter') {
+          var key = target.dataset.filterKey;
+          if (key === 'category' || key === 'minTransparency' || key === 'maxMonthly') {
+            var change = {};
+            change[key] = null;
+            updateUrlParams(change, { resetPage: true });
+          }
+        }
+      });
+    }
+
+    if (retryFilterOptionsButton) {
+      retryFilterOptionsButton.addEventListener('click', function() {
+        loadFilterOptionsAndInitialSearch();
+      });
+    }
+
+    if (retrySearchButton) {
+      retrySearchButton.addEventListener('click', function() {
+        syncStateWithUrlAndSearch();
+      });
+    }
+
+    window.addEventListener('popstate', function() {
+      syncStateWithUrlAndSearch();
+    });
+
+    // Initial load
+    loadFilterOptionsAndInitialSearch();
+  });
+</script>

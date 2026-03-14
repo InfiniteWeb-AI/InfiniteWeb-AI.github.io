@@ -1,0 +1,112 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Set Nearest Café Within 5 Miles as Favorite Store Evaluator",
+      "description": "Verifies that the user logged in as demo.user1 and set their favorite store to the nearest store in ZIP 94103 within 5 miles.",
+      "localStorage_variables": [
+        "currentAccountId",
+        "account_profiles",
+        "stores"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst accounts = JSON.parse(localStorage.getItem('account_profiles') || '[]');\nconst stores = JSON.parse(localStorage.getItem('stores') || '[]');\nconst currentAccountId = localStorage.getItem('currentAccountId');\nconst account = accounts.find(a => a.id === currentAccountId) || null;\n\n// CP1: Logged in as the correct user (demo.user1)\nconst loginCorrect = !!account && account.email === 'demo.user1@example.com';\n\n// Compute nearest store in ZIP 94103 within 5 miles\nconst zip = '94103';\nconst maxDistance = 5.0;\nconst storesInZip = stores.filter(s => String(s.zipCode || '').trim() === zip);\nconst eligibleStores = storesInZip.filter(s => typeof s.distanceMiles === 'number' && s.distanceMiles <= maxDistance);\neligibleStores.sort((a, b) => a.distanceMiles - b.distanceMiles);\nconst nearestStore = eligibleStores.length ? eligibleStores[0] : null;\n\n// CP2: Favorite store is set to that nearest eligible store\nconst favoriteCorrect = loginCorrect && !!nearestStore && account.favoriteStoreId === nearestStore.id;\n\ncheckpoints.push({ passed: loginCorrect, weight: 0.4 });\ncheckpoints.push({ passed: favoriteCorrect, weight: 0.6 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Create New Customer Account and Access Dashboard Evaluator",
+      "description": "Checks that a new customer account was created with the specified details and that the dashboard for that new account was opened.",
+      "localStorage_variables": [
+        "currentAccountId",
+        "account_profiles",
+        "task2_dashboardAccessed"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst accounts = JSON.parse(localStorage.getItem('account_profiles') || '[]');\nconst currentAccountId = localStorage.getItem('currentAccountId');\nconst instrumentation = JSON.parse(localStorage.getItem('task2_dashboardAccessed') || 'null');\n\nconst newEmail = 'jordan.sample01@example.com';\nconst newAccount = accounts.find(a => a.email && a.email.toLowerCase() === newEmail) || null;\n\n// CP1: New account was created with correct core fields\nconst accountCreatedCorrect = !!newAccount &&\n  newAccount.fullName === 'Jordan Sample' &&\n  newAccount.password === 'StrongCoffee!789' &&\n  newAccount.termsAccepted === true;\n\n// CP2: Dashboard access instrumentation matches this new account\nconst dashboardAccessedCorrect = !!instrumentation && !!newAccount &&\n  instrumentation.accountId === newAccount.id &&\n  instrumentation.email && instrumentation.email.toLowerCase() === newAccount.email.toLowerCase();\n\n// CP3: Currently logged in as the new account\nconst loggedInAsNew = !!newAccount && currentAccountId === newAccount.id;\n\ncheckpoints.push({ passed: accountCreatedCorrect, weight: 0.4 });\ncheckpoints.push({ passed: dashboardAccessedCorrect, weight: 0.4 });\ncheckpoints.push({ passed: loggedInAsNew, weight: 0.2 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Schedule Medium Latte Pickup Closest to 8:30 AM Tomorrow Evaluator",
+      "description": "Verifies that demo.user2 has a draft order with a medium latte and a pickup time tomorrow between 8:00–9:00 AM set to 8:30.",
+      "localStorage_variables": [
+        "currentAccountId",
+        "currentOrderId",
+        "account_profiles",
+        "orders",
+        "order_items",
+        "products",
+        "_metadata"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst accounts = JSON.parse(localStorage.getItem('account_profiles') || '[]');\nconst orders = JSON.parse(localStorage.getItem('orders') || '[]');\nconst items = JSON.parse(localStorage.getItem('order_items') || '[]');\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst metadata = JSON.parse(localStorage.getItem('_metadata') || 'null');\n\nconst currentAccountId = localStorage.getItem('currentAccountId');\nconst currentOrderId = localStorage.getItem('currentOrderId');\nconst account = accounts.find(a => a.id === currentAccountId) || null;\n\n// CP1: Logged in as demo.user2\nconst loginCorrect = !!account && account.email === 'demo.user2@example.com';\n\n// Find current draft order for this account\nlet currentOrder = null;\nif (account && currentOrderId) {\n  currentOrder = orders.find(o => o.id === currentOrderId && o.status === 'draft' && o.accountId === account.id) || null;\n}\nif (account && !currentOrder) {\n  currentOrder = orders.find(o => o.status === 'draft' && o.accountId === account.id) || null;\n}\n\nlet orderItems = [];\nif (currentOrder) {\n  orderItems = items.filter(i => i.orderId === currentOrder.id);\n}\n\n// CP2: Order contains at least one medium latte (any latte product, size medium)\nconst latteItems = orderItems.filter(i => {\n  const prod = products.find(p => p.id === i.productId) || null;\n  return prod && prod.menuCategoryId === 'lattes' && i.size === 'medium' && i.quantity >= 1;\n});\nconst hasMediumLatte = loginCorrect && !!currentOrder && latteItems.length > 0;\n\n// CP3: Pickup time is set to tomorrow between 8:00–9:00 and exactly 08:30\nlet pickupCorrect = false;\nif (loginCorrect && currentOrder && currentOrder.pickupDateTime) {\n  const dt = new Date(currentOrder.pickupDateTime);\n  if (!isNaN(dt.getTime())) {\n    let isTomorrow = true;\n    if (metadata && metadata.baselineDate) {\n      const baseline = new Date(metadata.baselineDate + 'T00:00:00Z');\n      const tomorrow = new Date(baseline.getTime() + 24 * 60 * 60 * 1000);\n      isTomorrow = dt.getUTCFullYear() === tomorrow.getUTCFullYear() &&\n                   dt.getUTCMonth() === tomorrow.getUTCMonth() &&\n                   dt.getUTCDate() === tomorrow.getUTCDate();\n    }\n    const hours = dt.getUTCHours();\n    const minutes = dt.getUTCMinutes();\n    const withinWindow = hours === 8; // 08:00–08:59 UTC\n    const isTargetTime = hours === 8 && minutes === 30;\n    pickupCorrect = isTomorrow && withinWindow && isTargetTime;\n  }\n}\n\ncheckpoints.push({ passed: loginCorrect, weight: 0.3 });\ncheckpoints.push({ passed: hasMediumLatte, weight: 0.4 });\ncheckpoints.push({ passed: pickupCorrect, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Reorder Cheapest Large Drink from Past Orders Evaluator",
+      "description": "Checks that demo.user3 is logged in and has added the cheapest large drink from their past (non-draft) orders to a new draft order.",
+      "localStorage_variables": [
+        "currentAccountId",
+        "account_profiles",
+        "orders",
+        "order_items",
+        "products"
+      ],
+      "evaluation_logic": "const checklists = [];\nconst checkpoints = checklists; // alias to match pattern\n\nconst accounts = JSON.parse(localStorage.getItem('account_profiles') || '[]');\nconst orders = JSON.parse(localStorage.getItem('orders') || '[]');\nconst items = JSON.parse(localStorage.getItem('order_items') || '[]');\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\n\nconst currentAccountId = localStorage.getItem('currentAccountId');\nconst account = accounts.find(a => a.id === currentAccountId) || null;\n\n// CP1: Logged in as demo.user3\nconst loginCorrect = !!account && account.email === 'demo.user3@example.com';\n\n// Determine the cheapest large drink item from non-draft orders\nconst pastOrderIds = orders.filter(o => o.status && o.status !== 'draft').map(o => o.id);\n\nconst largeDrinkItems = items.filter(i => {\n  if (pastOrderIds.indexOf(i.orderId) === -1) return false;\n  if (i.size !== 'large') return false;\n  const prod = products.find(p => p.id === i.productId) || null;\n  return prod && prod.baseType === 'drink';\n});\n\nlargeDrinkItems.sort((a, b) => a.unitPrice - b.unitPrice);\nconst cheapest = largeDrinkItems.length ? largeDrinkItems[0] : null;\n\n// Check for a draft order for this account containing that cheapest large drink\nlet reorderedCorrect = false;\nif (loginCorrect && cheapest) {\n  const draftOrders = orders.filter(o => o.status === 'draft' && o.accountId === account.id);\n  for (let d = 0; d < draftOrders.length && !reorderedCorrect; d++) {\n    const oId = draftOrders[d].id;\n    const draftItems = items.filter(i => i.orderId === oId);\n    reorderedCorrect = draftItems.some(i =>\n      i.productId === cheapest.productId &&\n      i.size === cheapest.size &&\n      i.unitPrice === cheapest.unitPrice &&\n      i.quantity >= 1 &&\n      i.isRewardRedemption === false\n    );\n  }\n}\n\ncheckpoints.push({ passed: loginCorrect, weight: 0.3 });\ncheckpoints.push({ passed: reorderedCorrect, weight: 0.7 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Add New Payment Card and Set as Default Evaluator",
+      "description": "Verifies that demo.user4 added a new Visa card ending in 4242 with the expected details and set it as the default payment method.",
+      "localStorage_variables": [
+        "currentAccountId",
+        "account_profiles",
+        "payment_cards"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst accounts = JSON.parse(localStorage.getItem('account_profiles') || '[]');\nconst cards = JSON.parse(localStorage.getItem('payment_cards') || '[]');\n\nconst currentAccountId = localStorage.getItem('currentAccountId');\nconst account = accounts.find(a => a.id === currentAccountId) || null;\n\n// CP1: Logged in as demo.user4\nconst loginCorrect = !!account && account.email === 'demo.user4@example.com';\n\n// Cards belonging to this account (runtime cards have accountId)\nconst accountCards = cards.filter(c => c.accountId === (account && account.id) && c.isActive);\n\n// Find newly added Visa 4242 card with specified expiry and billing ZIP\nconst newCard = accountCards.find(c =>\n  c.cardBrand === 'visa' &&\n  c.last4 === '4242' &&\n  c.expMonth === 12 &&\n  c.expYear === 2030 &&\n  c.billingZip === '94103'\n) || null;\n\nconst cardAddedCorrect = loginCorrect && !!newCard;\n\n// CP3: That new card is set as the default for the account\nconst defaultSetCorrect = cardAddedCorrect &&\n  newCard.isDefault === true &&\n  account.defaultPaymentCardId === newCard.id;\n\ncheckpoints.push({ passed: loginCorrect, weight: 0.3 });\ncheckpoints.push({ passed: cardAddedCorrect, weight: 0.4 });\ncheckpoints.push({ passed: defaultSetCorrect, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Redeem Bakery Reward Under $5 with 4+ Stars Evaluator",
+      "description": "Checks that demo.user5 redeemed at least one available bakery reward priced under $5 with rating ≥ 4 stars.",
+      "localStorage_variables": [
+        "currentAccountId",
+        "account_profiles",
+        "rewards",
+        "reward_redemptions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst accounts = JSON.parse(localStorage.getItem('account_profiles') || '[]');\nconst rewards = JSON.parse(localStorage.getItem('rewards') || '[]');\nconst redemptions = JSON.parse(localStorage.getItem('reward_redemptions') || '[]');\n\nconst currentAccountId = localStorage.getItem('currentAccountId');\nconst account = accounts.find(a => a.id === currentAccountId) || null;\n\n// CP1: Logged in as demo.user5\nconst loginCorrect = !!account && account.email === 'demo.user5@example.com';\n\n// Redemptions for this account (runtime redemptions have accountId)\nconst accountRedemptions = redemptions.filter(r => r.accountId === (account && account.id));\n\n// Qualifying redemptions: bakery, available, price < 5, rating >= 4, not cancelled\nconst qualifyingRedemptions = accountRedemptions.filter(r => {\n  const reward = rewards.find(w => w.id === r.rewardId) || null;\n  if (!reward) return false;\n  if (reward.category !== 'bakery') return false;\n  if (!reward.isAvailable) return false;\n  if (typeof reward.price !== 'number' || reward.price >= 5) return false;\n  if (typeof reward.rating === 'number' && reward.rating < 4) return false;\n  if (r.status === 'cancelled') return false;\n  return true;\n});\n\nconst redeemedQualifyingReward = loginCorrect && qualifyingRedemptions.length >= 1;\n\ncheckpoints.push({ passed: loginCorrect, weight: 0.3 });\ncheckpoints.push({ passed: redeemedQualifyingReward, weight: 0.7 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Update Notification Preferences to SMS Order Updates Only Evaluator",
+      "description": "Verifies that demo.user6 disabled email promotions and all push notifications, and enabled only SMS notifications for order status updates.",
+      "localStorage_variables": [
+        "currentAccountId",
+        "account_profiles",
+        "notification_preferences"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst accounts = JSON.parse(localStorage.getItem('account_profiles') || '[]');\nconst prefs = JSON.parse(localStorage.getItem('notification_preferences') || '[]');\n\nconst currentAccountId = localStorage.getItem('currentAccountId');\nconst account = accounts.find(a => a.id === currentAccountId) || null;\n\n// CP1: Logged in as demo.user6\nconst loginCorrect = !!account && account.email === 'demo.user6@example.com';\n\n// Preferences row for this account (runtime rows have accountId)\nconst pref = prefs.find(p => p.accountId === (account && account.id)) || null;\n\n// CP2: Only SMS order updates are enabled; all promotions and push/email order updates are off\nconst prefsCorrect = loginCorrect && !!pref &&\n  pref.emailPromotionsEnabled === false &&\n  pref.emailOrderUpdatesEnabled === false &&\n  pref.pushPromotionsEnabled === false &&\n  pref.pushOrderUpdatesEnabled === false &&\n  pref.smsOrderUpdatesEnabled === true &&\n  pref.smsPromotionsEnabled === false;\n\ncheckpoints.push({ passed: loginCorrect, weight: 0.3 });\ncheckpoints.push({ passed: prefsCorrect, weight: 0.7 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Change Password Using Current Password and Re-Login Evaluator",
+      "description": "Checks that demo.user7 changed their password from the old value to the new one with an updated timestamp and is currently logged in with that account.",
+      "localStorage_variables": [
+        "currentAccountId",
+        "account_profiles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst accounts = JSON.parse(localStorage.getItem('account_profiles') || '[]');\nconst currentAccountId = localStorage.getItem('currentAccountId');\n\n// Target account by email\nconst targetAccount = accounts.find(a => a.email === 'demo.user7@example.com') || null;\n\n// CP1: Password changed to the new value with a later timestamp\nlet passwordChangedCorrect = false;\nif (targetAccount) {\n  const newPasswordOk = targetAccount.password === 'NewEspresso!222' && targetAccount.password !== 'OldBrew!111';\n  const baselineTs = new Date('2025-10-25T09:55:00Z');\n  const changedTs = targetAccount.passwordLastChangedAt ? new Date(targetAccount.passwordLastChangedAt) : null;\n  const timestampOk = !!changedTs && changedTs.getTime() > baselineTs.getTime();\n  passwordChangedCorrect = newPasswordOk && timestampOk;\n}\n\n// CP2: Currently logged in as this account (after password change)\nconst loggedInWithNewPasswordAccount = !!targetAccount && currentAccountId === targetAccount.id;\n\ncheckpoints.push({ passed: passwordChangedCorrect, weight: 0.6 });\ncheckpoints.push({ passed: loggedInWithNewPasswordAccount, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "menu_categories",
+    "notification_preferences",
+    "payment_cards",
+    "stores",
+    "account_profiles",
+    "products",
+    "rewards",
+    "orders",
+    "reward_redemptions",
+    "order_items",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Le Cafe - Customer Portal</title>
+  <link rel='stylesheet' href='styles.css'>
+  <link rel='stylesheet' href='menu.css'>
+</head>
+<body>
+  <header class='site-header'>
+    <div class='header-inner'>
+      <a href='index.html' class='brand'>
+        <div class='brand-logo' aria-hidden='true'></div>
+        <span class='brand-name'>Le Cafe</span>
+      </a>
+      <nav class='main-nav' aria-label='Primary navigation'>
+        <ul>
+          <li><a href='index.html'>Home</a></li>
+          <li><a href='menu.html'>Order Pickup</a></li>
+          <li><a href='stores.html'>Stores</a></li>
+          <li><a href='rewards.html'>Rewards</a></li>
+          <li><a href='account_dashboard.html'>Account</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id='content' class='page-content' role='main'>
+    <div class='menu-page'>
+      <!-- Pickup store indicator bar -->
+      <section class='pickup-store-section'>
+        <div class='pickup-store-indicator-bar' data-component='pickup-store-indicator'></div>
+      </section>
+
+      <!-- Central column -->
+      <div class='menu-main-inner'>
+        <!-- Account auth panel -->
+        <section class='account-auth-section'>
+          <div class='account-auth-panel' data-component='account-auth-panel'></div>
+        </section>
+
+        <!-- Category tabs -->
+        <section class='menu-category-section'>
+          <div class='menu-category-tabs-container' data-component='menu-category-tabs'></div>
+        </section>
+
+        <!-- Product grid -->
+        <section class='menu-products-section'>
+          <div class='product-grid-container' data-component='product-grid' aria-live='polite'></div>
+        </section>
+      </div>
+
+      <!-- Mini cart summary -->
+      <section class='mini-cart-section'>
+        <div class='mini-cart-summary-container' data-component='mini-cart-summary' aria-live='polite'></div>
+      </section>
+
+      <!-- Store selector overlay (rendered dynamically) -->
+      <div class='store-selector-overlay-container' data-component='store-selector-overlay'></div>
+    </div>
+  </main>
+
+  <footer class='site-footer'>
+    <div class='footer-inner'>
+      <div class='footer-links'>
+        <div class='footer-column'>
+          <a href='about.html'>About</a>
+          <a href='contact.html'>Contact</a>
+          <a href='help.html'>Help &amp; FAQ</a>
+          <a href='stores.html'>Stores</a>
+        </div>
+        <div class='footer-column'>
+          <a href='account_orders.html'>Order History</a>
+          <a href='account_payments.html'>Payment Methods</a>
+          <a href='terms.html'>Terms of Use</a>
+          <a href='privacy.html'>Privacy Policy</a>
+        </div>
+      </div>
+      <div class='footer-meta'>
+        <span class='footer-copy'>&copy; 2026 Le Cafe. All rights reserved.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src='business_logic.js'></script>
+  <script>
+  (function() {
+    'use strict';
+
+    var pageState = {
+      account: null,
+      orderSummary: null,
+      pickupStoreId: null,
+      menuCategories: [],
+      selectedCategorySlug: null,
+      activeCategory: null,
+      products: [],
+      storeOptions: {
+        favoriteStoreId: null,
+        stores: [],
+        selectedStoreId: null,
+        filterTerm: '',
+        errorMessage: ''
+      },
+      ui: {
+        authMode: 'login',
+        authErrorMessage: '',
+        storeOverlayOpen: false
+      }
+    };
+
+    document.addEventListener('DOMContentLoaded', function() {
+      bindGlobalActions();
+      handleUrlChange(true);
+      window.addEventListener('popstate', function() {
+        handleUrlChange(false);
+      });
+    });
+
+    function getUrlParams() {
+      return new URLSearchParams(window.location.search);
+    }
+
+    function updateUrlParams(updates, replace) {
+      var params = getUrlParams();
+      if (updates) {
+        if (Object.prototype.hasOwnProperty.call(updates, 'pickupStoreId')) {
+          if (updates.pickupStoreId) {
+            params.set('pickupStoreId', updates.pickupStoreId);
+          } else {
+            params.delete('pickupStoreId');
+          }
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'category')) {
+          if (updates.category) {
+            params.set('category', updates.category);
+          } else {
+            params.delete('category');
+          }
+        }
+      }
+      var newUrl = window.location.pathname;
+      var paramString = params.toString();
+      if (paramString) {
+        newUrl += '?' + paramString;
+      }
+      if (replace) {
+        window.history.replaceState({}, '', newUrl);
+      } else {
+        window.history.pushState({}, '', newUrl);
+      }
+    }
+
+    function handleUrlChange(isInitial) {
+      var params = getUrlParams();
+      var pickupStoreIdParam = params.get('pickupStoreId');
+      var categoryParam = params.get('category');
+
+      var orderSummary = null;
+      var pickupStoreIdEffective = pickupStoreIdParam;
+
+      try {
+        if (pickupStoreIdParam) {
+          var setResp = WebsiteSDK.setCurrentPickupStore(pickupStoreIdParam);
+          if (setResp && setResp.pickupStore && setResp.pickupStore.id) {
+            pickupStoreIdEffective = setResp.pickupStore.id;
+          }
+          orderSummary = WebsiteSDK.getCurrentOrderSummary();
+        } else {
+          orderSummary = WebsiteSDK.getCurrentOrderSummary();
+          if (orderSummary && orderSummary.hasActiveOrder && orderSummary.pickupStore && orderSummary.pickupStore.id) {
+            pickupStoreIdEffective = orderSummary.pickupStore.id;
+            updateUrlParams({ pickupStoreId: pickupStoreIdEffective, category: categoryParam }, true);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading order summary or pickup store', err);
+      }
+
+      pageState.orderSummary = orderSummary || null;
+      pageState.pickupStoreId = pickupStoreIdEffective || null;
+
+      var categories = [];
+      try {
+        categories = WebsiteSDK.getMenuCategories() || [];
+      } catch (err2) {
+        console.error('Error loading menu categories', err2);
+      }
+      pageState.menuCategories = categories;
+
+      var selectedCategorySlug = null;
+      if (categoryParam && categories.some(function(c) { return c.slug === categoryParam; })) {
+        selectedCategorySlug = categoryParam;
+      } else if (categories.length > 0) {
+        selectedCategorySlug = categories[0].slug;
+      }
+
+      if (selectedCategorySlug && selectedCategorySlug !== categoryParam) {
+        updateUrlParams({ pickupStoreId: pickupStoreIdEffective, category: selectedCategorySlug }, true);
+      }
+
+      pageState.selectedCategorySlug = selectedCategorySlug;
+
+      var productsResp = null;
+      if (selectedCategorySlug) {
+        try {
+          productsResp = WebsiteSDK.getMenuProductsForCategory(selectedCategorySlug);
+        } catch (err3) {
+          console.error('Error loading products for category', err3);
+        }
+      }
+
+      if (productsResp && productsResp.category) {
+        pageState.activeCategory = productsResp.category;
+        pageState.products = productsResp.products || [];
+      } else {
+        pageState.activeCategory = null;
+        pageState.products = [];
+      }
+
+      renderAllComponents();
+
+      if (isInitial) {
+        var needsStoreSelection = (!pageState.orderSummary || !pageState.orderSummary.hasActiveOrder) && !pageState.pickupStoreId;
+        if (needsStoreSelection) {
+          openStoreSelectorOverlay(false);
+        }
+      }
+    }
+
+    function renderAllComponents() {
+      var components = document.querySelectorAll('[data-component]');
+      components.forEach(function(el) {
+        var comp = el.dataset.component;
+        if (comp === 'pickup-store-indicator') {
+          renderPickupStoreIndicator(el);
+        } else if (comp === 'account-auth-panel') {
+          renderAccountAuthPanel(el);
+        } else if (comp === 'menu-category-tabs') {
+          renderCategoryTabs(el);
+        } else if (comp === 'product-grid') {
+          renderProductGrid(el);
+        } else if (comp === 'mini-cart-summary') {
+          renderMiniCartSummary(el);
+        } else if (comp === 'store-selector-overlay') {
+          renderStoreSelectorOverlay(el);
+        }
+      });
+      bindGlobalActions();
+    }
+
+    function escapeHtml(value) {
+      if (value === null || value === undefined) {
+        return '';
+      }
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatPrice(amount) {
+      if (typeof amount !== 'number' || isNaN(amount)) {
+        return '';
+      }
+      return '$' + amount.toFixed(2);
+    }
+
+    function renderPickupStoreIndicator(container) {
+      var summary = pageState.orderSummary;
+      var hasStore = !!(summary && summary.pickupStore && summary.pickupStore.name);
+      var storeName = hasStore ? summary.pickupStore.name : 'No store selected';
+      var meta = hasStore ? 'Tap to change pickup location' : 'Choose a store to see available items';
+
+      container.innerHTML = `
+        <div class='pickup-store-inner'>
+          <button type='button' class='pickup-store-button' data-action='open-store-selector'>
+            <div class='pickup-store-text'>
+              <span class='pickup-store-label'>Pickup store</span>
+              <span class='pickup-store-name'>${escapeHtml(storeName)}</span>
+              <span class='pickup-store-meta'>${escapeHtml(meta)}</span>
+            </div>
+            <span class='pickup-store-change'>Change</span>
+          </button>
+        </div>
+      `;
+    }
+
+    function renderAccountAuthPanel(container) {
+      var account = pageState.account;
+      var isLoggedIn = !!(account && account.isLoggedIn);
+      var errorHtml = pageState.ui.authErrorMessage
+        ? `<div class='auth-error' data-role='auth-error' aria-live='polite'>${escapeHtml(pageState.ui.authErrorMessage)}</div>`
+        : `<div class='auth-error' data-role='auth-error' aria-live='polite'></div>`;
+
+      if (isLoggedIn) {
+        var tier = account.loyaltyTier || 'none';
+        var points = typeof account.loyaltyPointsBalance === 'number' ? account.loyaltyPointsBalance : 0;
+        container.innerHTML = `
+          <section class='auth-card auth-card-logged-in'>
+            <div class='auth-header'>
+              <h1 class='auth-title'>Hi, ${escapeHtml(account.fullName || account.email || 'there')}</h1>
+              <p class='auth-subtitle'>Signed in for faster ordering and rewards.</p>
+            </div>
+            <div class='auth-loyalty-summary'>
+              <div class='loyalty-row'>
+                <span class='loyalty-label'>Tier</span>
+                <span class='loyalty-value loyalty-tier'>${escapeHtml(tier)}</span>
+              </div>
+              <div class='loyalty-row'>
+                <span class='loyalty-label'>Points</span>
+                <span class='loyalty-value loyalty-points'>${escapeHtml(String(points))}</span>
+              </div>
+            </div>
+            <div class='auth-actions-row'>
+              <button type='button' class='secondary-button' data-action='logout'>Log out</button>
+            </div>
+          </section>
+        `;
+        return;
+      }
+
+      var mode = pageState.ui.authMode === 'signup' ? 'signup' : 'login';
+      var isSignup = mode === 'signup';
+
+      container.innerHTML = `
+        <section class='auth-card auth-card-guest'>
+          <div class='auth-header'>
+            <h1 class='auth-title'>Account</h1>
+            <p class='auth-subtitle'>Sign in or create an account to earn points and save your favorite store.</p>
+          </div>
+          <div class='auth-toggle' role='tablist' aria-label='Authentication mode'>
+            <button type='button' class='auth-toggle-btn ${!isSignup ? 'is-active' : ''}' data-action='toggle-auth-mode' data-mode='login' role='tab' aria-selected='${!isSignup ? 'true' : 'false'}'>Sign in</button>
+            <button type='button' class='auth-toggle-btn ${isSignup ? 'is-active' : ''}' data-action='toggle-auth-mode' data-mode='signup' role='tab' aria-selected='${isSignup ? 'true' : 'false'}'>Create account</button>
+          </div>
+          ${errorHtml}
+          <form class='auth-form auth-form-login ${!isSignup ? 'is-active' : 'is-hidden'}' data-action='submit-login' novalidate>
+            <div class='form-field'>
+              <label for='loginEmail'>Email</label>
+              <input id='loginEmail' name='email' type='email' autocomplete='email' required>
+            </div>
+            <div class='form-field'>
+              <label for='loginPassword'>Password</label>
+              <input id='loginPassword' name='password' type='password' autocomplete='current-password' required>
+            </div>
+            <div class='form-actions'>
+              <button type='submit' class='primary-button'>Sign in</button>
+            </div>
+          </form>
+          <form class='auth-form auth-form-signup ${isSignup ? 'is-active' : 'is-hidden'}' data-action='submit-signup' novalidate>
+            <div class='form-field'>
+              <label for='signupFullName'>Full name</label>
+              <input id='signupFullName' name='fullName' type='text' autocomplete='name' required>
+            </div>
+            <div class='form-field'>
+              <label for='signupEmail'>Email</label>
+              <input id='signupEmail' name='email' type='email' autocomplete='email' required>
+            </div>
+            <div class='form-field'>
+              <label for='signupPassword'>Password</label>
+              <input id='signupPassword' name='password' type='password' autocomplete='new-password' required>
+            </div>
+            <div class='form-field'>
+              <label for='signupConfirmPassword'>Confirm password</label>
+              <input id='signupConfirmPassword' name='confirmPassword' type='password' autocomplete='new-password' required>
+            </div>
+            <div class='form-field form-field-checkbox'>
+              <label>
+                <input type='checkbox' name='acceptTerms' required>
+                <span>I agree to the terms of use</span>
+              </label>
+            </div>
+            <div class='form-actions'>
+              <button type='submit' class='primary-button'>Create account</button>
+            </div>
+          </form>
+        </section>
+      `;
+    }
+
+    function renderCategoryTabs(container) {
+      var categories = pageState.menuCategories || [];
+      var activeSlug = pageState.selectedCategorySlug;
+
+      if (!categories.length) {
+        container.innerHTML = '';
+        return;
+      }
+
+      var tabsHtml = categories.map(function(cat) {
+        var isActive = cat.slug === activeSlug;
+        return `
+          <li class='category-tab-item'>
+            <button type='button'
+                    class='category-tab-button ${isActive ? 'is-active' : ''}'
+                    data-action='select-category'
+                    data-category-slug='${escapeHtml(cat.slug)}'
+                    role='tab'
+                    aria-selected='${isActive ? 'true' : 'false'}'>
+              <span class='category-tab-label'>${escapeHtml(cat.name)}</span>
+            </button>
+          </li>
+        `;
+      }).join('');
+
+      container.innerHTML = `
+        <nav class='menu-category-tabs' aria-label='Menu categories'>
+          <ul class='category-tabs-list' role='tablist'>
+            ${tabsHtml}
+          </ul>
+        </nav>
+      `;
+    }
+
+    function renderProductGrid(container) {
+      var products = pageState.products || [];
+      var category = pageState.activeCategory;
+      var headerTitle = category && category.name ? category.name : 'Menu';
+      var headerDescription = category && category.description ? category.description : '';
+
+      if (!products.length) {
+        container.innerHTML = `
+          <div class='product-grid-header'>
+            <h2 class='product-grid-title'>${escapeHtml(headerTitle)}</h2>
+            ${headerDescription ? `<p class='product-grid-description'>${escapeHtml(headerDescription)}</p>` : ''}
+          </div>
+          <div class='product-grid-empty'>
+            <p>No items are available in this category right now.</p>
+          </div>
+        `;
+        return;
+      }
+
+      var cardsHtml = products.map(function(prod) {
+        var priceCandidates = [];
+        if (typeof prod.priceSmall === 'number') { priceCandidates.push(prod.priceSmall); }
+        if (typeof prod.priceMedium === 'number') { priceCandidates.push(prod.priceMedium); }
+        if (typeof prod.priceLarge === 'number') { priceCandidates.push(prod.priceLarge); }
+        var minPrice = priceCandidates.length ? Math.min.apply(null, priceCandidates) : null;
+        var priceLabel = minPrice !== null ? formatPrice(minPrice) + ' and up' : 'See details for pricing';
+        var rewardBadge = prod.isRewardEligible ? `<span class='product-reward-badge'>Reward eligible</span>` : '';
+
+        return `
+          <article class='product-card' data-action='open-product' data-product-id='${escapeHtml(prod.id)}'>
+            <div class='product-card-main'>
+              <div class='product-card-text'>
+                <h3 class='product-name'>${escapeHtml(prod.name)}</h3>
+                ${prod.description ? `<p class='product-description'>${escapeHtml(prod.description)}</p>` : ''}
+              </div>
+              <div class='product-card-meta'>
+                <span class='product-price'>${escapeHtml(priceLabel)}</span>
+                ${rewardBadge}
+              </div>
+            </div>
+          </article>
+        `;
+      }).join('');
+
+      container.innerHTML = `
+        <div class='product-grid-header'>
+          <h2 class='product-grid-title'>${escapeHtml(headerTitle)}</h2>
+          ${headerDescription ? `<p class='product-grid-description'>${escapeHtml(headerDescription)}</p>` : ''}
+        </div>
+        <div class='product-grid' data-populate='category-products'>
+          ${cardsHtml}
+        </div>
+      `;
+    }
+
+    function renderMiniCartSummary(container) {
+      var summary = pageState.orderSummary;
+      if (!summary || !summary.hasActiveOrder || !summary.itemCount || summary.itemCount <= 0) {
+        container.innerHTML = '';
+        container.classList.add('mini-cart-empty');
+        return;
+      }
+
+      container.classList.remove('mini-cart-empty');
+      var itemLabel = summary.itemCount === 1 ? 'item' : 'items';
+      var subtotal = typeof summary.subtotalAmount === 'number' ? formatPrice(summary.subtotalAmount) : '';
+      var total = typeof summary.totalAmount === 'number' ? formatPrice(summary.totalAmount) : '';
+      var storeName = summary.pickupStore && summary.pickupStore.name ? summary.pickupStore.name : '';
+      var pickupTime = summary.pickupDateTime ? summary.pickupDateTime : '';
+
+      container.innerHTML = `
+        <div class='mini-cart-summary' data-populate='mini-cart'>
+          <div class='mini-cart-main' data-action='view-order'>
+            <div class='mini-cart-line'>
+              <span class='mini-cart-items'>${escapeHtml(String(summary.itemCount))} ${escapeHtml(itemLabel)}</span>
+              ${subtotal ? `<span class='mini-cart-subtotal'>Subtotal ${escapeHtml(subtotal)}</span>` : ''}
+              ${total ? `<span class='mini-cart-total'>Total ${escapeHtml(total)}</span>` : ''}
+            </div>
+            <div class='mini-cart-line mini-cart-secondary'>
+              ${storeName ? `<span class='mini-cart-store'>Pickup: ${escapeHtml(storeName)}</span>` : ''}
+              ${pickupTime ? `<span class='mini-cart-time'>${escapeHtml(pickupTime)}</span>` : ''}
+            </div>
+          </div>
+          <div class='mini-cart-actions'>
+            <button type='button' class='secondary-button mini-cart-refresh' data-action='refresh-mini-cart'>Refresh</button>
+            <button type='button' class='primary-button mini-cart-view' data-action='view-order'>View order</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderStoreSelectorOverlay(container) {
+      var isOpen = pageState.ui.storeOverlayOpen;
+      if (!isOpen) {
+        container.innerHTML = '';
+        container.setAttribute('aria-hidden', 'true');
+        container.setAttribute('hidden', 'hidden');
+        return;
+      }
+
+      container.removeAttribute('hidden');
+      container.setAttribute('aria-hidden', 'false');
+
+      var stores = pageState.storeOptions.stores || [];
+      var favoriteId = pageState.storeOptions.favoriteStoreId || null;
+      var selectedId = pageState.storeOptions.selectedStoreId || null;
+      var activeStoreId = pageState.pickupStoreId || null;
+      var filterTerm = pageState.storeOptions.filterTerm || '';
+      var lowerFilter = filterTerm.trim().toLowerCase();
+
+      var filteredStores = stores.filter(function(store) {
+        if (!lowerFilter) { return true; }
+        var label = (store.name || '') + ' ' + (store.city || '') + ' ' + (store.state || '') + ' ' + (store.zipCode || '');
+        return label.toLowerCase().indexOf(lowerFilter) !== -1;
+      });
+
+      var listHtml = filteredStores.map(function(store) {
+        var isFavorite = favoriteId && store.id === favoriteId;
+        var isActive = activeStoreId && store.id === activeStoreId;
+        var isSelected = selectedId && store.id === selectedId;
+        var badges = '';
+        if (isFavorite) {
+          badges += `<span class='store-badge store-badge-favorite'>Favorite</span>`;
+        }
+        if (isActive) {
+          badges += `<span class='store-badge store-badge-active'>Current</span>`;
+        }
+        return `
+          <button type='button'
+                  class='store-option ${isSelected ? 'is-selected' : ''}'
+                  data-action='select-store'
+                  data-store-id='${escapeHtml(store.id)}'>
+            <div class='store-option-main'>
+              <div class='store-option-title-row'>
+                <span class='store-option-name'>${escapeHtml(store.name)}</span>
+                ${badges}
+              </div>
+              <div class='store-option-meta'>
+                <span class='store-option-address'>${escapeHtml(store.city || '')}${store.city && store.state ? ', ' : ''}${escapeHtml(store.state || '')}</span>
+                ${typeof store.distanceMiles === 'number' ? `<span class='store-option-distance'>${escapeHtml(store.distanceMiles.toFixed(1))} mi</span>` : ''}
+              </div>
+              ${store.hoursSummary ? `<div class='store-option-hours'>${escapeHtml(store.hoursSummary)}</div>` : ''}
+            </div>
+          </button>
+        `;
+      }).join('');
+
+      if (!filteredStores.length) {
+        listHtml = `<div class='store-list-empty'>No stores match your search.</div>`;
+      }
+
+      var errorMessage = pageState.storeOptions.errorMessage || '';
+      var errorHtml = errorMessage
+        ? `<div class='store-selector-error' data-role='store-selector-error' aria-live='polite'>${escapeHtml(errorMessage)}</div>`
+        : `<div class='store-selector-error' data-role='store-selector-error' aria-live='polite'></div>`;
+
+      var confirmDisabledAttr = selectedId ? '' : 'disabled';
+
+      container.innerHTML = `
+        <div class='store-selector-overlay'>
+          <div class='store-selector-backdrop' data-action='close-store-selector'></div>
+          <div class='store-selector-modal' role='dialog' aria-modal='true' aria-labelledby='storeSelectorTitle'>
+            <button type='button' class='store-selector-close' aria-label='Close' data-action='close-store-selector'>&times;</button>
+            <div class='store-selector-content'>
+              <h2 id='storeSelectorTitle' class='store-selector-title'>Choose a pickup store</h2>
+              <p class='store-selector-intro'>Select a store to see accurate menu and pickup times.</p>
+              <div class='store-selector-search-row'>
+                <label class='visually-hidden' for='storeSearchInput'>Search by city or ZIP</label>
+                <input id='storeSearchInput'
+                       type='search'
+                       class='store-selector-search-input'
+                       placeholder='Search by city or ZIP'
+                       value='${escapeHtml(filterTerm)}'
+                       data-action='filter-stores'>
+              </div>
+              <div class='store-selector-list' data-populate='store-options'>
+                ${listHtml}
+              </div>
+              ${errorHtml}
+              <div class='store-selector-footer'>
+                <button type='button' class='primary-button' data-action='confirm-store-selection' ${confirmDisabledAttr}>Confirm store</button>
+                <button type='button' class='secondary-button' data-action='close-store-selector'>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function bindGlobalActions() {
+      var actionElements = document.querySelectorAll('[data-action]');
+      actionElements.forEach(function(el) {
+        if (el.dataset.boundAction === 'true') {
+          return;
+        }
+        var action = el.dataset.action;
+        if (action === 'submit-login' || action === 'submit-signup') {
+          el.addEventListener('submit', handleActionEvent);
+        } else if (action === 'filter-stores') {
+          el.addEventListener('input', handleActionEvent);
+        } else {
+          el.addEventListener('click', handleActionEvent);
+        }
+        el.dataset.boundAction = 'true';
+      });
+    }
+
+    function handleActionEvent(event) {
+      var target = event.currentTarget;
+      var action = target.dataset.action;
+
+      if (action === 'submit-login') {
+        event.preventDefault();
+        handleLoginSubmit(target);
+      } else if (action === 'submit-signup') {
+        event.preventDefault();
+        handleSignupSubmit(target);
+      } else if (action === 'toggle-auth-mode') {
+        event.preventDefault();
+        var mode = target.dataset.mode || 'login';
+        setAuthMode(mode);
+      } else if (action === 'logout') {
+        event.preventDefault();
+        handleLogout();
+      } else if (action === 'open-store-selector') {
+        event.preventDefault();
+        openStoreSelectorOverlay(false);
+      } else if (action === 'close-store-selector') {
+        event.preventDefault();
+        closeStoreSelectorOverlay();
+      } else if (action === 'select-store') {
+        event.preventDefault();
+        var storeId = target.dataset.storeId;
+        if (storeId) {
+          selectStoreInOverlay(storeId);
+        }
+      } else if (action === 'confirm-store-selection') {
+        event.preventDefault();
+        confirmStoreSelection();
+      } else if (action === 'select-category') {
+        event.preventDefault();
+        var slug = target.dataset.categorySlug;
+        if (slug) {
+          handleCategorySelection(slug);
+        }
+      } else if (action === 'open-product') {
+        event.preventDefault();
+        var productId = target.dataset.productId;
+        if (productId) {
+          openProductDetail(productId);
+        }
+      } else if (action === 'view-order') {
+        event.preventDefault();
+        openOrderPage();
+      } else if (action === 'refresh-mini-cart') {
+        event.preventDefault();
+        refreshOrderSummaryAndRender();
+      } else if (action === 'filter-stores') {
+        handleStoreFilterInput(target);
+      }
+    }
+
+    function setAuthMode(mode) {
+      if (mode !== 'signup') {
+        pageState.ui.authMode = 'login';
+      } else {
+        pageState.ui.authMode = 'signup';
+      }
+      pageState.ui.authErrorMessage = '';
+      var container = document.querySelector('[data-component="account-auth-panel"]');
+      if (container) {
+        renderAccountAuthPanel(container);
+        bindGlobalActions();
+      }
+    }
+
+    function handleLoginSubmit(formEl) {
+      var emailInput = formEl.querySelector('input[name="email"]');
+      var passwordInput = formEl.querySelector('input[name="password"]');
+      var email = emailInput ? emailInput.value.trim() : '';
+      var password = passwordInput ? passwordInput.value : '';
+
+      if (!email || !password) {
+        pageState.ui.authErrorMessage = 'Please enter email and password.';
+        renderAllComponents();
+        return;
+      }
+
+      try {
+        var resp = WebsiteSDK.loginWithEmailPassword(email, password);
+        if (!resp || !resp.success || !resp.isLoggedIn || !resp.account) {
+          pageState.ui.authErrorMessage = resp && resp.message ? resp.message : 'Unable to sign in. Please check your details.';
+          renderAllComponents();
+          return;
+        }
+
+        pageState.account = {
+          isLoggedIn: true,
+          fullName: resp.account.fullName || '',
+          email: resp.account.email || email,
+          loyaltyPointsBalance: resp.account.loyaltyPointsBalance || 0,
+          loyaltyTier: resp.account.loyaltyTier || 'none',
+          favoriteStore: resp.account.favoriteStore || null
+        };
+        pageState.ui.authErrorMessage = '';
+
+        var summary = pageState.orderSummary;
+        var hasActiveOrder = summary && summary.hasActiveOrder;
+        if (!hasActiveOrder && resp.account.favoriteStore && resp.account.favoriteStore.id && resp.account.favoriteStore.canMobileOrder) {
+          try {
+            var setResp = WebsiteSDK.setCurrentPickupStore(resp.account.favoriteStore.id);
+            if (setResp && setResp.success !== false) {
+              pageState.pickupStoreId = setResp.pickupStore && setResp.pickupStore.id ? setResp.pickupStore.id : resp.account.favoriteStore.id;
+              updateUrlParams({ pickupStoreId: pageState.pickupStoreId, category: pageState.selectedCategorySlug }, false);
+              refreshOrderSummaryAndRender();
+              return;
+            }
+          } catch (err2) {
+            console.error('Error applying favorite store after login', err2);
+          }
+        }
+
+        renderAllComponents();
+      } catch (err) {
+        console.error('Login error', err);
+        pageState.ui.authErrorMessage = 'An unexpected error occurred while signing in.';
+        renderAllComponents();
+      }
+    }
+
+    function handleSignupSubmit(formEl) {
+      var nameInput = formEl.querySelector('input[name="fullName"]');
+      var emailInput = formEl.querySelector('input[name="email"]');
+      var passwordInput = formEl.querySelector('input[name="password"]');
+      var confirmInput = formEl.querySelector('input[name="confirmPassword"]');
+      var termsInput = formEl.querySelector('input[name="acceptTerms"]');
+
+      var fullName = nameInput ? nameInput.value.trim() : '';
+      var email = emailInput ? emailInput.value.trim() : '';
+      var password = passwordInput ? passwordInput.value : '';
+      var confirmPassword = confirmInput ? confirmInput.value : '';
+      var acceptTerms = !!(termsInput && termsInput.checked);
+
+      if (!fullName || !email || !password || !confirmPassword) {
+        pageState.ui.authErrorMessage = 'Please complete all required fields.';
+        renderAllComponents();
+        return;
+      }
+      if (password !== confirmPassword) {
+        pageState.ui.authErrorMessage = 'Passwords do not match.';
+        renderAllComponents();
+        return;
+      }
+      if (!acceptTerms) {
+        pageState.ui.authErrorMessage = 'You must accept the terms of use.';
+        renderAllComponents();
+        return;
+      }
+
+      try {
+        var resp = WebsiteSDK.signupAccount(fullName, email, password, confirmPassword, acceptTerms);
+        if (!resp || !resp.success || !resp.accountDashboard) {
+          pageState.ui.authErrorMessage = resp && resp.message ? resp.message : 'Unable to create account. Please try again.';
+          renderAllComponents();
+          return;
+        }
+
+        var dash = resp.accountDashboard;
+        pageState.account = {
+          isLoggedIn: true,
+          fullName: dash.fullName || fullName,
+          email: dash.email || email,
+          loyaltyPointsBalance: dash.loyaltyPointsBalance || 0,
+          loyaltyTier: dash.loyaltyTier || 'none',
+          favoriteStore: dash.favoriteStore || null
+        };
+        pageState.ui.authErrorMessage = '';
+
+        if (dash.favoriteStore && dash.favoriteStore.id) {
+          try {
+            var setResp = WebsiteSDK.setCurrentPickupStore(dash.favoriteStore.id);
+            if (setResp && setResp.success !== false) {
+              pageState.pickupStoreId = setResp.pickupStore && setResp.pickupStore.id ? setResp.pickupStore.id : dash.favoriteStore.id;
+              updateUrlParams({ pickupStoreId: pageState.pickupStoreId, category: pageState.selectedCategorySlug }, false);
+              refreshOrderSummaryAndRender();
+              return;
+            }
+          } catch (err2) {
+            console.error('Error applying favorite store after signup', err2);
+          }
+        }
+
+        renderAllComponents();
+      } catch (err) {
+        console.error('Signup error', err);
+        pageState.ui.authErrorMessage = 'An unexpected error occurred while creating your account.';
+        renderAllComponents();
+      }
+    }
+
+    function handleLogout() {
+      try {
+        var resp = WebsiteSDK.logoutCurrentAccount();
+        if (!resp || !resp.success) {
+          console.warn('Logout did not complete successfully');
+        }
+      } catch (err) {
+        console.error('Logout error', err);
+      }
+      pageState.account = null;
+      pageState.ui.authErrorMessage = '';
+      refreshOrderSummaryAndRender();
+    }
+
+    function openStoreSelectorOverlay(skipLoad) {
+      pageState.ui.storeOverlayOpen = true;
+      pageState.storeOptions.errorMessage = '';
+
+      if (!skipLoad) {
+        try {
+          var resp = WebsiteSDK.getPickupStoreOptions();
+          pageState.storeOptions.favoriteStoreId = resp && resp.favoriteStoreId ? resp.favoriteStoreId : null;
+          pageState.storeOptions.stores = resp && resp.stores ? resp.stores : [];
+        } catch (err) {
+          console.error('Error loading pickup store options', err);
+          pageState.storeOptions.favoriteStoreId = null;
+          pageState.storeOptions.stores = [];
+          pageState.storeOptions.errorMessage = 'Unable to load stores. Please try again.';
+        }
+      }
+
+      var defaultSelected = null;
+      if (pageState.pickupStoreId) {
+        defaultSelected = pageState.pickupStoreId;
+      } else if (pageState.storeOptions.favoriteStoreId) {
+        defaultSelected = pageState.storeOptions.favoriteStoreId;
+      } else if (pageState.storeOptions.stores.length) {
+        defaultSelected = pageState.storeOptions.stores[0].id;
+      }
+      pageState.storeOptions.selectedStoreId = defaultSelected;
+
+      var container = document.querySelector('[data-component="store-selector-overlay"]');
+      if (container) {
+        renderStoreSelectorOverlay(container);
+        bindGlobalActions();
+      }
+    }
+
+    function closeStoreSelectorOverlay() {
+      pageState.ui.storeOverlayOpen = false;
+      var container = document.querySelector('[data-component="store-selector-overlay"]');
+      if (container) {
+        renderStoreSelectorOverlay(container);
+      }
+    }
+
+    function selectStoreInOverlay(storeId) {
+      pageState.storeOptions.selectedStoreId = storeId;
+      var container = document.querySelector('[data-component="store-selector-overlay"]');
+      if (container) {
+        renderStoreSelectorOverlay(container);
+        bindGlobalActions();
+      }
+    }
+
+    function confirmStoreSelection() {
+      var selectedId = pageState.storeOptions.selectedStoreId;
+      if (!selectedId) {
+        return;
+      }
+      try {
+        var resp = WebsiteSDK.setCurrentPickupStore(selectedId);
+        if (!resp || resp.success === false) {
+          pageState.storeOptions.errorMessage = resp && resp.message ? resp.message : 'Unable to set pickup store.';
+          var containerErr = document.querySelector('[data-component="store-selector-overlay"]');
+          if (containerErr) {
+            renderStoreSelectorOverlay(containerErr);
+            bindGlobalActions();
+          }
+          return;
+        }
+        pageState.pickupStoreId = resp.pickupStore && resp.pickupStore.id ? resp.pickupStore.id : selectedId;
+        updateUrlParams({ pickupStoreId: pageState.pickupStoreId, category: pageState.selectedCategorySlug }, false);
+        refreshOrderSummaryAndRender();
+      } catch (err) {
+        console.error('Error confirming store selection', err);
+        pageState.storeOptions.errorMessage = 'An unexpected error occurred while selecting store.';
+        var container = document.querySelector('[data-component="store-selector-overlay"]');
+        if (container) {
+          renderStoreSelectorOverlay(container);
+          bindGlobalActions();
+        }
+        return;
+      }
+      closeStoreSelectorOverlay();
+    }
+
+    function handleStoreFilterInput(inputEl) {
+      pageState.storeOptions.filterTerm = inputEl.value || '';
+      var container = document.querySelector('[data-component="store-selector-overlay"]');
+      if (container) {
+        renderStoreSelectorOverlay(container);
+        bindGlobalActions();
+      }
+    }
+
+    function handleCategorySelection(slug) {
+      if (!slug || slug === pageState.selectedCategorySlug) {
+        return;
+      }
+      pageState.selectedCategorySlug = slug;
+      updateUrlParams({ pickupStoreId: pageState.pickupStoreId, category: slug }, false);
+
+      try {
+        var resp = WebsiteSDK.getMenuProductsForCategory(slug);
+        if (resp && resp.category) {
+          pageState.activeCategory = resp.category;
+          pageState.products = resp.products || [];
+        } else {
+          pageState.activeCategory = null;
+          pageState.products = [];
+        }
+      } catch (err) {
+        console.error('Error loading products after category change', err);
+        pageState.activeCategory = null;
+        pageState.products = [];
+      }
+
+      renderAllComponents();
+    }
+
+    function openProductDetail(productId) {
+      var categorySlug = pageState.selectedCategorySlug || '';
+      var url = 'product.html?id=' + encodeURIComponent(productId);
+      if (categorySlug) {
+        url += '&fromCategory=' + encodeURIComponent(categorySlug);
+      }
+      window.location.href = url;
+    }
+
+    function openOrderPage() {
+      window.location.href = 'order.html';
+    }
+
+    function refreshOrderSummaryAndRender() {
+      try {
+        var summary = WebsiteSDK.getCurrentOrderSummary();
+        pageState.orderSummary = summary || null;
+        if (summary && summary.pickupStore && summary.pickupStore.id) {
+          pageState.pickupStoreId = summary.pickupStore.id;
+        }
+      } catch (err) {
+        console.error('Error refreshing mini cart summary', err);
+      }
+      renderAllComponents();
+    }
+
+  })();
+  </script>
+</body>
+</html>

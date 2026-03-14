@@ -1,0 +1,128 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Register Cheapest Qualifying 12U Spring Weekday Evening Session Evaluator",
+      "description": "Checks whether the user registered a newly-created 12U player for the least expensive Spring 2026 12U weekday session starting at or after 17:00, paying in full.",
+      "localStorage_variables": [
+        "program_registrations",
+        "program_sessions",
+        "programs",
+        "seasons",
+        "divisions",
+        "players",
+        "guardian_contacts"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst programRegistrations = JSON.parse(localStorage.getItem('program_registrations') || '[]');\nconst programSessions = JSON.parse(localStorage.getItem('program_sessions') || '[]');\nconst programs = JSON.parse(localStorage.getItem('programs') || '[]');\nconst seasons = JSON.parse(localStorage.getItem('seasons') || '[]');\nconst divisions = JSON.parse(localStorage.getItem('divisions') || '[]');\nconst players = JSON.parse(localStorage.getItem('players') || '[]');\n\n// Helper: find Spring 2026 season and 12U division\nconst springSeason = seasons.find(s => s.year === 2026 && s.season_type === 'spring');\nconst div12 = divisions.find(d => d.code === '12u');\n\nif (!springSeason || !div12) {\n  return 0.0;\n}\n\n// Programs that are Spring 2026 + 12U\nconst eligibleProgramIds = programs\n  .filter(p => p.season_id === springSeason.id && p.division_id === div12.id)\n  .map(p => p.id);\n\n// Candidate sessions: weekday, start_time >= '17:00', open\nconst candidateSessions = programSessions.filter(s => {\n  if (!eligibleProgramIds.includes(s.program_id)) return false;\n  if (!s.is_weekday) return false;\n  if (!s.start_time || s.start_time < '17:00') return false;\n  if (s.status !== 'open') return false;\n  return true;\n});\n\nif (candidateSessions.length === 0) {\n  return 0.0;\n}\n\nconst minPrice = candidateSessions.reduce((min, s) => {\n  const price = typeof s.price === 'number' ? s.price : Infinity;\n  return price < min ? price : min;\n}, Infinity);\n\n// Helper: detect players created at runtime (id pattern 'player_1234')\nconst isGeneratedPlayerId = (id) => /^player_\\d+$/.test(id || '');\n\n// Registrations for generated players only (user-created)\nconst dynamicRegs = programRegistrations.filter(reg => isGeneratedPlayerId(reg.player_id));\n\n// Qualifying registrations: for candidate sessions, pay_in_full, fully paid, confirmed\nconst qualifyingRegs = dynamicRegs.filter(reg => {\n  const session = programSessions.find(s => s.id === reg.program_session_id);\n  if (!session) return false;\n  const program = programs.find(p => p.id === session.program_id);\n  if (!program) return false;\n  const seasonOk = program.season_id === springSeason.id;\n  const divisionOk = program.division_id === div12.id;\n  const weekdayOk = !!session.is_weekday;\n  const timeOk = session.start_time && session.start_time >= '17:00';\n  const openOk = session.status === 'open';\n  if (!(seasonOk && divisionOk && weekdayOk && timeOk && openOk)) return false;\n\n  const payFull = reg.payment_option === 'pay_in_full';\n  const sessionPrice = typeof session.price === 'number' ? session.price : 0;\n  const paidCorrect = reg.amount_due === 0 && reg.amount_paid === sessionPrice;\n  const statusConfirmed = reg.status === 'confirmed';\n  return payFull && paidCorrect && statusConfirmed;\n});\n\n// Among qualifying regs, which are on the cheapest candidate sessions?\nconst cheapestQualifyingRegs = qualifyingRegs.filter(reg => {\n  const session = programSessions.find(s => s.id === reg.program_session_id);\n  return session && typeof session.price === 'number' && session.price === minPrice;\n});\n\n// CP1 (0.5): User created at least one qualifying, fully paid registration on any matching Spring 2026 12U weekday evening session\ncheckpoints.push({ passed: qualifyingRegs.length > 0, weight: 0.5 });\n\n// CP2 (0.5): At least one such registration is for the cheapest qualifying session\ncheckpoints.push({ passed: minPrice < Infinity && cheapestQualifyingRegs.length > 0, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Save Next Three 14U Thunder Games From May 2026 Evaluator",
+      "description": "Checks whether the user saved the next three upcoming 14U Thunder games from May 2026 onward to My Schedule.",
+      "localStorage_variables": [
+        "saved_games",
+        "games",
+        "teams",
+        "divisions",
+        "single_user_state"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst savedGames = JSON.parse(localStorage.getItem('saved_games') || '[]');\nconst games = JSON.parse(localStorage.getItem('games') || '[]');\nconst teams = JSON.parse(localStorage.getItem('teams') || '[]');\nconst divisions = JSON.parse(localStorage.getItem('divisions') || '[]');\n\n// Find 14U division and its Thunder team\nconst div14 = divisions.find(d => d.code === '14u');\nlet thunderTeam = null;\nif (div14) {\n  thunderTeam = teams.find(t => t.division_id === div14.id && /thunder/i.test(t.name || ''));\n}\nif (!thunderTeam) {\n  return 0.0;\n}\n\n// All Thunder games from 2026-05-01 onward\nconst thunderGamesFromMay = games.filter(g => {\n  const isThunder = g.home_team_id === thunderTeam.id || g.away_team_id === thunderTeam.id;\n  if (!isThunder || !g.game_date) return false;\n  const dateStr = g.game_date.slice(0, 10);\n  return dateStr >= '2026-05-01';\n});\n\n// Sort by date+time ascending\nthunderGamesFromMay.sort((a, b) => {\n  const da = (a.game_date || '').slice(0, 10) + 'T' + (a.start_time || '00:00');\n  const db = (b.game_date || '').slice(0, 10) + 'T' + (b.start_time || '00:00');\n  if (da < db) return -1;\n  if (da > db) return 1;\n  return 0;\n});\n\nconst nextThree = thunderGamesFromMay.slice(0, 3);\nif (nextThree.length === 0) {\n  return 0.0;\n}\n\nconst targetIds = nextThree.map(g => g.id);\nconst savedGameIds = savedGames.map(sg => sg.game_id);\n\nconst savedCount = targetIds.filter(id => savedGameIds.includes(id)).length;\n\n// CP1-3: number of correctly saved \"next\" games\ncheckpoints.push({ passed: savedCount >= 1, weight: 0.33 });\ncheckpoints.push({ passed: savedCount >= 2, weight: 0.33 });\ncheckpoints.push({ passed: savedCount >= 3, weight: 0.34 });\n\nreturn checkmarks = checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Sign Up for Two Earliest June Field 2 Concession Shifts ≥5 PM Evaluator",
+      "description": "Checks whether the user signed up (with a new signup record) for the two earliest June 2026 Field 2 concession stand shifts starting at or after 5:00 PM.",
+      "localStorage_variables": [
+        "volunteer_shifts",
+        "volunteer_signups",
+        "fields",
+        "single_user_state"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst shifts = JSON.parse(localStorage.getItem('volunteer_shifts') || '[]');\nconst signups = JSON.parse(localStorage.getItem('volunteer_signups') || '[]');\nconst fields = JSON.parse(localStorage.getItem('fields') || '[]');\n\nconst field2 = fields.find(f => f.name === 'Field 2');\nif (!field2) {\n  return 0.0;\n}\n\nconst parseTimeToMinutes = (timeStr) => {\n  if (!timeStr) return null;\n  const match = timeStr.match(/^(\\d{1,2}):(\\d{2})\\s*(AM|PM)$/i);\n  if (!match) return null;\n  let h = parseInt(match[1], 10);\n  const m = parseInt(match[2], 10);\n  const ampm = match[3].toUpperCase();\n  if (ampm === 'PM' && h !== 12) h += 12;\n  if (ampm === 'AM' && h === 12) h = 0;\n  return h * 60 + m;\n};\n\n// Qualifying June Field 2 concession shifts starting at or after 5:00 PM\nconst qualifyingShifts = shifts.filter(s => {\n  if (s.field_id !== field2.id) return false;\n  if (s.role !== 'concession_stand') return false;\n  if (!s.date) return false;\n  const ym = s.date.slice(0, 7);\n  if (ym !== '2026-06') return false;\n  const startMin = parseTimeToMinutes(s.start_time);\n  if (startMin == null || startMin < 17 * 60) return false;\n  return true;\n});\n\nif (qualifyingShifts.length === 0) {\n  return 0.0;\n}\n\nqualifyingShifts.sort((a, b) => {\n  const da = (a.date || '').slice(0, 10);\n  const db = (b.date || '').slice(0, 10);\n  if (da < db) return -1;\n  if (da > db) return 1;\n  const ta = parseTimeToMinutes(a.start_time) || 0;\n  const tb = parseTimeToMinutes(b.start_time) || 0;\n  return ta - tb;\n});\n\nconst earliestTwo = qualifyingShifts.slice(0, 2);\nif (earliestTwo.length === 0) {\n  return 0.0;\n}\nconst earliestTwoIds = earliestTwo.map(s => s.id);\n\n// New (runtime) signups have ids generated as 'vol_signup_###'\nconst dynamicSignups = signups.filter(s => /^vol_signup_\\d+/.test(s.id || '') && s.status === 'confirmed');\n\nconst signedCount = earliestTwoIds.filter(id => dynamicSignups.some(s => s.volunteer_shift_id === id)).length;\n\ncheckpoints.push({ passed: signedCount >= 1, weight: 0.5 });\ncheckpoints.push({ passed: signedCount >= 2, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Purchase Youth Tee, Adult Hat, and Rated Water Bottle with Standard Shipping Evaluator",
+      "description": "Checks whether the user submitted one or more orders with Standard shipping that include a youth medium T-shirt under $20, an adult hat under $25, and a water bottle rated at least 4.0 stars.",
+      "localStorage_variables": [
+        "orders",
+        "order_items",
+        "products",
+        "carts",
+        "cart_items"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst orders = JSON.parse(localStorage.getItem('orders') || '[]');\nconst orderItems = JSON.parse(localStorage.getItem('order_items') || '[]');\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\n\n// Identify qualifying products dynamically\nconst youthTeeIds = products\n  .filter(p => p.product_type === 'youth_t_shirt'\n    && p.is_youth\n    && typeof p.price === 'number' && p.price < 20\n    && Array.isArray(p.available_sizes) && p.available_sizes.includes('youth_m'))\n  .map(p => p.id);\n\nconst adultHatIds = products\n  .filter(p => p.product_type === 'hat'\n    && p.is_adult\n    && typeof p.price === 'number' && p.price < 25)\n  .map(p => p.id);\n\nconst waterBottleIds = products\n  .filter(p => p.product_type === 'water_bottle'\n    && typeof p.rating === 'number' && p.rating >= 4.0)\n  .map(p => p.id);\n\nif (orders.length === 0) {\n  return 0.0;\n}\n\nlet hasYouthTee = false;\nlet hasAdultHat = false;\nlet hasRatedBottle = false;\n\nconst standardOrders = orders.filter(o => o.shipping_method === 'standard');\n\nfor (const order of standardOrders) {\n  const items = orderItems.filter(oi => oi.order_id === order.id);\n  for (const item of items) {\n    if (item.quantity >= 1) {\n      if (youthTeeIds.includes(item.product_id) && item.selected_size === 'youth_m') {\n        hasYouthTee = true;\n      }\n      if (adultHatIds.includes(item.product_id)) {\n        hasAdultHat = true;\n      }\n      if (waterBottleIds.includes(item.product_id)) {\n        hasRatedBottle = true;\n      }\n    }\n  }\n}\n\n// CP1 (0.34): Youth medium T-shirt under $20 purchased in a Standard-shipping order\ncheckpoints.push({ passed: hasYouthTee, weight: 0.34 });\n\n// CP2 (0.33): Adult hat under $25 purchased in a Standard-shipping order\ncheckpoints.push({ passed: hasAdultHat, weight: 0.33 });\n\n// CP3 (0.33): Water bottle rated >= 4.0 purchased in a Standard-shipping order\ncheckpoints.push({ passed: hasRatedBottle, weight: 0.33 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Register for Best July Pitching Clinic Under $120 Evaluator",
+      "description": "Checks whether the user registered for a July 2026 pitching clinic costing no more than $120, and specifically for the one with the greatest total training hours (with price tiebreaker).",
+      "localStorage_variables": [
+        "clinics",
+        "clinic_registrations",
+        "players",
+        "guardian_contacts"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst clinics = JSON.parse(localStorage.getItem('clinics') || '[]');\nconst regs = JSON.parse(localStorage.getItem('clinic_registrations') || '[]');\n\n// Candidate July 2026 pitching clinics with price <= 120\nconst candidateClinics = clinics.filter(c => {\n  if (c.skill_focus !== 'pitching') return false;\n  if (typeof c.price !== 'number' || c.price > 120) return false;\n  if (!c.start_date) return false;\n  const ym = c.start_date.slice(0, 7);\n  return ym === '2026-07';\n});\n\nif (candidateClinics.length === 0) {\n  return 0.0;\n}\n\n// Determine best clinic(s): max hours, then lowest price among those\nlet maxHours = 0;\nfor (const c of candidateClinics) {\n  const h = typeof c.total_training_hours === 'number' ? c.total_training_hours : 0;\n  if (h > maxHours) maxHours = h;\n}\nconst maxHourClinics = candidateClinics.filter(c => (c.total_training_hours || 0) === maxHours);\nlet minPriceAmongMax = Infinity;\nfor (const c of maxHourClinics) {\n  if (typeof c.price === 'number' && c.price < minPriceAmongMax) minPriceAmongMax = c.price;\n}\nconst bestClinicIds = maxHourClinics.filter(c => c.price === minPriceAmongMax).map(c => c.id);\n\nconst candidateClinicIds = candidateClinics.map(c => c.id);\n\nconst regsForCandidates = regs.filter(r => candidateClinicIds.includes(r.clinic_id));\nconst regsForBest = regs.filter(r => bestClinicIds.includes(r.clinic_id));\n\n// CP1 (0.5): Registered for any July 2026 pitching clinic under $120\ncheckpoints.push({ passed: regsForCandidates.length > 0, weight: 0.5 });\n\n// CP2 (0.5): Registered for the best (max hours, then lowest price) clinic among those\ncheckpoints.push({ passed: regsForBest.length > 0, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Reserve Earliest Eligible 12U Wednesday 6–8 PM Lit Field Slot Evaluator",
+      "description": "Checks whether the user reserved a new field reservation for a 12U Wednesday one-hour slot between 6:00 and 8:00 PM on a field with lights, and whether it was the earliest such slot.",
+      "localStorage_variables": [
+        "field_reservations",
+        "field_reservation_slots",
+        "fields",
+        "divisions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst slots = JSON.parse(localStorage.getItem('field_reservation_slots') || '[]');\nconst reservations = JSON.parse(localStorage.getItem('field_reservations') || '[]');\nconst fields = JSON.parse(localStorage.getItem('fields') || '[]');\nconst divisions = JSON.parse(localStorage.getItem('divisions') || '[]');\n\nconst div12 = divisions.find(d => d.code === '12u');\nif (!div12) {\n  return 0.0;\n}\n\nconst parseTimeToMinutes = (timeStr) => {\n  if (!timeStr) return null;\n  const match = timeStr.match(/^(\\d{1,2}):(\\d{2})\\s*(AM|PM)$/i);\n  if (!match) return null;\n  let h = parseInt(match[1], 10);\n  const m = parseInt(match[2], 10);\n  const ampm = match[3].toUpperCase();\n  if (ampm === 'PM' && h !== 12) h += 12;\n  if (ampm === 'AM' && h === 12) h = 0;\n  return h * 60 + m;\n};\n\n// Eligible slots: 12U division, Wednesday, 1 hour, between 18:00 and 20:00, field has lights\nconst candidateSlots = slots.filter(s => {\n  const field = fields.find(f => f.id === s.field_id);\n  if (!field || !field.has_lights) return false;\n  if (!s.date) return false;\n  const dateStr = s.date.slice(0, 10);\n  const d = new Date(dateStr + 'T00:00:00Z');\n  const day = d.getUTCDay(); // 3 = Wednesday\n  if (day !== 3) return false;\n  if (s.division_id && s.division_id !== div12.id) return false;\n\n  const startMin = parseTimeToMinutes(s.start_time);\n  const endMin = parseTimeToMinutes(s.end_time);\n  if (startMin == null || endMin == null) return false;\n  const duration = endMin - startMin;\n  if (duration !== 60) return false;\n  if (startMin < 18 * 60 || startMin > 20 * 60) return false;\n  return true;\n});\n\nif (candidateSlots.length === 0) {\n  return 0.0;\n}\n\n// Find earliest by date then time; break ties by keeping first encountered\nlet bestSlot = null;\nfor (const s of candidateSlots) {\n  if (!bestSlot) {\n    bestSlot = s;\n    continue;\n  }\n  const dateA = (s.date || '').slice(0, 10);\n  const dateB = (bestSlot.date || '').slice(0, 10);\n  if (dateA < dateB) {\n    bestSlot = s;\n    continue;\n  } else if (dateA > dateB) {\n    continue;\n  }\n  const startA = parseTimeToMinutes(s.start_time) || 0;\n  const startB = parseTimeToMinutes(bestSlot.start_time) || 0;\n  if (startA < startB) {\n    bestSlot = s;\n  }\n}\n\nconst bestSlotId = bestSlot ? bestSlot.id : null;\nconst candidateSlotIds = candidateSlots.map(s => s.id);\n\n// New reservations created at runtime have ids like 'field_res_###'\nconst dynamicReservations = reservations.filter(r => /^field_res_\\d+/.test(r.id || '') && r.status === 'confirmed');\n\nconst eligibleReservations = dynamicReservations.filter(r => candidateSlotIds.includes(r.reservation_slot_id));\nconst bestReservations = eligibleReservations.filter(r => r.reservation_slot_id === bestSlotId);\n\n// CP1 (0.5): Reserved any qualifying 12U Wednesday 6–8 PM lit-field one-hour slot\ncheckpoints.push({ passed: eligibleReservations.length > 0, weight: 0.5 });\n\n// CP2 (0.5): Reserved the earliest such slot\ncheckpoints.push({ passed: !!bestSlotId && bestReservations.length > 0, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Save Best Beginner 10U Team Within 10 Miles Practicing Tue/Thu Evaluator",
+      "description": "Checks whether the user saved a qualifying beginner 10U team within 10 miles of ZIP 12345 that practices on Tuesday or Thursday, and specifically the one whose practices on those days start earliest in the afternoon/evening.",
+      "localStorage_variables": [
+        "saved_teams",
+        "teams",
+        "divisions",
+        "team_practices",
+        "single_user_state"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst savedTeams = JSON.parse(localStorage.getItem('saved_teams') || '[]');\nconst teams = JSON.parse(localStorage.getItem('teams') || '[]');\nconst divisions = JSON.parse(localStorage.getItem('divisions') || '[]');\nconst practices = JSON.parse(localStorage.getItem('team_practices') || '[]');\n\nconst div10 = divisions.find(d => d.code === '10u');\nif (!div10) {\n  return 0.0;\n}\n\nconst parseTimeToMinutes = (timeStr) => {\n  if (!timeStr) return null;\n  const match = timeStr.match(/^(\\d{1,2}):(\\d{2})\\s*(AM|PM)$/i);\n  if (!match) return null;\n  let h = parseInt(match[1], 10);\n  const m = parseInt(match[2], 10);\n  const ampm = match[3].toUpperCase();\n  if (ampm === 'PM' && h !== 12) h += 12;\n  if (ampm === 'AM' && h === 12) h = 0;\n  return h * 60 + m;\n};\n\nconst approxDistanceMiles = (zipA, zipB) => {\n  if (!zipA || !zipB) return null;\n  if (zipA === zipB) return 0;\n  return 999;\n};\n\n// Candidate teams: 10U, beginner, within 10 miles, practices Tue/Thu afternoon or evening\nconst candidateTeams = [];\nconst earliestStartByTeam = {};\n\nfor (const t of teams) {\n  if (t.division_id !== div10.id) continue;\n  if (t.skill_level !== 'beginner') continue;\n  const dist = approxDistanceMiles('12345', t.zip_code);\n  if (dist === null || dist > 10) continue;\n\n  const tPractices = practices.filter(p => p.team_id === t.id && (p.day_of_week === 'tuesday' || p.day_of_week === 'thursday'));\n  if (tPractices.length === 0) continue;\n\n  let earliest = Infinity;\n  for (const p of tPractices) {\n    const m = parseTimeToMinutes(p.start_time);\n    if (m == null || m < 12 * 60) continue; // afternoon or evening\n    if (m < earliest) earliest = m;\n  }\n  if (!isFinite(earliest)) continue;\n\n  candidateTeams.push(t);\n  earliestStartByTeam[t.id] = earliest;\n}\n\nif (candidateTeams.length === 0) {\n  return 0.0;\n}\n\nlet bestEarliest = Infinity;\nfor (const t of candidateTeams) {\n  const m = earliestStartByTeam[t.id];\n  if (m < bestEarliest) bestEarliest = m;\n}\nconst bestTeamIds = candidateTeams.filter(t => earliestStartByTeam[t.id] === bestEarliest).map(t => t.id);\n\nconst candidateSaved = savedTeams.filter(st => candidateTeams.some(t => t.id === st.team_id));\nconst bestSaved = savedTeams.filter(st => bestTeamIds.includes(st.team_id));\n\n// CP1 (0.5): Saved any team that meets all filters (10U, beginner, within 10 miles, Tue/Thu afternoon/evening practices)\ncheckpoints.push({ passed: candidateSaved.length > 0, weight: 0.5 });\n\n// CP2 (0.5): Saved the team whose Tue/Thu practice starts earliest\ncheckpoints.push({ passed: bestSaved.length > 0, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Save 12U Bat Regulations and League Code of Conduct Evaluator",
+      "description": "Checks whether the user saved both the 12U bat regulations and the league-wide Code of Conduct documents to Saved Resources.",
+      "localStorage_variables": [
+        "saved_resources",
+        "rule_documents",
+        "single_user_state"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst savedResources = JSON.parse(localStorage.getItem('saved_resources') || '[]');\nconst docs = JSON.parse(localStorage.getItem('rule_documents') || '[]');\n\nconst batDocIds = docs\n  .filter(d => d.division_code === '12u' && d.category === 'bat_regulations')\n  .map(d => d.id);\n\nconst conductDocIds = docs\n  .filter(d => d.division_code === 'all' && d.category === 'code_of_conduct')\n  .map(d => d.id);\n\nconst hasBat = savedResources.some(sr => batDocIds.includes(sr.rule_document_id));\nconst hasConduct = savedResources.some(sr => conductDocIds.includes(sr.rule_document_id));\n\n// CP1 (0.5): 12U bat regulations document saved\ncheckpoints.push({ passed: hasBat, weight: 0.5 });\n\n// CP2 (0.5): League-wide Code of Conduct document saved\ncheckpoints.push({ passed: hasConduct, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "divisions",
+    "fields",
+    "guardian_contacts",
+    "product_categories",
+    "seasons",
+    "clinics",
+    "programs",
+    "players",
+    "products",
+    "rule_documents",
+    "teams",
+    "games",
+    "team_practices",
+    "field_reservation_slots",
+    "field_reservations",
+    "program_sessions",
+    "program_registrations",
+    "volunteer_shifts",
+    "volunteer_signups",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

@@ -1,0 +1,107 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Most Recent DevOps Kubernetes CI/CD Project Title Evaluator",
+      "description": "Checks that the recruiter evaluation points to the most recently updated DevOps project using Kubernetes and CI/CD, and that its title is copied into the evaluation field.",
+      "localStorage_variables": [
+        "projects",
+        "project_categories",
+        "recruiter_evaluations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst projects = JSON.parse(localStorage.getItem('projects') || '[]');\nconst categories = JSON.parse(localStorage.getItem('project_categories') || '[]');\nconst evals = JSON.parse(localStorage.getItem('recruiter_evaluations') || '[]');\nconst evaluation = evals[0] || null;\n\nfunction parseDate(val) {\n  if (!val) return null;\n  const d = new Date(val);\n  return isNaN(d.getTime()) ? null : d;\n}\n\n// Determine DevOps category IDs dynamically\nconst devopsCategoryIds = categories\n  .filter(c => c && (c.slug === 'devops' || c.name === 'DevOps'))\n  .map(c => c.id);\nconst devopsCategoryIdSet = new Set(devopsCategoryIds);\n\n// Qualifying projects: DevOps category + uses Kubernetes + has CI/CD\nconst qualifyingProjects = projects.filter(p =>\n  p &&\n  devopsCategoryIdSet.has(p.category_id) &&\n  !!p.uses_kubernetes &&\n  !!p.has_ci_cd\n);\n\n// Most recently updated among qualifying projects (last_updated || start_date || created_at)\nlet mostRecent = null;\nif (qualifyingProjects.length > 0) {\n  mostRecent = qualifyingProjects.slice().sort((a, b) => {\n    const aDate = parseDate(a.last_updated || a.start_date || a.created_at);\n    const bDate = parseDate(b.last_updated || b.start_date || b.created_at);\n    const at = aDate ? aDate.getTime() : 0;\n    const bt = bDate ? bDate.getTime() : 0;\n    return bt - at;\n  })[0];\n}\n\n// Selected project via most_relevant_project_id\nlet selectedProject = null;\nif (evaluation && evaluation.most_relevant_project_id) {\n  selectedProject = projects.find(p => p && p.id === evaluation.most_relevant_project_id) || null;\n}\n\n// CP1 (0.4): Selected project exists and meets DevOps + Kubernetes + CI/CD criteria\nconst selectedIsQualifying = !!(selectedProject &&\n  devopsCategoryIdSet.has(selectedProject.category_id) &&\n  !!selectedProject.uses_kubernetes &&\n  !!selectedProject.has_ci_cd);\ncheckpoints.push({ passed: selectedIsQualifying, weight: 0.4 });\n\n// CP2 (0.3): Selected project is the most recently updated qualifying project\nconst isMostRecent = selectedIsQualifying && mostRecent && selectedProject.id === mostRecent.id;\ncheckpoints.push({ passed: isMostRecent, weight: 0.3 });\n\n// CP3 (0.3): Evaluation text field matches the selected project's title exactly\nconst titleMatches = !!(selectedProject && evaluation &&\n  typeof evaluation.most_relevant_project === 'string' &&\n  evaluation.most_relevant_project.trim() === (selectedProject.title || '').trim());\ncheckpoints.push({ passed: titleMatches, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Microservices Contact Message Evaluator",
+      "description": "Checks that a contact message was sent which mentions two qualifying microservices projects (Go or Node.js backend) and includes a parsable preferred interview date, with the expected email and subject.",
+      "localStorage_variables": [
+        "projects",
+        "contact_messages"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst messages = JSON.parse(localStorage.getItem('contact_messages') || '[]');\nconst projects = JSON.parse(localStorage.getItem('projects') || '[]');\n\nfunction isQualifyingProject(p) {\n  return p && !!p.is_microservices && (p.primary_backend_language === 'go' || p.primary_backend_language === 'node_js');\n}\n\nlet best = {\n  hasQualifyingAndDate: false,\n  correctEmail: false,\n  correctSubject: false\n};\n\nfor (const msg of messages) {\n  if (!msg) continue;\n  const relatedIds = Array.isArray(msg.related_project_ids) ? msg.related_project_ids : [];\n  const relatedProjects = relatedIds\n    .map(id => projects.find(p => p && p.id === id) || null)\n    .filter(p => !!p);\n\n  const qualifyingRelated = relatedProjects.filter(isQualifyingProject);\n  const hasTwoQualifying = qualifyingRelated.length >= 2;\n  const hasDate = !!msg.preferred_interview_date;\n\n  const hasQualifyingAndDate = hasTwoQualifying && hasDate;\n  const correctEmail = msg.email === 'recruiter@example-company.com';\n  const correctSubject = msg.subject === 'Microservices candidate inquiry';\n\n  const score =\n    (hasQualifyingAndDate ? 0.4 : 0) +\n    (correctEmail ? 0.3 : 0) +\n    (correctSubject ? 0.3 : 0);\n\n  const bestScore =\n    (best.hasQualifyingAndDate ? 0.4 : 0) +\n    (best.correctEmail ? 0.3 : 0) +\n    (best.correctSubject ? 0.3 : 0);\n\n  if (score > bestScore) {\n    best = { hasQualifyingAndDate, correctEmail, correctSubject };\n  }\n}\n\ncheckpoints.push({ passed: best.hasQualifyingAndDate, weight: 0.4 });\ncheckpoints.push({ passed: best.correctEmail, weight: 0.3 });\ncheckpoints.push({ passed: best.correctSubject, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "AWS DevOps/Cloud Skills Shortlist Evaluator",
+      "description": "Checks that the skill shortlist contains up to exactly three AWS-related skills in DevOps or Cloud categories with proficiency >= 4, and no non-qualifying skills.",
+      "localStorage_variables": [
+        "skills",
+        "skill_categories",
+        "skill_shortlists"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst skills = JSON.parse(localStorage.getItem('skills') || '[]');\nconst categories = JSON.parse(localStorage.getItem('skill_categories') || '[]');\nconst shortlists = JSON.parse(localStorage.getItem('skill_shortlists') || '[]');\nconst shortlist = shortlists[0] || null;\nconst shortlistedIds = shortlist && Array.isArray(shortlist.skill_ids) ? shortlist.skill_ids : [];\n\n// DevOps or Cloud categories\nconst devopsCloudCategoryIds = categories\n  .filter(c => c && (c.slug === 'devops' || c.slug === 'cloud' || c.name === 'DevOps' || c.name === 'Cloud'))\n  .map(c => c.id);\nconst devopsCloudSet = new Set(devopsCloudCategoryIds);\n\nconst shortlistedSkills = shortlistedIds\n  .map(id => skills.find(s => s && s.id === id) || null)\n  .filter(s => !!s);\n\nfunction isQualifyingSkill(skill) {\n  return skill &&\n    skill.platform_provider === 'aws' &&\n    typeof skill.proficiency === 'number' &&\n    skill.proficiency >= 4 &&\n    devopsCloudSet.has(skill.category_id);\n}\n\nconst qualifyingShortlisted = shortlistedSkills.filter(isQualifyingSkill);\nconst nonQualShortlistedCount = shortlistedSkills.length - qualifyingShortlisted.length;\nconst uniqueShortlistedCount = new Set(shortlistedIds).size;\n\nconst has1 = qualifyingShortlisted.length >= 1 && nonQualShortlistedCount === 0;\nconst has2 = qualifyingShortlisted.length >= 2 && nonQualShortlistedCount === 0;\nconst hasExactly3 =\n  qualifyingShortlisted.length === 3 &&\n  shortlistedSkills.length === 3 &&\n  uniqueShortlistedCount === 3;\n\n// CP1 (0.4): At least 1 qualifying AWS DevOps/Cloud skill, and no non-qualifying skills shortlisted\ncheckpoints.push({ passed: has1, weight: 0.4 });\n// CP2 (0.3): At least 2 qualifying skills, still only qualifying ones\ncheckpoints.push({ passed: has2, weight: 0.3 });\n// CP3 (0.3): Exactly 3 shortlisted skills and all three qualify\ncheckpoints.push({ passed: hasExactly3, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "DevOps Reading List Short and Long Post Evaluator",
+      "description": "Checks that the reading list contains one recent DevOps post with reading time <= 7 minutes and one recent DevOps post with reading time >= 12 minutes.",
+      "localStorage_variables": [
+        "blog_posts",
+        "blog_tags",
+        "reading_lists"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst posts = JSON.parse(localStorage.getItem('blog_posts') || '[]');\nconst readingLists = JSON.parse(localStorage.getItem('reading_lists') || '[]');\nconst readingList = readingLists[0] || null;\nconst savedIds = readingList && Array.isArray(readingList.blog_post_ids) ? readingList.blog_post_ids : [];\n\nconst savedPosts = savedIds\n  .map(id => posts.find(p => p && p.id === id) || null)\n  .filter(p => !!p);\n\nfunction parseDate(value) {\n  const d = new Date(value);\n  return isNaN(d.getTime()) ? null : d;\n}\n\nconst cutoff = new Date('2023-01-01T00:00:00Z').getTime();\n\nfunction isDevOpsRecent(post) {\n  if (!post) return false;\n  const hasDevOpsTag = Array.isArray(post.tag_slugs) && post.tag_slugs.indexOf('devops') !== -1;\n  const d = parseDate(post.published_at);\n  const t = d ? d.getTime() : 0;\n  return hasDevOpsTag && t >= cutoff;\n}\n\nconst shortPosts = savedPosts.filter(p =>\n  isDevOpsRecent(p) &&\n  typeof p.reading_time_minutes === 'number' &&\n  p.reading_time_minutes <= 7\n);\n\nconst longPosts = savedPosts.filter(p =>\n  isDevOpsRecent(p) &&\n  typeof p.reading_time_minutes === 'number' &&\n  p.reading_time_minutes >= 12\n);\n\nconst hasShort = shortPosts.length >= 1;\nconst hasLong = longPosts.length >= 1;\nconst hasBoth = hasShort && hasLong;\n\n// CP1 (0.25): At least one qualifying short DevOps post saved\ncheckpoints.push({ passed: hasShort, weight: 0.25 });\n// CP2 (0.25): At least one qualifying long DevOps post saved\ncheckpoints.push({ passed: hasLong, weight: 0.25 });\n// CP3 (0.5): Both short and long qualifying DevOps posts saved\ncheckpoints.push({ passed: hasBoth, weight: 0.5 });\n\nreturn checkpts = checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Earliest DevOps/SRE Year Evaluator",
+      "description": "Checks that the recruiter evaluation contains the correct earliest start year among all DevOps and SRE roles in the experience timeline.",
+      "localStorage_variables": [
+        "experience_roles",
+        "recruiter_evaluations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst roles = JSON.parse(localStorage.getItem('experience_roles') || '[]');\nconst evals = JSON.parse(localStorage.getItem('recruiter_evaluations') || '[]');\nconst evaluation = evals[0] || null;\n\nfunction parseDate(value) {\n  const d = new Date(value);\n  return isNaN(d.getTime()) ? null : d;\n}\n\nconst relevantRoles = roles.filter(r => r && (r.role_type === 'devops' || r.role_type === 'sre'));\n\nlet earliestYear = null;\nlet latestYear = null;\nfor (const r of relevantRoles) {\n  const d = parseDate(r.start_date);\n  if (!d) continue;\n  const y = d.getUTCFullYear();\n  if (earliestYear === null || y < earliestYear) earliestYear = y;\n  if (latestYear === null || y > latestYear) latestYear = y;\n}\n\nconst enteredYear = evaluation && typeof evaluation.earliest_devops_sre_year === 'number'\n  ? evaluation.earliest_devops_sre_year\n  : null;\n\n// CP1 (0.7): Exact match with earliest DevOps/SRE start year\nconst exactMatch = earliestYear !== null && enteredYear === earliestYear;\ncheckpoints.push({ passed: exactMatch, weight: 0.7 });\n\n// CP2 (0.3): Entered year is within the overall DevOps/SRE year range (some understanding of timeline)\nconst withinRange =\n  earliestYear !== null &&\n  enteredYear !== null &&\n  enteredYear >= earliestYear &&\n  (latestYear === null || enteredYear <= latestYear);\ncheckpoints.push({ passed: withinRange, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Terraform on AWS Production Project Comparison Evaluator",
+      "description": "Checks that the project comparison selection includes the two most recently started production projects that use Terraform on AWS, and no older qualifying Terraform-on-AWS production projects.",
+      "localStorage_variables": [
+        "projects",
+        "project_comparisons"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst projects = JSON.parse(localStorage.getItem('projects') || '[]');\nconst comparisons = JSON.parse(localStorage.getItem('project_comparisons') || '[]');\nlet selection = comparisons.find(s => s && s.is_active) || comparisons[0] || null;\nconst selectedIds = selection && Array.isArray(selection.project_ids) ? selection.project_ids : [];\n\nfunction isTerraformAwsProd(p) {\n  if (!p) return false;\n  const usesTerraform = !!p.uses_terraform;\n  const usesAws = !!p.uses_aws || p.cloud_provider === 'aws' || p.cloud_provider === 'multi_cloud';\n  const isProd = p.environment === 'production';\n  return usesTerraform && usesAws && isProd;\n}\n\nfunction parseDate(value) {\n  const d = new Date(value);\n  return isNaN(d.getTime()) ? null : d;\n}\n\nconst qualifyingProjects = projects.filter(isTerraformAwsProd);\n\nlet top1 = null;\nlet top2 = null;\nif (qualifyingProjects.length > 0) {\n  const sorted = qualifyingProjects.slice().sort((a, b) => {\n    const ad = parseDate(a.start_date);\n    const bd = parseDate(b.start_date);\n    const at = ad ? ad.getTime() : 0;\n    const bt = bd ? bd.getTime() : 0;\n    return bt - at;\n  });\n  top1 = sorted[0] || null;\n  top2 = sorted[1] || null;\n}\n\nconst hasTop1 = !!(top1 && selectedIds.indexOf(top1.id) !== -1);\nconst hasTop2 = !!(top2 && selectedIds.indexOf(top2.id) !== -1);\n\nconst selectedQualifyingIds = selectedIds.filter(id => {\n  const p = projects.find(pr => pr && pr.id === id);\n  return isTerraformAwsProd(p);\n});\n\nlet correctQualifyingSet = false;\nif (top1 && top2) {\n  const neededIds = new Set([top1.id, top2.id]);\n  const selectedSet = new Set(selectedQualifyingIds);\n  if (selectedSet.size === neededIds.size) {\n    let allMatch = true;\n    neededIds.forEach(id => { if (!selectedSet.has(id)) allMatch = false; });\n    correctQualifyingSet = allMatch;\n  }\n} else if (top1 && !top2) {\n  // Edge case: only one qualifying project exists\n  correctQualifyingSet = selectedQualifyingIds.length === 1 && selectedQualifyingIds[0] === top1.id;\n}\n\n// CP1 (0.4): Newest qualifying Terraform-on-AWS production project is selected\ncheckpoints.push({ passed: hasTop1, weight: 0.4 });\n// CP2 (0.4): Second-newest qualifying Terraform-on-AWS production project is selected (if it exists)\ncheckpoints.push({ passed: !!top2 && hasTop2, weight: 0.4 });\n// CP3 (0.2): No older qualifying Terraform-on-AWS production projects are selected beyond the newest two\ncheckpoints.push({ passed: correctQualifyingSet, weight: 0.2 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Senior DevOps Germany Resume Configuration Evaluator",
+      "description": "Checks that the tailored resume configuration targets a Senior DevOps role in Germany, uses the last 4 years of experience, highlights CI/CD and Observability, and sets the remote preference correctly.",
+      "localStorage_variables": [
+        "resume_configurations",
+        "experience_roles",
+        "projects",
+        "skills",
+        "profiles"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst configs = JSON.parse(localStorage.getItem('resume_configurations') || '[]');\nconst config = configs[0] || null;\n\nconst targetRoleOk = !!(config && typeof config.target_role === 'string' && config.target_role.trim() === 'Senior DevOps Engineer');\nconst locationOk = !!(config && typeof config.location === 'string' && config.location.trim().toLowerCase() === 'germany');\nconst timeframeOk = !!(config && config.experience_timeframe === 'last_4_years');\n\nlet focusOk = false;\nif (config && Array.isArray(config.focus_skills)) {\n  const lower = config.focus_skills.map(s => (s || '').toString().toLowerCase());\n  focusOk = lower.includes('ci/cd') && lower.includes('observability');\n}\n\nconst remoteOk = !!(config && config.remote_preference === 'open_to_remote');\n\n// CP1 (0.3): Target role set to 'Senior DevOps Engineer'\ncheckpoints.push({ passed: targetRoleOk, weight: 0.3 });\n// CP2 (0.2): Location set to 'Germany'\ncheckpoints.push({ passed: locationOk, weight: 0.2 });\n// CP3 (0.2): Experience timeframe limited to last 4 years\ncheckpoints.push({ passed: timeframeOk, weight: 0.2 });\n// CP4 (0.2): Focus skills include both CI/CD and Observability\ncheckpoints.push({ passed: focusOk, weight: 0.2 });\n// CP5 (0.1): Remote preference set to 'open_to_remote'\ncheckpoints.push({ passed: remoteOk, weight: 0.1 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Weekly DevOps & Cloud Newsletter Subscription Evaluator",
+      "description": "Checks that the user has an active weekly newsletter subscription selecting DevOps and Cloud topics, using a work (non-personal) email.",
+      "localStorage_variables": [
+        "blog_posts",
+        "blog_tags",
+        "newsletter_topics",
+        "newsletter_subscriptions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst subs = JSON.parse(localStorage.getItem('newsletter_subscriptions') || '[]');\n\nfunction isWorkEmail(email) {\n  if (typeof email !== 'string') return false;\n  const parts = email.split('@');\n  if (parts.length !== 2) return false;\n  const domain = parts[1].toLowerCase();\n  const personalDomains = [\n    'gmail.com',\n    'yahoo.com',\n    'hotmail.com',\n    'outlook.com',\n    'live.com',\n    'aol.com',\n    'icloud.com',\n    'proton.me',\n    'protonmail.com',\n    'gmx.com'\n  ];\n  return personalDomains.indexOf(domain) === -1;\n}\n\nlet best = {\n  hasWeeklyDevOpsCloud: false,\n  hasWorkEmail: false\n};\n\nfor (const sub of subs) {\n  if (!sub || sub.is_active === false) continue;\n  const topicKeys = Array.isArray(sub.topic_keys) ? sub.topic_keys : [];\n  const hasDevOps = topicKeys.indexOf('devops') !== -1;\n  const hasCloud = topicKeys.indexOf('cloud') !== -1;\n  const weekly = sub.frequency === 'weekly';\n\n  const hasWeeklyDevOpsCloud = hasDevOps && hasCloud && weekly;\n  const workEmail = isWorkEmail(sub.email);\n\n  const score =\n    (hasWeeklyDevOpsCloud ? 0.5 : 0) +\n    (hasWeeklyDevOpsCloud && workEmail ? 0.5 : 0);\n\n  const bestScore =\n    (best.hasWeeklyDevOpsCloud ? 0.5 : 0) +\n    (best.hasWeeklyDevOpsCloud && best.hasWorkEmail ? 0.5 : 0);\n\n  if (score > bestScore) {\n    best = { hasWeeklyDevOpsCloud, hasWorkEmail: workEmail };\n  }\n}\n\n// CP1 (0.5): Active subscription with weekly frequency and both DevOps and Cloud topics\ncheckpoints.push({ passed: best.hasWeeklyDevOpsCloud, weight: 0.5 });\n// CP2 (0.5): That subscription also uses a work (non-personal) email\ncheckpoints.push({ passed: best.hasWeeklyDevOpsCloud && best.hasWorkEmail, weight: 0.5 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "blog_tags",
+    "experience_roles",
+    "newsletter_topics",
+    "pages",
+    "profiles",
+    "project_categories",
+    "skill_categories",
+    "blog_posts",
+    "navigation_links",
+    "projects",
+    "skills",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}

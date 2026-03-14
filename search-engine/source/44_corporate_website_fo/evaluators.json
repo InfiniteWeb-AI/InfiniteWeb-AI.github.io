@@ -1,0 +1,117 @@
+{
+  "evaluators": [
+    {
+      "task_id": "task_1",
+      "name": "Two Cheapest 2-Player Basketball Machines Quote Request Evaluator",
+      "description": "Checks whether the user added the two cheapest qualifying 2-player basketball machines under $8,000 to a quote list and submitted a quote request for that list.",
+      "localStorage_variables": [
+        "idCounter",
+        "session_context",
+        "quote_lists",
+        "quote_list_items",
+        "quote_requests",
+        "products",
+        "product_categories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst quoteLists = JSON.parse(localStorage.getItem('quote_lists') || '[]');\nconst quoteItems = JSON.parse(localStorage.getItem('quote_list_items') || '[]');\nconst quoteRequests = JSON.parse(localStorage.getItem('quote_requests') || '[]');\n\n// Identify all qualifying 2-player basketball machines under $8,000 that are quotable\nconst qualifyingProducts = products.filter(p => {\n  return p && p.category_code === 'basketball_sports_games' && p.players === 2 &&\n    typeof p.price === 'number' && p.price <= 8000 && p.is_available_for_quote;\n});\n\nlet cp1Passed = false;\nlet cp2Passed = false;\nlet cp3Passed = false;\n\nif (qualifyingProducts.length >= 2 && Array.isArray(quoteRequests) && quoteRequests.length) {\n  // Sort by price ascending to find the two cheapest qualifying machines\n  const sorted = qualifyingProducts.slice().sort((a, b) => {\n    if (a.price !== b.price) return a.price - b.price;\n    const an = a.name || '';\n    const bn = b.name || '';\n    return an.localeCompare(bn);\n  });\n  const cheapestTwo = sorted.slice(0, 2);\n  const cheapestIds = cheapestTwo.map(p => p.id);\n\n  let bestRequest = null;\n  let bestQuoteList = null;\n  let bestCountCheapest = 0;\n  let bestQualifyingIdsInList = [];\n\n  for (const req of quoteRequests) {\n    if (!req || !req.quote_list_id) continue;\n    const listItems = quoteItems.filter(i => i.quote_list_id === req.quote_list_id);\n    if (!listItems.length) continue;\n\n    const productIdsInList = Array.from(new Set(listItems.map(i => i.product_id)));\n    const countCheapest = cheapestIds.filter(id => productIdsInList.includes(id)).length;\n    if (countCheapest > bestCountCheapest) {\n      const ql = quoteLists.find(q => q.id === req.quote_list_id) || null;\n      bestRequest = req;\n      bestQuoteList = ql;\n\n      // Within this list, find all items that match the same criteria (2P basketball under $8k)\n      const qualifyingListItems = listItems.filter(it => {\n        const p = products.find(pp => pp.id === it.product_id);\n        return p && p.category_code === 'basketball_sports_games' && p.players === 2 &&\n          typeof p.price === 'number' && p.price <= 8000 && p.is_available_for_quote;\n      });\n      bestQualifyingIdsInList = Array.from(new Set(qualifyingListItems.map(it => it.product_id)));\n      bestCountCheapest = countCheapest;\n    }\n  }\n\n  if (bestRequest && bestQuoteList) {\n    // CP1 (0.40): Some submitted quote request's list includes BOTH of the two cheapest qualifying products\n    cp1Passed = bestCountCheapest >= 2;\n\n    // CP2 (0.30): For that same quote list, the only qualifying 2P basketball machines under $8k are exactly those two cheapest\n    const onlyCheapestUsed = bestQualifyingIdsInList.every(id => cheapestIds.includes(id));\n    const hasExactlyTwoQualifying = bestQualifyingIdsInList.length === 2 && bestCountCheapest === 2;\n    cp2Passed = hasExactlyTwoQualifying && onlyCheapestUsed;\n\n    // CP3 (0.30): That quote list has been submitted (status 'submitted') with contact details\n    const hasContact = !!bestRequest.contact_name && !!bestRequest.email;\n    cp3Passed = bestQuoteList.status === 'submitted' && hasContact;\n  }\n}\n\ncheckpoints.push({ passed: cp1Passed, weight: 0.4 });\ncheckpoints.push({ passed: cp2Passed, weight: 0.3 });\ncheckpoints.push({ passed: cp3Passed, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_2",
+      "name": "Mixed-Category Compact 110V Project List Evaluator",
+      "description": "Checks whether the user created a project containing one qualifying machine from each required category (racing, ticket redemption, prize crane, air hockey), all 110V and ≤130 cm wide, and ideally saved that project.",
+      "localStorage_variables": [
+        "idCounter",
+        "session_context",
+        "projects",
+        "project_items",
+        "products",
+        "product_categories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst projects = JSON.parse(localStorage.getItem('projects') || '[]');\nconst projectItems = JSON.parse(localStorage.getItem('project_items') || '[]');\n\nconst requiredCategories = [\n  'racing_driving',\n  'ticket_redemption_games',\n  'prize_cranes_merchandisers',\n  'air_hockey_table_games'\n];\n\nlet bestData = null; // { project, coverageCount, qualifyingCount }\n\nfor (const proj of projects) {\n  if (!proj) continue;\n  const items = projectItems.filter(i => i.project_id === proj.id && (Number(i.quantity) || 0) > 0);\n  if (!items.length) continue;\n\n  const qualifyingProductIds = [];\n  const categorySet = new Set();\n\n  for (const it of items) {\n    const p = products.find(pp => pp.id === it.product_id);\n    if (!p) continue;\n    if (!p.is_available_for_project) continue;\n    if (p.power_voltage !== 'v110') continue;\n    if (typeof p.width_cm !== 'number' || p.width_cm > 130) continue;\n    qualifyingProductIds.push(p.id);\n    if (p.category_code) categorySet.add(p.category_code);\n  }\n\n  const uniqueQualifyingIds = Array.from(new Set(qualifyingProductIds));\n  if (!uniqueQualifyingIds.length) continue;\n\n  let coverageCount = 0;\n  for (const code of requiredCategories) {\n    if (categorySet.has(code)) coverageCount += 1;\n  }\n\n  if (!bestData ||\n      coverageCount > bestData.coverageCount ||\n      (coverageCount === bestData.coverageCount && uniqueQualifyingIds.length > bestData.qualifyingCount)) {\n    bestData = {\n      project: proj,\n      coverageCount,\n      qualifyingCount: uniqueQualifyingIds.length\n    };\n  }\n}\n\nlet cp1Passed = false;\nlet cp2Passed = false;\nlet cp3Passed = false;\n\nif (bestData) {\n  const proj = bestData.project;\n  const coverageCount = bestData.coverageCount;\n  const qualifyingCount = bestData.qualifyingCount;\n\n  // CP1 (0.50): Some project has at least one qualifying 110V ≤130 cm machine in EACH required category\n  cp1Passed = coverageCount === requiredCategories.length;\n\n  // CP2 (0.30): That same project has exactly 4 distinct qualifying machines (one per category)\n  cp2Passed = cp1Passed && qualifyingCount === requiredCategories.length;\n\n  // CP3 (0.20): That project has been saved (status 'saved') after assembling the qualifying lineup\n  cp3Passed = cp1Passed && proj.status === 'saved';\n}\n\ncheckpoints.push({ passed: cp1Passed, weight: 0.5 });\ncheckpoints.push({ passed: cp2Passed, weight: 0.3 });\ncheckpoints.push({ passed: cp3Passed, weight: 0.2 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_3",
+      "name": "Newest Crane Installation Manual Download Evaluator",
+      "description": "Checks whether the user searched for installation manuals and downloaded the newest installation manual (published ≥2023) for any prize crane/merchandiser model.",
+      "localStorage_variables": [
+        "idCounter",
+        "session_context",
+        "manual_documents",
+        "products",
+        "task3_manualSearchParams",
+        "task3_downloadedManualIds"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst manuals = JSON.parse(localStorage.getItem('manual_documents') || '[]');\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\nconst searchParams = JSON.parse(localStorage.getItem('task3_manualSearchParams') || 'null');\nlet downloadedIds = JSON.parse(localStorage.getItem('task3_downloadedManualIds') || '[]');\nif (!Array.isArray(downloadedIds)) downloadedIds = [];\n\nconst productById = {};\nfor (const p of products) {\n  if (p && p.id) productById[p.id] = p;\n}\n\n// All qualifying manuals: installation manuals for prize cranes/merchandisers, active, year ≥ 2023\nconst qualifyingManuals = manuals.filter(m => {\n  if (!m || m.is_active === false) return false;\n  if (m.document_type !== 'installation_manual') return false;\n  if (!m.published_at) return false;\n  const d = new Date(m.published_at);\n  if (isNaN(d.getTime()) || d.getFullYear() < 2023) return false;\n  const prod = m.product_id ? productById[m.product_id] : null;\n  if (!prod) return false;\n  return prod.category_code === 'prize_cranes_merchandisers';\n});\n\nlet newestManual = null;\nif (qualifyingManuals.length) {\n  const sorted = qualifyingManuals.slice().sort((a, b) => {\n    const da = a.published_at ? new Date(a.published_at).getTime() : 0;\n    const db = b.published_at ? new Date(b.published_at).getTime() : 0;\n    return db - da;\n  });\n  newestManual = sorted[0];\n}\n\n// CP1 (0.30): User used the manuals search with documentType set to 'installation_manual'\nconst cp1Passed = !!(searchParams && searchParams.documentType === 'installation_manual');\n\n// CP2 (0.30): User downloaded at least one qualifying installation manual (crane/merchandiser, year ≥ 2023)\nconst downloadedQualifying = qualifyingManuals.filter(m => downloadedIds.includes(m.id));\nconst cp2Passed = downloadedQualifying.length >= 1;\n\n// CP3 (0.40): User downloaded specifically the newest qualifying installation manual\nconst cp3Passed = !!(newestManual && downloadedIds.includes(newestManual.id));\n\ncheckpoints.push({ passed: cp1Passed, weight: 0.3 });\ncheckpoints.push({ passed: cp2Passed, weight: 0.3 });\ncheckpoints.push({ passed: cp3Passed, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_4",
+      "name": "Air Hockey On-Site Maintenance Request Evaluator",
+      "description": "Checks whether the user submitted an on-site maintenance service request for an air hockey table with a June 2026 10:00 time and a goal/score detection issue description.",
+      "localStorage_variables": [
+        "idCounter",
+        "session_context",
+        "service_requests",
+        "products",
+        "product_categories"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst serviceRequests = JSON.parse(localStorage.getItem('service_requests') || '[]');\nconst products = JSON.parse(localStorage.getItem('products') || '[]');\n\nconst productById = {};\nfor (const p of products) {\n  if (p && p.id) productById[p.id] = p;\n}\n\nlet candidate = null;\n\nfor (const r of serviceRequests) {\n  if (!r) continue;\n  const prod = r.product_id ? productById[r.product_id] : null;\n  const isAirHockeyProduct = prod && prod.category_code === 'air_hockey_table_games';\n  const isAirHockeyCategory = r.product_category_code === 'air_hockey_table_games';\n  const isOnSite = r.service_type === 'on_site_maintenance';\n\n  if (isOnSite && (isAirHockeyCategory || isAirHockeyProduct)) {\n    candidate = r;\n    break;\n  }\n}\n\nlet cp1Passed = false;\nlet cp2Passed = false;\nlet cp3Passed = false;\n\nif (candidate) {\n  // CP1 (0.40): Request is for on-site maintenance on an air hockey/table games product\n  cp1Passed = true;\n\n  // CP2 (0.30): Preferred datetime is in June 2026 at 10:00 (local time string hour 10)\n  const dtStr = candidate.preferred_datetime || '';\n  let isJune2026 = false;\n  let isTenAM = false;\n  if (typeof dtStr === 'string' && dtStr.length >= 16) {\n    if (dtStr.slice(0, 7) === '2026-06') {\n      isJune2026 = true;\n    }\n    const m = dtStr.match(/T(\\d{2}):(\\d{2})/);\n    if (m) {\n      const hour = parseInt(m[1], 10);\n      if (hour === 10) isTenAM = true;\n    } else {\n      // Fallback via Date if pattern not matched\n      const d = new Date(dtStr);\n      if (!isNaN(d.getTime()) && d.getFullYear() === 2026 && (d.getMonth() + 1) === 6 && d.getHours() === 10) {\n        isJune2026 = true;\n        isTenAM = true;\n      }\n    }\n  }\n  cp2Passed = isJune2026 && isTenAM;\n\n  // CP3 (0.30): Issue description mentions a goal not detecting pucks / score not updating\n  const desc = (candidate.issue_description || '').toLowerCase();\n  const mentionsGoal = desc.indexOf('goal') !== -1;\n  const mentionsScore = desc.indexOf('score') !== -1 || desc.indexOf('scoring') !== -1;\n  const mentionsDetect = desc.indexOf('detect') !== -1 || desc.indexOf('sensor') !== -1;\n  cp3Passed = mentionsGoal && (mentionsScore || mentionsDetect);\n}\n\ncheckpoints.push({ passed: cp1Passed, weight: 0.4 });\ncheckpoints.push({ passed: cp2Passed, weight: 0.3 });\ncheckpoints.push({ passed: cp3Passed, weight: 0.3 });\n\nreturn checkoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_5",
+      "name": "Berlin Distributor Claw Machine Inquiry Evaluator",
+      "description": "Checks whether the user contacted an authorized Berlin, Germany distributor with a product inquiry about claw machine pricing and availability for a new arcade.",
+      "localStorage_variables": [
+        "idCounter",
+        "session_context",
+        "distributors",
+        "distributor_inquiries"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst distributors = JSON.parse(localStorage.getItem('distributors') || '[]');\nconst inquiries = JSON.parse(localStorage.getItem('distributor_inquiries') || '[]');\n\nlet candidate = null; // { inquiry, distributor }\n\nfor (const inq of inquiries) {\n  if (!inq) continue;\n  const dist = distributors.find(d => d && d.id === inq.distributor_id);\n  if (!dist) continue;\n\n  const isBerlinAuthorized = dist.region === 'europe' && dist.country === 'Germany' &&\n    typeof dist.city === 'string' && dist.city.toLowerCase() === 'berlin' &&\n    dist.is_authorized_distributor !== false;\n\n  if (isBerlinAuthorized) {\n    candidate = { inquiry: inq, distributor: dist };\n    break;\n  }\n}\n\nlet cp1Passed = false;\nlet cp2Passed = false;\nlet cp3Passed = false;\n\nif (candidate) {\n  const inq = candidate.inquiry;\n  const msg = (inq.message || '').toLowerCase();\n\n  // CP1 (0.40): Inquiry is addressed to an authorized distributor in Berlin, Germany (Europe region)\n  cp1Passed = true;\n\n  // CP2 (0.30): Inquiry subject is a product-related inquiry\n  cp2Passed = inq.subject === 'product_inquiry';\n\n  // CP3 (0.30): Message mentions claw machines AND pricing AND availability AND an arcade context\n  const mentionsClaw = msg.indexOf('claw') !== -1;\n  const mentionsPrice = msg.indexOf('price') !== -1 || msg.indexOf('pricing') !== -1;\n  const mentionsAvailability = msg.indexOf('availability') !== -1 || msg.indexOf('available') !== -1;\n  const mentionsArcade = msg.indexOf('arcade') !== -1;\n  cp3Passed = mentionsClaw && mentionsPrice && mentionsAvailability && mentionsArcade;\n}\n\ncheckpoints.push({ passed: cp1Passed, weight: 0.4 });\ncheckpoints.push({ passed: cp2Passed, weight: 0.3 });\ncheckpoints.push({ passed: cp3Passed, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_6",
+      "name": "Upcoming Trade Show Demo Slot Booking Evaluator",
+      "description": "Checks whether the user booked a 15-minute demo at 2:00 PM on the earliest day of the earliest upcoming trade show event that offers on-site demos.",
+      "localStorage_variables": [
+        "idCounter",
+        "session_context",
+        "events",
+        "demo_registrations"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst events = JSON.parse(localStorage.getItem('events') || '[]');\nconst demos = JSON.parse(localStorage.getItem('demo_registrations') || '[]');\n\n// Find earliest upcoming trade_show with on-site demos\nconst qualifyingEvents = events.filter(e => {\n  return e && e.status === 'upcoming' && e.event_type === 'trade_show' && !!e.has_on_site_demos;\n});\n\nlet cp1Passed = false;\nlet cp2Passed = false;\n\nif (qualifyingEvents.length) {\n  qualifyingEvents.sort((a, b) => {\n    const da = a.start_date ? new Date(a.start_date).getTime() : 0;\n    const db = b.start_date ? new Date(b.start_date).getTime() : 0;\n    return da - db;\n  });\n  const earliestEvent = qualifyingEvents[0];\n  const eventStart = earliestEvent.start_date ? new Date(earliestEvent.start_date) : null;\n  const earliestDateStr = eventStart && !isNaN(eventStart.getTime())\n    ? eventStart.toISOString().slice(0, 10)\n    : null;\n\n  if (earliestDateStr) {\n    const candidateReg = demos.find(r => {\n      if (!r) return false;\n      if (r.event_id !== earliestEvent.id) return false;\n      if (typeof r.selected_date !== 'string') return false;\n      const datePart = r.selected_date.slice(0, 10);\n      return datePart === earliestDateStr && r.time_slot === '14:00';\n    });\n\n    if (candidateReg) {\n      // CP1 (0.60): Demo registration is for the earliest qualifying event, on its first day, at 14:00\n      cp1Passed = true;\n      // CP2 (0.40): Registration status is submitted\n      cp2Passed = candidateReg.status === 'submitted';\n    }\n  }\n}\n\ncheckpoints.push({ passed: cp1Passed, weight: 0.6 });\ncheckpoints.push({ passed: cp2Passed, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_7",
+      "name": "Lower Monthly Payment Financing Plan Selection Evaluator",
+      "description": "Checks whether the user submitted a financing inquiry for equipment under $20,000 where the selected 48-month USD plan has a lower monthly payment than the 36-month USD plan for the same price, and that the stored estimate matches the calculated payment.",
+      "localStorage_variables": [
+        "idCounter",
+        "session_context",
+        "financing_plan_definitions",
+        "financing_inquiries"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst plans = JSON.parse(localStorage.getItem('financing_plan_definitions') || '[]');\nconst inquiries = JSON.parse(localStorage.getItem('financing_inquiries') || '[]');\n\nfunction calcMonthly(principal, termMonths, annualRate) {\n  const P = Number(principal) || 0;\n  const n = Number(termMonths) || 0;\n  const r = (Number(annualRate) || 0) / 100 / 12;\n  if (!P || !n) return 0;\n  if (!r) return Math.round((P / n) * 100) / 100;\n  const payment = (P * r) / (1 - Math.pow(1 + r, -n));\n  return Math.round(payment * 100) / 100;\n}\n\nlet candidate = null; // { inquiry, plan36, plan48, payment36, payment48 }\n\nfor (const inq of inquiries) {\n  if (!inq) continue;\n  const price = Number(inq.equipment_price) || 0;\n  if (!(price > 0 && price <= 20000)) continue;\n  if (inq.currency !== 'usd') continue;\n\n  const selectedPlan = plans.find(p => p && p.id === inq.selected_plan_id);\n  if (!selectedPlan || selectedPlan.term_months !== 48) continue;\n  if (inq.selected_term_months !== 48) continue;\n\n  const plan36 = plans.find(p => p && p.currency === inq.currency && p.term_months === 36);\n  if (!plan36) continue;\n\n  const payment48 = calcMonthly(price, 48, selectedPlan.interest_rate_annual_percent);\n  const payment36 = calcMonthly(price, 36, plan36.interest_rate_annual_percent);\n\n  if (payment48 < payment36) {\n    candidate = { inquiry: inq, plan36, plan48: selectedPlan, payment36, payment48 };\n    break;\n  }\n}\n\nlet cp1Passed = false;\nlet cp2Passed = false;\n\nif (candidate) {\n  const inq = candidate.inquiry;\n\n  // CP1 (0.60): For equipment ≤ $20,000 USD, user selected a 48-month plan whose monthly payment is lower than the 36-month alternative\n  cp1Passed = true;\n\n  // CP2 (0.40): Stored estimated_monthly_payment matches the calculated 48-month payment within $1 tolerance\n  const stored = Number(inq.estimated_monthly_payment) || 0;\n  const diff = Math.abs(stored - candidate.payment48);\n  cp2Passed = diff <= 1;\n}\n\ncheckpoints.push({ passed: cp1Passed, weight: 0.6 });\ncheckpoints.push({ passed: cp2Passed, weight: 0.4 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    },
+    {
+      "task_id": "task_8",
+      "name": "Newsletter Subscription Segments and Frequency Evaluator",
+      "description": "Checks whether the user created a newsletter subscription selecting ONLY Family Entertainment Centers and Bowling Centers segments with a monthly email frequency and accepted the privacy policy, with a plausible name and email.",
+      "localStorage_variables": [
+        "idCounter",
+        "session_context",
+        "newsletter_subscriptions"
+      ],
+      "evaluation_logic": "const checkpoints = [];\n\nconst subs = JSON.parse(localStorage.getItem('newsletter_subscriptions') || '[]');\n\nlet candidate = null;\n\nfor (const sub of subs) {\n  if (!sub) continue;\n  const segments = Array.isArray(sub.market_segments) ? sub.market_segments : [];\n  const hasFEC = segments.includes('family_entertainment_centers');\n  const hasBowling = segments.includes('bowling_centers');\n  const exactlyTwo = segments.length === 2 && hasFEC && hasBowling;\n  const isMonthly = sub.email_frequency === 'monthly';\n  const consent = sub.accepted_privacy_policy === true;\n  const isActive = sub.status === 'active';\n\n  if (exactlyTwo && isMonthly && consent && isActive) {\n    candidate = sub;\n    break;\n  }\n}\n\nlet cp1Passed = false;\nlet cp2Passed = false;\n\nif (candidate) {\n  // CP1 (0.70): Subscription uses ONLY FEC and Bowling segments, monthly frequency, active, with privacy accepted\n  cp1Passed = true;\n\n  // CP2 (0.30): Subscriber provided a plausible name and email (non-empty name and email containing '@')\n  const nameOk = typeof candidate.full_name === 'string' && candidate.full_name.trim().length > 0;\n  const emailOk = typeof candidate.email === 'string' && candidate.email.indexOf('@') !== -1;\n  cp2Passed = nameOk && emailOk;\n}\n\ncheckpoints.push({ passed: cp1Passed, weight: 0.7 });\ncheckpoints.push({ passed: cp2Passed, weight: 0.3 });\n\nreturn checkpoints.reduce((sum, cp) => sum + (cp.passed ? cp.weight : 0), 0);"
+    }
+  ],
+  "static_data_types": [
+    "distributors",
+    "events",
+    "financing_plan_definitions",
+    "product_categories",
+    "products",
+    "manual_documents",
+    "_metadata"
+  ],
+  "instrumentation_based": true
+}
